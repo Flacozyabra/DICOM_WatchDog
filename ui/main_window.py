@@ -220,6 +220,7 @@ class MainWindow(QMainWindow):
     def init_file_watcher(self):
         self.watcher_observer = None
         self.watcher_handler = None
+        self.currently_watched_dir = None
         
         # Создаем таймер дебаунса (debounce)
         self.debounce_timer = QTimer(self)
@@ -227,25 +228,34 @@ class MainWindow(QMainWindow):
         self.debounce_timer.timeout.connect(self.on_watcher_timeout)
 
     def update_watcher_path(self):
-        # Останавливаем предыдущий наблюдатель, если он активен
-        self.stop_file_watcher()
-            
         is_auto_update = self.config.get('auto_update_is', 'on').lower() == 'on'
         if not is_auto_update:
+            self.stop_file_watcher()
             return
             
         ct_dir = self.config.get('ct_images_dir', '')
-        if ct_dir and os.path.exists(ct_dir):
-            try:
-                self.watcher_handler = WatchdogHandler()
-                self.watcher_handler.changed.connect(self.trigger_debounce)
-                
-                self.watcher_observer = Observer()
-                self.watcher_observer.schedule(self.watcher_handler, ct_dir, recursive=True)
-                self.watcher_observer.start()
-                log_message(self.output_field, f"Запущен мониторинг папки в реальном времени: {ct_dir}")
-            except Exception as e:
-                log_message(self.output_field, f"Не удалось запустить мониторинг папки: {e}")
+        if not ct_dir or not os.path.exists(ct_dir):
+            self.stop_file_watcher()
+            return
+            
+        # Если мониторинг уже запущен для этой же папки, ничего не делаем
+        if hasattr(self, 'currently_watched_dir') and self.currently_watched_dir == ct_dir and self.watcher_observer and self.watcher_observer.is_alive():
+            return
+            
+        self.stop_file_watcher()
+            
+        try:
+            self.watcher_handler = WatchdogHandler()
+            self.watcher_handler.changed.connect(self.trigger_debounce)
+            
+            self.watcher_observer = Observer()
+            self.watcher_observer.schedule(self.watcher_handler, ct_dir, recursive=True)
+            self.watcher_observer.start()
+            self.currently_watched_dir = ct_dir
+            log_message(self.output_field, f"Запущен мониторинг папки в реальном времени: {ct_dir}")
+        except Exception as e:
+            self.currently_watched_dir = None
+            log_message(self.output_field, f"Не удалось запустить мониторинг папки: {e}")
 
     def stop_file_watcher(self):
         if hasattr(self, 'watcher_observer') and self.watcher_observer:
@@ -256,6 +266,7 @@ class MainWindow(QMainWindow):
                 pass
             self.watcher_observer = None
         self.watcher_handler = None
+        self.currently_watched_dir = None
 
     def trigger_debounce(self):
         # 2 секунды задержки, чтобы дождаться окончания записи
@@ -401,6 +412,7 @@ class MainWindow(QMainWindow):
         self.setup_table_properties(self.archive_table)
         self.archive_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.archive_table.customContextMenuRequested.connect(self.show_archive_context_menu)
+        self.archive_table.itemSelectionChanged.connect(self.on_archive_selection_changed)
         layout.addWidget(self.archive_table)
         
         # Панель поиска и восстановления
@@ -419,6 +431,7 @@ class MainWindow(QMainWindow):
         
         self.move_from_archive_btn = QPushButton("Move to CT images")
         self.move_from_archive_btn.setFixedHeight(30)
+        self.move_from_archive_btn.setEnabled(False)
         self.move_from_archive_btn.clicked.connect(self.move_from_archive_cmd)
         search_layout.addWidget(self.move_from_archive_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         
@@ -585,6 +598,13 @@ class MainWindow(QMainWindow):
 
         # Заполняем таблицу
         row_idx = 0
+        total_items = len(patient_dict)
+        progress_dialog = None
+        if total_items > 100:
+            from ui.loading_dialog import LoadingProgressDialog
+            progress_dialog = LoadingProgressDialog(self, title="Заполнение таблицы КТ")
+            progress_dialog.show()
+
         for patient_id, data in sorted(patient_dict.items(), key=lambda x: str(x[1].get('patient_name', ''))):
             if 'patient_name' not in data or 'study_datetime' not in data or 'folder_datetime' not in data or 'str' not in data:
                 log_message(self.output_field, f"Пропущен пациент {patient_id} из-за неполных данных DICOM")
@@ -632,6 +652,11 @@ class MainWindow(QMainWindow):
             self.images_table.setItem(row_idx, 5, str_item)
             
             row_idx += 1
+            if progress_dialog:
+                progress_dialog.set_progress(row_idx, total_items)
+
+        if progress_dialog:
+            progress_dialog.close()
 
         # Восстанавливаем выделение
         if hasattr(self, 'selected_images_patient_id') and self.selected_images_patient_id:
@@ -734,6 +759,10 @@ class MainWindow(QMainWindow):
         has_selection = len(self.images_table.selectedRanges()) > 0
         self.move_to_archive_btn.setEnabled(has_selection)
 
+    def on_archive_selection_changed(self):
+        has_selection = len(self.archive_table.selectedRanges()) > 0
+        self.move_from_archive_btn.setEnabled(has_selection)
+
     def move_to_archive_cmd(self):
         selected_ranges = self.images_table.selectedRanges()
         if not selected_ranges:
@@ -795,6 +824,13 @@ class MainWindow(QMainWindow):
         row_idx = 0
         sorted_items = sorted(valid_items.items(), key=lambda x: x[1]['folder_datetime'], reverse=True)[:slice_limit]
         
+        total_items = len(sorted_items)
+        progress_dialog = None
+        if total_items > 100:
+            from ui.loading_dialog import LoadingProgressDialog
+            progress_dialog = LoadingProgressDialog(self, title="Заполнение таблицы архива")
+            progress_dialog.show()
+
         for patient_id, data in sorted_items:
             self.archive_table.insertRow(row_idx)
             
@@ -827,6 +863,11 @@ class MainWindow(QMainWindow):
             self.archive_table.setItem(row_idx, 5, str_item)
             
             row_idx += 1
+            if progress_dialog:
+                progress_dialog.set_progress(row_idx, total_items)
+
+        if progress_dialog:
+            progress_dialog.close()
 
         if hasattr(self, 'selected_archive_patient_id') and self.selected_archive_patient_id:
             for r in range(self.archive_table.rowCount()):

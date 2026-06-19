@@ -26,3 +26,7 @@ test_out.log
 # Служебная папка ИИ-ассистента
 .gemini/
 
+# Кэш архива
+archive_cache.json
+
+
