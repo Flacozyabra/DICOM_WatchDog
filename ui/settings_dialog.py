@@ -5,7 +5,7 @@ from PyQt6.QtGui import QColor, QFont, QPainter, QBrush, QPen
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QLineEdit, QPushButton, QFileDialog, QFormLayout, 
                              QSpinBox, QCheckBox, QDialogButtonBox, QMessageBox,
-                             QComboBox)
+                             QComboBox, QListWidget, QStackedWidget, QWidget)
 
 from ui.toggle_switch import ToggleSwitch
 
@@ -147,9 +147,51 @@ class SettingsDialog(QDialog):
             QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить конфигурацию: {e}")
 
     def init_ui(self):
-        layout = QVBoxLayout()
-        form = QFormLayout()
-
+        # Главный горизонтальный макет окна
+        main_layout = QHBoxLayout()
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        # Левая часть: боковое меню
+        self.sidebar = QListWidget()
+        self.sidebar.setObjectName("settingsSidebar")
+        self.sidebar.addItems(["General", "Archive", "UI Settings", "PACS"])
+        main_layout.addWidget(self.sidebar)
+        
+        # Правая часть: stacked widget с контентом
+        self.stacked_widget = QStackedWidget()
+        self.stacked_widget.setStyleSheet("QStackedWidget { background-color: #141414; padding: 15px; }")
+        
+        # 1. Вкладка General
+        general_widget = QWidget()
+        general_layout = QVBoxLayout(general_widget)
+        general_form = QFormLayout()
+        
+        # Folder Scan Interval (sec)
+        self.folder_scan_spin = QSpinBox()
+        self.folder_scan_spin.setRange(1, 300)
+        self.folder_scan_spin.setValue(self.config['folder_scan_time'] // 1000)
+        general_form.addRow("Интервал сканирования папок (сек):", self.folder_scan_spin)
+        
+        # Auto Update
+        self.auto_update_cb = ToggleSwitch()
+        self.auto_update_cb.setChecked(self.config.get('auto_update_is', 'on').lower() == 'on')
+        general_form.addRow("Автообновление (Auto update):", self.auto_update_cb)
+        
+        # Fix Switch value
+        self.fix_cb = ToggleSwitch()
+        self.fix_cb.setChecked(self.config['fix_switch_value'].lower() == 'true')
+        general_form.addRow("Разрешить Fix Files (исправление):", self.fix_cb)
+        
+        general_layout.addLayout(general_form)
+        general_layout.addStretch()
+        self.stacked_widget.addWidget(general_widget)
+        
+        # 2. Вкладка Archive
+        archive_widget = QWidget()
+        archive_layout = QVBoxLayout(archive_widget)
+        archive_form = QFormLayout()
+        
         # Archive Dir
         self.archive_edit = QLineEdit(self.config['archive_dir'])
         archive_btn = QPushButton("Обзор...")
@@ -157,68 +199,90 @@ class SettingsDialog(QDialog):
         h_layout2 = QHBoxLayout()
         h_layout2.addWidget(self.archive_edit)
         h_layout2.addWidget(archive_btn)
-        form.addRow("Папка CT Archive:", h_layout2)
-
-        # Folder Scan Interval (sec)
-        self.folder_scan_spin = QSpinBox()
-        self.folder_scan_spin.setRange(1, 300)
-        self.folder_scan_spin.setValue(self.config['folder_scan_time'] // 1000)
-        form.addRow("Интервал сканирования папок (сек):", self.folder_scan_spin)
-
-        # PACS Scan Interval (sec)
-        self.pacs_scan_spin = QSpinBox()
-        self.pacs_scan_spin.setRange(1, 300)
-        self.pacs_scan_spin.setValue(self.config['pacs_scan_time'] // 1000)
-        form.addRow("Интервал сканирования PACS (сек):", self.pacs_scan_spin)
-
+        archive_form.addRow("Папка CT Archive:", h_layout2)
+        
         # Archive Slice (Max visible rows)
         self.archive_slice_spin = QSpinBox()
         self.archive_slice_spin.setRange(1, 1000)
         self.archive_slice_spin.setValue(self.config['archive_slice'])
-        form.addRow("Лимит строк архива:", self.archive_slice_spin)
-
-        # Font size (logs)
-        self.font_size_spin = QSpinBox()
-        self.font_size_spin.setRange(8, 24)
-        self.font_size_spin.setValue(self.config['log_font_size'])
-        form.addRow("Размер шрифта логов:", self.font_size_spin)
-
+        archive_form.addRow("Лимит строк архива:", self.archive_slice_spin)
+        
+        archive_layout.addLayout(archive_form)
+        archive_layout.addStretch()
+        self.stacked_widget.addWidget(archive_widget)
+        
+        # 3. Вкладка UI Settings
+        ui_widget = QWidget()
+        ui_layout = QVBoxLayout(ui_widget)
+        ui_form = QFormLayout()
+        
         # Patient Font Size
         self.patient_font_spin = QSpinBox()
         self.patient_font_spin.setRange(8, 36)
         self.patient_font_spin.setValue(self.config.get('patient_font_size', 14))
-        form.addRow("Размер шрифта пациентов:", self.patient_font_spin)
-
+        ui_form.addRow("Размер шрифта пациентов:", self.patient_font_spin)
+        
         # Patient Font Weight
         self.patient_weight_combo = QComboBox()
         self.patient_weight_combo.addItems(["Regular", "Semibold", "Bold"])
         self.patient_weight_combo.setCurrentText(self.config.get('patient_weight', 'Regular'))
-        form.addRow("Толщина шрифта пациентов:", self.patient_weight_combo)
-
+        ui_form.addRow("Толщина шрифта пациентов:", self.patient_weight_combo)
+        
+        # Font size (logs)
+        self.font_size_spin = QSpinBox()
+        self.font_size_spin.setRange(8, 24)
+        self.font_size_spin.setValue(self.config['log_font_size'])
+        ui_form.addRow("Размер шрифта логов:", self.font_size_spin)
+        
         # Notifications
         self.notify_cb = ToggleSwitch()
         self.notify_cb.setChecked(self.config['notification_is'].lower() == 'on')
-        form.addRow("Включить уведомления:", self.notify_cb)
-
-        # Auto Update
-        self.auto_update_cb = ToggleSwitch()
-        self.auto_update_cb.setChecked(self.config.get('auto_update_is', 'on').lower() == 'on')
-        form.addRow("Автообновление (Auto update):", self.auto_update_cb)
-
-        # Fix Switch value
-        self.fix_cb = ToggleSwitch()
-        self.fix_cb.setChecked(self.config['fix_switch_value'].lower() == 'true')
-        form.addRow("Разрешить Fix Files (исправление):", self.fix_cb)
-
-        layout.addLayout(form)
-
+        ui_form.addRow("Включить уведомления:", self.notify_cb)
+        
+        ui_layout.addLayout(ui_form)
+        ui_layout.addStretch()
+        self.stacked_widget.addWidget(ui_widget)
+        
+        # 4. Вкладка PACS
+        pacs_widget = QWidget()
+        pacs_layout = QVBoxLayout(pacs_widget)
+        pacs_form = QFormLayout()
+        
+        # PACS Scan Interval (sec)
+        self.pacs_scan_spin = QSpinBox()
+        self.pacs_scan_spin.setRange(1, 300)
+        self.pacs_scan_spin.setValue(self.config['pacs_scan_time'] // 1000)
+        pacs_form.addRow("Интервал сканирования PACS (сек):", self.pacs_scan_spin)
+        
+        pacs_layout.addLayout(pacs_form)
+        pacs_layout.addStretch()
+        self.stacked_widget.addWidget(pacs_widget)
+        
+        # Подключаем сигналы переключения меню к QStackedWidget
+        self.sidebar.currentRowChanged.connect(self.stacked_widget.setCurrentIndex)
+        self.sidebar.setCurrentRow(0)
+        
+        # Добавляем правый контент в главный горизонтальный макет
+        main_layout.addWidget(self.stacked_widget, stretch=1)
+        
+        # Основной вертикальный макет диалога
+        outer_layout = QVBoxLayout()
+        outer_layout.setContentsMargins(0, 0, 0, 10)
+        outer_layout.addLayout(main_layout)
+        
         # Dialog Buttons (OK / Cancel)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept_settings)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-        self.setLayout(layout)
+        
+        # Контейнер для кнопок с правым отступом
+        button_layout = QHBoxLayout()
+        button_layout.setContentsMargins(0, 5, 15, 0)
+        button_layout.addStretch()
+        button_layout.addWidget(buttons)
+        outer_layout.addLayout(button_layout)
+        
+        self.setLayout(outer_layout)
 
     def browse_folder(self, line_edit, title):
         dir_path = QFileDialog.getExistingDirectory(self, title, line_edit.text())
