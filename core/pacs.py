@@ -9,9 +9,10 @@ from pprint import pprint
 from core.logger import log_message
 
 
-def pacs_dict_create(output_field, slice=None):
+def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11112, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
     pacs_data = defaultdict(dict)
     ae = AE()
+    ae.ae_title = calling_aet
     ae.add_requested_context('1.2.840.10008.5.1.4.1.2.1.1')  # C-FIND (Patient Root Query)
 
     # Create our Identifier (query) dataset
@@ -27,8 +28,8 @@ def pacs_dict_create(output_field, slice=None):
     ds.BodyPartExamined = ''
     ds.StudyDescription = ''
 
-    # Associate with the peer AE at IP 127.0.0.1 and port 11112
-    assoc = ae.associate("192.168.5.155", 4242)
+    # Associate with the peer AE
+    assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet)
 
     if assoc.is_established:
         # Send the C-FIND request

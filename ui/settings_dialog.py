@@ -73,7 +73,11 @@ class SettingsDialog(QDialog):
             'archive_enabled': 'True',
             'archive_days': 3,
             'archive_cleanup_enabled': 'False',
-            'archive_cleanup_days': 30
+            'archive_cleanup_days': 30,
+            'pacs_ip': '127.0.0.1',
+            'pacs_port': 11112,
+            'pacs_called_aet': 'ANY-SCP',
+            'pacs_calling_aet': 'ECHOSCU'
         }
         if os.path.exists("config.txt"):
             try:
@@ -101,12 +105,16 @@ class SettingsDialog(QDialog):
                     if len(lines) > 46: config['archive_days'] = int(lines[46].strip() or "3")
                     if len(lines) > 49: config['archive_cleanup_enabled'] = lines[49].strip()
                     if len(lines) > 52: config['archive_cleanup_days'] = int(lines[52].strip() or "30")
+                    if len(lines) > 55: config['pacs_ip'] = lines[55].strip()
+                    if len(lines) > 58: config['pacs_port'] = int(lines[58].strip() or "11112")
+                    if len(lines) > 61: config['pacs_called_aet'] = lines[61].strip()
+                    if len(lines) > 64: config['pacs_calling_aet'] = lines[64].strip()
             except Exception as e:
                 print(f"Error loading config.txt: {e}")
         return config
 
     def save_config(self):
-        lines = ["" for _ in range(53)]
+        lines = ["" for _ in range(65)]
         lines[0] = f"{self.config['ct_images_dir']}\n"
         lines[1] = f"{self.config['archive_dir']}\n"
         lines[2] = "\n"
@@ -160,6 +168,18 @@ class SettingsDialog(QDialog):
         lines[50] = "\n"
         lines[51] = "archive_cleanup_days:\n"
         lines[52] = f"{self.config.get('archive_cleanup_days', 30)}\n"
+        lines[53] = "\n"
+        lines[54] = "pacs_ip:\n"
+        lines[55] = f"{self.config.get('pacs_ip', '127.0.0.1')}\n"
+        lines[56] = "\n"
+        lines[57] = "pacs_port:\n"
+        lines[58] = f"{self.config.get('pacs_port', 11112)}\n"
+        lines[59] = "\n"
+        lines[60] = "pacs_called_aet:\n"
+        lines[61] = f"{self.config.get('pacs_called_aet', 'ANY-SCP')}\n"
+        lines[62] = "\n"
+        lines[63] = "pacs_calling_aet:\n"
+        lines[64] = f"{self.config.get('pacs_calling_aet', 'ECHOSCU')}\n"
 
         try:
             with open("config.txt", "w", encoding="utf-8") as f:
@@ -296,6 +316,24 @@ class SettingsDialog(QDialog):
         self.pacs_scan_spin.setRange(1, 300)
         self.pacs_scan_spin.setValue(self.config['pacs_scan_time'] // 1000)
         pacs_form.addRow("Интервал сканирования PACS (сек):", self.pacs_scan_spin)
+
+        # PACS IP
+        self.pacs_ip_edit = QLineEdit(self.config.get('pacs_ip', '127.0.0.1'))
+        pacs_form.addRow("IP-адрес PACS сервера:", self.pacs_ip_edit)
+
+        # PACS Port
+        self.pacs_port_spin = QSpinBox()
+        self.pacs_port_spin.setRange(1, 65535)
+        self.pacs_port_spin.setValue(int(self.config.get('pacs_port', 11112)))
+        pacs_form.addRow("Порт PACS сервера:", self.pacs_port_spin)
+
+        # Called AET
+        self.pacs_called_aet_edit = QLineEdit(self.config.get('pacs_called_aet', 'ANY-SCP'))
+        pacs_form.addRow("Called AE Title (PACS):", self.pacs_called_aet_edit)
+
+        # Calling AET
+        self.pacs_calling_aet_edit = QLineEdit(self.config.get('pacs_calling_aet', 'ECHOSCU'))
+        pacs_form.addRow("Calling AE Title (Локальный):", self.pacs_calling_aet_edit)
         
         pacs_layout.addLayout(pacs_form)
         pacs_layout.addStretch()
@@ -373,6 +411,10 @@ class SettingsDialog(QDialog):
         self.archive_days_spin.valueChanged.connect(self.on_setting_changed)
         self.archive_cleanup_enabled_cb.toggled.connect(self.on_setting_changed)
         self.archive_cleanup_days_spin.valueChanged.connect(self.on_setting_changed)
+        self.pacs_ip_edit.textChanged.connect(self.on_setting_changed)
+        self.pacs_port_spin.valueChanged.connect(self.on_setting_changed)
+        self.pacs_called_aet_edit.textChanged.connect(self.on_setting_changed)
+        self.pacs_calling_aet_edit.textChanged.connect(self.on_setting_changed)
 
     def on_setting_changed(self):
         # Обновляем текущую конфигурацию
@@ -390,6 +432,10 @@ class SettingsDialog(QDialog):
         self.config['archive_days'] = self.archive_days_spin.value()
         self.config['archive_cleanup_enabled'] = 'True' if self.archive_cleanup_enabled_cb.isChecked() else 'False'
         self.config['archive_cleanup_days'] = self.archive_cleanup_days_spin.value()
+        self.config['pacs_ip'] = self.pacs_ip_edit.text()
+        self.config['pacs_port'] = self.pacs_port_spin.value()
+        self.config['pacs_called_aet'] = self.pacs_called_aet_edit.text()
+        self.config['pacs_calling_aet'] = self.pacs_calling_aet_edit.text()
 
         # Применяем настройки на лету в главном окне
         from ui.main_window import MainWindow

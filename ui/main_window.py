@@ -77,9 +77,22 @@ class FolderScanWorker(QThread):
 class PacsScanWorker(QThread):
     finished = pyqtSignal(dict, bool, list)
 
+    def __init__(self, pacs_ip, pacs_port, called_aet, calling_aet):
+        super().__init__()
+        self.pacs_ip = pacs_ip
+        self.pacs_port = pacs_port
+        self.called_aet = called_aet
+        self.calling_aet = calling_aet
+
     def run(self):
         collector = ThreadLogCollector()
-        pacs_dict, con = pacs_dict_create(collector)
+        pacs_dict, con = pacs_dict_create(
+            collector,
+            pacs_ip=self.pacs_ip,
+            pacs_port=self.pacs_port,
+            called_aet=self.called_aet,
+            calling_aet=self.calling_aet
+        )
         self.finished.emit(pacs_dict, con, collector.messages)
 
 
@@ -1023,7 +1036,12 @@ class MainWindow(QMainWindow):
             if id_item:
                 self.selected_pacs_patient_id = id_item.text()
 
-        self.pacs_worker = PacsScanWorker()
+        pacs_ip = self.config.get('pacs_ip', '127.0.0.1')
+        pacs_port = int(self.config.get('pacs_port', 11112))
+        called_aet = self.config.get('pacs_called_aet', 'ANY-SCP')
+        calling_aet = self.config.get('pacs_calling_aet', 'ECHOSCU')
+
+        self.pacs_worker = PacsScanWorker(pacs_ip, pacs_port, called_aet, calling_aet)
         self.pacs_worker.finished.connect(self.on_pacs_scan_finished)
         self.pacs_worker.start()
 
