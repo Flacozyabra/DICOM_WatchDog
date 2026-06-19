@@ -11,8 +11,10 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget,
                              QHeaderView, QMenu, QAbstractItemView, QLineEdit, QLabel,
                              QDialog, QFileDialog)
 
-from utils import (dict_create, rename_patient_folder, move_old_folders_to_archive, 
-                   show_notification, log_message, delete_redundant_str)
+from core.dicom_utils import dict_create, rename_patient_folder, delete_redundant_str
+from core.archive import move_old_folders_to_archive
+from core.notifier import show_notification
+from core.logger import log_message
 from pacs import pacs_dict_create
 from ui.settings_dialog import SettingsDialog
 from themes.theme_manager import load_theme
