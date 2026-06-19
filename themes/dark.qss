@@ -16,7 +16,7 @@ QTabWidget::tab-bar {
 
 QTabWidget::pane {
     border: none;
-    background-color: #1c1c1c;
+    background-color: #141414;
     border-radius: 8px;
     margin-top: -18px; /* Подтягивает тело панели вверх под вкладки */
 }
@@ -74,14 +74,14 @@ QTableView::item:selected {
 }
 
 QHeaderView {
-    background-color: #222222; /* Выделенный фон заголовка как в оригинале #333 */
+    background-color: #1a1a1a; /* Выделенный фон заголовка как в оригинале #333 */
     border: none;
     border-top-left-radius: 6px;
     border-top-right-radius: 6px;
 }
 
 QHeaderView::section {
-    background-color: #222222; /* Выделенный фон заголовка как в оригинале #333 */
+    background-color: #1a1a1a; /* Выделенный фон заголовка как в оригинале #333 */
     color: #ffffff;
     padding: 6px;
     border: none;
@@ -118,13 +118,13 @@ QPushButton:pressed {
 }
 
 QPushButton:disabled {
-    background-color: #1a1a1a;
+    background-color: #121212;
     color: #666666;
 }
 
 /* Стили полей ввода */
 QLineEdit {
-    background-color: #151515;
+    background-color: #0f0f0f;
     color: #ffffff;
     border: 1px solid #3d3d3d;
     border-radius: 6px;
@@ -160,7 +160,7 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 
 /* Стили контекстного меню */
 QMenu {
-    background-color: #151515;
+    background-color: #0f0f0f;
     border: 1px solid #3d3d3d;
     border-radius: 6px;
     padding: 4px;
@@ -188,7 +188,7 @@ QSpinBox {
 }
 
 QSpinBox:hover {
-    background-color: #151515;
+    background-color: #0f0f0f;
     color: #ffffff;
 }
 
@@ -199,7 +199,7 @@ QSpinBox::up-button, QSpinBox::down-button {
 
 /* Стили для выпадающих списков (QComboBox) */
 QComboBox {
-    background-color: #151515;
+    background-color: #0f0f0f;
     color: #ffffff;
     border: 1px solid #3d3d3d;
     border-radius: 6px;
@@ -219,7 +219,7 @@ QComboBox::drop-down {
 }
 
 QComboBox QAbstractItemView {
-    background-color: #151515;
+    background-color: #0f0f0f;
     color: #ffffff;
     selection-background-color: #1f538d;
     selection-color: #ffffff;

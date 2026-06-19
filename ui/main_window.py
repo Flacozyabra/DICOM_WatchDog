@@ -233,7 +233,7 @@ class MainWindow(QMainWindow):
         self.scan_dir_edit.setReadOnly(True)
         self.scan_dir_edit.setFixedHeight(30)
         self.scan_dir_edit.setStyleSheet(
-            "background-color: #151515; color: #ffffff; border: 1px solid #3d3d3d; "
+            "background-color: #0f0f0f; color: #ffffff; border: 1px solid #3d3d3d; "
             "border-radius: 4px; padding: 4px; font-family: 'Segoe UI'; font-size: 13px;"
         )
         
