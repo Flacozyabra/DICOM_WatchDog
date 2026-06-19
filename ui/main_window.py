@@ -153,7 +153,7 @@ class MainWindow(QMainWindow):
         
         # Поле выбора папки сканирования
         scan_label = QLabel("Scan Folder:")
-        scan_label.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px; font-weight: bold;")
+        scan_label.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px; font-weight: normal;")
         
         self.scan_dir_edit = QLineEdit(self.config.get('ct_images_dir', ''))
         self.scan_dir_edit.setReadOnly(True)
