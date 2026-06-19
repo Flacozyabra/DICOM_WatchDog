@@ -12,13 +12,14 @@ QWidget {
 /* Стили вкладок (QTabWidget) */
 QTabWidget::tab-bar {
     alignment: center;
+    top: 13px; /* Сдвигает вкладки вниз, накладывая их на тело панели */
 }
 
 QTabWidget::pane {
     border: none;
     background-color: #2b2b2b;
     border-radius: 8px;
-    margin-top: 6px; /* Отступ между плавающей панелью вкладок и телом панели */
+    margin-top: 0px; /* Прижимает тело панели вверх */
 }
 
 QTabBar {
