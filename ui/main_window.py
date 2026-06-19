@@ -734,7 +734,7 @@ class MainWindow(QMainWindow):
             log_message(self.output_field, "Папка архива не существует")
             return
             
-        log_message(self.output_field, "Формирую список архивных пациентов. Подождите")
+        log_message(self.output_field, "Загрузка списка архивных пациентов...")
 
         # Запоминаем выделенного пациента
         self.selected_archive_patient_id = None
@@ -754,6 +754,7 @@ class MainWindow(QMainWindow):
         for msg in log_messages:
             log_message(self.output_field, msg)
 
+        log_message(self.output_field, "Список архивных пациентов загружен", replace_suffix="Загрузка списка архивных пациентов...")
         self.archive_cache = archive_dict
         
         search_text = self.search_entry.text().lower()

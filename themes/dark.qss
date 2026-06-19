@@ -137,24 +137,66 @@ QLineEdit:focus {
 
 /* Стили скроллбаров */
 QScrollBar:vertical {
-    background-color: transparent;
-    width: 12px;
-    margin: 0px 0 0px 0;
+    background-color: #121212;
+    width: 10px;
+    margin: 0px;
     border: none;
 }
 
 QScrollBar::handle:vertical {
-    background-color: #444444;
+    background-color: #3e3e3e;
     min-height: 20px;
-    border-radius: 6px;
+    border-radius: 5px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background-color: #555555;
+    background-color: #525252;
+}
+
+QScrollBar::handle:vertical:pressed {
+    background-color: #686868;
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
     border: none;
+    background: none;
+    height: 0px;
+    width: 0px;
+}
+
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+QScrollBar:horizontal {
+    background-color: #121212;
+    height: 10px;
+    margin: 0px;
+    border: none;
+}
+
+QScrollBar::handle:horizontal {
+    background-color: #3e3e3e;
+    min-width: 20px;
+    border-radius: 5px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background-color: #525252;
+}
+
+QScrollBar::handle:horizontal:pressed {
+    background-color: #686868;
+}
+
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    border: none;
+    background: none;
+    height: 0px;
+    width: 0px;
+}
+
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
     background: none;
 }
 
