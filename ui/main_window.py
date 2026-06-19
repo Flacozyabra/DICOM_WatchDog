@@ -972,11 +972,18 @@ class MainWindow(QMainWindow):
         self.pacs_worker.start()
 
     def on_pacs_scan_finished(self, pacs_dict, con, log_messages):
+        has_fail_msg = False
         for msg in log_messages:
-            log_message(self.output_field, msg)
+            if "подключиться к серверу PACS" in msg:
+                log_message(self.output_field, msg, replace_suffix="Пытаюсь подключиться к серверу PACS")
+                has_fail_msg = True
+            else:
+                log_message(self.output_field, msg)
 
         if con:
-            log_message(self.output_field, "Установлено подключение к серверу PACS")
+            log_message(self.output_field, "Установлено подключение к серверу PACS", replace_suffix="Пытаюсь подключиться к серверу PACS")
+        elif not con and not has_fail_msg:
+            log_message(self.output_field, "Не удалось подключиться к серверу PACS", replace_suffix="Пытаюсь подключиться к серверу PACS")
             
             self.pacs_table.setRowCount(0)
             row_idx = 0
