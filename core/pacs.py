@@ -1,5 +1,4 @@
 from pydicom.dataset import Dataset
-
 from pynetdicom import AE, debug_logger
 from pynetdicom.sop_class import PatientRootQueryRetrieveInformationModelFind
 
@@ -7,14 +6,11 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from pprint import pprint
 
+from core.logger import log_message
 
-from utils import log_message
 
 def pacs_dict_create(output_field, slice=None):
-
     pacs_data = defaultdict(dict)
-    # debug_logger()
-
     ae = AE()
     ae.add_requested_context('1.2.840.10008.5.1.4.1.2.1.1')  # C-FIND (Patient Root Query)
 
@@ -25,7 +21,6 @@ def pacs_dict_create(output_field, slice=None):
     ds.StudyTime = ''
     today = datetime.today().strftime('%Y%m%d')
     ds.StudyDate = today
-    # ds.StudyDate = ''
     ds.QueryRetrieveLevel = 'STUDY'
     
     # Запрашиваем дополнительные поля для области сканирования
@@ -33,15 +28,11 @@ def pacs_dict_create(output_field, slice=None):
     ds.StudyDescription = ''
 
     # Associate with the peer AE at IP 127.0.0.1 and port 11112
-    # print('Пытаюсь подключиться к серверу PACS')
     assoc = ae.associate("192.168.5.155", 4242)
 
     if assoc.is_established:
-        # print('Установлено подключение к серверу PACS')
-
         # Send the C-FIND request
         responses = assoc.send_c_find(ds, '1.2.840.10008.5.1.4.1.2.1.1')
-        # print(*responses)
 
         for (status, identifier) in responses:
             con = True
@@ -81,18 +72,9 @@ def pacs_dict_create(output_field, slice=None):
                 pacs_data[patient_id]['study_datetime_obj'] = study_datetime_obj
                 pacs_data[patient_id]['study_datetime_str'] = date_time
 
-            # else:
-            #     print(f"Ошибка при получении данных: {status}")
-
-        # Release the association
         assoc.release()
     else:
         con = False
-        # print('Не удалось подключиться к серверу PACS')
         log_message(output_field, "Не удалось подключиться к серверу PACS")
 
     return pacs_data, con
-
-
-# x = pacs_dict_create(output_field)
-# pprint(x)
