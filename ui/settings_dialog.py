@@ -7,66 +7,8 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QSpinBox, QCheckBox, QDialogButtonBox, QMessageBox,
                              QComboBox)
 
-class ToggleSwitch(QCheckBox):
-    def __init__(self, text="", parent=None):
-        super().__init__(text, parent)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._bg_color = QColor("#555555")
-        self._active_color = QColor("#1f538d")
-        self._knob_color = QColor("#ffffff")
-        self._knob_position = 18 if self.isChecked() else 2
-        self.setFixedHeight(22)
+from ui.toggle_switch import ToggleSwitch
 
-    @pyqtProperty(int)
-    def knob_position(self):
-        return self._knob_position
-
-    @knob_position.setter
-    def knob_position(self, pos):
-        self._knob_position = pos
-        self.update()
-
-    def hitButton(self, pos: QPoint) -> bool:
-        return self.rect().contains(pos)
-
-    def nextCheckState(self):
-        super().nextCheckState()
-        end_value = 18 if self.isChecked() else 2
-        self.anim = QPropertyAnimation(self, b"knob_position")
-        self.anim.setDuration(120)
-        self.anim.setEndValue(end_value)
-        self.anim.start()
-
-    def setChecked(self, state):
-        super().setChecked(state)
-        self._knob_position = 18 if state else 2
-        self.update()
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        # Рисуем дорожку слайдера
-        track_rect = QRect(0, 3, 32, 16)
-        if self.isChecked():
-            p.setBrush(QBrush(self._active_color))
-        else:
-            p.setBrush(QBrush(self._bg_color))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.drawRoundedRect(track_rect, 8, 8)
-        
-        # Рисуем бегунок (круг)
-        p.setBrush(QBrush(self._knob_color))
-        p.drawEllipse(self._knob_position, 5, 12, 12)
-        
-        # Рисуем текст метки
-        if self.text():
-            p.setPen(QPen(QColor("#ffffff")))
-            font_metrics = p.fontMetrics()
-            y_offset = (self.height() - font_metrics.height()) // 2 + font_metrics.ascent()
-            p.drawText(38, y_offset, self.text())
-            
-        p.end()
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
@@ -123,10 +65,10 @@ class SettingsDialog(QDialog):
                     if len(lines) > 7: config['client_dir'] = lines[7].strip()
                     if len(lines) > 10: config['archive_slice'] = int(lines[10].strip() or "2")
                     if len(lines) > 16:
-                         config['x'] = int(lines[13].strip() or "1000")
-                         config['y'] = int(lines[14].strip() or "600")
-                         config['dx'] = int(lines[15].strip() or "350")
-                         config['dy'] = int(lines[16].strip() or "100")
+                          config['x'] = int(lines[13].strip() or "1000")
+                          config['y'] = int(lines[14].strip() or "600")
+                          config['dx'] = int(lines[15].strip() or "350")
+                          config['dy'] = int(lines[16].strip() or "100")
                     if len(lines) > 19: config['log_font_size'] = int(lines[19].strip() or "12")
                     if len(lines) > 22: config['folder_scan_time'] = int(lines[22].strip() or "10000")
                     if len(lines) > 25: config['notification_is'] = lines[25].strip()
@@ -201,7 +143,6 @@ class SettingsDialog(QDialog):
         h_layout2.addWidget(self.archive_edit)
         h_layout2.addWidget(archive_btn)
         form.addRow("Папка CT Archive:", h_layout2)
-
 
         # Folder Scan Interval (sec)
         self.folder_scan_spin = QSpinBox()

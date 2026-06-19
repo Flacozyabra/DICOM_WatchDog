@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget,
 from utils import (dict_create, rename_patient_folder, move_old_folders_to_archive, 
                    show_notification, log_message, delete_redundant_str)
 from pacs import pacs_dict_create
-from settings_dialog import SettingsDialog, ToggleSwitch
+from ui.settings_dialog import SettingsDialog
 from themes.theme_manager import load_theme
 
 
