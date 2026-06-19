@@ -807,12 +807,6 @@ class MainWindow(QMainWindow):
             self.archive_table.setItem(row_idx, 5, str_item)
             
             row_idx += 1
-            
-        log_message(
-            self.output_field, 
-            f"В списке архивных пациентов отображается только ограниченное количество строк [{slice_limit}]. "
-            "Если искомого пациента нет в списке — воспользуйтесь поиском."
-        )
 
         if hasattr(self, 'selected_archive_patient_id') and self.selected_archive_patient_id:
             for r in range(self.archive_table.rowCount()):
