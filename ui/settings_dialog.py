@@ -16,11 +16,12 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Настройки")
         self.setMinimumWidth(650)
         
-        # Темная рамка окна Windows
+        # Темная рамка окна Windows и цвет заголовка
         if sys.platform == "win32":
             import ctypes
             try:
                 hwnd = int(self.winId())
+                # Включение темного режима (Immersive Dark Mode)
                 ctypes.windll.dwmapi.DwmSetWindowAttribute(
                     hwnd, 20, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
                 )
@@ -31,6 +32,20 @@ class SettingsDialog(QDialog):
                     )
                 except Exception:
                     pass
+
+            # Установка точного серого цвета #2b2b2b (BGR: 0x002b2b2b) для Windows 11
+            try:
+                hwnd = int(self.winId())
+                # DWMWA_CAPTION_COLOR = 35
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 35, ctypes.byref(ctypes.c_int(0x002b2b2b)), ctypes.sizeof(ctypes.c_int)
+                )
+                # DWMWA_TEXT_COLOR = 36 (белый текст заголовка)
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 36, ctypes.byref(ctypes.c_int(0x00ffffff)), ctypes.sizeof(ctypes.c_int)
+                )
+            except Exception:
+                pass
 
         self.config = self.load_config()
         self.init_ui()
