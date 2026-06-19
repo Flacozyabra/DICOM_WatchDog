@@ -350,7 +350,20 @@ class MainWindow(QMainWindow):
         
         scan_time_sec = self.config.get('folder_scan_time', 10000) / 1000
         notification_on = self.config.get('notification_is', 'on').upper() == 'ON'
+        
+        # Определение абсолютного пути к иконке в папке src
         icon_path = self.config.get('icon_path', '')
+        if not icon_path or os.path.isdir(icon_path):
+            base_dir = icon_path if icon_path else os.getcwd()
+            potential_icon = os.path.abspath(os.path.join(base_dir, "src", "icon.png"))
+            if os.path.exists(potential_icon):
+                icon_path = potential_icon
+            else:
+                potential_root_icon = os.path.abspath(os.path.join(base_dir, "icon.png"))
+                if os.path.exists(potential_root_icon):
+                    icon_path = potential_root_icon
+        else:
+            icon_path = os.path.abspath(icon_path)
 
         # Заполняем таблицу
         row_idx = 0
