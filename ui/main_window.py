@@ -3,13 +3,16 @@ import sys
 import shutil
 from datetime import datetime
 
-from PyQt6.QtCore import Qt, QTimer, QSize, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, QSize, QThread, pyqtSignal, QObject
 from PyQt6.QtGui import QColor, QAction, QIcon, QFont
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, 
                              QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, 
                              QPlainTextEdit, QPushButton, QMessageBox, 
                              QHeaderView, QMenu, QAbstractItemView, QLineEdit, QLabel,
                              QDialog, QFileDialog)
+
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
 from core.dicom_utils import dict_create, rename_patient_folder, delete_redundant_str
 from core.archive import move_old_folders_to_archive
@@ -18,6 +21,13 @@ from core.logger import log_message
 from core.pacs import pacs_dict_create
 from ui.settings_dialog import SettingsDialog
 from themes.theme_manager import load_theme
+
+
+class WatchdogHandler(QObject, FileSystemEventHandler):
+    changed = pyqtSignal()
+
+    def on_any_event(self, event):
+        self.changed.emit()
 
 
 class ThreadLogCollector:
@@ -129,10 +139,13 @@ class MainWindow(QMainWindow):
         self.pacs_timer = QTimer(self)
         self.pacs_timer.timeout.connect(self.auto_update_pacs)
         
+        # Инициализируем наблюдатель за файловой системой
+        self.init_file_watcher()
+        
         self.init_ui()
         self.apply_theme()
         
-        # Запуск таймеров
+        # Запуск таймеров и мониторинга
         self.restart_timers()
         
         # Первоначальное заполнение
@@ -156,6 +169,9 @@ class MainWindow(QMainWindow):
             self.setStyleSheet(theme_content)
 
     def apply_settings_dynamic(self, config):
+        old_dir = self.config.get('ct_images_dir', '')
+        new_dir = config.get('ct_images_dir', '')
+        
         self.config = config.copy()
         
         # 1. Обновляем шрифты таблиц
@@ -182,16 +198,72 @@ class MainWindow(QMainWindow):
         font = QFont("Consolas", log_font_size)
         self.output_field.setFont(font)
         
-        # 3. Перезапускаем таймеры
+        # 3. Перезапускаем таймеры и watcher
         self.restart_timers()
+        
+        # 4. Обновляем путь наблюдателя, если он изменился
+        if old_dir != new_dir:
+            self.update_watcher_path()
+
+    def init_file_watcher(self):
+        self.watcher_observer = None
+        self.watcher_handler = None
+        
+        # Создаем таймер дебаунса (debounce)
+        self.debounce_timer = QTimer(self)
+        self.debounce_timer.setSingleShot(True)
+        self.debounce_timer.timeout.connect(self.on_watcher_timeout)
+
+    def update_watcher_path(self):
+        # Останавливаем предыдущий наблюдатель, если он активен
+        self.stop_file_watcher()
+            
+        is_auto_update = self.config.get('auto_update_is', 'on').lower() == 'on'
+        if not is_auto_update:
+            return
+            
+        ct_dir = self.config.get('ct_images_dir', '')
+        if ct_dir and os.path.exists(ct_dir):
+            try:
+                self.watcher_handler = WatchdogHandler()
+                self.watcher_handler.changed.connect(self.trigger_debounce)
+                
+                self.watcher_observer = Observer()
+                self.watcher_observer.schedule(self.watcher_handler, ct_dir, recursive=True)
+                self.watcher_observer.start()
+                log_message(self.output_field, f"Запущен мониторинг папки в реальном времени: {ct_dir}")
+            except Exception as e:
+                log_message(self.output_field, f"Не удалось запустить мониторинг папки: {e}")
+
+    def stop_file_watcher(self):
+        if hasattr(self, 'watcher_observer') and self.watcher_observer:
+            try:
+                self.watcher_observer.stop()
+                self.watcher_observer.join(0.5)
+            except Exception:
+                pass
+            self.watcher_observer = None
+        self.watcher_handler = None
+
+    def trigger_debounce(self):
+        # 2 секунды задержки, чтобы дождаться окончания записи
+        self.debounce_timer.start(2000)
+
+    def on_watcher_timeout(self):
+        log_message(self.output_field, "Обнаружены изменения файлов. Запускаю обновление списка...")
+        self.start_folder_scan()
 
     def restart_timers(self):
         self.scan_timer.stop()
         self.pacs_timer.stop()
         
         is_auto_update = self.config.get('auto_update_is', 'on').lower() == 'on'
+        
+        # Управляем наблюдателем файлов в реальном времени
         if is_auto_update:
-            self.scan_timer.start(self.config.get('folder_scan_time', 10000))
+            self.update_watcher_path()
+        else:
+            self.stop_file_watcher()
             
         # Таймер PACS работает только когда активна вкладка PACS
         if self.tab_widget.currentIndex() == 2:  # Вкладка PACS
@@ -997,9 +1069,16 @@ class MainWindow(QMainWindow):
             self.scan_dir_edit.setText(norm_path)
             self.config['ct_images_dir'] = norm_path
             self.save_current_config()
+            self.update_watcher_path()  # Перезапускаем наблюдатель на новый путь
             self.show_patient_list()
 
     def save_current_config(self):
         dialog = SettingsDialog(self)
         dialog.config = self.config
         dialog.save_config()
+
+    def closeEvent(self, event):
+        # Останавливаем наблюдатель перед выходом, чтобы не зависал фоновый поток
+        self.stop_file_watcher()
+        super().closeEvent(event)
+
