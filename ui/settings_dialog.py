@@ -69,7 +69,11 @@ class SettingsDialog(QDialog):
             'pacs_scan_time': 10000,
             'auto_update_is': 'on',
             'patient_font_size': 14,
-            'patient_weight': 'Regular'
+            'patient_weight': 'Regular',
+            'archive_enabled': 'True',
+            'archive_days': 3,
+            'archive_cleanup_enabled': 'False',
+            'archive_cleanup_days': 30
         }
         if os.path.exists("config.txt"):
             try:
@@ -93,12 +97,16 @@ class SettingsDialog(QDialog):
                     if len(lines) > 34: config['auto_update_is'] = lines[34].strip()
                     if len(lines) > 37: config['patient_font_size'] = int(lines[37].strip() or "14")
                     if len(lines) > 40: config['patient_weight'] = lines[40].strip()
+                    if len(lines) > 43: config['archive_enabled'] = lines[43].strip()
+                    if len(lines) > 46: config['archive_days'] = int(lines[46].strip() or "3")
+                    if len(lines) > 49: config['archive_cleanup_enabled'] = lines[49].strip()
+                    if len(lines) > 52: config['archive_cleanup_days'] = int(lines[52].strip() or "30")
             except Exception as e:
                 print(f"Error loading config.txt: {e}")
         return config
 
     def save_config(self):
-        lines = ["" for _ in range(41)]
+        lines = ["" for _ in range(53)]
         lines[0] = f"{self.config['ct_images_dir']}\n"
         lines[1] = f"{self.config['archive_dir']}\n"
         lines[2] = "\n"
@@ -140,6 +148,18 @@ class SettingsDialog(QDialog):
         lines[38] = "\n"
         lines[39] = "patient_weight:\n"
         lines[40] = f"{self.config.get('patient_weight', 'Regular')}\n"
+        lines[41] = "\n"
+        lines[42] = "archive_enabled:\n"
+        lines[43] = f"{self.config.get('archive_enabled', 'True')}\n"
+        lines[44] = "\n"
+        lines[45] = "archive_days:\n"
+        lines[46] = f"{self.config.get('archive_days', 3)}\n"
+        lines[47] = "\n"
+        lines[48] = "archive_cleanup_enabled:\n"
+        lines[49] = f"{self.config.get('archive_cleanup_enabled', 'False')}\n"
+        lines[50] = "\n"
+        lines[51] = "archive_cleanup_days:\n"
+        lines[52] = f"{self.config.get('archive_cleanup_days', 30)}\n"
 
         try:
             with open("config.txt", "w", encoding="utf-8") as f:
@@ -207,6 +227,28 @@ class SettingsDialog(QDialog):
         self.archive_slice_spin.setRange(1, 1000)
         self.archive_slice_spin.setValue(self.config['archive_slice'])
         archive_form.addRow("Лимит строк архива:", self.archive_slice_spin)
+
+        # Archive Enabled (Switch)
+        self.archive_enabled_cb = ToggleSwitch()
+        self.archive_enabled_cb.setChecked(self.config.get('archive_enabled', 'True').lower() == 'true')
+        archive_form.addRow("Автоматическое архивирование:", self.archive_enabled_cb)
+
+        # Archive Days
+        self.archive_days_spin = QSpinBox()
+        self.archive_days_spin.setRange(1, 365)
+        self.archive_days_spin.setValue(int(self.config.get('archive_days', 3)))
+        archive_form.addRow("Переносить в архив через (дней):", self.archive_days_spin)
+
+        # Archive Cleanup Enabled (Switch)
+        self.archive_cleanup_enabled_cb = ToggleSwitch()
+        self.archive_cleanup_enabled_cb.setChecked(self.config.get('archive_cleanup_enabled', 'False').lower() == 'true')
+        archive_form.addRow("Автоочистка архива:", self.archive_cleanup_enabled_cb)
+
+        # Archive Cleanup Days
+        self.archive_cleanup_days_spin = QSpinBox()
+        self.archive_cleanup_days_spin.setRange(1, 365)
+        self.archive_cleanup_days_spin.setValue(int(self.config.get('archive_cleanup_days', 30)))
+        archive_form.addRow("Удалять из архива через (дней):", self.archive_cleanup_days_spin)
         
         archive_layout.addLayout(archive_form)
         archive_layout.addStretch()
@@ -285,12 +327,21 @@ class SettingsDialog(QDialog):
         
         self.setLayout(outer_layout)
         
+        # Подключаем слежение за состоянием полей архива
+        self.archive_enabled_cb.toggled.connect(self.update_archive_fields_state)
+        self.archive_cleanup_enabled_cb.toggled.connect(self.update_archive_fields_state)
+        self.update_archive_fields_state()
+
         self.setup_dynamic_updates()
 
     def browse_folder(self, line_edit, title):
         dir_path = QFileDialog.getExistingDirectory(self, title, line_edit.text())
         if dir_path:
             line_edit.setText(os.path.normpath(dir_path))
+
+    def update_archive_fields_state(self):
+        self.archive_days_spin.setEnabled(self.archive_enabled_cb.isChecked())
+        self.archive_cleanup_days_spin.setEnabled(self.archive_cleanup_enabled_cb.isChecked())
 
     def accept_settings(self):
         # Принудительно синхронизируем все настройки перед сохранением
@@ -318,6 +369,10 @@ class SettingsDialog(QDialog):
         self.auto_update_cb.toggled.connect(self.on_setting_changed)
         self.fix_cb.toggled.connect(self.on_setting_changed)
         self.archive_edit.textChanged.connect(self.on_setting_changed)
+        self.archive_enabled_cb.toggled.connect(self.on_setting_changed)
+        self.archive_days_spin.valueChanged.connect(self.on_setting_changed)
+        self.archive_cleanup_enabled_cb.toggled.connect(self.on_setting_changed)
+        self.archive_cleanup_days_spin.valueChanged.connect(self.on_setting_changed)
 
     def on_setting_changed(self):
         # Обновляем текущую конфигурацию
@@ -331,6 +386,10 @@ class SettingsDialog(QDialog):
         self.config['notification_is'] = 'on' if self.notify_cb.isChecked() else 'off'
         self.config['auto_update_is'] = 'on' if self.auto_update_cb.isChecked() else 'off'
         self.config['fix_switch_value'] = 'True' if self.fix_cb.isChecked() else 'False'
+        self.config['archive_enabled'] = 'True' if self.archive_enabled_cb.isChecked() else 'False'
+        self.config['archive_days'] = self.archive_days_spin.value()
+        self.config['archive_cleanup_enabled'] = 'True' if self.archive_cleanup_enabled_cb.isChecked() else 'False'
+        self.config['archive_cleanup_days'] = self.archive_cleanup_days_spin.value()
 
         # Применяем настройки на лету в главном окне
         from ui.main_window import MainWindow

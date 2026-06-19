@@ -41,23 +41,34 @@ class ThreadLogCollector:
 class FolderScanWorker(QThread):
     finished = pyqtSignal(dict, list)
 
-    def __init__(self, ct_images_dir, fix_switch_value, archive_dir):
+    def __init__(self, ct_images_dir, fix_switch_value, archive_dir, archive_enabled, archive_days, archive_cleanup_enabled, archive_cleanup_days):
         super().__init__()
         self.ct_images_dir = ct_images_dir
         self.fix_switch_value = fix_switch_value
         self.archive_dir = archive_dir
+        self.archive_enabled = archive_enabled
+        self.archive_days = archive_days
+        self.archive_cleanup_enabled = archive_cleanup_enabled
+        self.archive_cleanup_days = archive_cleanup_days
 
     def run(self):
         collector = ThreadLogCollector()
         is_fix_on = self.fix_switch_value.lower() == 'true'
+        is_archive_on = self.archive_enabled.lower() == 'true'
+        is_cleanup_on = self.archive_cleanup_enabled.lower() == 'true'
         
         if is_fix_on and os.path.exists(self.ct_images_dir):
             for root, dirs, files in os.walk(self.ct_images_dir):
                 for dir_name in dirs:
                     rename_patient_folder(os.path.join(root, dir_name), collector)
             
-            if self.archive_dir:
-                move_old_folders_to_archive(self.ct_images_dir, self.archive_dir, collector)
+            if self.archive_dir and is_archive_on:
+                from core.archive import move_old_folders_to_archive
+                move_old_folders_to_archive(self.ct_images_dir, self.archive_dir, self.archive_days, collector)
+
+        if self.archive_dir and is_cleanup_on:
+            from core.archive import cleanup_old_archive_folders
+            cleanup_old_archive_folders(self.archive_dir, self.archive_cleanup_days, collector)
 
         patient_dict = dict_create(self.ct_images_dir, collector, fix_switch=is_fix_on)
         self.finished.emit(patient_dict, collector.messages)
@@ -83,7 +94,8 @@ class ArchiveScanWorker(QThread):
     def run(self):
         collector = ThreadLogCollector()
         is_fix_on = self.fix_switch_value.lower() == 'true'
-        d = dict_create(self.archive_dir, collector, fix_switch=is_fix_on)
+        from core.archive import archive_dict_create
+        d = archive_dict_create(self.archive_dir, collector, fix_switch=is_fix_on)
         self.finished.emit(d, collector.messages)
 
 
@@ -535,8 +547,16 @@ class MainWindow(QMainWindow):
 
         fix_val = self.config.get('fix_switch_value', 'True')
         archive_dir = self.config.get('archive_dir', '')
+        archive_enabled = self.config.get('archive_enabled', 'True')
+        archive_days = int(self.config.get('archive_days', 3))
+        archive_cleanup_enabled = self.config.get('archive_cleanup_enabled', 'False')
+        archive_cleanup_days = int(self.config.get('archive_cleanup_days', 30))
 
-        self.scan_worker = FolderScanWorker(ct_dir, fix_val, archive_dir)
+        self.scan_worker = FolderScanWorker(
+            ct_dir, fix_val, archive_dir,
+            archive_enabled, archive_days,
+            archive_cleanup_enabled, archive_cleanup_days
+        )
         self.scan_worker.finished.connect(self.on_folder_scan_finished)
         self.scan_worker.start()
 
