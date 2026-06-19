@@ -104,12 +104,12 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
             
-            # Установка точного серого цвета #2b2b2b (BGR: 0x002b2b2b) для Windows 11
+            # Установка точного серого цвета #242424 (BGR: 0x00242424) для Windows 11
             try:
                 hwnd = int(self.winId())
                 # DWMWA_CAPTION_COLOR = 35
                 ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                    hwnd, 35, ctypes.byref(ctypes.c_int(0x002b2b2b)), ctypes.sizeof(ctypes.c_int)
+                    hwnd, 35, ctypes.byref(ctypes.c_int(0x00242424)), ctypes.sizeof(ctypes.c_int)
                 )
                 # DWMWA_TEXT_COLOR = 36 (белый текст заголовка)
                 ctypes.windll.dwmapi.DwmSetWindowAttribute(
@@ -233,7 +233,7 @@ class MainWindow(QMainWindow):
         self.scan_dir_edit.setReadOnly(True)
         self.scan_dir_edit.setFixedHeight(30)
         self.scan_dir_edit.setStyleSheet(
-            "background-color: #2d2d2d; color: #ffffff; border: 1px solid #555555; "
+            "background-color: #1e1e1e; color: #ffffff; border: 1px solid #3d3d3d; "
             "border-radius: 4px; padding: 4px; font-family: 'Segoe UI'; font-size: 13px;"
         )
         
