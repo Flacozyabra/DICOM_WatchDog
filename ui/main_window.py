@@ -3,7 +3,7 @@ import sys
 import shutil
 from datetime import datetime
 
-from PyQt6.QtCore import Qt, QTimer, QSize
+from PyQt6.QtCore import Qt, QTimer, QSize, QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QAction, QIcon, QFont
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, 
                              QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, 
@@ -18,6 +18,63 @@ from core.logger import log_message
 from core.pacs import pacs_dict_create
 from ui.settings_dialog import SettingsDialog
 from themes.theme_manager import load_theme
+
+
+class ThreadLogCollector:
+    def __init__(self):
+        self.messages = []
+
+    def appendPlainText(self, text):
+        self.messages.append(text)
+
+
+class FolderScanWorker(QThread):
+    finished = pyqtSignal(dict, list)
+
+    def __init__(self, ct_images_dir, fix_switch_value, archive_dir):
+        super().__init__()
+        self.ct_images_dir = ct_images_dir
+        self.fix_switch_value = fix_switch_value
+        self.archive_dir = archive_dir
+
+    def run(self):
+        collector = ThreadLogCollector()
+        is_fix_on = self.fix_switch_value.lower() == 'true'
+        
+        if is_fix_on and os.path.exists(self.ct_images_dir):
+            for root, dirs, files in os.walk(self.ct_images_dir):
+                for dir_name in dirs:
+                    rename_patient_folder(os.path.join(root, dir_name), collector)
+            
+            if self.archive_dir:
+                move_old_folders_to_archive(self.ct_images_dir, self.archive_dir, collector)
+
+        patient_dict = dict_create(self.ct_images_dir, collector, fix_switch=is_fix_on)
+        self.finished.emit(patient_dict, collector.messages)
+
+
+class PacsScanWorker(QThread):
+    finished = pyqtSignal(dict, bool, list)
+
+    def run(self):
+        collector = ThreadLogCollector()
+        pacs_dict, con = pacs_dict_create(collector)
+        self.finished.emit(pacs_dict, con, collector.messages)
+
+
+class ArchiveScanWorker(QThread):
+    finished = pyqtSignal(dict, list)
+
+    def __init__(self, archive_dir, fix_switch_value):
+        super().__init__()
+        self.archive_dir = archive_dir
+        self.fix_switch_value = fix_switch_value
+
+    def run(self):
+        collector = ThreadLogCollector()
+        is_fix_on = self.fix_switch_value.lower() == 'true'
+        d = dict_create(self.archive_dir, collector, fix_switch=is_fix_on)
+        self.finished.emit(d, collector.messages)
 
 
 class MainWindow(QMainWindow):
@@ -47,7 +104,9 @@ class MainWindow(QMainWindow):
                     pass
 
         self.pacs_timer_id = None
-        self.flag = 1  # Для синхронизации автообновления по аналогии с оригиналом
+        self.scan_worker = None
+        self.pacs_worker = None
+        self.archive_worker = None
         
         # Инициализируем таймеры до создания UI во избежание AttributeError
         self.scan_timer = QTimer(self)
@@ -311,6 +370,7 @@ class MainWindow(QMainWindow):
         # Сброс списков PACS и архива при переходе
         if index == 0:  # CT images
             self.archive_table.setRowCount(0)
+            self.archive_cache = None
             self.pacs_table.setRowCount(0)
             self.pacs_timer.stop()
         elif index == 1:  # CT archive
@@ -321,6 +381,7 @@ class MainWindow(QMainWindow):
         elif index == 2:  # PACS
             self.images_table.setRowCount(0)
             self.archive_table.setRowCount(0)
+            self.archive_cache = None
             self.fill_pacs_list()
             # Запускаем таймер PACS
             is_auto_update = self.config.get('auto_update_is', 'on').lower() == 'on'
@@ -330,24 +391,44 @@ class MainWindow(QMainWindow):
     # ================= ЛОГИКА ТАБЛИЦЫ CT IMAGES =================
 
     def show_patient_list(self):
-        self.flag = 0
+        self.start_folder_scan()
+
+    def update_patient_list(self):
+        is_auto_update = self.config.get('auto_update_is', 'on').lower() == 'on'
+        if is_auto_update:
+            self.start_folder_scan()
+
+    def start_folder_scan(self):
+        if self.scan_worker and self.scan_worker.isRunning():
+            return
+
         ct_dir = self.config.get('ct_images_dir', '')
-        
         if not os.path.exists(ct_dir):
             log_message(self.output_field, "Неверный путь к папке CT Images")
-            self.flag = 1
             return
- 
+
+        # Запоминаем выделенного пациента
+        self.selected_images_patient_id = None
+        selected_ranges = self.images_table.selectedRanges()
+        if selected_ranges:
+            row = selected_ranges[0].topRow()
+            id_item = self.images_table.item(row, 0)
+            if id_item:
+                self.selected_images_patient_id = id_item.text()
+
+        fix_val = self.config.get('fix_switch_value', 'True')
+        archive_dir = self.config.get('archive_dir', '')
+
+        self.scan_worker = FolderScanWorker(ct_dir, fix_val, archive_dir)
+        self.scan_worker.finished.connect(self.on_folder_scan_finished)
+        self.scan_worker.start()
+
+    def on_folder_scan_finished(self, patient_dict, log_messages):
+        for msg in log_messages:
+            log_message(self.output_field, msg)
+
         self.images_table.setRowCount(0)
-        
-        # Получаем данные
-        is_fix_on = self.config.get('fix_switch_value', 'True').lower() == 'true'
-        patient_dict = dict_create(
-            ct_dir, 
-            self.output_field, 
-            fix_switch=is_fix_on
-        )
-        
+
         scan_time_sec = self.config.get('folder_scan_time', 10000) / 1000
         notification_on = self.config.get('notification_is', 'on').upper() == 'ON'
         
@@ -368,8 +449,6 @@ class MainWindow(QMainWindow):
         # Заполняем таблицу
         row_idx = 0
         for patient_id, data in sorted(patient_dict.items(), key=lambda x: str(x[1].get('patient_name', ''))):
-            
-            # Проверяем наличие обязательных полей во избежание KeyError при битых DICOM-файлах
             if 'patient_name' not in data or 'study_datetime' not in data or 'folder_datetime' not in data or 'str' not in data:
                 log_message(self.output_field, f"Пропущен пациент {patient_id} из-за неполных данных DICOM")
                 continue
@@ -387,7 +466,6 @@ class MainWindow(QMainWindow):
             
             self.images_table.insertRow(row_idx)
             
-            # Создаем ячейки
             id_item = QTableWidgetItem(str(patient_id))
             name_item = QTableWidgetItem(str(data['patient_name']))
             area_item = QTableWidgetItem(str(data.get('body_part', '')))
@@ -412,27 +490,14 @@ class MainWindow(QMainWindow):
             self.images_table.setItem(row_idx, 5, str_item)
             
             row_idx += 1
-            
-        self.flag = 1
 
-    def update_patient_list(self):
-        self.flag = 0
-        is_auto_update = self.config.get('auto_update_is', 'on').lower() == 'on'
-        if is_auto_update:
-            # Если включен фикс файлов
-            is_fix_on = self.config.get('fix_switch_value', 'True').lower() == 'true'
-            if is_fix_on:
-                ct_dir = self.config.get('ct_images_dir', '')
-                if os.path.exists(ct_dir):
-                    for root, dirs, files in os.walk(ct_dir):
-                        for dir_name in dirs:
-                            rename_patient_folder(os.path.join(root, dir_name), self.output_field)
-                    
-                    archive_dir = self.config.get('archive_dir', '')
-                    move_old_folders_to_archive(ct_dir, archive_dir, self.output_field)
-            
-            self.show_patient_list()
-        self.flag = 1
+        # Восстанавливаем выделение
+        if hasattr(self, 'selected_images_patient_id') and self.selected_images_patient_id:
+            for r in range(self.images_table.rowCount()):
+                id_item = self.images_table.item(r, 0)
+                if id_item and id_item.text() == self.selected_images_patient_id:
+                    self.images_table.selectRow(r)
+                    break
 
     def open_current_folder_cmd(self, row, column):
         patient_id = self.images_table.item(row, 0).text()
@@ -539,31 +604,51 @@ class MainWindow(QMainWindow):
     # ================= ЛОГИКА ТАБЛИЦЫ CT ARCHIVE =================
 
     def fill_archive_list(self):
+        if self.archive_worker and self.archive_worker.isRunning():
+            return
+
         archive_dir = self.config.get('archive_dir', '')
         if not os.path.exists(archive_dir):
             log_message(self.output_field, "Папка архива не существует")
             return
             
         log_message(self.output_field, "Формирую список архивных пациентов. Подождите")
-        QApplication.processEvents()
+
+        # Запоминаем выделенного пациента
+        self.selected_archive_patient_id = None
+        selected_ranges = self.archive_table.selectedRanges()
+        if selected_ranges:
+            row = selected_ranges[0].topRow()
+            id_item = self.archive_table.item(row, 0)
+            if id_item:
+                self.selected_archive_patient_id = id_item.text()
+
+        fix_val = self.config.get('fix_switch_value', 'True')
+        self.archive_worker = ArchiveScanWorker(archive_dir, fix_val)
+        self.archive_worker.finished.connect(self.on_archive_scan_finished)
+        self.archive_worker.start()
+
+    def on_archive_scan_finished(self, archive_dict, log_messages):
+        for msg in log_messages:
+            log_message(self.output_field, msg)
+
+        self.archive_cache = archive_dict
         
+        search_text = self.search_entry.text().lower()
+        if search_text:
+            self.search_patient_archive()
+            return
+
         self.archive_table.setRowCount(0)
-        
-        # Получаем данные архива
-        is_fix_on = self.config.get('fix_switch_value', 'True').lower() == 'true'
-        d = dict_create(archive_dir, output_field=self.output_field, fix_switch=is_fix_on)
-        
         slice_limit = self.config.get('archive_slice', 2)
-        
-        # Фильтруем элементы без обязательных полей
+
         valid_items = {}
-        for k, v in d.items():
+        for k, v in archive_dict.items():
             if 'patient_name' in v and 'study_datetime' in v and 'folder_datetime' in v and 'str' in v:
                 valid_items[k] = v
             else:
                 log_message(self.output_field, f"Пропущен пациент {k} в архиве из-за неполных данных DICOM")
-        
-        # Выводим отсортированный по folder_datetime список в пределах лимита
+
         row_idx = 0
         sorted_items = sorted(valid_items.items(), key=lambda x: x[1]['folder_datetime'], reverse=True)[:slice_limit]
         
@@ -602,6 +687,13 @@ class MainWindow(QMainWindow):
             f"В списке архивных пациентов отображается только ограниченное количество строк [{slice_limit}]. "
             "Если искомого пациента нет в списке — воспользуйтесь поиском."
         )
+
+        if hasattr(self, 'selected_archive_patient_id') and self.selected_archive_patient_id:
+            for r in range(self.archive_table.rowCount()):
+                id_item = self.archive_table.item(r, 0)
+                if id_item and id_item.text() == self.selected_archive_patient_id:
+                    self.archive_table.selectRow(r)
+                    break
 
     def show_archive_context_menu(self, pos):
         index = self.archive_table.indexAt(pos)
@@ -643,6 +735,8 @@ class MainWindow(QMainWindow):
             try:
                 shutil.rmtree(path)
                 log_message(self.output_field, f"Архивный пациент {patient_name} ({patient_id}) полностью удален с диска")
+                # Сбрасываем кэш, чтобы принудительно обновить список
+                self.archive_cache = None
                 self.fill_archive_list()
             except Exception as e:
                 QMessageBox.critical(self, "Ошибка удаления", f"Не удалось удалить: {e}")
@@ -668,31 +762,27 @@ class MainWindow(QMainWindow):
             if os.path.exists(dest_path):
                 shutil.rmtree(dest_path)
                 
-            # Для изменения даты создания копируем и затем удаляем
             shutil.copytree(path, dest_path)
             shutil.rmtree(path)
             
             log_message(self.output_field, f"Папка {patient_id} перемещена в CT images и удалена из архива")
+            self.archive_cache = None
             self.fill_archive_list()
         except Exception as e:
             log_message(self.output_field, f"Ошибка восстановления {patient_id}: {e}")
 
     def search_patient_archive(self):
         search_text = self.search_entry.text().lower()
-        archive_dir = self.config.get('archive_dir', '')
         
-        if not os.path.exists(archive_dir):
+        if not hasattr(self, 'archive_cache') or self.archive_cache is None:
+            self.fill_archive_list()
             return
-            
-        is_fix_on = self.config.get('fix_switch_value', 'True').lower() == 'true'
-        d = dict_create(archive_dir, output_field=self.output_field, fix_switch=is_fix_on)
+
         self.archive_table.setRowCount(0)
         
         row_idx = 0
-        for patient_id, data in d.items():
-            # Проверяем наличие обязательных полей во избежание KeyError при битых DICOM-файлах
+        for patient_id, data in self.archive_cache.items():
             if 'patient_name' not in data or 'study_datetime' not in data or 'folder_datetime' not in data or 'str' not in data:
-                log_message(self.output_field, f"Пропущен пациент {patient_id} при поиске из-за неполных данных DICOM")
                 continue
                 
             name_lower = str(data['patient_name']).lower()
@@ -729,18 +819,39 @@ class MainWindow(QMainWindow):
     # ================= ЛОГИКА ТАБЛИЦЫ PACS =================
 
     def fill_pacs_list(self):
+        self.start_pacs_scan()
+
+    def auto_update_pacs(self):
+        self.start_pacs_scan()
+
+    def start_pacs_scan(self):
+        if self.pacs_worker and self.pacs_worker.isRunning():
+            return
+
         log_message(self.output_field, "Пытаюсь подключиться к серверу PACS")
-        QApplication.processEvents()
-        
         self.pacs_table.setRowCount(0)
-        
-        pacs_dict, con = pacs_dict_create(self.output_field)
-        
+
+        self.selected_pacs_patient_id = None
+        selected_ranges = self.pacs_table.selectedRanges()
+        if selected_ranges:
+            row = selected_ranges[0].topRow()
+            id_item = self.pacs_table.item(row, 0)
+            if id_item:
+                self.selected_pacs_patient_id = id_item.text()
+
+        self.pacs_worker = PacsScanWorker()
+        self.pacs_worker.finished.connect(self.on_pacs_scan_finished)
+        self.pacs_worker.start()
+
+    def on_pacs_scan_finished(self, pacs_dict, con, log_messages):
+        for msg in log_messages:
+            log_message(self.output_field, msg)
+
         if con:
             log_message(self.output_field, "Установлено подключение к серверу PACS")
             
+            self.pacs_table.setRowCount(0)
             row_idx = 0
-            # Сортировка по study_datetime_obj убыванию
             sorted_items = sorted(pacs_dict.items(), key=lambda x: x[1]['study_datetime_obj'], reverse=True)
             
             for patient_id, data in sorted_items:
@@ -753,7 +864,6 @@ class MainWindow(QMainWindow):
                 
                 study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 
-                # Цветовая маркировка по дате исследования
                 color = QColor("#ffffff")
                 d_time = datetime.strptime(data['study_datetime_str'], "%d.%m.%y - %H:%M")
                 if (datetime.now() - d_time).total_seconds() / 3600 < 1:
@@ -771,38 +881,12 @@ class MainWindow(QMainWindow):
                 
                 row_idx += 1
 
-    def auto_update_pacs(self):
-        self.pacs_table.setRowCount(0)
-        pacs_dict, con = pacs_dict_create(self.output_field)
-        if con:
-            row_idx = 0
-            sorted_items = sorted(pacs_dict.items(), key=lambda x: x[1]['study_datetime_obj'], reverse=True)
-            for patient_id, data in sorted_items:
-                self.pacs_table.insertRow(row_idx)
-                
-                id_item = QTableWidgetItem(str(patient_id))
-                name_item = QTableWidgetItem(str(data['patient_name']))
-                area_item = QTableWidgetItem(str(data.get('body_part', '')))
-                study_item = QTableWidgetItem(data['study_datetime_str'])
-                
-                study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                
-                color = QColor("#ffffff")
-                d_time = datetime.strptime(data['study_datetime_str'], "%d.%m.%y - %H:%M")
-                if (datetime.now() - d_time).total_seconds() / 3600 < 1:
-                    color = QColor("lime")
-                elif d_time.date() == datetime.now().date():
-                    color = QColor("mediumturquoise")
-                    
-                for item in [id_item, name_item, area_item, study_item]:
-                    item.setForeground(color)
-                    
-                self.pacs_table.setItem(row_idx, 0, id_item)
-                self.pacs_table.setItem(row_idx, 1, name_item)
-                self.pacs_table.setItem(row_idx, 2, area_item)
-                self.pacs_table.setItem(row_idx, 3, study_item)
-                
-                row_idx += 1
+            if hasattr(self, 'selected_pacs_patient_id') and self.selected_pacs_patient_id:
+                for r in range(self.pacs_table.rowCount()):
+                    id_item = self.pacs_table.item(r, 0)
+                    if id_item and id_item.text() == self.selected_pacs_patient_id:
+                        self.pacs_table.selectRow(r)
+                        break
 
     # ================= УПРАВЛЕНИЕ НАСТРОЙКАМИ =================
 
