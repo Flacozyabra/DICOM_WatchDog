@@ -155,6 +155,36 @@ class MainWindow(QMainWindow):
         if theme_content:
             self.setStyleSheet(theme_content)
 
+    def apply_settings_dynamic(self, config):
+        self.config = config.copy()
+        
+        # 1. Обновляем шрифты таблиц
+        font_size = self.config.get('patient_font_size', 14)
+        row_height = max(25, font_size + 12)
+        
+        weight_map = {
+            "Regular": "400",
+            "Semibold": "600",
+            "Bold": "700"
+        }
+        weight_str = self.config.get('patient_weight', 'Regular')
+        weight = weight_map.get(weight_str, "400")
+        table_style = f"font-size: {font_size}px; font-weight: {weight}; font-family: 'Segoe UI';"
+        
+        # Применяем ко всем трем таблицам
+        for table in [self.images_table, self.archive_table, self.pacs_table]:
+            table.verticalHeader().setDefaultSectionSize(row_height)
+            table.setStyleSheet(table_style)
+            table.viewport().update()
+            
+        # 2. Обновляем шрифт логов
+        log_font_size = self.config.get('log_font_size', 12)
+        font = QFont("Consolas", log_font_size)
+        self.output_field.setFont(font)
+        
+        # 3. Перезапускаем таймеры
+        self.restart_timers()
+
     def restart_timers(self):
         self.scan_timer.stop()
         self.pacs_timer.stop()

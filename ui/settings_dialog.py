@@ -48,6 +48,7 @@ class SettingsDialog(QDialog):
                 pass
 
         self.config = self.load_config()
+        self.initial_config = self.config.copy()
         self.init_ui()
 
     def load_config(self):
@@ -283,6 +284,8 @@ class SettingsDialog(QDialog):
         outer_layout.addLayout(button_layout)
         
         self.setLayout(outer_layout)
+        
+        self.setup_dynamic_updates()
 
     def browse_folder(self, line_edit, title):
         dir_path = QFileDialog.getExistingDirectory(self, title, line_edit.text())
@@ -290,7 +293,34 @@ class SettingsDialog(QDialog):
             line_edit.setText(os.path.normpath(dir_path))
 
     def accept_settings(self):
-        # Update config dictionary
+        # Принудительно синхронизируем все настройки перед сохранением
+        self.on_setting_changed()
+        # Save to file
+        self.save_config()
+        self.accept()
+
+    def reject(self):
+        # Откатываем настройки в MainWindow назад к исходным
+        from ui.main_window import MainWindow
+        if MainWindow.instance:
+            MainWindow.instance.apply_settings_dynamic(self.initial_config)
+        super().reject()
+
+    def setup_dynamic_updates(self):
+        # Подключаем сигналы изменения виджетов для применения на лету
+        self.folder_scan_spin.valueChanged.connect(self.on_setting_changed)
+        self.pacs_scan_spin.valueChanged.connect(self.on_setting_changed)
+        self.archive_slice_spin.valueChanged.connect(self.on_setting_changed)
+        self.font_size_spin.valueChanged.connect(self.on_setting_changed)
+        self.patient_font_spin.valueChanged.connect(self.on_setting_changed)
+        self.patient_weight_combo.currentTextChanged.connect(self.on_setting_changed)
+        self.notify_cb.toggled.connect(self.on_setting_changed)
+        self.auto_update_cb.toggled.connect(self.on_setting_changed)
+        self.fix_cb.toggled.connect(self.on_setting_changed)
+        self.archive_edit.textChanged.connect(self.on_setting_changed)
+
+    def on_setting_changed(self):
+        # Обновляем текущую конфигурацию
         self.config['archive_dir'] = self.archive_edit.text()
         self.config['folder_scan_time'] = self.folder_scan_spin.value() * 1000
         self.config['pacs_scan_time'] = self.pacs_scan_spin.value() * 1000
@@ -302,6 +332,7 @@ class SettingsDialog(QDialog):
         self.config['auto_update_is'] = 'on' if self.auto_update_cb.isChecked() else 'off'
         self.config['fix_switch_value'] = 'True' if self.fix_cb.isChecked() else 'False'
 
-        # Save to file
-        self.save_config()
-        self.accept()
+        # Применяем настройки на лету в главном окне
+        from ui.main_window import MainWindow
+        if MainWindow.instance:
+            MainWindow.instance.apply_settings_dynamic(self.config)

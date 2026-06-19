@@ -179,8 +179,8 @@ QMenu::item:selected {
 
 /* Стили для полей выбора (QSpinBox) */
 QSpinBox {
-    background-color: #ffffff;
-    color: #000000;
+    background-color: #0f0f0f;
+    color: #ffffff;
     border: 1px solid #3d3d3d;
     border-radius: 6px;
     padding: 5px;
@@ -188,7 +188,7 @@ QSpinBox {
 }
 
 QSpinBox:hover {
-    background-color: #0f0f0f;
+    background-color: #151515;
     color: #ffffff;
 }
 
