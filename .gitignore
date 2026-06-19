@@ -1,0 +1,24 @@
+# Виртуальное окружение
+venv/
+.venv/
+env/
+
+# Кэш Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Папки с тестовыми КТ-снимками пациентов
+ct_images/
+ct_archive/
+Client_dir/
+
+# Конфигурация и логи
+config.txt
+*.log
+test_out.log
+
+# Настройки сред разработки (IDEs)
+.vscode/
+.idea/

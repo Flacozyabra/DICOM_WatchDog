@@ -1,0 +1,249 @@
+/* Общие стили для окна */
+QMainWindow, QDialog {
+    background-color: #202020;
+}
+
+QWidget {
+    background-color: transparent;
+    color: #ffffff;
+    font-family: "Segoe UI", -apple-system, Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Стили вкладок (QTabWidget) */
+QTabWidget::tab-bar {
+    alignment: center;
+}
+
+QTabWidget::pane {
+    border: none;
+    background-color: #2b2b2b;
+    border-radius: 8px;
+    margin-top: 6px; /* Отступ между плавающей панелью вкладок и телом панели */
+}
+
+QTabBar {
+    qproperty-drawBase: 0;
+    background-color: #2b2b2b;
+    border-radius: 6px; /* Уменьшено с 8px */
+    padding: 1px;       /* Уменьшено с 2px */
+}
+
+QTabBar::tab {
+    background-color: transparent;
+    color: #a0a0a0;
+    border: none;
+    padding: 4px 12px;  /* Уменьшено с 6px 16px */
+    margin: 1px 2px;    /* Уменьшено с 2px 4px */
+    border-radius: 5px;
+    font-weight: bold;
+    font-size: 12px;    /* Уменьшено с 13px */
+}
+
+QTabBar::tab:hover {
+    background-color: #383838;
+    color: #ffffff;
+}
+
+QTabBar::tab:selected {
+    background-color: #1f538d;
+    color: #ffffff;
+}
+
+/* Стили таблиц (QTableWidget) */
+QTableView, QTableWidget {
+    background-color: #1a1a1a;
+    border: none;
+    border-radius: 6px;
+    gridline-color: transparent;
+    outline: 0;
+}
+
+QTableView::item {
+    padding: 6px;
+    border: none;
+    background-color: transparent;
+}
+
+QTableView::item:hover {
+    background-color: #242424;
+}
+
+QTableView::item:selected {
+    background-color: #ff5e5e;
+    color: #ffffff;
+}
+
+QHeaderView {
+    background-color: #333333; /* Выделенный фон заголовка как в оригинале #333 */
+    border: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+}
+
+QHeaderView::section {
+    background-color: #333333; /* Выделенный фон заголовка как в оригинале #333 */
+    color: #ffffff;
+    padding: 6px;
+    border: none;
+}
+
+/* Стили текстового поля вывода логов */
+QPlainTextEdit {
+    background-color: #161616;
+    color: #ebebeb;
+    border: 1px solid #2d2d2d;
+    border-radius: 8px;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 12px;
+}
+
+/* Стили кнопок */
+QPushButton {
+    background-color: #1f538d;
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-weight: bold;
+    min-height: 20px;
+    font-size: 13px;
+}
+
+QPushButton:hover {
+    background-color: #2a69a5;
+}
+
+QPushButton:pressed {
+    background-color: #1a4675;
+}
+
+QPushButton:disabled {
+    background-color: #2d2d2d;
+    color: #666666;
+}
+
+/* Стили полей ввода */
+QLineEdit {
+    background-color: #2d2d2d;
+    color: #ffffff;
+    border: 1px solid #3d3d3d;
+    border-radius: 6px;
+    padding: 5px;
+}
+
+QLineEdit:focus {
+    border: 1px solid #1f538d;
+}
+
+/* Стили скроллбаров */
+QScrollBar:vertical {
+    background-color: transparent;
+    width: 12px;
+    margin: 0px 0 0px 0;
+    border: none;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #444444;
+    min-height: 20px;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #555555;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    border: none;
+    background: none;
+}
+
+/* Стили контекстного меню */
+QMenu {
+    background-color: #2d2d2d;
+    border: 1px solid #3d3d3d;
+    border-radius: 6px;
+    padding: 4px;
+}
+
+QMenu::item {
+    padding: 6px 20px;
+    background-color: transparent;
+    border-radius: 4px;
+}
+
+QMenu::item:selected {
+    background-color: #1f538d;
+    color: #ffffff;
+}
+
+/* Стили для полей выбора (QSpinBox) */
+QSpinBox {
+    background-color: #ffffff;
+    color: #000000;
+    border: 1px solid #3d3d3d;
+    border-radius: 6px;
+    padding: 5px;
+    min-height: 20px;
+}
+
+QSpinBox:hover {
+    background-color: #2d2d2d;
+    color: #ffffff;
+}
+
+QSpinBox::up-button, QSpinBox::down-button {
+    background-color: transparent;
+    border: none;
+}
+
+/* Стили для выпадающих списков (QComboBox) */
+QComboBox {
+    background-color: #2d2d2d;
+    color: #ffffff;
+    border: 1px solid #3d3d3d;
+    border-radius: 6px;
+    padding: 5px;
+    min-height: 20px;
+}
+
+QComboBox:focus {
+    border: 1px solid #1f538d;
+}
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 20px;
+    border-left: none;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #2d2d2d;
+    color: #ffffff;
+    selection-background-color: #1f538d;
+    selection-color: #ffffff;
+    border: 1px solid #3d3d3d;
+}
+
+/* Кастомный стиль для кнопки Move to Archive (всегда синий фон) */
+#moveToArchiveBtn {
+    background-color: #1f538d;
+    color: #ffffff;
+}
+
+#moveToArchiveBtn:hover {
+    background-color: #2a69a5;
+    color: #ffffff;
+}
+
+#moveToArchiveBtn:pressed {
+    background-color: #1a4675;
+    color: #ffffff;
+}
+
+#moveToArchiveBtn:disabled {
+    background-color: #1f538d;
+    color: #709bc1;
+}
+
