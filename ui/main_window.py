@@ -158,6 +158,7 @@ class MainWindow(QMainWindow):
         self.pacs_worker = None
         self.archive_worker = None
         self.is_first_scan = True
+        self.restored_patient_ids = set()
         
         # Инициализируем таймеры до создания UI во избежание AttributeError
         self.scan_timer = QTimer(self)
@@ -752,8 +753,8 @@ class MainWindow(QMainWindow):
             progress_dialog.show()
 
         for patient_id, data in sorted_patients:
-            # Уведомление о новых файлах на основе разницы в списке ID
-            if not self.is_first_scan and patient_id not in existing_ids:
+            # Уведомление о новых файлах на основе разницы в списке ID (исключая восстановленных)
+            if not self.is_first_scan and patient_id not in existing_ids and patient_id not in self.restored_patient_ids:
                 if notification_on:
                     show_notification(
                         str(data['patient_name']), 
@@ -810,6 +811,7 @@ class MainWindow(QMainWindow):
 
         # Завершили первое сканирование
         self.is_first_scan = False
+        self.restored_patient_ids.clear()
 
         # Восстанавливаем выделение
         if hasattr(self, 'selected_images_patient_id') and self.selected_images_patient_id:
@@ -1114,6 +1116,7 @@ class MainWindow(QMainWindow):
             log_message(self.output_field, f"Папка {patient_id} перемещена в CT images и удалена из архива")
             self.archive_cache = None
             self.fill_archive_list(silent=True)
+            self.restored_patient_ids.add(patient_id)
             self.show_patient_list()
         except Exception as e:
             log_message(self.output_field, f"Ошибка восстановления {patient_id}: {e}")
