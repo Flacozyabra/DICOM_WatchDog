@@ -157,6 +157,7 @@ class MainWindow(QMainWindow):
         self.scan_worker = None
         self.pacs_worker = None
         self.archive_worker = None
+        self.is_first_scan = True
         
         # Инициализируем таймеры до создания UI во избежание AttributeError
         self.scan_timer = QTimer(self)
@@ -469,9 +470,9 @@ class MainWindow(QMainWindow):
         
         # Таблица PACS
         self.pacs_table = QTableWidget()
-        self.pacs_table.setColumnCount(4)
+        self.pacs_table.setColumnCount(5)
         self.pacs_table.setHorizontalHeaderLabels([
-            "Patient ID", "Patient Name", "Scanning Area", "Study datetime"
+            "Patient ID", "Patient Name", "Slices", "Scanning Area", "Study datetime"
         ])
         self.pacs_table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.pacs_table.horizontalHeader().customContextMenuRequested.connect(
@@ -530,11 +531,12 @@ class MainWindow(QMainWindow):
             table.setColumnWidth(5, 150)  # Folder
             table.setColumnWidth(6, 50)   # STR
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Имя тянется
-        elif table.columnCount() == 4:
+        elif table.columnCount() == 5:
             table.setColumnWidth(0, 180)  # ID
             table.setColumnWidth(1, 250)  # Name
-            table.setColumnWidth(2, 180)  # Scanning Area
-            table.setColumnWidth(3, 200)  # Study
+            table.setColumnWidth(2, 80)   # Slices
+            table.setColumnWidth(3, 180)  # Scanning Area
+            table.setColumnWidth(4, 200)  # Study
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
 
     def show_header_context_menu(self, pos, table):
@@ -699,9 +701,15 @@ class MainWindow(QMainWindow):
         for msg in log_messages:
             log_message(self.output_field, msg)
 
+        # Собираем существующие ID пациентов для сравнения
+        existing_ids = set()
+        for r in range(self.images_table.rowCount()):
+            id_item = self.images_table.item(r, 0)
+            if id_item:
+                existing_ids.add(id_item.text())
+
         self.images_table.setRowCount(0)
 
-        scan_time_sec = self.config.get('folder_scan_time', 10000) / 1000
         notification_on = self.config.get('notification_is', 'on').upper() == 'ON'
         
         # Определение абсолютного пути к иконке в папке src
@@ -732,9 +740,8 @@ class MainWindow(QMainWindow):
                 log_message(self.output_field, f"Пропущен пациент {patient_id} из-за неполных данных DICOM")
                 continue
             
-            # Уведомление о новых файлах
-            folder_age_sec = (datetime.now() - data['folder_datetime']).total_seconds()
-            if 0 < folder_age_sec < scan_time_sec:
+            # Уведомление о новых файлах на основе разницы в списке ID
+            if not self.is_first_scan and patient_id not in existing_ids:
                 if notification_on:
                     show_notification(
                         str(data['patient_name']), 
@@ -762,6 +769,12 @@ class MainWindow(QMainWindow):
             str_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             
             color = QColor("#ffffff")
+            folder_dt = data['folder_datetime']
+            if (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
+                color = QColor("lime")
+            elif folder_dt.date() == datetime.now().date():
+                color = QColor("mediumturquoise")
+                
             if data['str'] == 0 or data['str'] > 1:
                 color = QColor("crimson")
                 
@@ -782,6 +795,9 @@ class MainWindow(QMainWindow):
 
         if progress_dialog:
             progress_dialog.close()
+
+        # Завершили первое сканирование
+        self.is_first_scan = False
 
         # Восстанавливаем выделение
         if hasattr(self, 'selected_images_patient_id') and self.selected_images_patient_id:
@@ -979,6 +995,12 @@ class MainWindow(QMainWindow):
             str_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             
             color = QColor("#ffffff")
+            folder_dt = data['folder_datetime']
+            if (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
+                color = QColor("lime")
+            elif folder_dt.date() == datetime.now().date():
+                color = QColor("mediumturquoise")
+                
             if data['str'] == 0 or data['str'] > 1:
                 color = QColor("crimson")
                 
@@ -1119,6 +1141,12 @@ class MainWindow(QMainWindow):
                 str_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 
                 color = QColor("#ffffff")
+                folder_dt = data['folder_datetime']
+                if (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
+                    color = QColor("lime")
+                elif folder_dt.date() == datetime.now().date():
+                    color = QColor("mediumturquoise")
+                    
                 if data['str'] == 0 or data['str'] > 1:
                     color = QColor("crimson")
                     
@@ -1138,16 +1166,17 @@ class MainWindow(QMainWindow):
     # ================= ЛОГИКА ТАБЛИЦЫ PACS =================
 
     def fill_pacs_list(self):
-        self.start_pacs_scan()
+        self.start_pacs_scan(silent=False)
 
     def auto_update_pacs(self):
-        self.start_pacs_scan()
+        self.start_pacs_scan(silent=True)
 
-    def start_pacs_scan(self):
+    def start_pacs_scan(self, silent=False):
         if self.pacs_worker and self.pacs_worker.isRunning():
             return
 
-        log_message(self.output_field, "Пытаюсь подключиться к серверу PACS")
+        if not silent:
+            log_message(self.output_field, "Пытаюсь подключиться к серверу PACS")
         self.pacs_table.setRowCount(0)
 
         self.selected_pacs_patient_id = None
@@ -1164,22 +1193,23 @@ class MainWindow(QMainWindow):
         calling_aet = self.config.get('pacs_calling_aet', 'ECHOSCU')
 
         self.pacs_worker = PacsScanWorker(pacs_ip, pacs_port, called_aet, calling_aet)
-        self.pacs_worker.finished.connect(self.on_pacs_scan_finished)
+        self.pacs_worker.finished.connect(lambda pd, c, lm: self.on_pacs_scan_finished(pd, c, lm, silent))
         self.pacs_worker.start()
 
-    def on_pacs_scan_finished(self, pacs_dict, con, log_messages):
+    def on_pacs_scan_finished(self, pacs_dict, con, log_messages, silent=False):
         has_fail_msg = False
         for msg in log_messages:
             if "подключиться к серверу PACS" in msg:
-                log_message(self.output_field, msg, replace_suffix="Пытаюсь подключиться к серверу PACS")
+                if not silent:
+                    log_message(self.output_field, msg, replace_suffix="Пытаюсь подключиться к серверу PACS")
                 has_fail_msg = True
             else:
-                log_message(self.output_field, msg)
+                if not silent:
+                    log_message(self.output_field, msg)
 
         if con:
-            log_message(self.output_field, "Установлено подключение к серверу PACS", replace_suffix="Пытаюсь подключиться к серверу PACS")
-        elif not con and not has_fail_msg:
-            log_message(self.output_field, "Не удалось подключиться к серверу PACS", replace_suffix="Пытаюсь подключиться к серверу PACS")
+            if not silent:
+                log_message(self.output_field, "Установлено подключение к серверу PACS", replace_suffix="Пытаюсь подключиться к серверу PACS")
             
             self.pacs_table.setRowCount(0)
             row_idx = 0
@@ -1190,11 +1220,13 @@ class MainWindow(QMainWindow):
                 
                 id_item = QTableWidgetItem(str(patient_id))
                 name_item = QTableWidgetItem(str(data['patient_name']))
+                slices_item = QTableWidgetItem(str(data.get('slices', '0')))
                 area_item = QTableWidgetItem(str(data.get('body_part', '')))
                 study_item = QTableWidgetItem(data['study_datetime_str'])
                 
                 id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 
@@ -1205,15 +1237,20 @@ class MainWindow(QMainWindow):
                 elif d_time.date() == datetime.now().date():
                     color = QColor("mediumturquoise")
                     
-                for item in [id_item, name_item, area_item, study_item]:
+                for item in [id_item, name_item, slices_item, area_item, study_item]:
                     item.setForeground(color)
                     
                 self.pacs_table.setItem(row_idx, 0, id_item)
                 self.pacs_table.setItem(row_idx, 1, name_item)
-                self.pacs_table.setItem(row_idx, 2, area_item)
-                self.pacs_table.setItem(row_idx, 3, study_item)
+                self.pacs_table.setItem(row_idx, 2, slices_item)
+                self.pacs_table.setItem(row_idx, 3, area_item)
+                self.pacs_table.setItem(row_idx, 4, study_item)
                 
                 row_idx += 1
+        elif not con and not has_fail_msg:
+            if not silent:
+                log_message(self.output_field, "Не удалось подключиться к серверу PACS", replace_suffix="Пытаюсь подключиться к серверу PACS")
+            self.pacs_table.setRowCount(0)
 
             if hasattr(self, 'selected_pacs_patient_id') and self.selected_pacs_patient_id:
                 for r in range(self.pacs_table.rowCount()):
