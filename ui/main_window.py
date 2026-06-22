@@ -286,7 +286,6 @@ class MainWindow(QMainWindow):
         self.debounce_timer.start(2000)
 
     def on_watcher_timeout(self):
-        log_message(self.output_field, "Обнаружены изменения файлов. Запускаю обновление списка...")
         self.start_folder_scan()
 
     def restart_timers(self):
