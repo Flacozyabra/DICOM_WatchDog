@@ -6,7 +6,7 @@ from PyQt6.QtGui import QColor, QFont, QPainter, QBrush, QPen
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QLineEdit, QPushButton, QFileDialog, QFormLayout, 
                              QSpinBox, QCheckBox, QDialogButtonBox, QMessageBox,
-                             QComboBox, QListWidget, QStackedWidget, QWidget)
+                             QComboBox, QListWidget, QStackedWidget, QWidget, QFrame)
 
 from ui.toggle_switch import ToggleSwitch
 
@@ -103,6 +103,9 @@ class SettingsDialog(QDialog):
             'ct_images_dir': '',
             'archive_dir': '',
             'fix_switch_value': 'True',
+            'cleanup_structures_enabled': 'True',
+            'fix_patient_id_enabled': 'True',
+            'id_prefixes': 'CT_',
             'client_dir': '',
             'archive_slice': 0,
             'x': 1000,
@@ -221,10 +224,32 @@ class SettingsDialog(QDialog):
         self.pacs_notify_cb.setChecked(self.config.get('pacs_notification_is', 'off').lower() == 'on')
         general_form.addRow("Уведомления PACS:", self.pacs_notify_cb)
         
-        # Fix Switch value
-        self.fix_cb = ToggleSwitch()
-        self.fix_cb.setChecked(self.config['fix_switch_value'].lower() == 'true')
-        general_form.addRow("Разрешить Fix Files (исправление):", self.fix_cb)
+        # Разделитель
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
+        line.setStyleSheet("background-color: #2d2d2d; margin-top: 10px; margin-bottom: 10px;")
+        general_form.addRow(line)
+
+        # Автоудаление дубликатов структур
+        self.cleanup_str_cb = ToggleSwitch()
+        self.cleanup_str_cb.setChecked(self.config.get('cleanup_structures_enabled', 'True').lower() == 'true')
+        self.cleanup_str_cb.setToolTip("Удаляются старые файлы структур и остается только последний файл.")
+        general_form.addRow("Автоудаление дубликатов структур:", self.cleanup_str_cb)
+
+        # Исправление ID
+        self.fix_patient_id_cb = ToggleSwitch()
+        self.fix_patient_id_cb.setChecked(self.config.get('fix_patient_id_enabled', 'True').lower() == 'true')
+        general_form.addRow("Исправление ID:", self.fix_patient_id_cb)
+
+        # Поле ввода префиксов
+        self.id_prefixes_edit = QLineEdit(self.config.get('id_prefixes', 'CT_'))
+        self.id_prefixes_edit.setPlaceholderText("Например: CT_, PT_")
+        self.id_prefixes_edit.setStyleSheet(
+            "QLineEdit { background-color: #1e1e1e; color: #ffffff; border: 1px solid #2d2d2d; padding: 4px; border-radius: 4px; }"
+            "QLineEdit:disabled { background-color: #141414; color: #808080; border: 1px solid #1a1a1a; }"
+        )
+        general_form.addRow("Префиксы для удаления:", self.id_prefixes_edit)
         
         general_layout.addLayout(general_form)
         general_layout.addStretch()
@@ -383,10 +408,11 @@ class SettingsDialog(QDialog):
         
         self.setLayout(outer_layout)
         
-        # Подключаем слежение за состоянием полей архива
-        self.archive_enabled_cb.toggled.connect(self.update_archive_fields_state)
-        self.archive_cleanup_enabled_cb.toggled.connect(self.update_archive_fields_state)
-        self.update_archive_fields_state()
+        # Подключаем слежение за состоянием полей архива и префиксов ID
+        self.archive_enabled_cb.toggled.connect(self.update_fields_state)
+        self.archive_cleanup_enabled_cb.toggled.connect(self.update_fields_state)
+        self.fix_patient_id_cb.toggled.connect(self.update_fields_state)
+        self.update_fields_state()
 
         self.setup_dynamic_updates()
 
@@ -395,9 +421,10 @@ class SettingsDialog(QDialog):
         if dir_path:
             line_edit.setText(os.path.normpath(dir_path))
 
-    def update_archive_fields_state(self):
+    def update_fields_state(self):
         self.archive_days_spin.setEnabled(self.archive_enabled_cb.isChecked())
         self.archive_cleanup_days_spin.setEnabled(self.archive_cleanup_enabled_cb.isChecked())
+        self.id_prefixes_edit.setEnabled(self.fix_patient_id_cb.isChecked())
 
     def accept_settings(self):
         # Принудительно синхронизируем все настройки перед сохранением
@@ -422,7 +449,9 @@ class SettingsDialog(QDialog):
         self.patient_weight_combo.currentTextChanged.connect(self.on_setting_changed)
         self.notify_cb.toggled.connect(self.on_setting_changed)
         self.pacs_notify_cb.toggled.connect(self.on_setting_changed)
-        self.fix_cb.toggled.connect(self.on_setting_changed)
+        self.cleanup_str_cb.toggled.connect(self.on_setting_changed)
+        self.fix_patient_id_cb.toggled.connect(self.on_setting_changed)
+        self.id_prefixes_edit.textChanged.connect(self.on_setting_changed)
         self.archive_edit.textChanged.connect(self.on_setting_changed)
         self.archive_enabled_cb.toggled.connect(self.on_setting_changed)
         self.archive_days_spin.valueChanged.connect(self.on_setting_changed)
@@ -444,7 +473,9 @@ class SettingsDialog(QDialog):
         self.config['notification_is'] = 'on' if self.notify_cb.isChecked() else 'off'
         self.config['pacs_notification_is'] = 'on' if self.pacs_notify_cb.isChecked() else 'off'
         self.config['auto_update_is'] = 'on'
-        self.config['fix_switch_value'] = 'True' if self.fix_cb.isChecked() else 'False'
+        self.config['cleanup_structures_enabled'] = 'True' if self.cleanup_str_cb.isChecked() else 'False'
+        self.config['fix_patient_id_enabled'] = 'True' if self.fix_patient_id_cb.isChecked() else 'False'
+        self.config['id_prefixes'] = self.id_prefixes_edit.text()
         self.config['archive_enabled'] = 'True' if self.archive_enabled_cb.isChecked() else 'False'
         self.config['archive_days'] = self.archive_days_spin.value()
         self.config['archive_cleanup_enabled'] = 'True' if self.archive_cleanup_enabled_cb.isChecked() else 'False'

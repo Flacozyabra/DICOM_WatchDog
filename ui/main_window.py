@@ -69,10 +69,12 @@ class ThreadLogCollector:
 class FolderScanWorker(QThread):
     finished = pyqtSignal(dict, list)
 
-    def __init__(self, ct_images_dir, fix_switch_value, archive_dir, archive_enabled, archive_days, archive_cleanup_enabled, archive_cleanup_days):
+    def __init__(self, ct_images_dir, cleanup_structures_enabled, fix_patient_id_enabled, id_prefixes, archive_dir, archive_enabled, archive_days, archive_cleanup_enabled, archive_cleanup_days):
         super().__init__()
         self.ct_images_dir = ct_images_dir
-        self.fix_switch_value = fix_switch_value
+        self.cleanup_structures_enabled = cleanup_structures_enabled
+        self.fix_patient_id_enabled = fix_patient_id_enabled
+        self.id_prefixes = id_prefixes
         self.archive_dir = archive_dir
         self.archive_enabled = archive_enabled
         self.archive_days = archive_days
@@ -81,24 +83,29 @@ class FolderScanWorker(QThread):
 
     def run(self):
         collector = ThreadLogCollector()
-        is_fix_on = self.fix_switch_value.lower() == 'true'
+        is_cleanup_struct_on = self.cleanup_structures_enabled.lower() == 'true'
+        is_fix_id_on = self.fix_patient_id_enabled.lower() == 'true'
         is_archive_on = self.archive_enabled.lower() == 'true'
         is_cleanup_on = self.archive_cleanup_enabled.lower() == 'true'
         
-        if is_fix_on and os.path.exists(self.ct_images_dir):
+        prefixes_list = []
+        if self.id_prefixes:
+            prefixes_list = [p.strip() for p in self.id_prefixes.split(',') if p.strip()]
+
+        if is_fix_id_on and os.path.exists(self.ct_images_dir):
             for root, dirs, files in os.walk(self.ct_images_dir):
                 for dir_name in dirs:
-                    rename_patient_folder(os.path.join(root, dir_name), collector)
+                    rename_patient_folder(os.path.join(root, dir_name), collector, prefixes=prefixes_list)
             
-            if self.archive_dir and is_archive_on:
-                from core.archive import move_old_folders_to_archive
-                move_old_folders_to_archive(self.ct_images_dir, self.archive_dir, self.archive_days, collector)
+        if self.archive_dir and is_archive_on and os.path.exists(self.ct_images_dir):
+            from core.archive import move_old_folders_to_archive
+            move_old_folders_to_archive(self.ct_images_dir, self.archive_dir, self.archive_days, collector)
 
         if self.archive_dir and is_cleanup_on:
             from core.archive import cleanup_old_archive_folders
             cleanup_old_archive_folders(self.archive_dir, self.archive_cleanup_days, collector)
 
-        patient_dict = dict_create(self.ct_images_dir, collector, fix_switch=is_fix_on)
+        patient_dict = dict_create(self.ct_images_dir, collector, cleanup_structures=is_cleanup_struct_on)
         self.finished.emit(patient_dict, collector.messages)
 
 
@@ -127,16 +134,16 @@ class PacsScanWorker(QThread):
 class ArchiveScanWorker(QThread):
     finished = pyqtSignal(dict, list)
 
-    def __init__(self, archive_dir, fix_switch_value):
+    def __init__(self, archive_dir, cleanup_structures_enabled):
         super().__init__()
         self.archive_dir = archive_dir
-        self.fix_switch_value = fix_switch_value
+        self.cleanup_structures_enabled = cleanup_structures_enabled
 
     def run(self):
         collector = ThreadLogCollector()
-        is_fix_on = self.fix_switch_value.lower() == 'true'
+        is_cleanup_struct_on = self.cleanup_structures_enabled.lower() == 'true'
         from core.archive import archive_dict_create
-        d = archive_dict_create(self.archive_dir, collector, fix_switch=is_fix_on)
+        d = archive_dict_create(self.archive_dir, collector, cleanup_structures=is_cleanup_struct_on)
         self.finished.emit(d, collector.messages)
 
 
@@ -695,7 +702,9 @@ class MainWindow(QMainWindow):
             if id_item:
                 self.selected_images_patient_id = id_item.text()
 
-        fix_val = self.config.get('fix_switch_value', 'True')
+        cleanup_str_val = self.config.get('cleanup_structures_enabled', 'True')
+        fix_id_val = self.config.get('fix_patient_id_enabled', 'True')
+        prefixes_val = self.config.get('id_prefixes', 'CT_')
         archive_dir = self.config.get('archive_dir', '')
         archive_enabled = self.config.get('archive_enabled', 'True')
         archive_days = int(self.config.get('archive_days', 3))
@@ -703,7 +712,7 @@ class MainWindow(QMainWindow):
         archive_cleanup_days = int(self.config.get('archive_cleanup_days', 30))
 
         self.scan_worker = FolderScanWorker(
-            ct_dir, fix_val, archive_dir,
+            ct_dir, cleanup_str_val, fix_id_val, prefixes_val, archive_dir,
             archive_enabled, archive_days,
             archive_cleanup_enabled, archive_cleanup_days
         )
@@ -973,8 +982,8 @@ class MainWindow(QMainWindow):
             if id_item:
                 self.selected_archive_patient_id = id_item.text()
 
-        fix_val = self.config.get('fix_switch_value', 'True')
-        self.archive_worker = ArchiveScanWorker(archive_dir, fix_val)
+        cleanup_str_val = self.config.get('cleanup_structures_enabled', 'True')
+        self.archive_worker = ArchiveScanWorker(archive_dir, cleanup_str_val)
         self.archive_worker.finished.connect(lambda ad, lm: self.on_archive_scan_finished(ad, lm, silent))
         self.archive_worker.start()
 
