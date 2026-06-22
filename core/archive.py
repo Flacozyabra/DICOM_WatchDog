@@ -28,18 +28,18 @@ def save_cache(cache_data):
         pass
 
 
-def archive_dict_create(archive_dir, output_field=None, fix_switch="off"):
+def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False):
     """
     Создает словарь пациентов для архива, используя кэширование метаданных в файл JSON.
     Это предотвращает повторное чтение DICOM-файлов при больших архивах.
     """
     patient_data = defaultdict(dict)
     
-    is_fix_on = False
-    if hasattr(fix_switch, 'get'):
-        is_fix_on = (fix_switch.get() == 'on')
+    is_cleanup_on = False
+    if hasattr(cleanup_structures, 'get'):
+        is_cleanup_on = (cleanup_structures.get() == 'on')
     else:
-        is_fix_on = (fix_switch == 'on' or fix_switch is True)
+        is_cleanup_on = (cleanup_structures == 'on' or cleanup_structures is True)
         
     cache = load_cache()
     scanned_paths = set()
@@ -88,7 +88,7 @@ def archive_dict_create(archive_dir, output_field=None, fix_switch="off"):
                 }
                 
                 # Если Fix Switch включен, проверяем/удаляем лишние STR
-                if is_fix_on and cached_item['str'] > 1:
+                if is_cleanup_on and cached_item['str'] > 1:
                     from core.dicom_utils import delete_redundant_str
                     deleted = delete_redundant_str(root, output_field)
                     if deleted > 0:
@@ -123,7 +123,7 @@ def archive_dict_create(archive_dir, output_field=None, fix_switch="off"):
                     str_files = [f for f in os.listdir(root) if f.startswith('STR')]
                     str_count = len(str_files)
                     
-                    if is_fix_on and str_count > 1:
+                    if is_cleanup_on and str_count > 1:
                         from core.dicom_utils import delete_redundant_str
                         delete_redundant_str(root, output_field)
                         try:

@@ -36,14 +36,14 @@ def delete_redundant_str(patient_dir, output_field=None):
     return deleted_count
 
 
-def dict_create(ct_images_dir, output_field=None, fix_switch="off"):
+def dict_create(ct_images_dir, output_field=None, cleanup_structures=False):
     patient_data = defaultdict(dict)
 
-    is_fix_on = False
-    if hasattr(fix_switch, 'get'):
-        is_fix_on = (fix_switch.get() == 'on')
+    is_cleanup_on = False
+    if hasattr(cleanup_structures, 'get'):
+        is_cleanup_on = (cleanup_structures.get() == 'on')
     else:
-        is_fix_on = (fix_switch == 'on' or fix_switch is True)
+        is_cleanup_on = (cleanup_structures == 'on' or cleanup_structures is True)
 
     for root, dirs, files in os.walk(ct_images_dir):
         if files:
@@ -81,7 +81,7 @@ def dict_create(ct_images_dir, output_field=None, fix_switch="off"):
                     str_count = len(files)
                     patient_data[ds.PatientID]['str'] = str_count
 
-                    if is_fix_on and str_count > 1:
+                    if is_cleanup_on and str_count > 1:
                         delete_redundant_str(root, output_field)
                         # Пересчитываем количество файлов STR
                         files = [f for f in os.listdir(root) if f.startswith('STR')]
@@ -101,7 +101,7 @@ def remove_non_digits(input_string):
     return result
 
 
-def rename_patient_folder(path, output_field):
+def rename_patient_folder(path, output_field, prefixes=None):
     if not os.path.isdir(path):
         return
 
@@ -116,8 +116,15 @@ def rename_patient_folder(path, output_field):
         log_message(output_field, f"Ошибка чтения DICOM в {patient_folder}: {e}")
         return
 
-    if patient_folder != ds.PatientID:
-        new_patient_id = ds.PatientID[3:]
+    new_patient_id = ds.PatientID
+    if prefixes:
+        for prefix in prefixes:
+            prefix = prefix.strip()
+            if prefix and new_patient_id.startswith(prefix):
+                new_patient_id = new_patient_id[len(prefix):]
+                break
+
+    if patient_folder != new_patient_id:
         new_folder = str(new_patient_id)
         new_path = os.path.join(os.path.dirname(path), new_folder)
 
