@@ -191,8 +191,6 @@ class MainWindow(QMainWindow):
         self.known_pacs_patient_ids = set()
         
         # Инициализируем таймеры до создания UI во избежание AttributeError
-        self.scan_timer = QTimer(self)
-        self.scan_timer.timeout.connect(self.update_patient_list)
         self.pacs_timer = QTimer(self)
         self.pacs_timer.timeout.connect(self.auto_update_pacs)
         
@@ -321,7 +319,6 @@ class MainWindow(QMainWindow):
         self.start_folder_scan()
 
     def restart_timers(self):
-        self.scan_timer.stop()
         self.pacs_timer.stop()
         
         # Наблюдатель файлов в реальном времени работает всегда
@@ -679,8 +676,6 @@ class MainWindow(QMainWindow):
     def show_patient_list(self):
         self.start_folder_scan()
 
-    def update_patient_list(self):
-        self.start_folder_scan()
 
     def start_folder_scan(self):
         if self.scan_worker and self.scan_worker.isRunning():

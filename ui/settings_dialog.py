@@ -110,7 +110,6 @@ class SettingsDialog(QDialog):
             'dx': 350,
             'dy': 100,
             'log_font_size': 12,
-            'folder_scan_time': 10000,
             'notification_is': 'on',
             'icon_path': '',
             'pacs_scan_time': 10000,
@@ -211,12 +210,6 @@ class SettingsDialog(QDialog):
         general_widget = QWidget()
         general_layout = QVBoxLayout(general_widget)
         general_form = QFormLayout()
-        
-        # Folder Scan Interval (sec)
-        self.folder_scan_spin = QSpinBox()
-        self.folder_scan_spin.setRange(1, 300)
-        self.folder_scan_spin.setValue(self.config['folder_scan_time'] // 1000)
-        general_form.addRow("Интервал сканирования папок (сек):", self.folder_scan_spin)
         
         # Notifications
         self.notify_cb = ToggleSwitch()
@@ -421,7 +414,6 @@ class SettingsDialog(QDialog):
 
     def setup_dynamic_updates(self):
         # Подключаем сигналы изменения виджетов для применения на лету
-        self.folder_scan_spin.valueChanged.connect(self.on_setting_changed)
         self.pacs_scan_spin.valueChanged.connect(self.on_setting_changed)
         self.archive_slice_spin.valueChanged.connect(self.on_setting_changed)
         self.font_size_spin.valueChanged.connect(self.on_setting_changed)
@@ -443,7 +435,6 @@ class SettingsDialog(QDialog):
     def on_setting_changed(self):
         # Обновляем текущую конфигурацию
         self.config['archive_dir'] = self.archive_edit.text()
-        self.config['folder_scan_time'] = self.folder_scan_spin.value() * 1000
         self.config['pacs_scan_time'] = self.pacs_scan_spin.value() * 1000
         self.config['archive_slice'] = self.archive_slice_spin.value()
         self.config['log_font_size'] = self.font_size_spin.value()
