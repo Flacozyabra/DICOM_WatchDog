@@ -961,6 +961,7 @@ class MainWindow(QMainWindow):
             log_message(self.output_field, f"Папка {patient_id} перемещена в CT images и удалена из архива")
             self.archive_cache = None
             self.fill_archive_list()
+            self.show_patient_list()
         except Exception as e:
             log_message(self.output_field, f"Ошибка восстановления {patient_id}: {e}")
 
