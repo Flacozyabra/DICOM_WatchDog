@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from PyQt6.QtCore import Qt, QRect, QPoint, QPropertyAnimation, pyqtProperty
 from PyQt6.QtGui import QColor, QFont, QPainter, QBrush, QPen
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
@@ -77,8 +78,21 @@ class SettingsDialog(QDialog):
             'pacs_ip': '127.0.0.1',
             'pacs_port': 11112,
             'pacs_called_aet': 'ANY-SCP',
-            'pacs_calling_aet': 'ECHOSCU'
+            'pacs_calling_aet': 'ECHOSCU',
+            'tables_state': {}
         }
+        
+        # 1. Проверяем config.json
+        if os.path.exists("config.json"):
+            try:
+                with open("config.json", "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    config.update(loaded)
+                return config
+            except Exception as e:
+                print(f"Error loading config.json: {e}")
+                
+        # 2. Если JSON нет, но есть config.txt - делаем миграцию
         if os.path.exists("config.txt"):
             try:
                 with open("config.txt", "r", encoding="utf-8") as f:
@@ -109,81 +123,24 @@ class SettingsDialog(QDialog):
                     if len(lines) > 58: config['pacs_port'] = int(lines[58].strip() or "11112")
                     if len(lines) > 61: config['pacs_called_aet'] = lines[61].strip()
                     if len(lines) > 64: config['pacs_calling_aet'] = lines[64].strip()
+                
+                # Сохраняем в config.json и бэкапим config.txt
+                with open("config.json", "w", encoding="utf-8") as f_json:
+                    json.dump(config, f_json, ensure_ascii=False, indent=4)
+                    
+                if os.path.exists("config.txt.bak"):
+                    os.remove("config.txt.bak")
+                os.rename("config.txt", "config.txt.bak")
+                
             except Exception as e:
-                print(f"Error loading config.txt: {e}")
+                print(f"Error migrating config.txt: {e}")
+                
         return config
 
     def save_config(self):
-        lines = ["" for _ in range(65)]
-        lines[0] = f"{self.config['ct_images_dir']}\n"
-        lines[1] = f"{self.config['archive_dir']}\n"
-        lines[2] = "\n"
-        lines[3] = "fix_switch_value:\n"
-        lines[4] = f"{self.config['fix_switch_value']}\n"
-        lines[5] = "\n"
-        lines[6] = "client_dir:\n"
-        lines[7] = f"{self.config['client_dir']}\n"
-        lines[8] = "\n"
-        lines[9] = "archive_slice:\n"
-        lines[10] = f"{self.config['archive_slice']}\n"
-        lines[11] = "\n"
-        lines[12] = "window_config(x, y, dx, dy):\n"
-        lines[13] = f"{self.config['x']}\n"
-        lines[14] = f"{self.config['y']}\n"
-        lines[15] = f"{self.config['dx']}\n"
-        lines[16] = f"{self.config['dy']}\n"
-        lines[17] = "\n"
-        lines[18] = "log_font_size:\n"
-        lines[19] = f"{self.config['log_font_size']}\n"
-        lines[20] = "\n"
-        lines[21] = "folder_scan_time(msec):\n"
-        lines[22] = f"{self.config['folder_scan_time']}\n"
-        lines[23] = "\n"
-        lines[24] = "notification_is:\n"
-        lines[25] = f"{self.config['notification_is']}\n"
-        lines[26] = "\n"
-        lines[27] = "icon_path:\n"
-        lines[28] = f"{self.config['icon_path']}\n"
-        lines[29] = "\n"
-        lines[30] = "pacs_scan_time(msec):\n"
-        lines[31] = f"{self.config['pacs_scan_time']}\n"
-        lines[32] = "\n"
-        lines[33] = "auto_update_is:\n"
-        lines[34] = f"{self.config['auto_update_is']}\n"
-        lines[35] = "\n"
-        lines[36] = "patient_font_size:\n"
-        lines[37] = f"{self.config['patient_font_size']}\n"
-        lines[38] = "\n"
-        lines[39] = "patient_weight:\n"
-        lines[40] = f"{self.config.get('patient_weight', 'Regular')}\n"
-        lines[41] = "\n"
-        lines[42] = "archive_enabled:\n"
-        lines[43] = f"{self.config.get('archive_enabled', 'True')}\n"
-        lines[44] = "\n"
-        lines[45] = "archive_days:\n"
-        lines[46] = f"{self.config.get('archive_days', 3)}\n"
-        lines[47] = "\n"
-        lines[48] = "archive_cleanup_enabled:\n"
-        lines[49] = f"{self.config.get('archive_cleanup_enabled', 'False')}\n"
-        lines[50] = "\n"
-        lines[51] = "archive_cleanup_days:\n"
-        lines[52] = f"{self.config.get('archive_cleanup_days', 30)}\n"
-        lines[53] = "\n"
-        lines[54] = "pacs_ip:\n"
-        lines[55] = f"{self.config.get('pacs_ip', '127.0.0.1')}\n"
-        lines[56] = "\n"
-        lines[57] = "pacs_port:\n"
-        lines[58] = f"{self.config.get('pacs_port', 11112)}\n"
-        lines[59] = "\n"
-        lines[60] = "pacs_called_aet:\n"
-        lines[61] = f"{self.config.get('pacs_called_aet', 'ANY-SCP')}\n"
-        lines[62] = "\n"
-        lines[63] = "pacs_calling_aet:\n"
-        lines[64] = f"{self.config.get('pacs_calling_aet', 'ECHOSCU')}\n"
-
         try:
-            with open("config.txt", "w", encoding="utf-8") as f:
-                f.writelines(lines)
+            with open("config.json", "w", encoding="utf-8") as f:
+                json.dump(self.config, f, ensure_ascii=False, indent=4)
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить конфигурацию: {e}")
 

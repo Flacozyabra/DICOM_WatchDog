@@ -16,6 +16,8 @@ Client_dir/
 
 # Конфигурация и логи
 config.txt
+config.txt.bak
+config.json
 *.log
 test_out.log
 

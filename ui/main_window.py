@@ -354,6 +354,7 @@ class MainWindow(QMainWindow):
             lambda pos: self.show_header_context_menu(pos, self.images_table)
         )
         self.setup_table_properties(self.images_table)
+        self.restore_table_state(self.images_table)
         self.images_table.cellDoubleClicked.connect(self.open_current_folder_cmd)
         self.images_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.images_table.customContextMenuRequested.connect(self.show_images_context_menu)
@@ -430,6 +431,7 @@ class MainWindow(QMainWindow):
             lambda pos: self.show_header_context_menu(pos, self.archive_table)
         )
         self.setup_table_properties(self.archive_table)
+        self.restore_table_state(self.archive_table)
         self.archive_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.archive_table.customContextMenuRequested.connect(self.show_archive_context_menu)
         self.archive_table.itemSelectionChanged.connect(self.on_archive_selection_changed)
@@ -476,6 +478,7 @@ class MainWindow(QMainWindow):
             lambda pos: self.show_header_context_menu(pos, self.pacs_table)
         )
         self.setup_table_properties(self.pacs_table)
+        self.restore_table_state(self.pacs_table)
         layout.addWidget(self.pacs_table)
         
         self.tab_widget.addTab(tab, "PACS")
@@ -506,6 +509,11 @@ class MainWindow(QMainWindow):
         header_style = "font-size: 14px; font-weight: normal; font-family: 'Segoe UI';"
         table.setStyleSheet(table_style)
         table.horizontalHeader().setStyleSheet(header_style)
+        
+        table.horizontalHeader().setSectionsMovable(True)
+        table.horizontalHeader().sectionMoved.connect(
+            lambda logical, old, new, t=table: self.on_section_moved(logical, old, new, t)
+        )
         
         # Растягивание колонок
         header = table.horizontalHeader()
@@ -541,9 +549,82 @@ class MainWindow(QMainWindow):
             action = menu.addAction(label)
             action.setCheckable(True)
             action.setChecked(not table.isColumnHidden(i))
-            action.toggled.connect(lambda checked, idx=i, t=table: t.setColumnHidden(idx, not checked))
+            action.toggled.connect(lambda checked, idx=i, t=table: [t.setColumnHidden(idx, not checked), self.save_table_state(t)])
             
         menu.exec(header.mapToGlobal(pos))
+
+    def on_section_moved(self, logical, old, new, table):
+        self.save_table_state(table)
+
+    def save_table_state(self, table):
+        table_name = None
+        if table == self.images_table:
+            table_name = "images_table"
+        elif table == self.archive_table:
+            table_name = "archive_table"
+        elif table == self.pacs_table:
+            table_name = "pacs_table"
+            
+        if not table_name:
+            return
+            
+        header = table.horizontalHeader()
+        column_count = table.columnCount()
+        
+        visual_order = []
+        for visual_idx in range(column_count):
+            visual_order.append(header.logicalIndex(visual_idx))
+            
+        visibility = []
+        for i in range(column_count):
+            visibility.append(not table.isColumnHidden(i))
+            
+        if 'tables_state' not in self.config:
+            self.config['tables_state'] = {}
+            
+        self.config['tables_state'][table_name] = {
+            'visual_order': visual_order,
+            'visibility': visibility
+        }
+        self.save_current_config()
+
+    def restore_table_state(self, table):
+        table_name = None
+        if table == self.images_table:
+            table_name = "images_table"
+        elif table == self.archive_table:
+            table_name = "archive_table"
+        elif table == self.pacs_table:
+            table_name = "pacs_table"
+            
+        if not table_name:
+            return
+            
+        tables_state = self.config.get('tables_state', {})
+        state = tables_state.get(table_name)
+        if not state:
+            return
+            
+        header = table.horizontalHeader()
+        column_count = table.columnCount()
+        
+        header.blockSignals(True)
+        
+        # 1. Восстанавливаем порядок
+        visual_order = state.get('visual_order')
+        if visual_order and len(visual_order) == column_count:
+            for visual_idx, logical_idx in enumerate(visual_order):
+                current_visual_idx = header.visualIndex(logical_idx)
+                if current_visual_idx != visual_idx:
+                    header.moveSection(current_visual_idx, visual_idx)
+                    
+        # 2. Восстанавливаем видимость
+        visibility = state.get('visibility')
+        if visibility and len(visibility) == column_count:
+            for i, visible in enumerate(visibility):
+                table.setColumnHidden(i, not visible)
+                
+        header.blockSignals(False)
 
     def on_tab_changed(self, index):
         # Защитная проверка на случай срабатывания сигнала до инициализации всех таблиц
