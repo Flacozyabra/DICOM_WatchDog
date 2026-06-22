@@ -104,7 +104,7 @@ class SettingsDialog(QDialog):
             'archive_dir': '',
             'fix_switch_value': 'True',
             'client_dir': '',
-            'archive_slice': 2,
+            'archive_slice': 0,
             'x': 1000,
             'y': 600,
             'dx': 350,
@@ -147,7 +147,7 @@ class SettingsDialog(QDialog):
                     if len(lines) > 1: config['archive_dir'] = lines[1].strip()
                     if len(lines) > 4: config['fix_switch_value'] = lines[4].strip()
                     if len(lines) > 7: config['client_dir'] = lines[7].strip()
-                    if len(lines) > 10: config['archive_slice'] = int(lines[10].strip() or "2")
+                    if len(lines) > 10: config['archive_slice'] = int(lines[10].strip() or "0")
                     if len(lines) > 16:
                           config['x'] = int(lines[13].strip() or "1000")
                           config['y'] = int(lines[14].strip() or "600")

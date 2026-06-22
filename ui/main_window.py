@@ -992,7 +992,7 @@ class MainWindow(QMainWindow):
             return
 
         self.archive_table.setRowCount(0)
-        slice_limit = self.config.get('archive_slice', 2)
+        slice_limit = self.config.get('archive_slice', 0)
 
         valid_items = {}
         for k, v in archive_dict.items():
