@@ -718,20 +718,40 @@ class MainWindow(QMainWindow):
         else:
             icon_path = os.path.abspath(icon_path)
 
+        # Фильтруем пациентов с корректными DICOM данными
+        valid_patients = {}
+        for patient_id, data in patient_dict.items():
+            if 'patient_name' not in data or 'study_datetime' not in data or 'folder_datetime' not in data or 'str' not in data:
+                log_message(self.output_field, f"Пропущен пациент {patient_id} из-за неполных данных DICOM")
+                continue
+            valid_patients[patient_id] = data
+
+        def get_ct_sort_key(item):
+            pid, d = item
+            folder_dt = d['folder_datetime']
+            patient_name = str(d.get('patient_name', '')).lower()
+            
+            now = datetime.now()
+            if (now - folder_dt).total_seconds() / 3600 < 1:
+                group = 0  # Зеленые (моложе 1 часа)
+            elif folder_dt.date() == now.date():
+                group = 1  # Синие (созданы сегодня)
+            else:
+                group = 2  # Белые (все остальные)
+            return (group, patient_name)
+
+        sorted_patients = sorted(valid_patients.items(), key=get_ct_sort_key)
+
         # Заполняем таблицу
         row_idx = 0
-        total_items = len(patient_dict)
+        total_items = len(sorted_patients)
         progress_dialog = None
         if total_items > 100:
             from ui.loading_dialog import LoadingProgressDialog
             progress_dialog = LoadingProgressDialog(self, title="Заполнение таблицы КТ")
             progress_dialog.show()
 
-        for patient_id, data in sorted(patient_dict.items(), key=lambda x: str(x[1].get('patient_name', ''))):
-            if 'patient_name' not in data or 'study_datetime' not in data or 'folder_datetime' not in data or 'str' not in data:
-                log_message(self.output_field, f"Пропущен пациент {patient_id} из-за неполных данных DICOM")
-                continue
-            
+        for patient_id, data in sorted_patients:
             # Уведомление о новых файлах на основе разницы в списке ID
             if not self.is_first_scan and patient_id not in existing_ids:
                 if notification_on:
