@@ -1,7 +1,7 @@
 import os
 import sys
 import json
-from PyQt6.QtCore import Qt, QRect, QPoint, QPropertyAnimation, pyqtProperty
+from PyQt6.QtCore import Qt, QRect, QPoint, QPropertyAnimation, pyqtProperty, QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPainter, QBrush, QPen
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QLineEdit, QPushButton, QFileDialog, QFormLayout, 
@@ -9,6 +9,52 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QComboBox, QListWidget, QStackedWidget, QWidget)
 
 from ui.toggle_switch import ToggleSwitch
+
+
+def apply_dark_title_bar(widget):
+    if sys.platform == "win32":
+        import ctypes
+        try:
+            hwnd = int(widget.winId())
+            # Immersive Dark Mode
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, 20, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
+            )
+        except Exception:
+            try:
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 19, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
+                )
+            except Exception:
+                pass
+        try:
+            hwnd = int(widget.winId())
+            # Caption Color (#2b2b2b)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, 35, ctypes.byref(ctypes.c_int(0x002b2b2b)), ctypes.sizeof(ctypes.c_int)
+            )
+            # Text Color (White)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, 36, ctypes.byref(ctypes.c_int(0x00ffffff)), ctypes.sizeof(ctypes.c_int)
+            )
+        except Exception:
+            pass
+
+
+class PacsPingWorker(QThread):
+    finished = pyqtSignal(bool, str)
+
+    def __init__(self, pacs_ip, pacs_port, called_aet, calling_aet):
+        super().__init__()
+        self.pacs_ip = pacs_ip
+        self.pacs_port = pacs_port
+        self.called_aet = called_aet
+        self.calling_aet = calling_aet
+
+    def run(self):
+        from core.pacs import ping_pacs
+        success, msg = ping_pacs(self.pacs_ip, self.pacs_port, self.called_aet, self.calling_aet)
+        self.finished.emit(success, msg)
 
 
 class SettingsDialog(QDialog):
@@ -266,33 +312,63 @@ class SettingsDialog(QDialog):
         # 4. Вкладка PACS
         pacs_widget = QWidget()
         pacs_layout = QVBoxLayout(pacs_widget)
+        pacs_layout.setSpacing(12)
+        
         pacs_form = QFormLayout()
+        pacs_form.setContentsMargins(0, 0, 0, 0)
         
         # PACS Scan Interval (sec)
         self.pacs_scan_spin = QSpinBox()
         self.pacs_scan_spin.setRange(1, 300)
         self.pacs_scan_spin.setValue(self.config['pacs_scan_time'] // 1000)
         pacs_form.addRow("Интервал сканирования PACS (сек):", self.pacs_scan_spin)
+        pacs_layout.addLayout(pacs_form)
 
-        # PACS IP
+        # Сетевые настройки (IP-адрес и порт PACS сервера в одну строку)
+        net_layout = QHBoxLayout()
+        net_layout.setSpacing(15)
+        
+        ip_layout = QVBoxLayout()
+        ip_label = QLabel("IP-адрес PACS сервера:")
         self.pacs_ip_edit = QLineEdit(self.config.get('pacs_ip', '127.0.0.1'))
-        pacs_form.addRow("IP-адрес PACS сервера:", self.pacs_ip_edit)
-
-        # PACS Port
+        ip_layout.addWidget(ip_label)
+        ip_layout.addWidget(self.pacs_ip_edit)
+        
+        port_layout = QVBoxLayout()
+        port_label = QLabel("Порт PACS сервера:")
         self.pacs_port_spin = QSpinBox()
         self.pacs_port_spin.setRange(1, 65535)
         self.pacs_port_spin.setValue(int(self.config.get('pacs_port', 11112)))
-        pacs_form.addRow("Порт PACS сервера:", self.pacs_port_spin)
-
-        # Called AET
-        self.pacs_called_aet_edit = QLineEdit(self.config.get('pacs_called_aet', 'ANY-SCP'))
-        pacs_form.addRow("Called AE Title (PACS):", self.pacs_called_aet_edit)
-
-        # Calling AET
-        self.pacs_calling_aet_edit = QLineEdit(self.config.get('pacs_calling_aet', 'ECHOSCU'))
-        pacs_form.addRow("Calling AE Title (Локальный):", self.pacs_calling_aet_edit)
+        port_layout.addWidget(port_label)
+        port_layout.addWidget(self.pacs_port_spin)
         
-        pacs_layout.addLayout(pacs_form)
+        net_layout.addLayout(ip_layout, stretch=3)
+        net_layout.addLayout(port_layout, stretch=1)
+        pacs_layout.addLayout(net_layout)
+
+        # AET Remote и AET Local (каждый на своей строке)
+        aet_remote_layout = QVBoxLayout()
+        aet_remote_label = QLabel("AET Remote:")
+        self.pacs_called_aet_edit = QLineEdit(self.config.get('pacs_called_aet', 'ANY-SCP'))
+        aet_remote_layout.addWidget(aet_remote_label)
+        aet_remote_layout.addWidget(self.pacs_called_aet_edit)
+        pacs_layout.addLayout(aet_remote_layout)
+
+        aet_local_layout = QVBoxLayout()
+        aet_local_label = QLabel("AET Local:")
+        self.pacs_calling_aet_edit = QLineEdit(self.config.get('pacs_calling_aet', 'ECHOSCU'))
+        aet_local_layout.addWidget(aet_local_label)
+        aet_local_layout.addWidget(self.pacs_calling_aet_edit)
+        pacs_layout.addLayout(aet_local_layout)
+
+        # Кнопка Ping
+        self.ping_btn = QPushButton("Ping")
+        self.ping_btn.setFixedHeight(30)
+        self.ping_btn.clicked.connect(self.ping_pacs_action)
+        
+        pacs_layout.addSpacing(10)
+        pacs_layout.addWidget(self.ping_btn)
+        
         pacs_layout.addStretch()
         self.stacked_widget.addWidget(pacs_widget)
         
@@ -398,3 +474,40 @@ class SettingsDialog(QDialog):
         from ui.main_window import MainWindow
         if MainWindow.instance:
             MainWindow.instance.apply_settings_dynamic(self.config)
+
+    def ping_pacs_action(self):
+        pacs_ip = self.pacs_ip_edit.text().strip()
+        pacs_port = self.pacs_port_spin.value()
+        called_aet = self.pacs_called_aet_edit.text().strip()
+        calling_aet = self.pacs_calling_aet_edit.text().strip()
+
+        if not pacs_ip:
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle("Ошибка")
+            msg.setText("Пожалуйста, укажите IP-адрес PACS сервера.")
+            apply_dark_title_bar(msg)
+            msg.exec()
+            return
+
+        self.ping_btn.setEnabled(False)
+        self.ping_btn.setText("Ping...")
+
+        self.ping_worker = PacsPingWorker(pacs_ip, pacs_port, called_aet, calling_aet)
+        self.ping_worker.finished.connect(self.on_ping_finished)
+        self.ping_worker.start()
+
+    def on_ping_finished(self, success, message):
+        self.ping_btn.setEnabled(True)
+        self.ping_btn.setText("Ping")
+
+        msg = QMessageBox(self)
+        if success:
+            msg.setIcon(QMessageBox.Icon.Information)
+            msg.setWindowTitle("Успешно")
+        else:
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle("Сбой")
+        msg.setText(message)
+        apply_dark_title_bar(msg)
+        msg.exec()
