@@ -81,3 +81,25 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
         log_message(output_field, "Не удалось подключиться к серверу PACS")
 
     return pacs_data, con
+
+
+def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
+    ae = AE()
+    ae.ae_title = calling_aet
+    ae.connection_timeout = 3
+    ae.add_requested_context('1.2.840.10008.1.1')
+    try:
+        assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet)
+        if assoc.is_established:
+            status = assoc.send_c_echo()
+            assoc.release()
+            if status and status.Status == 0x0000:
+                return True, "Соединение успешно установлено!\nPACS сервер ответил на C-ECHO."
+            else:
+                status_hex = f"0x{status.Status:04x}" if status and status.Status is not None else "None"
+                return False, f"Ошибка: PACS сервер вернул код статуса {status_hex}."
+        else:
+            return False, "Ошибка: Не удалось установить связь с PACS сервером.\nПроверьте IP-адрес, порт и AE Titles."
+    except Exception as e:
+        return False, f"Произошла ошибка при подключении:\n{str(e)}"
+
