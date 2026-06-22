@@ -848,7 +848,7 @@ class MainWindow(QMainWindow):
         delete_action.triggered.connect(lambda: self.delete_patient_action(patient_id, patient_name))
         
         archive_action = QAction("Переместить в архив", self)
-        archive_action.triggered.connect(lambda: self.archive_patient_action(patient_id))
+        archive_action.triggered.connect(lambda: self.archive_patient_action(patient_id, patient_name))
         
         clean_str_action = QAction("Удалить лишние STR", self)
         clean_str_action.triggered.connect(lambda: self.clean_str_action(patient_id))
@@ -882,7 +882,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Ошибка удаления", f"Не удалось удалить папку: {e}")
                 log_message(self.output_field, f"Ошибка удаления папки {patient_id}: {e}")
 
-    def archive_patient_action(self, patient_id):
+    def archive_patient_action(self, patient_id, patient_name=None):
         path = os.path.join(self.config.get('ct_images_dir', ''), patient_id)
         archive_dir = self.config.get('archive_dir', '')
         
@@ -898,7 +898,8 @@ class MainWindow(QMainWindow):
             if os.path.exists(dest_path):
                 shutil.rmtree(dest_path)
             shutil.move(path, archive_dir)
-            log_message(self.output_field, f"Папка {patient_id} перемещена в архив")
+            name_str = f" [{patient_name}]" if patient_name else ""
+            log_message(self.output_field, f"Папка {patient_id}{name_str} перемещена в архив")
             self.show_patient_list()
         except Exception as e:
             QMessageBox.critical(self, "Ошибка архивации", f"Не удалось переместить в архив: {e}")
@@ -925,7 +926,8 @@ class MainWindow(QMainWindow):
             
         row = selected_ranges[0].topRow()
         patient_id = self.images_table.item(row, 0).text()
-        self.archive_patient_action(patient_id)
+        patient_name = self.images_table.item(row, 1).text()
+        self.archive_patient_action(patient_id, patient_name)
 
     # ================= ЛОГИКА ТАБЛИЦЫ CT ARCHIVE =================
 
@@ -1096,6 +1098,7 @@ class MainWindow(QMainWindow):
             
         row = selected_ranges[0].topRow()
         patient_id = self.archive_table.item(row, 0).text()
+        patient_name = self.archive_table.item(row, 1).text()
         
         archive_dir = self.config.get('archive_dir', '')
         ct_images_dir = self.config.get('ct_images_dir', '')
@@ -1113,7 +1116,7 @@ class MainWindow(QMainWindow):
             shutil.copytree(path, dest_path)
             shutil.rmtree(path)
             
-            log_message(self.output_field, f"Папка {patient_id} перемещена в CT images и удалена из архива")
+            log_message(self.output_field, f"Папка {patient_id} [{patient_name}] перемещена в CT images и удалена из архива")
             self.archive_cache = None
             self.fill_archive_list(silent=True)
             self.restored_patient_ids.add(patient_id)
