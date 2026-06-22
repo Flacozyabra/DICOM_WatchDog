@@ -186,7 +186,9 @@ class MainWindow(QMainWindow):
         self.pacs_worker = None
         self.archive_worker = None
         self.is_first_scan = True
+        self.is_first_pacs_scan = True
         self.restored_patient_ids = set()
+        self.known_pacs_patient_ids = set()
         
         # Инициализируем таймеры до создания UI во избежание AttributeError
         self.scan_timer = QTimer(self)
@@ -271,8 +273,8 @@ class MainWindow(QMainWindow):
         self.debounce_timer.timeout.connect(self.on_watcher_timeout)
 
     def update_watcher_path(self):
-        is_auto_update = self.config.get('auto_update_is', 'on').lower() == 'on'
-        if not is_auto_update:
+        ct_dir = self.config.get('ct_images_dir', '')
+        if not ct_dir or not os.path.exists(ct_dir):
             self.stop_file_watcher()
             return
             
@@ -322,18 +324,14 @@ class MainWindow(QMainWindow):
         self.scan_timer.stop()
         self.pacs_timer.stop()
         
-        is_auto_update = self.config.get('auto_update_is', 'on').lower() == 'on'
-        
-        # Управляем наблюдателем файлов в реальном времени
-        if is_auto_update:
-            self.update_watcher_path()
-        else:
-            self.stop_file_watcher()
+        # Наблюдатель файлов в реальном времени работает всегда
+        self.update_watcher_path()
             
-        # Таймер PACS работает только когда активна вкладка PACS
-        if self.tab_widget.currentIndex() == 2:  # Вкладка PACS
-            if is_auto_update:
-                self.pacs_timer.start(self.config.get('pacs_scan_time', 10000))
+        # Таймер PACS работает, если активна вкладка PACS или включены уведомления PACS
+        pacs_notify_on = self.config.get('pacs_notification_is', 'off').lower() == 'on'
+        is_pacs_tab_active = (self.tab_widget.currentIndex() == 2)
+        if is_pacs_tab_active or pacs_notify_on:
+            self.pacs_timer.start(self.config.get('pacs_scan_time', 10000))
 
     def init_ui(self):
         # Главный виджет
@@ -662,18 +660,19 @@ class MainWindow(QMainWindow):
         if not hasattr(self, 'archive_table') or not hasattr(self, 'pacs_table') or not hasattr(self, 'images_table'):
             return
             
+        pacs_notify_on = self.config.get('pacs_notification_is', 'off').lower() == 'on'
         if index == 0:  # CT images
-            self.pacs_timer.stop()
+            if not pacs_notify_on:
+                self.pacs_timer.stop()
             self.show_patient_list()
         elif index == 1:  # CT archive
-            self.pacs_timer.stop()
+            if not pacs_notify_on:
+                self.pacs_timer.stop()
             self.fill_archive_list()
         elif index == 2:  # PACS
             self.fill_pacs_list()
             # Запускаем таймер PACS
-            is_auto_update = self.config.get('auto_update_is', 'on').lower() == 'on'
-            if is_auto_update:
-                self.pacs_timer.start(self.config.get('pacs_scan_time', 10000))
+            self.pacs_timer.start(self.config.get('pacs_scan_time', 10000))
 
     # ================= ЛОГИКА ТАБЛИЦЫ CT IMAGES =================
 
@@ -681,9 +680,7 @@ class MainWindow(QMainWindow):
         self.start_folder_scan()
 
     def update_patient_list(self):
-        is_auto_update = self.config.get('auto_update_is', 'on').lower() == 'on'
-        if is_auto_update:
-            self.start_folder_scan()
+        self.start_folder_scan()
 
     def start_folder_scan(self):
         if self.scan_worker and self.scan_worker.isRunning():
@@ -1257,6 +1254,36 @@ class MainWindow(QMainWindow):
             if not silent:
                 log_message(self.output_field, "Установлено подключение к серверу PACS", replace_suffix="Пытаюсь подключиться к серверу PACS")
             
+            # Фоновое уведомление о новых КТ в PACS
+            pacs_notify_on = self.config.get('pacs_notification_is', 'off').lower() == 'on'
+            
+            # Определение абсолютного пути к синей иконке
+            icon_blue_path = ""
+            base_dir = os.getcwd()
+            potential_icon = os.path.abspath(os.path.join(base_dir, "src", "icon_blue.png"))
+            if os.path.exists(potential_icon):
+                icon_blue_path = potential_icon
+            else:
+                potential_root_icon = os.path.abspath(os.path.join(base_dir, "icon_blue.png"))
+                if os.path.exists(potential_root_icon):
+                    icon_blue_path = potential_root_icon
+
+            if not self.is_first_pacs_scan:
+                for patient_id, data in pacs_dict.items():
+                    if patient_id not in self.known_pacs_patient_ids:
+                        if pacs_notify_on:
+                            show_notification(
+                                str(data['patient_name']),
+                                'Новое КТ (PACS)',
+                                'short',
+                                icon_blue_path
+                            )
+            else:
+                self.is_first_pacs_scan = False
+
+            # Обновляем список известных ID PACS
+            self.known_pacs_patient_ids = set(pacs_dict.keys())
+
             self.pacs_table.setRowCount(0)
             row_idx = 0
             sorted_items = sorted(pacs_dict.items(), key=lambda x: x[1]['study_datetime_obj'], reverse=True)

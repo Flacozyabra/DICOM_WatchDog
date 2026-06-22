@@ -115,6 +115,7 @@ class SettingsDialog(QDialog):
             'icon_path': '',
             'pacs_scan_time': 10000,
             'auto_update_is': 'on',
+            'pacs_notification_is': 'off',
             'patient_font_size': 14,
             'patient_weight': 'Regular',
             'archive_enabled': 'True',
@@ -217,10 +218,15 @@ class SettingsDialog(QDialog):
         self.folder_scan_spin.setValue(self.config['folder_scan_time'] // 1000)
         general_form.addRow("Интервал сканирования папок (сек):", self.folder_scan_spin)
         
-        # Auto Update
-        self.auto_update_cb = ToggleSwitch()
-        self.auto_update_cb.setChecked(self.config.get('auto_update_is', 'on').lower() == 'on')
-        general_form.addRow("Автообновление (Auto update):", self.auto_update_cb)
+        # Notifications
+        self.notify_cb = ToggleSwitch()
+        self.notify_cb.setChecked(self.config.get('notification_is', 'on').lower() == 'on')
+        general_form.addRow("Уведомления:", self.notify_cb)
+
+        # PACS Notifications
+        self.pacs_notify_cb = ToggleSwitch()
+        self.pacs_notify_cb.setChecked(self.config.get('pacs_notification_is', 'off').lower() == 'on')
+        general_form.addRow("Уведомления PACS:", self.pacs_notify_cb)
         
         # Fix Switch value
         self.fix_cb = ToggleSwitch()
@@ -299,11 +305,6 @@ class SettingsDialog(QDialog):
         self.font_size_spin.setRange(8, 24)
         self.font_size_spin.setValue(self.config['log_font_size'])
         ui_form.addRow("Размер шрифта логов:", self.font_size_spin)
-        
-        # Notifications
-        self.notify_cb = ToggleSwitch()
-        self.notify_cb.setChecked(self.config['notification_is'].lower() == 'on')
-        ui_form.addRow("Включить уведомления:", self.notify_cb)
         
         ui_layout.addLayout(ui_form)
         ui_layout.addStretch()
@@ -427,7 +428,7 @@ class SettingsDialog(QDialog):
         self.patient_font_spin.valueChanged.connect(self.on_setting_changed)
         self.patient_weight_combo.currentTextChanged.connect(self.on_setting_changed)
         self.notify_cb.toggled.connect(self.on_setting_changed)
-        self.auto_update_cb.toggled.connect(self.on_setting_changed)
+        self.pacs_notify_cb.toggled.connect(self.on_setting_changed)
         self.fix_cb.toggled.connect(self.on_setting_changed)
         self.archive_edit.textChanged.connect(self.on_setting_changed)
         self.archive_enabled_cb.toggled.connect(self.on_setting_changed)
@@ -449,7 +450,8 @@ class SettingsDialog(QDialog):
         self.config['patient_font_size'] = self.patient_font_spin.value()
         self.config['patient_weight'] = self.patient_weight_combo.currentText()
         self.config['notification_is'] = 'on' if self.notify_cb.isChecked() else 'off'
-        self.config['auto_update_is'] = 'on' if self.auto_update_cb.isChecked() else 'off'
+        self.config['pacs_notification_is'] = 'on' if self.pacs_notify_cb.isChecked() else 'off'
+        self.config['auto_update_is'] = 'on'
         self.config['fix_switch_value'] = 'True' if self.fix_cb.isChecked() else 'False'
         self.config['archive_enabled'] = 'True' if self.archive_enabled_cb.isChecked() else 'False'
         self.config['archive_days'] = self.archive_days_spin.value()
