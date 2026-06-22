@@ -286,14 +286,17 @@ class SettingsDialog(QDialog):
         self.archive_days_spin.setFixedWidth(60)
         self.archive_days_spin.setStyleSheet("QSpinBox { background-color: #1e1e1e; color: #ffffff; border: 1px solid #2d2d2d; padding: 2px; border-radius: 4px; }")
 
-        archive_days_label = QLabel("Переносить в архив через (дней):")
-        archive_days_label.setStyleSheet("color: #aaaaaa;")
+        archive_label_through = QLabel("через")
+        archive_label_through.setStyleSheet("color: #aaaaaa;")
+        archive_label_days = QLabel("дн.")
+        archive_label_days.setStyleSheet("color: #aaaaaa;")
 
         archive_row_layout = QHBoxLayout()
         archive_row_layout.addWidget(self.archive_enabled_cb)
-        archive_row_layout.addSpacing(20)
-        archive_row_layout.addWidget(archive_days_label)
+        archive_row_layout.addSpacing(15)
+        archive_row_layout.addWidget(archive_label_through)
         archive_row_layout.addWidget(self.archive_days_spin)
+        archive_row_layout.addWidget(archive_label_days)
         archive_row_layout.addStretch()
 
         archive_form.addRow("Автоматическое архивирование:", archive_row_layout)
@@ -308,14 +311,17 @@ class SettingsDialog(QDialog):
         self.archive_cleanup_days_spin.setFixedWidth(60)
         self.archive_cleanup_days_spin.setStyleSheet("QSpinBox { background-color: #1e1e1e; color: #ffffff; border: 1px solid #2d2d2d; padding: 2px; border-radius: 4px; }")
 
-        cleanup_days_label = QLabel("Удалять из архива через (дней):")
-        cleanup_days_label.setStyleSheet("color: #aaaaaa;")
+        cleanup_label_through = QLabel("через")
+        cleanup_label_through.setStyleSheet("color: #aaaaaa;")
+        cleanup_label_days = QLabel("дн.")
+        cleanup_label_days.setStyleSheet("color: #aaaaaa;")
 
         cleanup_row_layout = QHBoxLayout()
         cleanup_row_layout.addWidget(self.archive_cleanup_enabled_cb)
-        cleanup_row_layout.addSpacing(20)
-        cleanup_row_layout.addWidget(cleanup_days_label)
+        cleanup_row_layout.addSpacing(15)
+        cleanup_row_layout.addWidget(cleanup_label_through)
         cleanup_row_layout.addWidget(self.archive_cleanup_days_spin)
+        cleanup_row_layout.addWidget(cleanup_label_days)
         cleanup_row_layout.addStretch()
 
         archive_form.addRow("Автоочистка архива:", cleanup_row_layout)
