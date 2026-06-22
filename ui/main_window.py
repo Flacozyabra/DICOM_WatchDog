@@ -1002,7 +1002,10 @@ class MainWindow(QMainWindow):
                 log_message(self.output_field, f"Пропущен пациент {k} в архиве из-за неполных данных DICOM")
 
         row_idx = 0
-        sorted_items = sorted(valid_items.items(), key=lambda x: x[1]['folder_datetime'], reverse=True)[:slice_limit]
+        if slice_limit > 0:
+            sorted_items = sorted(valid_items.items(), key=lambda x: x[1]['folder_datetime'], reverse=True)[:slice_limit]
+        else:
+            sorted_items = sorted(valid_items.items(), key=lambda x: x[1]['folder_datetime'], reverse=True)
         
         total_items = len(sorted_items)
         progress_dialog = None

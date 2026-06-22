@@ -246,8 +246,9 @@ class SettingsDialog(QDialog):
         
         # Archive Slice (Max visible rows)
         self.archive_slice_spin = QSpinBox()
-        self.archive_slice_spin.setRange(1, 1000)
+        self.archive_slice_spin.setRange(0, 1000)
         self.archive_slice_spin.setValue(self.config['archive_slice'])
+        self.archive_slice_spin.setToolTip("Максимальное количество отображаемых пациентов в архиве. Установите 0, чтобы показывать всех пациентов без ограничений.")
         archive_form.addRow("Лимит строк архива:", self.archive_slice_spin)
 
         # Archive Enabled (Switch)
