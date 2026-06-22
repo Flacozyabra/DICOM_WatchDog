@@ -73,6 +73,9 @@ def dict_create(ct_images_dir, output_field=None, fix_switch="off"):
 
                     # время создания папки
                     patient_data[ds.PatientID]['folder_datetime'] = datetime.fromtimestamp(os.path.getctime(root))
+                    # считаем количество срезов (файлов .dcm)
+                    dcm_count = len([f for f in files if f.lower().endswith('.dcm')])
+                    patient_data[ds.PatientID]['slices'] = dcm_count
                     # считаем количество файлов начинающихся с STR в папке пациента
                     files = [f for f in os.listdir(root) if f.startswith('STR')]
                     str_count = len(files)

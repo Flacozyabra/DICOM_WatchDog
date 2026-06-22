@@ -344,11 +344,15 @@ class MainWindow(QMainWindow):
         
         # Таблица КТ-изображений
         self.images_table = QTableWidget()
-        self.images_table.setColumnCount(6)
+        self.images_table.setColumnCount(7)
         self.images_table.setHorizontalHeaderLabels([
-            "Patient ID", "Patient Name", "Scanning Area", 
+            "Patient ID", "Patient Name", "Slices", "Scanning Area", 
             "Study datetime", "Folder datetime", "STR"
         ])
+        self.images_table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.images_table.horizontalHeader().customContextMenuRequested.connect(
+            lambda pos: self.show_header_context_menu(pos, self.images_table)
+        )
         self.setup_table_properties(self.images_table)
         self.images_table.cellDoubleClicked.connect(self.open_current_folder_cmd)
         self.images_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -416,11 +420,15 @@ class MainWindow(QMainWindow):
         
         # Таблица архива
         self.archive_table = QTableWidget()
-        self.archive_table.setColumnCount(6)
+        self.archive_table.setColumnCount(7)
         self.archive_table.setHorizontalHeaderLabels([
-            "Patient ID", "Patient Name", "Scanning Area", 
+            "Patient ID", "Patient Name", "Slices", "Scanning Area", 
             "Study datetime", "Folder datetime", "STR"
         ])
+        self.archive_table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.archive_table.horizontalHeader().customContextMenuRequested.connect(
+            lambda pos: self.show_header_context_menu(pos, self.archive_table)
+        )
         self.setup_table_properties(self.archive_table)
         self.archive_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.archive_table.customContextMenuRequested.connect(self.show_archive_context_menu)
@@ -463,6 +471,10 @@ class MainWindow(QMainWindow):
         self.pacs_table.setHorizontalHeaderLabels([
             "Patient ID", "Patient Name", "Scanning Area", "Study datetime"
         ])
+        self.pacs_table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.pacs_table.horizontalHeader().customContextMenuRequested.connect(
+            lambda pos: self.show_header_context_menu(pos, self.pacs_table)
+        )
         self.setup_table_properties(self.pacs_table)
         layout.addWidget(self.pacs_table)
         
@@ -501,20 +513,37 @@ class MainWindow(QMainWindow):
         header.setStretchLastSection(False)
         
         # Установим пропорции ширины по умолчанию
-        if table.columnCount() == 6:
+        if table.columnCount() == 7:
             table.setColumnWidth(0, 130)  # ID
             table.setColumnWidth(1, 200)  # Name
-            table.setColumnWidth(2, 150)  # Scanning Area
-            table.setColumnWidth(3, 150)  # Study
-            table.setColumnWidth(4, 150)  # Folder
-            table.setColumnWidth(5, 50)   # STR
+            table.setColumnWidth(2, 80)   # Slices
+            table.setColumnWidth(3, 150)  # Scanning Area
+            table.setColumnWidth(4, 150)  # Study
+            table.setColumnWidth(5, 150)  # Folder
+            table.setColumnWidth(6, 50)   # STR
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Имя тянется
-        else:
+        elif table.columnCount() == 4:
             table.setColumnWidth(0, 180)  # ID
             table.setColumnWidth(1, 250)  # Name
             table.setColumnWidth(2, 180)  # Scanning Area
             table.setColumnWidth(3, 200)  # Study
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+
+    def show_header_context_menu(self, pos, table):
+        header = table.horizontalHeader()
+        menu = QMenu(self)
+        menu.setStyleSheet("QMenu { background-color: #1a1a1a; color: #ffffff; border: 1px solid #3d3d3d; } "
+                           "QMenu::item:selected { background-color: #2b2b2b; }")
+        
+        column_count = table.columnCount()
+        for i in range(column_count):
+            label = table.horizontalHeaderItem(i).text()
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(not table.isColumnHidden(i))
+            action.toggled.connect(lambda checked, idx=i, t=table: t.setColumnHidden(idx, not checked))
+            
+        menu.exec(header.mapToGlobal(pos))
 
     def on_tab_changed(self, index):
         # Защитная проверка на случай срабатывания сигнала до инициализации всех таблиц
@@ -637,6 +666,7 @@ class MainWindow(QMainWindow):
             
             id_item = QTableWidgetItem(str(patient_id))
             name_item = QTableWidgetItem(str(data['patient_name']))
+            slices_item = QTableWidgetItem(str(data.get('slices', 0)))
             area_item = QTableWidgetItem(str(data.get('body_part', '')))
             study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
             folder_item = QTableWidgetItem(data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
@@ -644,6 +674,7 @@ class MainWindow(QMainWindow):
             
             id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             folder_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -653,15 +684,16 @@ class MainWindow(QMainWindow):
             if data['str'] == 0 or data['str'] > 1:
                 color = QColor("crimson")
                 
-            for item in [id_item, name_item, area_item, study_item, folder_item, str_item]:
+            for item in [id_item, name_item, slices_item, area_item, study_item, folder_item, str_item]:
                 item.setForeground(color)
                 
             self.images_table.setItem(row_idx, 0, id_item)
             self.images_table.setItem(row_idx, 1, name_item)
-            self.images_table.setItem(row_idx, 2, area_item)
-            self.images_table.setItem(row_idx, 3, study_item)
-            self.images_table.setItem(row_idx, 4, folder_item)
-            self.images_table.setItem(row_idx, 5, str_item)
+            self.images_table.setItem(row_idx, 2, slices_item)
+            self.images_table.setItem(row_idx, 3, area_item)
+            self.images_table.setItem(row_idx, 4, study_item)
+            self.images_table.setItem(row_idx, 5, folder_item)
+            self.images_table.setItem(row_idx, 6, str_item)
             
             row_idx += 1
             if progress_dialog:
@@ -786,16 +818,18 @@ class MainWindow(QMainWindow):
 
     # ================= ЛОГИКА ТАБЛИЦЫ CT ARCHIVE =================
 
-    def fill_archive_list(self):
+    def fill_archive_list(self, silent=False):
         if self.archive_worker and self.archive_worker.isRunning():
             return
 
         archive_dir = self.config.get('archive_dir', '')
         if not os.path.exists(archive_dir):
-            log_message(self.output_field, "Папка архива не существует")
+            if not silent:
+                log_message(self.output_field, "Папка архива не существует")
             return
             
-        log_message(self.output_field, "Загрузка списка архивных пациентов...")
+        if not silent:
+            log_message(self.output_field, "Загрузка списка архивных пациентов...")
 
         # Запоминаем выделенного пациента
         self.selected_archive_patient_id = None
@@ -808,14 +842,15 @@ class MainWindow(QMainWindow):
 
         fix_val = self.config.get('fix_switch_value', 'True')
         self.archive_worker = ArchiveScanWorker(archive_dir, fix_val)
-        self.archive_worker.finished.connect(self.on_archive_scan_finished)
+        self.archive_worker.finished.connect(lambda ad, lm: self.on_archive_scan_finished(ad, lm, silent))
         self.archive_worker.start()
 
-    def on_archive_scan_finished(self, archive_dict, log_messages):
-        for msg in log_messages:
-            log_message(self.output_field, msg)
+    def on_archive_scan_finished(self, archive_dict, log_messages, silent=False):
+        if not silent:
+            for msg in log_messages:
+                log_message(self.output_field, msg)
 
-        log_message(self.output_field, "Список архивных пациентов загружен", replace_suffix="Загрузка списка архивных пациентов...")
+            log_message(self.output_field, "Список архивных пациентов загружен", replace_suffix="Загрузка списка архивных пациентов...")
         self.archive_cache = archive_dict
         
         search_text = self.search_entry.text().lower()
@@ -848,6 +883,7 @@ class MainWindow(QMainWindow):
             
             id_item = QTableWidgetItem(str(patient_id))
             name_item = QTableWidgetItem(str(data['patient_name']))
+            slices_item = QTableWidgetItem(str(data.get('slices', 0)))
             area_item = QTableWidgetItem(str(data.get('body_part', '')))
             study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
             folder_item = QTableWidgetItem(data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
@@ -855,6 +891,7 @@ class MainWindow(QMainWindow):
             
             id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             folder_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -864,15 +901,16 @@ class MainWindow(QMainWindow):
             if data['str'] == 0 or data['str'] > 1:
                 color = QColor("crimson")
                 
-            for item in [id_item, name_item, area_item, study_item, folder_item, str_item]:
+            for item in [id_item, name_item, slices_item, area_item, study_item, folder_item, str_item]:
                 item.setForeground(color)
                 
             self.archive_table.setItem(row_idx, 0, id_item)
             self.archive_table.setItem(row_idx, 1, name_item)
-            self.archive_table.setItem(row_idx, 2, area_item)
-            self.archive_table.setItem(row_idx, 3, study_item)
-            self.archive_table.setItem(row_idx, 4, folder_item)
-            self.archive_table.setItem(row_idx, 5, str_item)
+            self.archive_table.setItem(row_idx, 2, slices_item)
+            self.archive_table.setItem(row_idx, 3, area_item)
+            self.archive_table.setItem(row_idx, 4, study_item)
+            self.archive_table.setItem(row_idx, 5, folder_item)
+            self.archive_table.setItem(row_idx, 6, str_item)
             
             row_idx += 1
             if progress_dialog:
@@ -960,7 +998,7 @@ class MainWindow(QMainWindow):
             
             log_message(self.output_field, f"Папка {patient_id} перемещена в CT images и удалена из архива")
             self.archive_cache = None
-            self.fill_archive_list()
+            self.fill_archive_list(silent=True)
             self.show_patient_list()
         except Exception as e:
             log_message(self.output_field, f"Ошибка восстановления {patient_id}: {e}")
@@ -985,6 +1023,7 @@ class MainWindow(QMainWindow):
                 
                 id_item = QTableWidgetItem(str(patient_id))
                 name_item = QTableWidgetItem(str(data['patient_name']))
+                slices_item = QTableWidgetItem(str(data.get('slices', 0)))
                 area_item = QTableWidgetItem(str(data.get('body_part', '')))
                 study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
                 folder_item = QTableWidgetItem(data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
@@ -992,6 +1031,7 @@ class MainWindow(QMainWindow):
                 
                 id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 folder_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1001,15 +1041,16 @@ class MainWindow(QMainWindow):
                 if data['str'] == 0 or data['str'] > 1:
                     color = QColor("crimson")
                     
-                for item in [id_item, name_item, area_item, study_item, folder_item, str_item]:
+                for item in [id_item, name_item, slices_item, area_item, study_item, folder_item, str_item]:
                     item.setForeground(color)
                     
                 self.archive_table.setItem(row_idx, 0, id_item)
                 self.archive_table.setItem(row_idx, 1, name_item)
-                self.archive_table.setItem(row_idx, 2, area_item)
-                self.archive_table.setItem(row_idx, 3, study_item)
-                self.archive_table.setItem(row_idx, 4, folder_item)
-                self.archive_table.setItem(row_idx, 5, str_item)
+                self.archive_table.setItem(row_idx, 2, slices_item)
+                self.archive_table.setItem(row_idx, 3, area_item)
+                self.archive_table.setItem(row_idx, 4, study_item)
+                self.archive_table.setItem(row_idx, 5, folder_item)
+                self.archive_table.setItem(row_idx, 6, str_item)
                 
                 row_idx += 1
 

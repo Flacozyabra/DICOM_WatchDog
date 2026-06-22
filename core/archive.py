@@ -83,7 +83,8 @@ def archive_dict_create(archive_dir, output_field=None, fix_switch="off"):
                     'study_datetime': datetime.fromisoformat(cached_item['study_datetime']),
                     'body_part': cached_item['body_part'],
                     'folder_datetime': datetime.fromisoformat(cached_item['folder_datetime']),
-                    'str': cached_item['str']
+                    'str': cached_item['str'],
+                    'slices': cached_item.get('slices', len(dcm_files))
                 }
                 
                 # Если Fix Switch включен, проверяем/удаляем лишние STR
@@ -130,13 +131,15 @@ def archive_dict_create(archive_dir, output_field=None, fix_switch="off"):
                         except Exception:
                             pass
                     
+                    slices_count = len(dcm_files)
                     patient_data[p_id] = {
                         'patient_id': p_id,
                         'patient_name': p_name,
                         'study_datetime': study_dt,
                         'body_part': body_part_str,
                         'folder_datetime': folder_dt,
-                        'str': str_count
+                        'str': str_count,
+                        'slices': slices_count
                     }
                     
                     cache[root] = {
@@ -146,7 +149,8 @@ def archive_dict_create(archive_dir, output_field=None, fix_switch="off"):
                         'study_datetime': study_dt.isoformat(),
                         'body_part': body_part_str,
                         'folder_datetime': folder_dt.isoformat(),
-                        'str': str_count
+                        'str': str_count,
+                        'slices': slices_count
                     }
                 except Exception as e:
                     if output_field:
