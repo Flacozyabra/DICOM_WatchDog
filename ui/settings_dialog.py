@@ -293,11 +293,10 @@ class SettingsDialog(QDialog):
 
         archive_row_layout = QHBoxLayout()
         archive_row_layout.addWidget(self.archive_enabled_cb)
-        archive_row_layout.addSpacing(15)
+        archive_row_layout.addStretch()
         archive_row_layout.addWidget(archive_label_through)
         archive_row_layout.addWidget(self.archive_days_spin)
         archive_row_layout.addWidget(archive_label_days)
-        archive_row_layout.addStretch()
 
         archive_form.addRow("Автоматическое архивирование:", archive_row_layout)
 
@@ -318,11 +317,10 @@ class SettingsDialog(QDialog):
 
         cleanup_row_layout = QHBoxLayout()
         cleanup_row_layout.addWidget(self.archive_cleanup_enabled_cb)
-        cleanup_row_layout.addSpacing(15)
+        cleanup_row_layout.addStretch()
         cleanup_row_layout.addWidget(cleanup_label_through)
         cleanup_row_layout.addWidget(self.archive_cleanup_days_spin)
         cleanup_row_layout.addWidget(cleanup_label_days)
-        cleanup_row_layout.addStretch()
 
         archive_form.addRow("Автоочистка архива:", cleanup_row_layout)
         
