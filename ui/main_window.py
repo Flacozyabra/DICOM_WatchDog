@@ -1381,53 +1381,59 @@ class MainWindow(QMainWindow):
         self.archive_table.blockSignals(True)
         self.archive_table.setRowCount(0)
         
-        row_idx = 0
+        valid_items = {}
         for patient_id, data in self.archive_cache.items():
             if 'patient_name' not in data or 'study_datetime' not in data or 'folder_datetime' not in data or 'str' not in data:
                 continue
                 
             name_lower = str(data['patient_name']).lower()
             if search_text in name_lower:
-                self.archive_table.insertRow(row_idx)
+                valid_items[patient_id] = data
+
+        sorted_items = sorted(valid_items.items(), key=lambda x: x[1]['folder_datetime'], reverse=True)
+
+        row_idx = 0
+        for patient_id, data in sorted_items:
+            self.archive_table.insertRow(row_idx)
+            
+            id_item = QTableWidgetItem(str(patient_id))
+            name_item = QTableWidgetItem(str(data['patient_name']))
+            slices_item = QTableWidgetItem(str(data.get('slices', 0)))
+            area_item = QTableWidgetItem(str(data.get('body_part', '')))
+            study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
+            folder_item = QTableWidgetItem(data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
+            str_item = QTableWidgetItem(str(data['str']))
+            
+            id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            folder_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            str_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            color = QColor("#ffffff")
+            folder_dt = data['folder_datetime']
+            if (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
+                color = QColor("lime")
+            elif folder_dt.date() == datetime.now().date():
+                color = QColor("mediumturquoise")
                 
-                id_item = QTableWidgetItem(str(patient_id))
-                name_item = QTableWidgetItem(str(data['patient_name']))
-                slices_item = QTableWidgetItem(str(data.get('slices', 0)))
-                area_item = QTableWidgetItem(str(data.get('body_part', '')))
-                study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
-                folder_item = QTableWidgetItem(data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
-                str_item = QTableWidgetItem(str(data['str']))
+            if data['str'] == 0 or data['str'] > 1:
+                color = QColor("crimson")
                 
-                id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                folder_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                str_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            for item in [id_item, name_item, slices_item, area_item, study_item, folder_item, str_item]:
+                item.setForeground(color)
                 
-                color = QColor("#ffffff")
-                folder_dt = data['folder_datetime']
-                if (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
-                    color = QColor("lime")
-                elif folder_dt.date() == datetime.now().date():
-                    color = QColor("mediumturquoise")
-                    
-                if data['str'] == 0 or data['str'] > 1:
-                    color = QColor("crimson")
-                    
-                for item in [id_item, name_item, slices_item, area_item, study_item, folder_item, str_item]:
-                    item.setForeground(color)
-                    
-                self.archive_table.setItem(row_idx, 0, id_item)
-                self.archive_table.setItem(row_idx, 1, name_item)
-                self.archive_table.setItem(row_idx, 2, slices_item)
-                self.archive_table.setItem(row_idx, 3, area_item)
-                self.archive_table.setItem(row_idx, 4, study_item)
-                self.archive_table.setItem(row_idx, 5, folder_item)
-                self.archive_table.setItem(row_idx, 6, str_item)
-                
-                row_idx += 1
+            self.archive_table.setItem(row_idx, 0, id_item)
+            self.archive_table.setItem(row_idx, 1, name_item)
+            self.archive_table.setItem(row_idx, 2, slices_item)
+            self.archive_table.setItem(row_idx, 3, area_item)
+            self.archive_table.setItem(row_idx, 4, study_item)
+            self.archive_table.setItem(row_idx, 5, folder_item)
+            self.archive_table.setItem(row_idx, 6, str_item)
+            
+            row_idx += 1
 
         self.archive_table.update_placeholder_visibility()
         self.archive_table.blockSignals(False)
