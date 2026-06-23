@@ -169,7 +169,7 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     
     roles = []
     for sop_class in storage_classes:
-        ae.add_supported_context(sop_class, ALL_TRANSFER_SYNTAXES)
+        ae.add_requested_context(sop_class, ALL_TRANSFER_SYNTAXES)
         roles.append(build_role(sop_class, scp_role=True))
         
     ds = Dataset()
