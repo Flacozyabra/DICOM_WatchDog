@@ -284,19 +284,29 @@ class SettingsDialog(QDialog):
         self.archive_days_spin.setRange(1, 365)
         self.archive_days_spin.setValue(int(self.config.get('archive_days', 3)))
         self.archive_days_spin.setFixedWidth(60)
-        self.archive_days_spin.setStyleSheet("QSpinBox { background-color: #1e1e1e; color: #ffffff; border: 1px solid #2d2d2d; padding: 2px; border-radius: 4px; }")
+        self.archive_days_spin.setStyleSheet(
+            "QSpinBox { background-color: #1e1e1e; color: #ffffff; border: 1px solid #2d2d2d; padding: 2px; border-radius: 4px; }"
+            "QSpinBox:disabled { background-color: #141414; color: #666666; border: 1px solid #1c1c1c; }"
+        )
 
-        archive_label_through = QLabel("через")
-        archive_label_through.setStyleSheet("color: #aaaaaa;")
-        archive_label_days = QLabel("дн.")
-        archive_label_days.setStyleSheet("color: #aaaaaa;")
+        self.archive_label_through = QLabel("через")
+        self.archive_label_through.setStyleSheet(
+            "QLabel { color: #aaaaaa; }"
+            "QLabel:disabled { color: #444444; }"
+        )
+        self.archive_label_days = QLabel("дн.")
+        self.archive_label_days.setStyleSheet(
+            "QLabel { color: #aaaaaa; }"
+            "QLabel:disabled { color: #444444; }"
+        )
 
         archive_row_layout = QHBoxLayout()
         archive_row_layout.addWidget(self.archive_enabled_cb)
         archive_row_layout.addStretch()
-        archive_row_layout.addWidget(archive_label_through)
+        archive_row_layout.addWidget(self.archive_label_through)
+        archive_row_layout.addSpacing(8)
         archive_row_layout.addWidget(self.archive_days_spin)
-        archive_row_layout.addWidget(archive_label_days)
+        archive_row_layout.addWidget(self.archive_label_days)
 
         archive_form.addRow("Автоматическое архивирование:", archive_row_layout)
 
@@ -308,19 +318,29 @@ class SettingsDialog(QDialog):
         self.archive_cleanup_days_spin.setRange(1, 365)
         self.archive_cleanup_days_spin.setValue(int(self.config.get('archive_cleanup_days', 30)))
         self.archive_cleanup_days_spin.setFixedWidth(60)
-        self.archive_cleanup_days_spin.setStyleSheet("QSpinBox { background-color: #1e1e1e; color: #ffffff; border: 1px solid #2d2d2d; padding: 2px; border-radius: 4px; }")
+        self.archive_cleanup_days_spin.setStyleSheet(
+            "QSpinBox { background-color: #1e1e1e; color: #ffffff; border: 1px solid #2d2d2d; padding: 2px; border-radius: 4px; }"
+            "QSpinBox:disabled { background-color: #141414; color: #666666; border: 1px solid #1c1c1c; }"
+        )
 
-        cleanup_label_through = QLabel("через")
-        cleanup_label_through.setStyleSheet("color: #aaaaaa;")
-        cleanup_label_days = QLabel("дн.")
-        cleanup_label_days.setStyleSheet("color: #aaaaaa;")
+        self.cleanup_label_through = QLabel("через")
+        self.cleanup_label_through.setStyleSheet(
+            "QLabel { color: #aaaaaa; }"
+            "QLabel:disabled { color: #444444; }"
+        )
+        self.cleanup_label_days = QLabel("дн.")
+        self.cleanup_label_days.setStyleSheet(
+            "QLabel { color: #aaaaaa; }"
+            "QLabel:disabled { color: #444444; }"
+        )
 
         cleanup_row_layout = QHBoxLayout()
         cleanup_row_layout.addWidget(self.archive_cleanup_enabled_cb)
         cleanup_row_layout.addStretch()
-        cleanup_row_layout.addWidget(cleanup_label_through)
+        cleanup_row_layout.addWidget(self.cleanup_label_through)
+        cleanup_row_layout.addSpacing(8)
         cleanup_row_layout.addWidget(self.archive_cleanup_days_spin)
-        cleanup_row_layout.addWidget(cleanup_label_days)
+        cleanup_row_layout.addWidget(self.cleanup_label_days)
 
         archive_form.addRow("Автоочистка архива:", cleanup_row_layout)
         
@@ -448,8 +468,16 @@ class SettingsDialog(QDialog):
             line_edit.setText(os.path.normpath(dir_path))
 
     def update_fields_state(self):
-        self.archive_days_spin.setEnabled(self.archive_enabled_cb.isChecked())
-        self.archive_cleanup_days_spin.setEnabled(self.archive_cleanup_enabled_cb.isChecked())
+        archive_active = self.archive_enabled_cb.isChecked()
+        self.archive_days_spin.setEnabled(archive_active)
+        self.archive_label_through.setEnabled(archive_active)
+        self.archive_label_days.setEnabled(archive_active)
+
+        cleanup_active = self.archive_cleanup_enabled_cb.isChecked()
+        self.archive_cleanup_days_spin.setEnabled(cleanup_active)
+        self.cleanup_label_through.setEnabled(cleanup_active)
+        self.cleanup_label_days.setEnabled(cleanup_active)
+
         self.id_prefixes_edit.setEnabled(self.fix_patient_id_cb.isChecked())
 
     def accept_settings(self):
