@@ -31,4 +31,8 @@ test_out.log
 # Кэш архива
 archive_cache.json
 
+# Служебные файлы Mimo
+mimo.bat
+.mimocode/
+
 
