@@ -80,6 +80,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                 patient_data[p_id] = {
                     'patient_id': p_id,
                     'patient_name': cached_item['patient_name'],
+                    'modality': cached_item.get('modality', 'CT'),
                     'study_datetime': datetime.fromisoformat(cached_item['study_datetime']),
                     'body_part': cached_item['body_part'],
                     'folder_datetime': datetime.fromisoformat(cached_item['folder_datetime']),
@@ -106,6 +107,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                     ds = pydicom.dcmread(file_path)
                     p_id = ds.PatientID
                     p_name = str(ds.PatientName)
+                    p_modality = str(ds.get('Modality', 'CT'))
                     
                     date_time_string = ds.StudyDate + ds.StudyTime
                     format_string = '%Y%m%d%H%M%S' if '.' not in ds.StudyTime else '%Y%m%d%H%M%S.%f'
@@ -131,10 +133,10 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                         except Exception:
                             pass
                     
-                    slices_count = len(dcm_files)
                     patient_data[p_id] = {
                         'patient_id': p_id,
                         'patient_name': p_name,
+                        'modality': p_modality,
                         'study_datetime': study_dt,
                         'body_part': body_part_str,
                         'folder_datetime': folder_dt,
@@ -146,6 +148,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                         'mtime': os.path.getmtime(root),
                         'patient_id': p_id,
                         'patient_name': p_name,
+                        'modality': p_modality,
                         'study_datetime': study_dt.isoformat(),
                         'body_part': body_part_str,
                         'folder_datetime': folder_dt.isoformat(),

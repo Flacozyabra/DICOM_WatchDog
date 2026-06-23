@@ -53,6 +53,7 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False):
                     ds = pydicom.dcmread(os.path.join(root, file))
                     patient_data[ds.PatientID]['patient_id'] = ds.PatientID
                     patient_data[ds.PatientID]['patient_name'] = ds.PatientName
+                    patient_data[ds.PatientID]['modality'] = str(ds.get('Modality', 'CT'))
 
                     # учитываем два варианта записи времени исследования (с мкс и без)
                     date_time_string = ds.StudyDate + ds.StudyTime
