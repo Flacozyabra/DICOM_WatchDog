@@ -403,7 +403,7 @@ class SettingsDialog(QDialog):
         self.pacs_scan_spin = QSpinBox()
         self.pacs_scan_spin.setRange(1, 300)
         self.pacs_scan_spin.setValue(self.config['pacs_scan_time'] // 1000)
-        pacs_form.addRow("Интервал сканирования PACS (сек):", self.pacs_scan_spin)
+        pacs_form.addRow("Интервал автообновления в режиме ожидания:", self.pacs_scan_spin)
 
         # IP PACS и Port на одной строке
         ip_port_layout = QHBoxLayout()

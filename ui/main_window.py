@@ -247,6 +247,7 @@ class MainWindow(QMainWindow):
         self.known_pacs_patient_ids = set()
         self.images_cache = None
         self.previous_pacs_data = {}
+        self.standby_new_patients = {}
         self.pacs_download_worker = None
         
         # Инициализируем таймеры до создания UI во избежание AttributeError
@@ -314,6 +315,7 @@ class MainWindow(QMainWindow):
         
         # 3. Синхронизируем чекбокс автообновления и перезапускаем таймеры
         self.pacs_auto_scan_cb.setChecked(self.config.get('auto_update_is', 'on').lower() == 'on')
+        self.update_pacs_controls_state()
         self.restart_timers()
         
         # 4. Обновляем путь наблюдателя, если он изменился
@@ -391,13 +393,50 @@ class MainWindow(QMainWindow):
         if (is_pacs_tab_active and pacs_auto_scan_on) or pacs_notify_on:
             self.pacs_timer.start(self.config.get('pacs_scan_time', 10000))
 
+    def update_pacs_controls_state(self):
+        auto_update_on = self.config.get('auto_update_is', 'on').lower() == 'on'
+        
+        # Если включен Standby mode (автообновление), выставляем принудительно Today
+        if auto_update_on:
+            self.pacs_date_from.blockSignals(True)
+            self.pacs_date_to.blockSignals(True)
+            self.pacs_date_from.setDate(QDate.currentDate())
+            self.pacs_date_to.setDate(QDate.currentDate())
+            self.pacs_date_from.blockSignals(False)
+            self.pacs_date_to.blockSignals(False)
+            
+            # Устанавливаем серый цвет для подписей
+            self.lbl_from.setStyleSheet("color: #666666; font-family: 'Segoe UI'; font-size: 13px;")
+            self.lbl_to.setStyleSheet("color: #666666; font-family: 'Segoe UI'; font-size: 13px;")
+        else:
+            # Устанавливаем белый цвет для подписей
+            self.lbl_from.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
+            self.lbl_to.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
+
+        # Блокируем или разблокируем виджеты дат и кнопок интервалов
+        self.pacs_date_from.setEnabled(not auto_update_on)
+        self.pacs_date_to.setEnabled(not auto_update_on)
+        self.pacs_today_btn.setEnabled(not auto_update_on)
+        self.pacs_3days_btn.setEnabled(not auto_update_on)
+
     def on_pacs_auto_scan_changed(self):
         is_checked = self.pacs_auto_scan_cb.isChecked()
         self.config['auto_update_is'] = 'on' if is_checked else 'off'
         self.save_current_config()
+        self.update_pacs_controls_state()
         self.restart_timers()
+        
+        # Сбрасываем кэши и перерисовываем
+        self.standby_new_patients = {}
+        self.previous_pacs_data = {}
+        self.pacs_table.setRowCount(0)
+        self.pacs_table.update_placeholder_visibility()
+        
         if is_checked:
-            self.fill_pacs_list(silent=True)
+            # При включении Standby mode сбрасываем флаг первого сканирования для предотвращения ложных уведомлений
+            self.is_first_pacs_scan = True
+        
+        self.fill_pacs_list(silent=True)
 
     def init_ui(self):
         # Главный виджет
@@ -583,8 +622,16 @@ class MainWindow(QMainWindow):
         pacs_control_layout.setContentsMargins(5, 0, 5, 0)
         pacs_control_layout.setSpacing(10)
         
-        lbl_from = QLabel("Период с:")
-        lbl_from.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
+        self.pacs_auto_scan_cb = QCheckBox("Standby mode")
+        self.pacs_auto_scan_cb.setStyleSheet(
+            "QCheckBox { color: #ffffff; font-family: 'Segoe UI'; font-size: 13px; spacing: 5px; }"
+            "QCheckBox::indicator { width: 16px; height: 16px; }"
+        )
+        self.pacs_auto_scan_cb.setChecked(self.config.get('auto_update_is', 'on').lower() == 'on')
+        self.pacs_auto_scan_cb.stateChanged.connect(self.on_pacs_auto_scan_changed)
+        
+        self.lbl_from = QLabel("Период с:")
+        self.lbl_from.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
         
         self.pacs_date_from = QDateEdit()
         self.pacs_date_from.setCalendarPopup(True)
@@ -593,11 +640,12 @@ class MainWindow(QMainWindow):
         self.pacs_date_from.setFixedHeight(30)
         self.pacs_date_from.setStyleSheet(
             "QDateEdit { background-color: #0f0f0f; color: #ffffff; border: 1px solid #3d3d3d; border-radius: 6px; padding: 4px; font-family: 'Segoe UI'; font-size: 13px; }"
+            "QDateEdit:disabled { background-color: #121212; color: #666666; border: 1px solid #2d2d2d; }"
         )
         self.pacs_date_from.dateChanged.connect(lambda: self.fill_pacs_list(silent=True))
         
-        lbl_to = QLabel("по:")
-        lbl_to.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
+        self.lbl_to = QLabel("по:")
+        self.lbl_to.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
         
         self.pacs_date_to = QDateEdit()
         self.pacs_date_to.setCalendarPopup(True)
@@ -606,6 +654,7 @@ class MainWindow(QMainWindow):
         self.pacs_date_to.setFixedHeight(30)
         self.pacs_date_to.setStyleSheet(
             "QDateEdit { background-color: #0f0f0f; color: #ffffff; border: 1px solid #3d3d3d; border-radius: 6px; padding: 4px; font-family: 'Segoe UI'; font-size: 13px; }"
+            "QDateEdit:disabled { background-color: #121212; color: #666666; border: 1px solid #2d2d2d; }"
         )
         self.pacs_date_to.dateChanged.connect(lambda: self.fill_pacs_list(silent=True))
         
@@ -630,17 +679,21 @@ class MainWindow(QMainWindow):
         self.settings_btn3.setToolTip("Настройки папок и интервалов")
         self.settings_btn3.clicked.connect(self.open_settings_cmd)
         
+        pacs_control_layout.addWidget(self.pacs_auto_scan_cb, alignment=Qt.AlignmentFlag.AlignVCenter)
+        pacs_control_layout.addSpacing(5)
         pacs_control_layout.addWidget(self.pacs_today_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.pacs_3days_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
-        pacs_control_layout.addWidget(lbl_from, alignment=Qt.AlignmentFlag.AlignVCenter)
+        pacs_control_layout.addWidget(self.lbl_from, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.pacs_date_from, alignment=Qt.AlignmentFlag.AlignVCenter)
-        pacs_control_layout.addWidget(lbl_to, alignment=Qt.AlignmentFlag.AlignVCenter)
+        pacs_control_layout.addWidget(self.lbl_to, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.pacs_date_to, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addStretch(1)
         pacs_control_layout.addWidget(self.send_to_ct_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.settings_btn3, alignment=Qt.AlignmentFlag.AlignVCenter)
         
         layout.addLayout(pacs_control_layout)
+        
+        self.update_pacs_controls_state()
         
         self.tab_widget.addTab(tab, "PACS")
 
@@ -1449,6 +1502,7 @@ class MainWindow(QMainWindow):
             
             # Фоновое уведомление о новых КТ в PACS
             pacs_notify_on = self.config.get('pacs_notification_is', 'off').lower() == 'on'
+            auto_update_on = self.config.get('auto_update_is', 'on').lower() == 'on'
             
             # Определение абсолютного пути к синей иконке
             icon_blue_path = ""
@@ -1461,9 +1515,25 @@ class MainWindow(QMainWindow):
                 if os.path.exists(potential_root_icon):
                     icon_blue_path = potential_root_icon
 
-            if not self.is_first_pacs_scan:
+            if auto_update_on:
+                if self.is_first_pacs_scan:
+                    self.is_first_pacs_scan = False
+                    self.known_pacs_patient_ids = set(pacs_dict.keys())
+                    self.standby_new_patients = {}
+                    self.previous_pacs_data = {}
+                    
+                    self.pacs_table.setUpdatesEnabled(False)
+                    self.pacs_table.blockSignals(True)
+                    self.pacs_table.setRowCount(0)
+                    self.pacs_table.update_placeholder_visibility()
+                    self.pacs_table.blockSignals(False)
+                    self.pacs_table.setUpdatesEnabled(True)
+                    return
+
+                new_patients = {}
                 for patient_id, data in pacs_dict.items():
                     if patient_id not in self.known_pacs_patient_ids:
+                        new_patients[patient_id] = data
                         if pacs_notify_on:
                             show_notification(
                                 str(data['patient_name']),
@@ -1471,20 +1541,26 @@ class MainWindow(QMainWindow):
                                 'short',
                                 icon_blue_path
                             )
+
+                if new_patients:
+                    self.standby_new_patients.update(new_patients)
+                    self.known_pacs_patient_ids.update(new_patients.keys())
+
+                display_dict = self.standby_new_patients
             else:
-                self.is_first_pacs_scan = False
+                if self.is_first_pacs_scan:
+                    self.is_first_pacs_scan = False
+                self.known_pacs_patient_ids = set(pacs_dict.keys())
+                display_dict = pacs_dict
 
-            # Обновляем список известных ID PACS
-            self.known_pacs_patient_ids = set(pacs_dict.keys())
-
-            data_changed = (pacs_dict != self.previous_pacs_data)
+            data_changed = (display_dict != self.previous_pacs_data)
             if data_changed:
                 self.pacs_table.setUpdatesEnabled(False)
                 self.pacs_table.blockSignals(True)
 
                 self.pacs_table.setRowCount(0)
                 row_idx = 0
-                sorted_items = sorted(pacs_dict.items(), key=lambda x: x[1]['study_datetime_obj'], reverse=True)
+                sorted_items = sorted(display_dict.items(), key=lambda x: x[1]['study_datetime_obj'], reverse=True)
                 
                 for patient_id, data in sorted_items:
                     self.pacs_table.insertRow(row_idx)
@@ -1530,9 +1606,8 @@ class MainWindow(QMainWindow):
                 self.pacs_table.blockSignals(False)
                 self.pacs_table.setUpdatesEnabled(True)
 
-                self.previous_pacs_data = pacs_dict.copy()
+                self.previous_pacs_data = display_dict.copy()
             else:
-                # Если данные не изменились, просто убедимся, что плейсхолдер скрыт/показан правильно
                 self.pacs_table.update_placeholder_visibility()
 
         elif not con and not has_fail_msg:
