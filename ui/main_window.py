@@ -343,7 +343,7 @@ class MainWindow(QMainWindow):
         self.config = config.copy()
         
         # 1. Обновляем шрифты таблиц
-        font_size = self.config.get('patient_font_size', 14)
+        font_size = self.config.get('patient_font_size', 16)
         row_height = max(25, font_size + 12)
         
         weight_map = {
@@ -745,7 +745,7 @@ class MainWindow(QMainWindow):
         table.verticalHeader().setVisible(False)
         
         # Динамическая высота строки в зависимости от размера шрифта
-        font_size = self.config.get('patient_font_size', 14)
+        font_size = self.config.get('patient_font_size', 16)
         row_height = max(25, font_size + 12)
         table.verticalHeader().setDefaultSectionSize(row_height)
         
@@ -1716,7 +1716,7 @@ class MainWindow(QMainWindow):
             self.output_field.setFont(font)
             
             # Обновляем шрифты и высоту строк таблиц через styleSheet
-            font_size = self.config.get('patient_font_size', 14)
+            font_size = self.config.get('patient_font_size', 16)
             row_height = max(25, font_size + 12)
             weight_map = {
                 "Regular": "400",

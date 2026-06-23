@@ -118,7 +118,7 @@ class SettingsDialog(QDialog):
             'pacs_scan_time': 10000,
             'auto_update_is': 'off',
             'pacs_notification_is': 'off',
-            'patient_font_size': 14,
+            'patient_font_size': 16,
             'patient_weight': 'Semibold',
             'archive_enabled': 'True',
             'archive_days': 3,
@@ -372,7 +372,7 @@ class SettingsDialog(QDialog):
         # Patient Font Size
         self.patient_font_spin = QSpinBox()
         self.patient_font_spin.setRange(8, 36)
-        self.patient_font_spin.setValue(self.config.get('patient_font_size', 14))
+        self.patient_font_spin.setValue(self.config.get('patient_font_size', 16))
         ui_form.addRow("Размер шрифта пациентов:", self.patient_font_spin)
         
         # Patient Font Weight
