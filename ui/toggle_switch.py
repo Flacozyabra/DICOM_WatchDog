@@ -1,5 +1,5 @@
 from PyQt6.QtCore import Qt, QRect, QPoint, QPropertyAnimation, pyqtProperty
-from PyQt6.QtGui import QColor, QPainter, QBrush, QPen
+from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QFontMetrics
 from PyQt6.QtWidgets import QCheckBox
 
 
@@ -12,7 +12,11 @@ class ToggleSwitch(QCheckBox):
         self._knob_color = QColor("#ffffff")
         self._knob_position = 18 if self.isChecked() else 2
         self.setFixedHeight(22)
-        self.setFixedWidth(36)
+
+    def sizeHint(self):
+        fm = QFontMetrics(self.font())
+        text_width = fm.horizontalAdvance(self.text()) if self.text() else 0
+        return QRect(0, 0, 38 + text_width, 22).size()
 
     @pyqtProperty(int)
     def knob_position(self):

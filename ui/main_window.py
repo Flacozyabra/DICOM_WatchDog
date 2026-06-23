@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget,
                              QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, 
                              QPlainTextEdit, QPushButton, QMessageBox, 
                              QHeaderView, QMenu, QAbstractItemView, QLineEdit, QLabel,
-                             QDialog, QFileDialog, QDateEdit, QCheckBox)
+                             QDialog, QFileDialog, QDateEdit)
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -20,6 +20,7 @@ from core.notifier import show_notification
 from core.logger import log_message
 from core.pacs import pacs_dict_create, download_patient_from_pacs
 from ui.settings_dialog import SettingsDialog
+from ui.toggle_switch import ToggleSwitch
 from themes.theme_manager import load_theme
 
 
@@ -622,13 +623,13 @@ class MainWindow(QMainWindow):
         pacs_control_layout.setContentsMargins(5, 0, 5, 0)
         pacs_control_layout.setSpacing(10)
         
-        self.pacs_auto_scan_cb = QCheckBox("Standby mode")
-        self.pacs_auto_scan_cb.setStyleSheet(
-            "QCheckBox { color: #ffffff; font-family: 'Segoe UI'; font-size: 13px; spacing: 5px; }"
-            "QCheckBox::indicator { width: 16px; height: 16px; }"
-        )
-        self.pacs_auto_scan_cb.setChecked(self.config.get('auto_update_is', 'on').lower() == 'on')
-        self.pacs_auto_scan_cb.stateChanged.connect(self.on_pacs_auto_scan_changed)
+        self.pacs_today_btn = QPushButton("Today")
+        self.pacs_today_btn.setFixedHeight(30)
+        self.pacs_today_btn.clicked.connect(self.pacs_set_today)
+        
+        self.pacs_3days_btn = QPushButton("Last 3 days")
+        self.pacs_3days_btn.setFixedHeight(30)
+        self.pacs_3days_btn.clicked.connect(self.pacs_set_3days)
         
         self.lbl_from = QLabel("Период с:")
         self.lbl_from.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
@@ -658,13 +659,9 @@ class MainWindow(QMainWindow):
         )
         self.pacs_date_to.dateChanged.connect(lambda: self.fill_pacs_list(silent=True))
         
-        self.pacs_today_btn = QPushButton("Today")
-        self.pacs_today_btn.setFixedHeight(30)
-        self.pacs_today_btn.clicked.connect(self.pacs_set_today)
-        
-        self.pacs_3days_btn = QPushButton("Last 3 days")
-        self.pacs_3days_btn.setFixedHeight(30)
-        self.pacs_3days_btn.clicked.connect(self.pacs_set_3days)
+        self.pacs_auto_scan_cb = ToggleSwitch("Standby mode")
+        self.pacs_auto_scan_cb.setChecked(self.config.get('auto_update_is', 'on').lower() == 'on')
+        self.pacs_auto_scan_cb.stateChanged.connect(self.on_pacs_auto_scan_changed)
         
         self.send_to_ct_btn = QPushButton("Send to CT images")
         self.send_to_ct_btn.setFixedHeight(30)
@@ -679,14 +676,13 @@ class MainWindow(QMainWindow):
         self.settings_btn3.setToolTip("Настройки папок и интервалов")
         self.settings_btn3.clicked.connect(self.open_settings_cmd)
         
-        pacs_control_layout.addWidget(self.pacs_auto_scan_cb, alignment=Qt.AlignmentFlag.AlignVCenter)
-        pacs_control_layout.addSpacing(5)
         pacs_control_layout.addWidget(self.pacs_today_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.pacs_3days_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.lbl_from, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.pacs_date_from, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.lbl_to, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.pacs_date_to, alignment=Qt.AlignmentFlag.AlignVCenter)
+        pacs_control_layout.addWidget(self.pacs_auto_scan_cb, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addStretch(1)
         pacs_control_layout.addWidget(self.send_to_ct_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.settings_btn3, alignment=Qt.AlignmentFlag.AlignVCenter)
