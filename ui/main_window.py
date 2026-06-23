@@ -1091,14 +1091,20 @@ class MainWindow(QMainWindow):
             str_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             
             color = QColor("#ffffff")
-            folder_dt = data['folder_datetime']
-            if (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
-                color = QColor("lime")
-            elif folder_dt.date() == datetime.now().date():
-                color = QColor("mediumturquoise")
+            highlighting_enabled = self.config.get('highlighting_enabled', 'False').lower() == 'true'
+            if highlighting_enabled:
+                folder_dt = data['folder_datetime']
+                highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
+                highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
+                highlight_no_str = self.config.get('highlight_no_str_enabled', 'False').lower() == 'true'
                 
-            if data['str'] == 0 or data['str'] > 1:
-                color = QColor("crimson")
+                if highlight_new and (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
+                    color = QColor("lime")
+                elif highlight_today and folder_dt.date() == datetime.now().date():
+                    color = QColor("mediumturquoise")
+                    
+                if highlight_no_str and (data['str'] == 0 or data['str'] > 1):
+                    color = QColor("crimson")
                 
             for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
                 item.setForeground(color)
@@ -1353,14 +1359,20 @@ class MainWindow(QMainWindow):
             str_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             
             color = QColor("#ffffff")
-            folder_dt = data['folder_datetime']
-            if (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
-                color = QColor("lime")
-            elif folder_dt.date() == datetime.now().date():
-                color = QColor("mediumturquoise")
+            highlighting_enabled = self.config.get('highlighting_enabled', 'False').lower() == 'true'
+            if highlighting_enabled:
+                folder_dt = data['folder_datetime']
+                highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
+                highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
+                highlight_no_str = self.config.get('highlight_no_str_enabled', 'False').lower() == 'true'
                 
-            if data['str'] == 0 or data['str'] > 1:
-                color = QColor("crimson")
+                if highlight_new and (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
+                    color = QColor("lime")
+                elif highlight_today and folder_dt.date() == datetime.now().date():
+                    color = QColor("mediumturquoise")
+                    
+                if highlight_no_str and (data['str'] == 0 or data['str'] > 1):
+                    color = QColor("crimson")
                 
             for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
                 item.setForeground(color)
@@ -1511,14 +1523,20 @@ class MainWindow(QMainWindow):
                 str_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 
                 color = QColor("#ffffff")
-                folder_dt = data['folder_datetime']
-                if (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
-                    color = QColor("lime")
-                elif folder_dt.date() == datetime.now().date():
-                    color = QColor("mediumturquoise")
+                highlighting_enabled = self.config.get('highlighting_enabled', 'False').lower() == 'true'
+                if highlighting_enabled:
+                    folder_dt = data['folder_datetime']
+                    highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
+                    highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
+                    highlight_no_str = self.config.get('highlight_no_str_enabled', 'False').lower() == 'true'
                     
-                if data['str'] == 0 or data['str'] > 1:
-                    color = QColor("crimson")
+                    if highlight_new and (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
+                        color = QColor("lime")
+                    elif highlight_today and folder_dt.date() == datetime.now().date():
+                        color = QColor("mediumturquoise")
+                        
+                    if highlight_no_str and (data['str'] == 0 or data['str'] > 1):
+                        color = QColor("crimson")
                     
                 for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
                     item.setForeground(color)
@@ -1679,11 +1697,16 @@ class MainWindow(QMainWindow):
                     study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     
                     color = QColor("#ffffff")
-                    d_time = datetime.strptime(data['study_datetime_str'], "%d.%m.%y - %H:%M")
-                    if (datetime.now() - d_time).total_seconds() / 3600 < 1:
-                        color = QColor("lime")
-                    elif d_time.date() == datetime.now().date():
-                        color = QColor("mediumturquoise")
+                    highlighting_enabled = self.config.get('highlighting_enabled', 'False').lower() == 'true'
+                    if highlighting_enabled:
+                        highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
+                        highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
+                        d_time = datetime.strptime(data['study_datetime_str'], "%d.%m.%y - %H:%M")
+                        
+                        if highlight_new and (datetime.now() - d_time).total_seconds() / 3600 < 1:
+                            color = QColor("lime")
+                        elif highlight_today and d_time.date() == datetime.now().date():
+                            color = QColor("mediumturquoise")
                         
                     for item in [id_item, name_item, modality_item, slices_item, area_item, study_item]:
                         item.setForeground(color)

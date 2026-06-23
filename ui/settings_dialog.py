@@ -128,7 +128,11 @@ class SettingsDialog(QDialog):
             'pacs_port': 11112,
             'pacs_called_aet': 'ANY-SCP',
             'pacs_calling_aet': 'ECHOSCU',
-            'tables_state': {}
+            'tables_state': {},
+            'highlighting_enabled': 'False',
+            'highlight_new_enabled': 'False',
+            'highlight_today_enabled': 'False',
+            'highlight_no_str_enabled': 'False'
         }
         
         # 1. Проверяем config.json
@@ -387,6 +391,38 @@ class SettingsDialog(QDialog):
         self.font_size_spin.setValue(self.config['log_font_size'])
         ui_form.addRow("Размер шрифта логов:", self.font_size_spin)
         
+        # Разделитель
+        ui_line = QFrame()
+        ui_line.setFrameShape(QFrame.Shape.HLine)
+        ui_line.setFrameShadow(QFrame.Shadow.Sunken)
+        ui_line.setStyleSheet("background-color: #2d2d2d; margin-top: 10px; margin-bottom: 10px;")
+        ui_form.addRow(ui_line)
+        
+        # Основной свич подсветки
+        self.highlighting_cb = ToggleSwitch()
+        self.highlighting_cb.setChecked(self.config.get('highlighting_enabled', 'False').lower() == 'true')
+        ui_form.addRow("Включить цветовую подсветку исследований:", self.highlighting_cb)
+        
+        # Контейнер для зависимых свичей (с визуальным отступом)
+        self.highlight_sub_container = QFrame()
+        self.highlight_sub_container.setStyleSheet("QFrame { margin-left: 20px; border: none; }")
+        sub_layout = QFormLayout(self.highlight_sub_container)
+        sub_layout.setContentsMargins(0, 5, 0, 5)
+        
+        self.highlight_new_cb = ToggleSwitch()
+        self.highlight_new_cb.setChecked(self.config.get('highlight_new_enabled', 'False').lower() == 'true')
+        sub_layout.addRow("Выделять новые исследования:", self.highlight_new_cb)
+        
+        self.highlight_today_cb = ToggleSwitch()
+        self.highlight_today_cb.setChecked(self.config.get('highlight_today_enabled', 'False').lower() == 'true')
+        sub_layout.addRow("Выделять сегодняшние исследования:", self.highlight_today_cb)
+        
+        self.highlight_no_str_cb = ToggleSwitch()
+        self.highlight_no_str_cb.setChecked(self.config.get('highlight_no_str_enabled', 'False').lower() == 'true')
+        sub_layout.addRow("Выделять исследования без структур:", self.highlight_no_str_cb)
+        
+        ui_form.addRow(self.highlight_sub_container)
+        
         ui_layout.addLayout(ui_form)
         ui_layout.addStretch()
         self.stacked_widget.addWidget(ui_widget)
@@ -496,6 +532,11 @@ class SettingsDialog(QDialog):
 
         self.id_prefixes_edit.setEnabled(self.fix_patient_id_cb.isChecked())
 
+        highlighting_active = self.highlighting_cb.isChecked()
+        self.highlight_new_cb.setEnabled(highlighting_active)
+        self.highlight_today_cb.setEnabled(highlighting_active)
+        self.highlight_no_str_cb.setEnabled(highlighting_active)
+
     def accept_settings(self):
         ct_dir = os.path.normpath(self.ct_images_edit.text().strip())
         archive_dir = os.path.normpath(self.archive_edit.text().strip())
@@ -540,6 +581,11 @@ class SettingsDialog(QDialog):
         self.patient_font_spin.valueChanged.connect(self.on_setting_changed)
         self.patient_weight_combo.currentTextChanged.connect(self.on_setting_changed)
         self.notify_cb.toggled.connect(self.on_setting_changed)
+        self.highlighting_cb.toggled.connect(self.update_fields_state)
+        self.highlighting_cb.toggled.connect(self.on_setting_changed)
+        self.highlight_new_cb.toggled.connect(self.on_setting_changed)
+        self.highlight_today_cb.toggled.connect(self.on_setting_changed)
+        self.highlight_no_str_cb.toggled.connect(self.on_setting_changed)
         self.pacs_notify_cb.toggled.connect(self.on_setting_changed)
         self.cleanup_str_cb.toggled.connect(self.on_setting_changed)
         self.fix_patient_id_cb.toggled.connect(self.on_setting_changed)
@@ -577,6 +623,10 @@ class SettingsDialog(QDialog):
         self.config['pacs_port'] = self.pacs_port_spin.value()
         self.config['pacs_called_aet'] = self.pacs_called_aet_edit.text()
         self.config['pacs_calling_aet'] = self.pacs_calling_aet_edit.text()
+        self.config['highlighting_enabled'] = 'True' if self.highlighting_cb.isChecked() else 'False'
+        self.config['highlight_new_enabled'] = 'True' if self.highlight_new_cb.isChecked() else 'False'
+        self.config['highlight_today_enabled'] = 'True' if self.highlight_today_cb.isChecked() else 'False'
+        self.config['highlight_no_str_enabled'] = 'True' if self.highlight_no_str_cb.isChecked() else 'False'
 
         # Применяем настройки на лету в главном окне
         from ui.main_window import MainWindow
