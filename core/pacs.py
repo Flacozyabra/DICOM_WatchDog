@@ -9,7 +9,7 @@ from pprint import pprint
 from core.logger import log_message
 
 
-def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11112, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
+def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11112, called_aet="ANY-SCP", calling_aet="ECHOSCU", study_date=None):
     pacs_data = defaultdict(dict)
     ae = AE()
     ae.ae_title = calling_aet
@@ -20,8 +20,11 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
     ds.PatientName = '*'
     ds.PatientID = '*'
     ds.StudyTime = ''
-    today = datetime.today().strftime('%Y%m%d')
-    ds.StudyDate = today
+    if study_date:
+        ds.StudyDate = study_date
+    else:
+        today = datetime.today().strftime('%Y%m%d')
+        ds.StudyDate = today
     ds.QueryRetrieveLevel = 'STUDY'
     
     # Запрашиваем дополнительные поля для области сканирования
@@ -102,4 +105,87 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
             return False, "Ошибка: Не удалось установить связь с PACS сервером.\nПроверьте IP-адрес, порт и AE Titles."
     except Exception as e:
         return False, f"Произошла ошибка при подключении:\n{str(e)}"
+
+
+def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, called_aet, calling_aet):
+    from pydicom.dataset import Dataset
+    from pynetdicom import AE, evt, build_role
+    from pynetdicom.sop_class import (
+        PatientRootQueryRetrieveInformationModelGet,
+        CTImageStorage,
+        MRImageStorage,
+        RTStructureSetStorage,
+        SecondaryCaptureImageStorage,
+        PositronEmissionTomographyImageStorage
+    )
+    import os
+
+    ae = AE()
+    ae.ae_title = calling_aet
+    ae.add_requested_context(PatientRootQueryRetrieveInformationModelGet)
+    
+    storage_classes = [
+        CTImageStorage,
+        MRImageStorage,
+        RTStructureSetStorage,
+        SecondaryCaptureImageStorage,
+        PositronEmissionTomographyImageStorage
+    ]
+    
+    roles = []
+    for sop_class in storage_classes:
+        ae.add_supported_context(sop_class)
+        roles.append(build_role(sop_class, scp_role=True))
+        
+    ds = Dataset()
+    ds.QueryRetrieveLevel = 'PATIENT'
+    ds.PatientID = patient_id
+    
+    def handle_store(event, dest_dir):
+        try:
+            d_set = event.dataset
+            d_set.file_meta = event.file_meta
+            
+            pid = str(d_set.get('PatientID', 'UNKNOWN')).strip()
+            safe_pid = "".join([c for c in pid if c.isalnum() or c in (' ', '_', '-')]).strip()
+            if not safe_pid:
+                safe_pid = "UNKNOWN"
+                
+            p_dir = os.path.join(dest_dir, safe_pid)
+            os.makedirs(p_dir, exist_ok=True)
+            
+            file_path = os.path.join(p_dir, f"{d_set.SOPInstanceUID}.dcm")
+            d_set.save_as(file_path, write_like_original=False)
+            return 0x0000
+        except Exception as e:
+            return 0xC000
+            
+    handlers = [(evt.EVT_C_STORE, handle_store, [target_dir])]
+    assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet, evt_handlers=handlers, roles=roles)
+    
+    success = False
+    msg = ""
+    if assoc.is_established:
+        responses = assoc.send_c_get(ds, PatientRootQueryRetrieveInformationModelGet)
+        status_list = []
+        for (status, identifier) in responses:
+            if status:
+                status_list.append(status.Status)
+        assoc.release()
+        
+        if status_list and (status_list[-1] == 0x0000 or status_list[-1] == 0xB000):
+            success = True
+            msg = f"Пациент {patient_id} успешно скачан из PACS"
+        elif status_list and (0x0000 in status_list or 0xB000 in status_list):
+            success = True
+            msg = f"Пациент {patient_id} успешно скачан из PACS"
+        else:
+            last_status = f"0x{status_list[-1]:04x}" if status_list else "unknown status"
+            success = False
+            msg = f"PACS сервер вернул ошибку при скачивании: {last_status}"
+    else:
+        success = False
+        msg = "Не удалось установить соединение с PACS сервером для скачивания."
+        
+    return success, msg
 
