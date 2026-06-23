@@ -534,11 +534,12 @@ class MainWindow(QMainWindow):
         
         # Таблица КТ-изображений
         self.images_table = ToggleTableWidget()
-        self.images_table.setColumnCount(7)
+        self.images_table.setColumnCount(8)
         self.images_table.setHorizontalHeaderLabels([
-            "Patient ID", "Patient Name", "Slices", "Scanning Area", 
+            "Patient ID", "Patient Name", "Modality", "Slices", "Scanning Area", 
             "Study datetime", "Folder datetime", "STR"
         ])
+        self.images_table.setColumnHidden(2, True)
         self.images_table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.images_table.horizontalHeader().customContextMenuRequested.connect(
             lambda pos: self.show_header_context_menu(pos, self.images_table)
@@ -600,11 +601,12 @@ class MainWindow(QMainWindow):
         
         # Таблица архива
         self.archive_table = ToggleTableWidget()
-        self.archive_table.setColumnCount(7)
+        self.archive_table.setColumnCount(8)
         self.archive_table.setHorizontalHeaderLabels([
-            "Patient ID", "Patient Name", "Slices", "Scanning Area", 
+            "Patient ID", "Patient Name", "Modality", "Slices", "Scanning Area", 
             "Study datetime", "Folder datetime", "STR"
         ])
+        self.archive_table.setColumnHidden(2, True)
         self.archive_table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.archive_table.horizontalHeader().customContextMenuRequested.connect(
             lambda pos: self.show_header_context_menu(pos, self.archive_table)
@@ -659,10 +661,11 @@ class MainWindow(QMainWindow):
         
         # Таблица PACS
         self.pacs_table = ToggleTableWidget()
-        self.pacs_table.setColumnCount(5)
+        self.pacs_table.setColumnCount(6)
         self.pacs_table.setHorizontalHeaderLabels([
-            "Patient ID", "Patient Name", "Slices", "Scanning Area", "Study datetime"
+            "Patient ID", "Patient Name", "Modality", "Slices", "Scanning Area", "Study datetime"
         ])
+        self.pacs_table.setColumnHidden(2, True)
         self.pacs_table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.pacs_table.horizontalHeader().customContextMenuRequested.connect(
             lambda pos: self.show_header_context_menu(pos, self.pacs_table)
@@ -777,21 +780,23 @@ class MainWindow(QMainWindow):
         header.setStretchLastSection(False)
         
         # Установим пропорции ширины по умолчанию
-        if table.columnCount() == 7:
+        if table.columnCount() == 8:
             table.setColumnWidth(0, 130)  # ID
             table.setColumnWidth(1, 200)  # Name
-            table.setColumnWidth(2, 80)   # Slices
-            table.setColumnWidth(3, 150)  # Scanning Area
-            table.setColumnWidth(4, 150)  # Study
-            table.setColumnWidth(5, 150)  # Folder
-            table.setColumnWidth(6, 50)   # STR
+            table.setColumnWidth(2, 80)   # Modality
+            table.setColumnWidth(3, 80)   # Slices
+            table.setColumnWidth(4, 150)  # Scanning Area
+            table.setColumnWidth(5, 150)  # Study
+            table.setColumnWidth(6, 150)  # Folder
+            table.setColumnWidth(7, 50)   # STR
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Имя тянется
-        elif table.columnCount() == 5:
+        elif table.columnCount() == 6:
             table.setColumnWidth(0, 180)  # ID
             table.setColumnWidth(1, 250)  # Name
-            table.setColumnWidth(2, 80)   # Slices
-            table.setColumnWidth(3, 180)  # Scanning Area
-            table.setColumnWidth(4, 200)  # Study
+            table.setColumnWidth(2, 100)  # Modality
+            table.setColumnWidth(3, 80)   # Slices
+            table.setColumnWidth(4, 180)  # Scanning Area
+            table.setColumnWidth(5, 200)  # Study
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
 
     def show_header_context_menu(self, pos, table):
@@ -1069,6 +1074,7 @@ class MainWindow(QMainWindow):
             
             id_item = QTableWidgetItem(str(patient_id))
             name_item = QTableWidgetItem(str(data['patient_name']))
+            modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
             slices_item = QTableWidgetItem(str(data.get('slices', 0)))
             area_item = QTableWidgetItem(str(data.get('body_part', '')))
             study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
@@ -1077,6 +1083,7 @@ class MainWindow(QMainWindow):
             
             id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            modality_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1093,16 +1100,17 @@ class MainWindow(QMainWindow):
             if data['str'] == 0 or data['str'] > 1:
                 color = QColor("crimson")
                 
-            for item in [id_item, name_item, slices_item, area_item, study_item, folder_item, str_item]:
+            for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
                 item.setForeground(color)
                 
             self.images_table.setItem(row_idx, 0, id_item)
             self.images_table.setItem(row_idx, 1, name_item)
-            self.images_table.setItem(row_idx, 2, slices_item)
-            self.images_table.setItem(row_idx, 3, area_item)
-            self.images_table.setItem(row_idx, 4, study_item)
-            self.images_table.setItem(row_idx, 5, folder_item)
-            self.images_table.setItem(row_idx, 6, str_item)
+            self.images_table.setItem(row_idx, 2, modality_item)
+            self.images_table.setItem(row_idx, 3, slices_item)
+            self.images_table.setItem(row_idx, 4, area_item)
+            self.images_table.setItem(row_idx, 5, study_item)
+            self.images_table.setItem(row_idx, 6, folder_item)
+            self.images_table.setItem(row_idx, 7, str_item)
             
             row_idx += 1
             if progress_dialog:
@@ -1328,6 +1336,7 @@ class MainWindow(QMainWindow):
             
             id_item = QTableWidgetItem(str(patient_id))
             name_item = QTableWidgetItem(str(data['patient_name']))
+            modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
             slices_item = QTableWidgetItem(str(data.get('slices', 0)))
             area_item = QTableWidgetItem(str(data.get('body_part', '')))
             study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
@@ -1336,6 +1345,7 @@ class MainWindow(QMainWindow):
             
             id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            modality_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1352,16 +1362,17 @@ class MainWindow(QMainWindow):
             if data['str'] == 0 or data['str'] > 1:
                 color = QColor("crimson")
                 
-            for item in [id_item, name_item, slices_item, area_item, study_item, folder_item, str_item]:
+            for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
                 item.setForeground(color)
                 
             self.archive_table.setItem(row_idx, 0, id_item)
             self.archive_table.setItem(row_idx, 1, name_item)
-            self.archive_table.setItem(row_idx, 2, slices_item)
-            self.archive_table.setItem(row_idx, 3, area_item)
-            self.archive_table.setItem(row_idx, 4, study_item)
-            self.archive_table.setItem(row_idx, 5, folder_item)
-            self.archive_table.setItem(row_idx, 6, str_item)
+            self.archive_table.setItem(row_idx, 2, modality_item)
+            self.archive_table.setItem(row_idx, 3, slices_item)
+            self.archive_table.setItem(row_idx, 4, area_item)
+            self.archive_table.setItem(row_idx, 5, study_item)
+            self.archive_table.setItem(row_idx, 6, folder_item)
+            self.archive_table.setItem(row_idx, 7, str_item)
             
             row_idx += 1
             if progress_dialog:
@@ -1483,6 +1494,7 @@ class MainWindow(QMainWindow):
                 
                 id_item = QTableWidgetItem(str(patient_id))
                 name_item = QTableWidgetItem(str(data['patient_name']))
+                modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
                 slices_item = QTableWidgetItem(str(data.get('slices', 0)))
                 area_item = QTableWidgetItem(str(data.get('body_part', '')))
                 study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
@@ -1491,6 +1503,7 @@ class MainWindow(QMainWindow):
                 
                 id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                modality_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1507,16 +1520,17 @@ class MainWindow(QMainWindow):
                 if data['str'] == 0 or data['str'] > 1:
                     color = QColor("crimson")
                     
-                for item in [id_item, name_item, slices_item, area_item, study_item, folder_item, str_item]:
+                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
                     item.setForeground(color)
                     
                 self.archive_table.setItem(row_idx, 0, id_item)
                 self.archive_table.setItem(row_idx, 1, name_item)
-                self.archive_table.setItem(row_idx, 2, slices_item)
-                self.archive_table.setItem(row_idx, 3, area_item)
-                self.archive_table.setItem(row_idx, 4, study_item)
-                self.archive_table.setItem(row_idx, 5, folder_item)
-                self.archive_table.setItem(row_idx, 6, str_item)
+                self.archive_table.setItem(row_idx, 2, modality_item)
+                self.archive_table.setItem(row_idx, 3, slices_item)
+                self.archive_table.setItem(row_idx, 4, area_item)
+                self.archive_table.setItem(row_idx, 5, study_item)
+                self.archive_table.setItem(row_idx, 6, folder_item)
+                self.archive_table.setItem(row_idx, 7, str_item)
                 
                 row_idx += 1
 
@@ -1652,12 +1666,14 @@ class MainWindow(QMainWindow):
                     
                     id_item = QTableWidgetItem(str(patient_id))
                     name_item = QTableWidgetItem(str(data['patient_name']))
+                    modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
                     slices_item = QTableWidgetItem(str(data.get('slices', '0')))
                     area_item = QTableWidgetItem(str(data.get('body_part', '')))
                     study_item = QTableWidgetItem(data['study_datetime_str'])
                     
                     id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                     name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                    modality_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1669,14 +1685,15 @@ class MainWindow(QMainWindow):
                     elif d_time.date() == datetime.now().date():
                         color = QColor("mediumturquoise")
                         
-                    for item in [id_item, name_item, slices_item, area_item, study_item]:
+                    for item in [id_item, name_item, modality_item, slices_item, area_item, study_item]:
                         item.setForeground(color)
                         
                     self.pacs_table.setItem(row_idx, 0, id_item)
                     self.pacs_table.setItem(row_idx, 1, name_item)
-                    self.pacs_table.setItem(row_idx, 2, slices_item)
-                    self.pacs_table.setItem(row_idx, 3, area_item)
-                    self.pacs_table.setItem(row_idx, 4, study_item)
+                    self.pacs_table.setItem(row_idx, 2, modality_item)
+                    self.pacs_table.setItem(row_idx, 3, slices_item)
+                    self.pacs_table.setItem(row_idx, 4, area_item)
+                    self.pacs_table.setItem(row_idx, 5, study_item)
                     
                     row_idx += 1
 
