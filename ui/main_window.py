@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget,
                              QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, 
                              QPlainTextEdit, QPushButton, QMessageBox, 
                              QHeaderView, QMenu, QAbstractItemView, QLineEdit, QLabel,
-                             QDialog, QFileDialog, QDateEdit)
+                             QDialog, QFileDialog, QDateEdit, QCheckBox)
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -24,6 +24,32 @@ from themes.theme_manager import load_theme
 
 
 class ToggleTableWidget(QTableWidget):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.placeholder_label = None
+
+    def set_placeholder_text(self, text):
+        if not self.placeholder_label:
+            self.placeholder_label = QLabel(text, self.viewport())
+            self.placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.placeholder_label.setStyleSheet("color: #666666; font-size: 15px; font-family: 'Segoe UI'; background: transparent;")
+            self.placeholder_label.hide()
+        else:
+            self.placeholder_label.setText(text)
+
+    def update_placeholder_visibility(self):
+        if self.placeholder_label:
+            if self.rowCount() == 0:
+                self.placeholder_label.setGeometry(self.viewport().rect())
+                self.placeholder_label.show()
+            else:
+                self.placeholder_label.hide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.placeholder_label:
+            self.placeholder_label.setGeometry(self.viewport().rect())
+
     def mousePressEvent(self, event):
         if event.button() != Qt.MouseButton.LeftButton:
             super().mousePressEvent(event)
@@ -220,6 +246,7 @@ class MainWindow(QMainWindow):
         self.restored_patient_ids = set()
         self.known_pacs_patient_ids = set()
         self.images_cache = None
+        self.previous_pacs_data = {}
         self.pacs_download_worker = None
         
         # Инициализируем таймеры до создания UI во избежание AttributeError
@@ -285,7 +312,8 @@ class MainWindow(QMainWindow):
         font = QFont("Consolas", log_font_size)
         self.output_field.setFont(font)
         
-        # 3. Перезапускаем таймеры и watcher
+        # 3. Синхронизируем чекбокс автообновления и перезапускаем таймеры
+        self.pacs_auto_scan_cb.setChecked(self.config.get('auto_update_is', 'on').lower() == 'on')
         self.restart_timers()
         
         # 4. Обновляем путь наблюдателя, если он изменился
@@ -356,11 +384,20 @@ class MainWindow(QMainWindow):
         # Наблюдатель файлов в реальном времени работает всегда
         self.update_watcher_path()
             
-        # Таймер PACS работает, если активна вкладка PACS или включены уведомления PACS
+        # Таймер PACS работает, если активна вкладка PACS и включено автообновление, либо включены фоновые уведомления PACS
         pacs_notify_on = self.config.get('pacs_notification_is', 'off').lower() == 'on'
         is_pacs_tab_active = (self.tab_widget.currentIndex() == 2)
-        if is_pacs_tab_active or pacs_notify_on:
+        pacs_auto_scan_on = self.config.get('auto_update_is', 'on').lower() == 'on'
+        if (is_pacs_tab_active and pacs_auto_scan_on) or pacs_notify_on:
             self.pacs_timer.start(self.config.get('pacs_scan_time', 10000))
+
+    def on_pacs_auto_scan_changed(self):
+        is_checked = self.pacs_auto_scan_cb.isChecked()
+        self.config['auto_update_is'] = 'on' if is_checked else 'off'
+        self.save_current_config()
+        self.restart_timers()
+        if is_checked:
+            self.fill_pacs_list(silent=True)
 
     def init_ui(self):
         # Главный виджет
@@ -411,6 +448,8 @@ class MainWindow(QMainWindow):
             lambda pos: self.show_header_context_menu(pos, self.images_table)
         )
         self.setup_table_properties(self.images_table)
+        self.images_table.set_placeholder_text("В этой папке нет КТ-исследований")
+        self.images_table.update_placeholder_visibility()
         self.restore_table_state(self.images_table)
         self.images_table.cellDoubleClicked.connect(self.open_current_folder_cmd)
         self.images_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -475,6 +514,8 @@ class MainWindow(QMainWindow):
             lambda pos: self.show_header_context_menu(pos, self.archive_table)
         )
         self.setup_table_properties(self.archive_table)
+        self.archive_table.set_placeholder_text("В архиве нет исследований")
+        self.archive_table.update_placeholder_visibility()
         self.restore_table_state(self.archive_table)
         self.archive_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.archive_table.customContextMenuRequested.connect(self.show_archive_context_menu)
@@ -531,6 +572,8 @@ class MainWindow(QMainWindow):
             lambda pos: self.show_header_context_menu(pos, self.pacs_table)
         )
         self.setup_table_properties(self.pacs_table)
+        self.pacs_table.set_placeholder_text("Исследования на сервере PACS не найдены")
+        self.pacs_table.update_placeholder_visibility()
         self.restore_table_state(self.pacs_table)
         self.pacs_table.itemSelectionChanged.connect(self.on_pacs_selection_changed)
         layout.addWidget(self.pacs_table)
@@ -855,6 +898,9 @@ class MainWindow(QMainWindow):
         if not hasattr(self, 'images_cache') or self.images_cache is None:
             return
 
+        self.images_table.setUpdatesEnabled(False)
+        self.images_table.blockSignals(True)
+
         # Запоминаем выделенного пациента
         self.selected_images_patient_id = None
         selected_ranges = self.images_table.selectedRanges()
@@ -959,6 +1005,10 @@ class MainWindow(QMainWindow):
                 if id_item and id_item.text() == self.selected_images_patient_id:
                     self.images_table.selectRow(r)
                     break
+
+        self.images_table.update_placeholder_visibility()
+        self.images_table.blockSignals(False)
+        self.images_table.setUpdatesEnabled(True)
 
     def search_patient_images(self):
         if not hasattr(self, 'images_cache') or self.images_cache is None:
@@ -1116,6 +1166,8 @@ class MainWindow(QMainWindow):
             self.search_patient_archive()
             return
 
+        self.archive_table.setUpdatesEnabled(False)
+        self.archive_table.blockSignals(True)
         self.archive_table.setRowCount(0)
         slice_limit = self.config.get('archive_slice', 0)
 
@@ -1192,6 +1244,10 @@ class MainWindow(QMainWindow):
                 if id_item and id_item.text() == self.selected_archive_patient_id:
                     self.archive_table.selectRow(r)
                     break
+
+        self.archive_table.update_placeholder_visibility()
+        self.archive_table.blockSignals(False)
+        self.archive_table.setUpdatesEnabled(True)
 
     def show_archive_context_menu(self, pos):
         index = self.archive_table.indexAt(pos)
@@ -1279,6 +1335,8 @@ class MainWindow(QMainWindow):
             self.fill_archive_list()
             return
 
+        self.archive_table.setUpdatesEnabled(False)
+        self.archive_table.blockSignals(True)
         self.archive_table.setRowCount(0)
         
         row_idx = 0
@@ -1329,6 +1387,10 @@ class MainWindow(QMainWindow):
                 
                 row_idx += 1
 
+        self.archive_table.update_placeholder_visibility()
+        self.archive_table.blockSignals(False)
+        self.archive_table.setUpdatesEnabled(True)
+
     # ================= ЛОГИКА ТАБЛИЦЫ PACS =================
 
     def fill_pacs_list(self, silent=False):
@@ -1343,7 +1405,6 @@ class MainWindow(QMainWindow):
 
         if not silent:
             log_message(self.output_field, "Пытаюсь подключиться к серверу PACS")
-        self.pacs_table.setRowCount(0)
 
         self.selected_pacs_patient_id = None
         selected_ranges = self.pacs_table.selectedRanges()
@@ -1416,53 +1477,78 @@ class MainWindow(QMainWindow):
             # Обновляем список известных ID PACS
             self.known_pacs_patient_ids = set(pacs_dict.keys())
 
-            self.pacs_table.setRowCount(0)
-            row_idx = 0
-            sorted_items = sorted(pacs_dict.items(), key=lambda x: x[1]['study_datetime_obj'], reverse=True)
-            
-            for patient_id, data in sorted_items:
-                self.pacs_table.insertRow(row_idx)
+            data_changed = (pacs_dict != self.previous_pacs_data)
+            if data_changed:
+                self.pacs_table.setUpdatesEnabled(False)
+                self.pacs_table.blockSignals(True)
+
+                self.pacs_table.setRowCount(0)
+                row_idx = 0
+                sorted_items = sorted(pacs_dict.items(), key=lambda x: x[1]['study_datetime_obj'], reverse=True)
                 
-                id_item = QTableWidgetItem(str(patient_id))
-                name_item = QTableWidgetItem(str(data['patient_name']))
-                slices_item = QTableWidgetItem(str(data.get('slices', '0')))
-                area_item = QTableWidgetItem(str(data.get('body_part', '')))
-                study_item = QTableWidgetItem(data['study_datetime_str'])
-                
-                id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                
-                color = QColor("#ffffff")
-                d_time = datetime.strptime(data['study_datetime_str'], "%d.%m.%y - %H:%M")
-                if (datetime.now() - d_time).total_seconds() / 3600 < 1:
-                    color = QColor("lime")
-                elif d_time.date() == datetime.now().date():
-                    color = QColor("mediumturquoise")
+                for patient_id, data in sorted_items:
+                    self.pacs_table.insertRow(row_idx)
                     
-                for item in [id_item, name_item, slices_item, area_item, study_item]:
-                    item.setForeground(color)
+                    id_item = QTableWidgetItem(str(patient_id))
+                    name_item = QTableWidgetItem(str(data['patient_name']))
+                    slices_item = QTableWidgetItem(str(data.get('slices', '0')))
+                    area_item = QTableWidgetItem(str(data.get('body_part', '')))
+                    study_item = QTableWidgetItem(data['study_datetime_str'])
                     
-                self.pacs_table.setItem(row_idx, 0, id_item)
-                self.pacs_table.setItem(row_idx, 1, name_item)
-                self.pacs_table.setItem(row_idx, 2, slices_item)
-                self.pacs_table.setItem(row_idx, 3, area_item)
-                self.pacs_table.setItem(row_idx, 4, study_item)
-                
-                row_idx += 1
+                    id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                    name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                    slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    
+                    color = QColor("#ffffff")
+                    d_time = datetime.strptime(data['study_datetime_str'], "%d.%m.%y - %H:%M")
+                    if (datetime.now() - d_time).total_seconds() / 3600 < 1:
+                        color = QColor("lime")
+                    elif d_time.date() == datetime.now().date():
+                        color = QColor("mediumturquoise")
+                        
+                    for item in [id_item, name_item, slices_item, area_item, study_item]:
+                        item.setForeground(color)
+                        
+                    self.pacs_table.setItem(row_idx, 0, id_item)
+                    self.pacs_table.setItem(row_idx, 1, name_item)
+                    self.pacs_table.setItem(row_idx, 2, slices_item)
+                    self.pacs_table.setItem(row_idx, 3, area_item)
+                    self.pacs_table.setItem(row_idx, 4, study_item)
+                    
+                    row_idx += 1
+
+                if hasattr(self, 'selected_pacs_patient_id') and self.selected_pacs_patient_id:
+                    for r in range(self.pacs_table.rowCount()):
+                        id_item = self.pacs_table.item(r, 0)
+                        if id_item and id_item.text() == self.selected_pacs_patient_id:
+                            self.pacs_table.selectRow(r)
+                            break
+
+                self.pacs_table.update_placeholder_visibility()
+                self.pacs_table.blockSignals(False)
+                self.pacs_table.setUpdatesEnabled(True)
+
+                self.previous_pacs_data = pacs_dict.copy()
+            else:
+                # Если данные не изменились, просто убедимся, что плейсхолдер скрыт/показан правильно
+                self.pacs_table.update_placeholder_visibility()
+
         elif not con and not has_fail_msg:
             if not silent:
                 log_message(self.output_field, "Не удалось подключиться к серверу PACS", replace_suffix="Пытаюсь подключиться к серверу PACS")
-            self.pacs_table.setRowCount(0)
-
-            if hasattr(self, 'selected_pacs_patient_id') and self.selected_pacs_patient_id:
-                for r in range(self.pacs_table.rowCount()):
-                    id_item = self.pacs_table.item(r, 0)
-                    if id_item and id_item.text() == self.selected_pacs_patient_id:
-                        self.pacs_table.selectRow(r)
-                        break
+            
+            if self.previous_pacs_data:
+                self.pacs_table.setUpdatesEnabled(False)
+                self.pacs_table.blockSignals(True)
+                self.pacs_table.setRowCount(0)
+                self.pacs_table.update_placeholder_visibility()
+                self.pacs_table.blockSignals(False)
+                self.pacs_table.setUpdatesEnabled(True)
+                self.previous_pacs_data = {}
+            else:
+                self.pacs_table.update_placeholder_visibility()
 
     # ================= УПРАВЛЕНИЕ НАСТРОЙКАМИ =================
 
