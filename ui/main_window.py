@@ -320,7 +320,7 @@ class MainWindow(QMainWindow):
         return dialog.config
 
     def init_window_geometry(self):
-        width = self.config.get('x', 1000)
+        width = self.config.get('x', 1150)
         height = self.config.get('y', 600)
         
         screen = QApplication.primaryScreen()
@@ -786,8 +786,8 @@ class MainWindow(QMainWindow):
             table.setColumnWidth(2, 65)   # Modality
             table.setColumnWidth(3, 65)   # Slices
             table.setColumnWidth(4, 120)  # Scanning Area
-            table.setColumnWidth(5, 120)  # Study
-            table.setColumnWidth(6, 120)  # Folder
+            table.setColumnWidth(5, 150)  # Study
+            table.setColumnWidth(6, 150)  # Folder
             table.setColumnWidth(7, 45)   # STR
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Имя тянется
         elif table.columnCount() == 6:
@@ -796,7 +796,7 @@ class MainWindow(QMainWindow):
             table.setColumnWidth(2, 70)   # Modality
             table.setColumnWidth(3, 65)   # Slices
             table.setColumnWidth(4, 130)  # Scanning Area
-            table.setColumnWidth(5, 130)  # Study
+            table.setColumnWidth(5, 150)  # Study
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
 
     def show_header_context_menu(self, pos, table):
