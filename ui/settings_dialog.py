@@ -497,6 +497,18 @@ class SettingsDialog(QDialog):
         self.id_prefixes_edit.setEnabled(self.fix_patient_id_cb.isChecked())
 
     def accept_settings(self):
+        ct_dir = os.path.normpath(self.ct_images_edit.text().strip())
+        archive_dir = os.path.normpath(self.archive_edit.text().strip())
+        
+        if ct_dir and archive_dir and ct_dir.lower() == archive_dir.lower():
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle("Ошибка")
+            msg.setText("Папка CT Images и папка CT Archive не могут быть одной и той же папкой.")
+            apply_dark_title_bar(msg)
+            msg.exec()
+            return
+
         if self.archive_enabled_cb.isChecked() and not self.archive_edit.text().strip():
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Warning)
