@@ -124,29 +124,63 @@ def rename_patient_folder(path, output_field, prefixes=None):
                 new_patient_id = new_patient_id[len(prefix):]
                 break
 
+    # Внутренняя функция для безопасного слияния папок без потери данных
+    def safe_merge_folders(src, dest, new_id):
+        for dirpath, dirnames, filenames in os.walk(src):
+            for filename in filenames:
+                src_file = os.path.join(dirpath, filename)
+                dest_file = os.path.join(dest, filename)
+                
+                # Защита от перезаписи: генерируем уникальное имя, если файл уже существует
+                if os.path.exists(dest_file):
+                    base, ext = os.path.splitext(filename)
+                    counter = 1
+                    while os.path.exists(os.path.join(dest, f"{base}_{counter}{ext}")):
+                        counter += 1
+                    dest_file = os.path.join(dest, f"{base}_{counter}{ext}")
+                
+                # Если файл DICOM или структура, пытаемся обновить PatientID
+                if filename.lower().endswith('.dcm') or filename.startswith('STR'):
+                    try:
+                        ds_file = pydicom.read_file(src_file)
+                        ds_file.PatientID = new_id
+                        ds_file.save_as(dest_file)
+                    except Exception:
+                        # Если не удалось обработать как DICOM, просто копируем файл
+                        shutil.copy2(src_file, dest_file)
+                else:
+                    # Все остальные файлы копируем как есть
+                    shutil.copy2(src_file, dest_file)
+        # Удаляем исходную папку только после успешного копирования всего содержимого
+        shutil.rmtree(src)
+
+    # Внутренняя функция для обновления PatientID во всех DICOM-файлах после переименования папки
+    def safe_update_patient_ids(folder_path, new_id):
+        for dirpath, dirnames, filenames in os.walk(folder_path):
+            for filename in filenames:
+                if filename.lower().endswith('.dcm') or filename.startswith('STR'):
+                    src_file = os.path.join(dirpath, filename)
+                    try:
+                        ds_file = pydicom.read_file(src_file)
+                        ds_file.PatientID = new_id
+                        ds_file.save_as(src_file)
+                    except Exception as e:
+                        log_message(output_field, f"Предупреждение: не удалось обновить PatientID в файле {filename}: {e}")
+
     if patient_folder != new_patient_id:
         new_folder = str(new_patient_id)
         new_path = os.path.join(os.path.dirname(path), new_folder)
 
         if os.path.exists(new_path):
-            # Если папка уже существует, добавляем файлы в нее
-            for dirpath, dirnames, filenames in os.walk(path):
-                for filename in filenames:
-                    if filename.endswith('.dcm'):
-                        ds_file = pydicom.read_file(os.path.join(dirpath, filename))
-                        ds_file.PatientID = new_patient_id
-                        ds_file.save_as(os.path.join(new_path, filename))
-            shutil.rmtree(path)
-            log_message(output_field, f"Файлы успешно добавлены в существующую папку: {new_folder}, новый PatientID: {new_patient_id}, исходная папка {patient_folder} удалена")
+            try:
+                safe_merge_folders(path, new_path, new_patient_id)
+                log_message(output_field, f"Файлы успешно объединены в существующую папку: {new_folder}, новый PatientID: {new_patient_id}, исходная папка {patient_folder} удалена")
+            except Exception as e:
+                log_message(output_field, f"Ошибка при слиянии папок {patient_folder} -> {new_folder}: {e}")
         else:
             try:
                 os.rename(path, new_path)
-                for dirpath, dirnames, filenames in os.walk(new_path):
-                    for filename in filenames:
-                        if filename.endswith('.dcm'):
-                            ds_file = pydicom.read_file(os.path.join(dirpath, filename))
-                            ds_file.PatientID = new_patient_id
-                            ds_file.save_as(os.path.join(new_path, filename))
+                safe_update_patient_ids(new_path, new_patient_id)
                 log_message(output_field, f"Переименовано: {patient_folder} -> {new_folder}, новый PatientID: {new_patient_id}")
             except Exception as e:
                 log_message(output_field, f"Ошибка переименования {patient_folder}: {e}")
@@ -158,24 +192,15 @@ def rename_patient_folder(path, output_field, prefixes=None):
         new_path = os.path.join(os.path.dirname(path), new_folder)
 
         if os.path.exists(new_path):
-            # Если папка уже существует, добавляем файлы в нее
-            for dirpath, dirnames, filenames in os.walk(path):
-                for filename in filenames:
-                    if filename.endswith('.dcm'):
-                        ds_file = pydicom.read_file(os.path.join(dirpath, filename))
-                        ds_file.PatientID = new_patient_id
-                        ds_file.save_as(os.path.join(new_path, filename))
-            shutil.rmtree(path)
-            log_message(output_field, f"Файлы успешно добавлены в существующую папку: {new_folder}, новый PatientID: {new_patient_id}, исходная папка {patient_folder} удалена")
+            try:
+                safe_merge_folders(path, new_path, new_patient_id)
+                log_message(output_field, f"Файлы успешно объединены в существующую папку: {new_folder}, новый PatientID: {new_patient_id}, исходная папка {patient_folder} удалена")
+            except Exception as e:
+                log_message(output_field, f"Ошибка при слиянии папок {patient_folder} -> {new_folder}: {e}")
         else:
             try:
                 os.rename(path, new_path)
-                for dirpath, dirnames, filenames in os.walk(new_path):
-                    for filename in filenames:
-                        if filename.endswith('.dcm'):
-                            ds_file = pydicom.read_file(os.path.join(dirpath, filename))
-                            ds_file.PatientID = new_patient_id
-                            ds_file.save_as(os.path.join(new_path, filename))
+                safe_update_patient_ids(new_path, new_patient_id)
                 log_message(output_field, f"Переименовано: {patient_folder} -> {new_folder}, новый PatientID: {new_patient_id}")
             except Exception as e:
                 log_message(output_field, f"Ошибка переименования {patient_folder}: {e}")
