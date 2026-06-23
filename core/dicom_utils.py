@@ -50,7 +50,7 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False):
             file = files[0]
             if file.endswith('.dcm'):
                 try:
-                    ds = pydicom.read_file(os.path.join(root, file))
+                    ds = pydicom.dcmread(os.path.join(root, file))
                     patient_data[ds.PatientID]['patient_id'] = ds.PatientID
                     patient_data[ds.PatientID]['patient_name'] = ds.PatientName
 
@@ -111,7 +111,7 @@ def rename_patient_folder(path, output_field, prefixes=None):
         return
 
     try:
-        ds = pydicom.read_file(os.path.join(path, files[0]))
+        ds = pydicom.dcmread(os.path.join(path, files[0]))
     except Exception as e:
         log_message(output_field, f"Ошибка чтения DICOM в {patient_folder}: {e}")
         return
@@ -133,7 +133,7 @@ def rename_patient_folder(path, output_field, prefixes=None):
             for dirpath, dirnames, filenames in os.walk(path):
                 for filename in filenames:
                     if filename.endswith('.dcm'):
-                        ds_file = pydicom.read_file(os.path.join(dirpath, filename))
+                        ds_file = pydicom.dcmread(os.path.join(dirpath, filename))
                         ds_file.PatientID = new_patient_id
                         ds_file.save_as(os.path.join(new_path, filename))
             shutil.rmtree(path)
@@ -144,7 +144,7 @@ def rename_patient_folder(path, output_field, prefixes=None):
                 for dirpath, dirnames, filenames in os.walk(new_path):
                     for filename in filenames:
                         if filename.endswith('.dcm'):
-                            ds_file = pydicom.read_file(os.path.join(dirpath, filename))
+                            ds_file = pydicom.dcmread(os.path.join(dirpath, filename))
                             ds_file.PatientID = new_patient_id
                             ds_file.save_as(os.path.join(new_path, filename))
                 log_message(output_field, f"Переименовано: {patient_folder} -> {new_folder}, новый PatientID: {new_patient_id}")
@@ -162,7 +162,7 @@ def rename_patient_folder(path, output_field, prefixes=None):
             for dirpath, dirnames, filenames in os.walk(path):
                 for filename in filenames:
                     if filename.endswith('.dcm'):
-                        ds_file = pydicom.read_file(os.path.join(dirpath, filename))
+                        ds_file = pydicom.dcmread(os.path.join(dirpath, filename))
                         ds_file.PatientID = new_patient_id
                         ds_file.save_as(os.path.join(new_path, filename))
             shutil.rmtree(path)
@@ -173,7 +173,7 @@ def rename_patient_folder(path, output_field, prefixes=None):
                 for dirpath, dirnames, filenames in os.walk(new_path):
                     for filename in filenames:
                         if filename.endswith('.dcm'):
-                            ds_file = pydicom.read_file(os.path.join(dirpath, filename))
+                            ds_file = pydicom.dcmread(os.path.join(dirpath, filename))
                             ds_file.PatientID = new_patient_id
                             ds_file.save_as(os.path.join(new_path, filename))
                 log_message(output_field, f"Переименовано: {patient_folder} -> {new_folder}, новый PatientID: {new_patient_id}")

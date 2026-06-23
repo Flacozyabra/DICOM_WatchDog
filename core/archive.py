@@ -103,7 +103,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                 file = dcm_files[0]
                 file_path = os.path.join(root, file)
                 try:
-                    ds = pydicom.read_file(file_path)
+                    ds = pydicom.dcmread(file_path)
                     p_id = ds.PatientID
                     p_name = str(ds.PatientName)
                     
