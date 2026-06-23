@@ -551,7 +551,7 @@ class MainWindow(QMainWindow):
         self.pacs_date_from.setStyleSheet(
             "QDateEdit { background-color: #0f0f0f; color: #ffffff; border: 1px solid #3d3d3d; border-radius: 6px; padding: 4px; font-family: 'Segoe UI'; font-size: 13px; }"
         )
-        self.pacs_date_from.dateChanged.connect(self.fill_pacs_list)
+        self.pacs_date_from.dateChanged.connect(lambda: self.fill_pacs_list(silent=True))
         
         lbl_to = QLabel("по:")
         lbl_to.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
@@ -564,7 +564,7 @@ class MainWindow(QMainWindow):
         self.pacs_date_to.setStyleSheet(
             "QDateEdit { background-color: #0f0f0f; color: #ffffff; border: 1px solid #3d3d3d; border-radius: 6px; padding: 4px; font-family: 'Segoe UI'; font-size: 13px; }"
         )
-        self.pacs_date_to.dateChanged.connect(self.fill_pacs_list)
+        self.pacs_date_to.dateChanged.connect(lambda: self.fill_pacs_list(silent=True))
         
         self.pacs_today_btn = QPushButton("Today")
         self.pacs_today_btn.setFixedHeight(30)
@@ -587,12 +587,12 @@ class MainWindow(QMainWindow):
         self.settings_btn3.setToolTip("Настройки папок и интервалов")
         self.settings_btn3.clicked.connect(self.open_settings_cmd)
         
+        pacs_control_layout.addWidget(self.pacs_today_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+        pacs_control_layout.addWidget(self.pacs_3days_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(lbl_from, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.pacs_date_from, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(lbl_to, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.pacs_date_to, alignment=Qt.AlignmentFlag.AlignVCenter)
-        pacs_control_layout.addWidget(self.pacs_today_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
-        pacs_control_layout.addWidget(self.pacs_3days_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addStretch(1)
         pacs_control_layout.addWidget(self.send_to_ct_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.settings_btn3, alignment=Qt.AlignmentFlag.AlignVCenter)
@@ -1331,8 +1331,8 @@ class MainWindow(QMainWindow):
 
     # ================= ЛОГИКА ТАБЛИЦЫ PACS =================
 
-    def fill_pacs_list(self):
-        self.start_pacs_scan(silent=False)
+    def fill_pacs_list(self, silent=False):
+        self.start_pacs_scan(silent=silent)
 
     def auto_update_pacs(self):
         self.start_pacs_scan(silent=True)
@@ -1514,7 +1514,7 @@ class MainWindow(QMainWindow):
         self.pacs_date_to.setDate(QDate.currentDate())
         self.pacs_date_from.blockSignals(False)
         self.pacs_date_to.blockSignals(False)
-        self.fill_pacs_list()
+        self.fill_pacs_list(silent=True)
 
     def pacs_set_3days(self):
         self.pacs_date_from.blockSignals(True)
@@ -1523,7 +1523,7 @@ class MainWindow(QMainWindow):
         self.pacs_date_to.setDate(QDate.currentDate())
         self.pacs_date_from.blockSignals(False)
         self.pacs_date_to.blockSignals(False)
-        self.fill_pacs_list()
+        self.fill_pacs_list(silent=True)
 
     def send_to_ct_images_cmd(self):
         selected_ranges = self.pacs_table.selectedRanges()
