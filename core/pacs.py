@@ -11,6 +11,7 @@ from core.logger import log_message
 
 def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11112, called_aet="ANY-SCP", calling_aet="ECHOSCU", study_date=None):
     pacs_data = defaultdict(dict)
+    con = False
     ae = AE()
     ae.ae_title = calling_aet
     ae.add_requested_context('1.2.840.10008.5.1.4.1.2.1.1')  # C-FIND (Patient Root Query)
@@ -36,11 +37,11 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
     assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet)
 
     if assoc.is_established:
+        con = True
         # Send the C-FIND request
         responses = assoc.send_c_find(ds, '1.2.840.10008.5.1.4.1.2.1.1')
 
         for (status, identifier) in responses:
-            con = True
             if status and identifier:
                 patient_id = identifier.get('PatientID', 'Нет инфы об айди')
                 pacs_data[patient_id]['study_patient_id'] = patient_id
