@@ -12,6 +12,7 @@ class ToggleSwitch(QCheckBox):
         self._knob_color = QColor("#ffffff")
         self._knob_position = 18 if self.isChecked() else 2
         self.setFixedHeight(22)
+        self.setFixedWidth(36)
 
     @pyqtProperty(int)
     def knob_position(self):
