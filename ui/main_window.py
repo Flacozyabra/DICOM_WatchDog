@@ -963,8 +963,10 @@ class MainWindow(QMainWindow):
                 continue
             
             patient_name = str(data.get('patient_name', '')).lower()
-            if search_text and search_text not in patient_name:
-                continue
+            if search_text:
+                words = patient_name.replace('^', ' ').split()
+                if not any(word.startswith(search_text) for word in words):
+                    continue
                 
             valid_patients[patient_id] = data
 
