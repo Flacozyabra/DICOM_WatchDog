@@ -21,6 +21,7 @@ from core.logger import log_message
 from core.pacs import pacs_dict_create, download_patient_from_pacs
 from ui.settings_dialog import SettingsDialog
 from ui.toggle_switch import ToggleSwitch
+from ui.centered_date_edit import CenteredDateEdit
 from themes.theme_manager import load_theme
 
 
@@ -634,29 +635,19 @@ class MainWindow(QMainWindow):
         self.lbl_from = QLabel("Период с:")
         self.lbl_from.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
         
-        self.pacs_date_from = QDateEdit()
-        self.pacs_date_from.setCalendarPopup(True)
+        self.pacs_date_from = CenteredDateEdit()
         self.pacs_date_from.setDisplayFormat("dd.MM.yyyy")
         self.pacs_date_from.setDate(QDate.currentDate())
         self.pacs_date_from.setFixedHeight(30)
-        self.pacs_date_from.setStyleSheet(
-            "QDateEdit { background-color: #0f0f0f; color: #ffffff; border: 1px solid #3d3d3d; border-radius: 6px; padding: 4px; font-family: 'Segoe UI'; font-size: 13px; }"
-            "QDateEdit:disabled { background-color: #121212; color: #666666; border: 1px solid #2d2d2d; }"
-        )
         self.pacs_date_from.dateChanged.connect(lambda: self.fill_pacs_list(silent=True))
         
         self.lbl_to = QLabel("по:")
         self.lbl_to.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
         
-        self.pacs_date_to = QDateEdit()
-        self.pacs_date_to.setCalendarPopup(True)
+        self.pacs_date_to = CenteredDateEdit()
         self.pacs_date_to.setDisplayFormat("dd.MM.yyyy")
         self.pacs_date_to.setDate(QDate.currentDate())
         self.pacs_date_to.setFixedHeight(30)
-        self.pacs_date_to.setStyleSheet(
-            "QDateEdit { background-color: #0f0f0f; color: #ffffff; border: 1px solid #3d3d3d; border-radius: 6px; padding: 4px; font-family: 'Segoe UI'; font-size: 13px; }"
-            "QDateEdit:disabled { background-color: #121212; color: #666666; border: 1px solid #2d2d2d; }"
-        )
         self.pacs_date_to.dateChanged.connect(lambda: self.fill_pacs_list(silent=True))
         
         self.pacs_auto_scan_cb = ToggleSwitch("Standby mode")
