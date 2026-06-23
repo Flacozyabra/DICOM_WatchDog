@@ -144,7 +144,7 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
 
 def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, called_aet, calling_aet):
     from pydicom.dataset import Dataset
-    from pynetdicom import AE, evt, build_role
+    from pynetdicom import AE, evt, build_role, ALL_TRANSFER_SYNTAXES
     from pynetdicom.sop_class import (
         PatientRootQueryRetrieveInformationModelGet,
         CTImageStorage,
@@ -169,7 +169,7 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     
     roles = []
     for sop_class in storage_classes:
-        ae.add_supported_context(sop_class)
+        ae.add_supported_context(sop_class, ALL_TRANSFER_SYNTAXES)
         roles.append(build_role(sop_class, scp_role=True))
         
     ds = Dataset()
@@ -216,6 +216,13 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
         for (status, identifier) in responses:
             if status:
                 status_list.append(status.Status)
+                try:
+                    with open("pacs_error.log", "a", encoding="utf-8") as f:
+                        f.write(f"\n--- C-GET Status Response ({datetime.now()}) ---\n")
+                        f.write(str(status))
+                        f.write("\n")
+                except Exception:
+                    pass
         assoc.release()
         
         if status_list and (status_list[-1] == 0x0000 or status_list[-1] == 0xB000):
