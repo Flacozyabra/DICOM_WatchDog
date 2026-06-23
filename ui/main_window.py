@@ -565,6 +565,8 @@ class MainWindow(QMainWindow):
         
         # Панель поиска и восстановления
         search_layout = QHBoxLayout()
+        search_layout.setContentsMargins(5, 0, 5, 0)
+        search_layout.setSpacing(10)
         
         self.search_entry = QLineEdit()
         self.search_entry.setPlaceholderText("Введите имя пациента для поиска")
