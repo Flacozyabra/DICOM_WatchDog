@@ -38,48 +38,54 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
 
     if assoc.is_established:
         con = True
-        # Send the C-FIND request
-        responses = assoc.send_c_find(ds, '1.2.840.10008.5.1.4.1.2.1.1')
+        try:
+            # Send the C-FIND request
+            responses = assoc.send_c_find(ds, '1.2.840.10008.5.1.4.1.2.1.1')
 
-        for (status, identifier) in responses:
-            if status and identifier:
-                patient_id = identifier.get('PatientID', 'Нет инфы об айди')
-                pacs_data[patient_id]['study_patient_id'] = patient_id
-                pacs_data[patient_id]['patient_name'] = identifier.get(
-                    'PatientName', 'Нет инфы об имени')
-                pacs_data[patient_id]['study_time'] = identifier.get(
-                    'StudyTime', 'Нет инфы о времени')
-                pacs_data[patient_id]['study_date'] = identifier.get(
-                    'StudyDate', 'Нет инфы о дате')
-                pacs_data[patient_id]['slices'] = str(identifier.get('NumberOfStudyRelatedInstances', '0'))
+            for (status, identifier) in responses:
+                if status and identifier:
+                    patient_id = identifier.get('PatientID', 'Нет инфы об айди')
+                    pacs_data[patient_id]['study_patient_id'] = patient_id
+                    pacs_data[patient_id]['patient_name'] = identifier.get(
+                        'PatientName', 'Нет инфы об имени')
+                    pacs_data[patient_id]['study_time'] = identifier.get(
+                        'StudyTime', 'Нет инфы о времени')
+                    pacs_data[patient_id]['study_date'] = identifier.get(
+                        'StudyDate', 'Нет инфы о дате')
+                    pacs_data[patient_id]['slices'] = str(identifier.get('NumberOfStudyRelatedInstances', '0'))
 
-                # Область сканирования
-                body_part = identifier.get('BodyPartExamined', '')
-                if not body_part:
-                    body_part = identifier.get('StudyDescription', '')
-                body_part_str = str(body_part).strip()
-                if not body_part_str:
-                    body_part_str = "Unknown"
-                pacs_data[patient_id]['body_part'] = body_part_str
+                    # Область сканирования
+                    body_part = identifier.get('BodyPartExamined', '')
+                    if not body_part:
+                        body_part = identifier.get('StudyDescription', '')
+                    body_part_str = str(body_part).strip()
+                    if not body_part_str:
+                        body_part_str = "Unknown"
+                    pacs_data[patient_id]['body_part'] = body_part_str
 
-                # Преобразование времени
-                format_string = '%H%M%S' if '.' not in pacs_data[patient_id]['study_time'] else '%H%M%S.%f'
-                time_obj = datetime.strptime(pacs_data[patient_id]['study_time'], format_string)
-                time_formatted = time_obj.strftime('%H:%M')
-                # Преобразование даты
-                date_obj = datetime.strptime(pacs_data[patient_id]['study_date'], '%Y%m%d')
-                date_formatted = date_obj.strftime('%d.%m.%y')
-                # Комбинирование времени и даты
-                date_time = f"{date_formatted} - {time_formatted}"
+                    # Преобразование времени
+                    format_string = '%H%M%S' if '.' not in pacs_data[patient_id]['study_time'] else '%H%M%S.%f'
+                    time_obj = datetime.strptime(pacs_data[patient_id]['study_time'], format_string)
+                    time_formatted = time_obj.strftime('%H:%M')
+                    # Преобразование даты
+                    date_obj = datetime.strptime(pacs_data[patient_id]['study_date'], '%Y%m%d')
+                    date_formatted = date_obj.strftime('%d.%m.%y')
+                    # Комбинирование времени и даты
+                    date_time = f"{date_formatted} - {time_formatted}"
 
-                # Создание объекта datetime, представляющего дату и время
-                study_datetime_obj = date_obj + timedelta(hours=time_obj.hour, minutes=time_obj.minute,
-                                                       seconds=time_obj.second, microseconds=time_obj.microsecond)
+                    # Создание объекта datetime, представляющего дату и время
+                    study_datetime_obj = date_obj + timedelta(hours=time_obj.hour, minutes=time_obj.minute,
+                                                           seconds=time_obj.second, microseconds=time_obj.microsecond)
 
-                pacs_data[patient_id]['study_datetime_obj'] = study_datetime_obj
-                pacs_data[patient_id]['study_datetime_str'] = date_time
-
-        assoc.release()
+                    pacs_data[patient_id]['study_datetime_obj'] = study_datetime_obj
+                    pacs_data[patient_id]['study_datetime_str'] = date_time
+            
+            if assoc.is_aborted:
+                log_message(output_field, f"Соединение с PACS было сброшено сервером во время поиска.\nВозможно, локальный AE Title ({calling_aet}) или IP этого компьютера не зарегистрированы на сервере PACS.")
+        except Exception as e:
+            log_message(output_field, f"Ошибка при выполнении запроса C-FIND к PACS: {e}")
+        finally:
+            assoc.release()
     else:
         con = False
         log_message(output_field, "Не удалось подключиться к серверу PACS")
@@ -91,17 +97,45 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
     ae = AE()
     ae.ae_title = calling_aet
     ae.connection_timeout = 3
-    ae.add_requested_context('1.2.840.10008.1.1')
+    ae.add_requested_context('1.2.840.10008.1.1')  # C-ECHO
+    ae.add_requested_context('1.2.840.10008.5.1.4.1.2.1.1')  # C-FIND
     try:
         assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet)
         if assoc.is_established:
-            status = assoc.send_c_echo()
+            # 1. Проверяем C-ECHO
+            echo_status = assoc.send_c_echo()
+            if not echo_status or echo_status.Status != 0x0000:
+                assoc.release()
+                status_hex = f"0x{echo_status.Status:04x}" if echo_status and echo_status.Status is not None else "None"
+                return False, f"Ошибка: PACS сервер вернул код статуса {status_hex} на C-ECHO."
+
+            # 2. Проверяем возможность C-FIND (проверка регистрации AET/IP)
+            from pydicom.dataset import Dataset
+            ds = Dataset()
+            ds.QueryRetrieveLevel = 'STUDY'
+            ds.PatientName = '*'
+            ds.PatientID = '*'
+            ds.StudyTime = ''
+            ds.StudyDate = '19000101'  # Тестовая дата
+            
+            find_aborted = False
+            try:
+                responses = list(assoc.send_c_find(ds, '1.2.840.10008.5.1.4.1.2.1.1'))
+                if not responses or not responses[0][0].keys() or assoc.is_aborted:
+                    find_aborted = True
+            except Exception:
+                find_aborted = True
+                
             assoc.release()
-            if status and status.Status == 0x0000:
-                return True, "Соединение успешно установлено!\nPACS сервер ответил на C-ECHO."
-            else:
-                status_hex = f"0x{status.Status:04x}" if status and status.Status is not None else "None"
-                return False, f"Ошибка: PACS сервер вернул код статуса {status_hex}."
+            
+            if find_aborted:
+                return False, (
+                    f"Связь есть, но устройство не зарегистрировано!\n\n"
+                    f"PACS сервер успешно ответил на C-ECHO (пинг), но сбросил соединение при попытке C-FIND (поиск).\n"
+                    f"Проверьте, что локальный AE Title (AET Local: \"{calling_aet}\") и IP-адрес этого компьютера зарегистрированы на PACS сервере, либо неверно указан AET Remote (\"{called_aet}\")."
+                )
+                
+            return True, "Соединение успешно установлено!\nPACS сервер ответил на пинг и разрешил поиск (устройство зарегистрировано)."
         else:
             return False, "Ошибка: Не удалось установить связь с PACS сервером.\nПроверьте IP-адрес, порт и AE Titles."
     except Exception as e:
