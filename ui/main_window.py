@@ -317,11 +317,19 @@ class MainWindow(QMainWindow):
         return dialog.config
 
     def init_window_geometry(self):
-        x = self.config.get('x', 1000)
-        y = self.config.get('y', 600)
-        dx = self.config.get('dx', 350)
-        dy = self.config.get('dy', 100)
-        self.setGeometry(dx, dy, x, y)
+        width = self.config.get('x', 1000)
+        height = self.config.get('y', 600)
+        
+        screen = QApplication.primaryScreen()
+        if screen:
+            screen_geometry = screen.geometry()
+            dx = screen_geometry.x() + (screen_geometry.width() - width) // 2
+            dy = screen_geometry.y() + (screen_geometry.height() - height) // 2
+        else:
+            dx = 350
+            dy = 100
+            
+        self.setGeometry(dx, dy, width, height)
 
     def apply_theme(self):
         theme_content = load_theme("dark")
@@ -343,7 +351,7 @@ class MainWindow(QMainWindow):
             "Semibold": "600",
             "Bold": "700"
         }
-        weight_str = self.config.get('patient_weight', 'Regular')
+        weight_str = self.config.get('patient_weight', 'Semibold')
         weight = weight_map.get(weight_str, "400")
         table_style = f"font-size: {font_size}px; font-weight: {weight}; font-family: 'Segoe UI';"
         
@@ -747,7 +755,7 @@ class MainWindow(QMainWindow):
             "Semibold": "600",
             "Bold": "700"
         }
-        weight_str = self.config.get('patient_weight', 'Regular')
+        weight_str = self.config.get('patient_weight', 'Semibold')
         weight = weight_map.get(weight_str, "400")
         table_style = f"font-size: {font_size}px; font-weight: {weight}; font-family: 'Segoe UI';"
         header_style = "font-size: 14px; font-weight: normal; font-family: 'Segoe UI';"
@@ -1715,7 +1723,7 @@ class MainWindow(QMainWindow):
                 "Semibold": "600",
                 "Bold": "700"
             }
-            weight_str = self.config.get('patient_weight', 'Regular')
+            weight_str = self.config.get('patient_weight', 'Semibold')
             weight = weight_map.get(weight_str, "400")
             table_style = f"font-size: {font_size}px; font-weight: {weight}; font-family: 'Segoe UI';"
             header_style = "font-size: 14px; font-weight: normal; font-family: 'Segoe UI';"

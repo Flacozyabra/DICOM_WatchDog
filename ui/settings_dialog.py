@@ -119,7 +119,7 @@ class SettingsDialog(QDialog):
             'auto_update_is': 'off',
             'pacs_notification_is': 'off',
             'patient_font_size': 14,
-            'patient_weight': 'Regular',
+            'patient_weight': 'Semibold',
             'archive_enabled': 'True',
             'archive_days': 3,
             'archive_cleanup_enabled': 'False',
@@ -378,8 +378,8 @@ class SettingsDialog(QDialog):
         # Patient Font Weight
         self.patient_weight_combo = QComboBox()
         self.patient_weight_combo.addItems(["Regular", "Semibold", "Bold"])
-        self.patient_weight_combo.setCurrentText(self.config.get('patient_weight', 'Regular'))
-        ui_form.addRow("Толщина шрифта пациентов:", self.patient_weight_combo)
+        self.patient_weight_combo.setCurrentText(self.config.get('patient_weight', 'Semibold'))
+        ui_form.addRow("Толщина шрифта списков:", self.patient_weight_combo)
         
         # Font size (logs)
         self.font_size_spin = QSpinBox()
