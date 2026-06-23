@@ -196,7 +196,7 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
             return 0xC000
             
     handlers = [(evt.EVT_C_STORE, handle_store, [target_dir])]
-    assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet, evt_handlers=handlers, roles=roles)
+    assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet, evt_handlers=handlers, ext_neg=roles)
     
     success = False
     msg = ""
