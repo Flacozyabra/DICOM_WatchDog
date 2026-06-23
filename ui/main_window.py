@@ -3,13 +3,13 @@ import sys
 import shutil
 from datetime import datetime
 
-from PyQt6.QtCore import Qt, QTimer, QSize, QThread, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, QTimer, QSize, QThread, pyqtSignal, QObject, QDate
 from PyQt6.QtGui import QColor, QAction, QIcon, QFont
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, 
                              QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, 
                              QPlainTextEdit, QPushButton, QMessageBox, 
                              QHeaderView, QMenu, QAbstractItemView, QLineEdit, QLabel,
-                             QDialog, QFileDialog)
+                             QDialog, QFileDialog, QDateEdit)
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -18,7 +18,7 @@ from core.dicom_utils import dict_create, rename_patient_folder, delete_redundan
 from core.archive import move_old_folders_to_archive
 from core.notifier import show_notification
 from core.logger import log_message
-from core.pacs import pacs_dict_create
+from core.pacs import pacs_dict_create, download_patient_from_pacs
 from ui.settings_dialog import SettingsDialog
 from themes.theme_manager import load_theme
 
@@ -112,12 +112,13 @@ class FolderScanWorker(QThread):
 class PacsScanWorker(QThread):
     finished = pyqtSignal(dict, bool, list)
 
-    def __init__(self, pacs_ip, pacs_port, called_aet, calling_aet):
+    def __init__(self, pacs_ip, pacs_port, called_aet, calling_aet, study_date=None):
         super().__init__()
         self.pacs_ip = pacs_ip
         self.pacs_port = pacs_port
         self.called_aet = called_aet
         self.calling_aet = calling_aet
+        self.study_date = study_date
 
     def run(self):
         collector = ThreadLogCollector()
@@ -126,7 +127,8 @@ class PacsScanWorker(QThread):
             pacs_ip=self.pacs_ip,
             pacs_port=self.pacs_port,
             called_aet=self.called_aet,
-            calling_aet=self.calling_aet
+            calling_aet=self.calling_aet,
+            study_date=self.study_date
         )
         self.finished.emit(pacs_dict, con, collector.messages)
 
@@ -145,6 +147,27 @@ class ArchiveScanWorker(QThread):
         from core.archive import archive_dict_create
         d = archive_dict_create(self.archive_dir, collector, cleanup_structures=is_cleanup_struct_on)
         self.finished.emit(d, collector.messages)
+
+
+class PacsDownloadWorker(QThread):
+    finished = pyqtSignal(bool, str)
+
+    def __init__(self, patient_id, target_dir, pacs_ip, pacs_port, called_aet, calling_aet):
+        super().__init__()
+        self.patient_id = patient_id
+        self.target_dir = target_dir
+        self.pacs_ip = pacs_ip
+        self.pacs_port = pacs_port
+        self.called_aet = called_aet
+        self.calling_aet = calling_aet
+
+    def run(self):
+        success, msg = download_patient_from_pacs(
+            self.patient_id, self.target_dir,
+            self.pacs_ip, self.pacs_port,
+            self.called_aet, self.calling_aet
+        )
+        self.finished.emit(success, msg)
 
 
 class MainWindow(QMainWindow):
@@ -196,6 +219,8 @@ class MainWindow(QMainWindow):
         self.is_first_pacs_scan = True
         self.restored_patient_ids = set()
         self.known_pacs_patient_ids = set()
+        self.images_cache = None
+        self.pacs_download_worker = None
         
         # Инициализируем таймеры до создания UI во избежание AttributeError
         self.pacs_timer = QTimer(self)
@@ -399,30 +424,17 @@ class MainWindow(QMainWindow):
         control_layout.setContentsMargins(5, 0, 5, 0)
         control_layout.setSpacing(10)
         
-        # Поле выбора папки сканирования
-        scan_label = QLabel("Scan Folder:")
-        scan_label.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px; font-weight: normal;")
+        # Поиск по КТ-изображениям
+        self.search_images_entry = QLineEdit()
+        self.search_images_entry.setPlaceholderText("Введите имя пациента для поиска")
+        self.search_images_entry.textChanged.connect(self.search_patient_images)
+        self.search_images_entry.setFixedHeight(30)
+        control_layout.addWidget(self.search_images_entry, stretch=1, alignment=Qt.AlignmentFlag.AlignVCenter)
         
-        self.scan_dir_edit = QLineEdit(self.config.get('ct_images_dir', ''))
-        self.scan_dir_edit.setReadOnly(True)
-        self.scan_dir_edit.setFixedHeight(30)
-        self.scan_dir_edit.setStyleSheet(
-            "background-color: #0f0f0f; color: #ffffff; border: 1px solid #3d3d3d; "
-            "border-radius: 4px; padding: 4px; font-family: 'Segoe UI'; font-size: 13px;"
-        )
-        
-        scan_browse_btn = QPushButton("Browse...")
-        scan_browse_btn.setFixedHeight(30)
-        scan_browse_btn.setStyleSheet(
-            "QPushButton { background-color: #1f538d; color: white; border: none; border-radius: 4px; padding: 5px 12px; font-family: 'Segoe UI'; font-size: 13px; }"
-            "QPushButton:hover { background-color: #2a6db7; }"
-            "QPushButton:pressed { background-color: #153e6b; }"
-        )
-        scan_browse_btn.clicked.connect(self.browse_scan_folder)
-        
-        control_layout.addWidget(scan_label, alignment=Qt.AlignmentFlag.AlignVCenter)
-        control_layout.addWidget(self.scan_dir_edit, stretch=1, alignment=Qt.AlignmentFlag.AlignVCenter)
-        control_layout.addWidget(scan_browse_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+        self.search_images_btn = QPushButton("Search")
+        self.search_images_btn.setFixedHeight(30)
+        self.search_images_btn.clicked.connect(self.search_patient_images)
+        control_layout.addWidget(self.search_images_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         
         # Кнопка перемещения в архив
         self.move_to_archive_btn = QPushButton("Move to Archive")
@@ -433,13 +445,13 @@ class MainWindow(QMainWindow):
         control_layout.addWidget(self.move_to_archive_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         
         # Кнопка настроек (шестеренка)
-        self.settings_btn = QPushButton()
-        self.settings_btn.setIcon(QIcon("themes/settings.svg"))
-        self.settings_btn.setIconSize(QSize(20, 20))
-        self.settings_btn.setFixedSize(35, 30)
-        self.settings_btn.setToolTip("Настройки папок и интервалов")
-        self.settings_btn.clicked.connect(self.open_settings_cmd)
-        control_layout.addWidget(self.settings_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+        self.settings_btn1 = QPushButton()
+        self.settings_btn1.setIcon(QIcon("themes/settings.svg"))
+        self.settings_btn1.setIconSize(QSize(20, 20))
+        self.settings_btn1.setFixedSize(35, 30)
+        self.settings_btn1.setToolTip("Настройки папок и интервалов")
+        self.settings_btn1.clicked.connect(self.open_settings_cmd)
+        control_layout.addWidget(self.settings_btn1, alignment=Qt.AlignmentFlag.AlignVCenter)
         
         layout.addLayout(control_layout)
         
@@ -489,6 +501,15 @@ class MainWindow(QMainWindow):
         self.move_from_archive_btn.clicked.connect(self.move_from_archive_cmd)
         search_layout.addWidget(self.move_from_archive_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         
+        # Кнопка настроек (шестеренка)
+        self.settings_btn2 = QPushButton()
+        self.settings_btn2.setIcon(QIcon("themes/settings.svg"))
+        self.settings_btn2.setIconSize(QSize(20, 20))
+        self.settings_btn2.setFixedSize(35, 30)
+        self.settings_btn2.setToolTip("Настройки папок и интервалов")
+        self.settings_btn2.clicked.connect(self.open_settings_cmd)
+        search_layout.addWidget(self.settings_btn2, alignment=Qt.AlignmentFlag.AlignVCenter)
+        
         layout.addLayout(search_layout)
         
         self.tab_widget.addTab(tab, "CT archive")
@@ -511,7 +532,72 @@ class MainWindow(QMainWindow):
         )
         self.setup_table_properties(self.pacs_table)
         self.restore_table_state(self.pacs_table)
+        self.pacs_table.itemSelectionChanged.connect(self.on_pacs_selection_changed)
         layout.addWidget(self.pacs_table)
+        
+        # Панель управления PACS
+        pacs_control_layout = QHBoxLayout()
+        pacs_control_layout.setContentsMargins(5, 0, 5, 0)
+        pacs_control_layout.setSpacing(10)
+        
+        lbl_from = QLabel("Период с:")
+        lbl_from.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
+        
+        self.pacs_date_from = QDateEdit()
+        self.pacs_date_from.setCalendarPopup(True)
+        self.pacs_date_from.setDisplayFormat("dd.MM.yyyy")
+        self.pacs_date_from.setDate(QDate.currentDate())
+        self.pacs_date_from.setFixedHeight(30)
+        self.pacs_date_from.setStyleSheet(
+            "QDateEdit { background-color: #0f0f0f; color: #ffffff; border: 1px solid #3d3d3d; border-radius: 6px; padding: 4px; font-family: 'Segoe UI'; font-size: 13px; }"
+        )
+        self.pacs_date_from.dateChanged.connect(self.fill_pacs_list)
+        
+        lbl_to = QLabel("по:")
+        lbl_to.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
+        
+        self.pacs_date_to = QDateEdit()
+        self.pacs_date_to.setCalendarPopup(True)
+        self.pacs_date_to.setDisplayFormat("dd.MM.yyyy")
+        self.pacs_date_to.setDate(QDate.currentDate())
+        self.pacs_date_to.setFixedHeight(30)
+        self.pacs_date_to.setStyleSheet(
+            "QDateEdit { background-color: #0f0f0f; color: #ffffff; border: 1px solid #3d3d3d; border-radius: 6px; padding: 4px; font-family: 'Segoe UI'; font-size: 13px; }"
+        )
+        self.pacs_date_to.dateChanged.connect(self.fill_pacs_list)
+        
+        self.pacs_today_btn = QPushButton("Today")
+        self.pacs_today_btn.setFixedHeight(30)
+        self.pacs_today_btn.clicked.connect(self.pacs_set_today)
+        
+        self.pacs_3days_btn = QPushButton("Last 3 days")
+        self.pacs_3days_btn.setFixedHeight(30)
+        self.pacs_3days_btn.clicked.connect(self.pacs_set_3days)
+        
+        self.send_to_ct_btn = QPushButton("Send to CT images")
+        self.send_to_ct_btn.setFixedHeight(30)
+        self.send_to_ct_btn.setEnabled(False)
+        self.send_to_ct_btn.clicked.connect(self.send_to_ct_images_cmd)
+        
+        # Кнопка настроек (шестеренка)
+        self.settings_btn3 = QPushButton()
+        self.settings_btn3.setIcon(QIcon("themes/settings.svg"))
+        self.settings_btn3.setIconSize(QSize(20, 20))
+        self.settings_btn3.setFixedSize(35, 30)
+        self.settings_btn3.setToolTip("Настройки папок и интервалов")
+        self.settings_btn3.clicked.connect(self.open_settings_cmd)
+        
+        pacs_control_layout.addWidget(lbl_from, alignment=Qt.AlignmentFlag.AlignVCenter)
+        pacs_control_layout.addWidget(self.pacs_date_from, alignment=Qt.AlignmentFlag.AlignVCenter)
+        pacs_control_layout.addWidget(lbl_to, alignment=Qt.AlignmentFlag.AlignVCenter)
+        pacs_control_layout.addWidget(self.pacs_date_to, alignment=Qt.AlignmentFlag.AlignVCenter)
+        pacs_control_layout.addWidget(self.pacs_today_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+        pacs_control_layout.addWidget(self.pacs_3days_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+        pacs_control_layout.addStretch(1)
+        pacs_control_layout.addWidget(self.send_to_ct_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+        pacs_control_layout.addWidget(self.settings_btn3, alignment=Qt.AlignmentFlag.AlignVCenter)
+        
+        layout.addLayout(pacs_control_layout)
         
         self.tab_widget.addTab(tab, "PACS")
 
@@ -730,8 +816,6 @@ class MainWindow(QMainWindow):
             if id_item:
                 existing_ids.add(id_item.text())
 
-        self.images_table.setRowCount(0)
-
         notification_on = self.config.get('notification_is', 'on').upper() == 'ON'
         
         # Определение абсолютного пути к иконке в папке src
@@ -748,12 +832,52 @@ class MainWindow(QMainWindow):
         else:
             icon_path = os.path.abspath(icon_path)
 
-        # Фильтруем пациентов с корректными DICOM данными
-        valid_patients = {}
+        # Проверяем на появление новых файлов до фильтрации
         for patient_id, data in patient_dict.items():
+            if 'patient_name' in data and 'study_datetime' in data and 'folder_datetime' in data and 'str' in data:
+                if not self.is_first_scan and patient_id not in existing_ids and patient_id not in self.restored_patient_ids:
+                    if notification_on:
+                        show_notification(
+                            str(data['patient_name']), 
+                            'Новое КТ', 
+                            'short', 
+                            icon_path
+                        )
+
+        self.images_cache = patient_dict
+        # Завершили первое сканирование
+        self.is_first_scan = False
+        self.restored_patient_ids.clear()
+
+        self.update_images_table_ui()
+
+    def update_images_table_ui(self):
+        if not hasattr(self, 'images_cache') or self.images_cache is None:
+            return
+
+        # Запоминаем выделенного пациента
+        self.selected_images_patient_id = None
+        selected_ranges = self.images_table.selectedRanges()
+        if selected_ranges:
+            row = selected_ranges[0].topRow()
+            id_item = self.images_table.item(row, 0)
+            if id_item:
+                self.selected_images_patient_id = id_item.text()
+
+        self.images_table.setRowCount(0)
+        search_text = self.search_images_entry.text().lower()
+
+        # Фильтруем пациентов с корректными DICOM данными и по имени
+        valid_patients = {}
+        for patient_id, data in self.images_cache.items():
             if 'patient_name' not in data or 'study_datetime' not in data or 'folder_datetime' not in data or 'str' not in data:
                 log_message(self.output_field, f"Пропущен пациент {patient_id} из-за неполных данных DICOM")
                 continue
+            
+            patient_name = str(data.get('patient_name', '')).lower()
+            if search_text and search_text not in patient_name:
+                continue
+                
             valid_patients[patient_id] = data
 
         def get_ct_sort_key(item):
@@ -782,16 +906,6 @@ class MainWindow(QMainWindow):
             progress_dialog.show()
 
         for patient_id, data in sorted_patients:
-            # Уведомление о новых файлах на основе разницы в списке ID (исключая восстановленных)
-            if not self.is_first_scan and patient_id not in existing_ids and patient_id not in self.restored_patient_ids:
-                if notification_on:
-                    show_notification(
-                        str(data['patient_name']), 
-                        'Новое КТ', 
-                        'short', 
-                        icon_path
-                    )
-            
             self.images_table.insertRow(row_idx)
             
             id_item = QTableWidgetItem(str(patient_id))
@@ -838,10 +952,6 @@ class MainWindow(QMainWindow):
         if progress_dialog:
             progress_dialog.close()
 
-        # Завершили первое сканирование
-        self.is_first_scan = False
-        self.restored_patient_ids.clear()
-
         # Восстанавливаем выделение
         if hasattr(self, 'selected_images_patient_id') and self.selected_images_patient_id:
             for r in range(self.images_table.rowCount()):
@@ -849,6 +959,12 @@ class MainWindow(QMainWindow):
                 if id_item and id_item.text() == self.selected_images_patient_id:
                     self.images_table.selectRow(r)
                     break
+
+    def search_patient_images(self):
+        if not hasattr(self, 'images_cache') or self.images_cache is None:
+            self.start_folder_scan()
+        else:
+            self.update_images_table_ui()
 
     def open_current_folder_cmd(self, row, column):
         patient_id = self.images_table.item(row, 0).text()
@@ -1242,7 +1358,16 @@ class MainWindow(QMainWindow):
         called_aet = self.config.get('pacs_called_aet', 'ANY-SCP')
         calling_aet = self.config.get('pacs_calling_aet', 'ECHOSCU')
 
-        self.pacs_worker = PacsScanWorker(pacs_ip, pacs_port, called_aet, calling_aet)
+        study_date = None
+        if hasattr(self, 'pacs_date_from') and hasattr(self, 'pacs_date_to'):
+            date_from_str = self.pacs_date_from.date().toString("yyyyMMdd")
+            date_to_str = self.pacs_date_to.date().toString("yyyyMMdd")
+            if date_from_str == date_to_str:
+                study_date = date_from_str
+            else:
+                study_date = f"{date_from_str}-{date_to_str}"
+
+        self.pacs_worker = PacsScanWorker(pacs_ip, pacs_port, called_aet, calling_aet, study_date)
         self.pacs_worker.finished.connect(lambda pd, c, lm: self.on_pacs_scan_finished(pd, c, lm, silent))
         self.pacs_worker.start()
 
@@ -1371,10 +1496,6 @@ class MainWindow(QMainWindow):
             # Сброс и перезапуск таймеров
             self.restart_timers()
             
-            # Обновляем поле папки сканирования, если оно изменилось
-            if hasattr(self, 'scan_dir_edit'):
-                self.scan_dir_edit.setText(self.config.get('ct_images_dir', ''))
-                
             log_message(self.output_field, "Настройки сохранены и применены")
             
             # Обновляем текущую вкладку
@@ -1382,15 +1503,66 @@ class MainWindow(QMainWindow):
             if self.tab_widget.currentIndex() == 0:
                 self.show_patient_list()
 
-    def browse_scan_folder(self):
-        dir_path = QFileDialog.getExistingDirectory(self, "Выберите папку КТ-изображений", self.scan_dir_edit.text())
-        if dir_path:
-            norm_path = os.path.normpath(dir_path)
-            self.scan_dir_edit.setText(norm_path)
-            self.config['ct_images_dir'] = norm_path
-            self.save_current_config()
-            self.update_watcher_path()  # Перезапускаем наблюдатель на новый путь
-            self.show_patient_list()
+    def on_pacs_selection_changed(self):
+        has_selection = len(self.pacs_table.selectedRanges()) > 0
+        self.send_to_ct_btn.setEnabled(has_selection)
+
+    def pacs_set_today(self):
+        self.pacs_date_from.blockSignals(True)
+        self.pacs_date_to.blockSignals(True)
+        self.pacs_date_from.setDate(QDate.currentDate())
+        self.pacs_date_to.setDate(QDate.currentDate())
+        self.pacs_date_from.blockSignals(False)
+        self.pacs_date_to.blockSignals(False)
+        self.fill_pacs_list()
+
+    def pacs_set_3days(self):
+        self.pacs_date_from.blockSignals(True)
+        self.pacs_date_to.blockSignals(True)
+        self.pacs_date_from.setDate(QDate.currentDate().addDays(-2))
+        self.pacs_date_to.setDate(QDate.currentDate())
+        self.pacs_date_from.blockSignals(False)
+        self.pacs_date_to.blockSignals(False)
+        self.fill_pacs_list()
+
+    def send_to_ct_images_cmd(self):
+        selected_ranges = self.pacs_table.selectedRanges()
+        if not selected_ranges:
+            return
+            
+        row = selected_ranges[0].topRow()
+        patient_id = self.pacs_table.item(row, 0).text()
+        patient_name = self.pacs_table.item(row, 1).text()
+        
+        ct_images_dir = self.config.get('ct_images_dir', '')
+        if not ct_images_dir or not os.path.exists(ct_images_dir):
+            QMessageBox.warning(self, "Ошибка", "Неверно настроена рабочая папка CT Images.")
+            return
+            
+        self.send_to_ct_btn.setEnabled(False)
+        self.send_to_ct_btn.setText("Sending...")
+        log_message(self.output_field, f"Запуск скачивания исследования {patient_id} [{patient_name}] из PACS...")
+        
+        pacs_ip = self.config.get('pacs_ip', '127.0.0.1')
+        pacs_port = int(self.config.get('pacs_port', 11112))
+        called_aet = self.config.get('pacs_called_aet', 'ANY-SCP')
+        calling_aet = self.config.get('pacs_calling_aet', 'ECHOSCU')
+        
+        self.pacs_download_worker = PacsDownloadWorker(
+            patient_id, ct_images_dir, pacs_ip, pacs_port, called_aet, calling_aet
+        )
+        self.pacs_download_worker.finished.connect(self.on_pacs_download_finished)
+        self.pacs_download_worker.start()
+
+    def on_pacs_download_finished(self, success, msg):
+        self.send_to_ct_btn.setEnabled(True)
+        self.send_to_ct_btn.setText("Send to CT images")
+        log_message(self.output_field, msg)
+        
+        if success:
+            self.start_folder_scan()
+        else:
+            QMessageBox.warning(self, "Ошибка скачивания", msg)
 
     def save_current_config(self):
         dialog = SettingsDialog(self)
