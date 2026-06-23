@@ -118,8 +118,8 @@ QPushButton:pressed {
 }
 
 QPushButton:disabled {
-    background-color: #121212;
-    color: #666666;
+    background-color: #1f538d;
+    color: #709bc1;
 }
 
 /* Стили полей ввода */
