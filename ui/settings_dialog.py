@@ -214,6 +214,22 @@ class SettingsDialog(QDialog):
         general_layout = QVBoxLayout(general_widget)
         general_form = QFormLayout()
         
+        # CT Images Dir
+        self.ct_images_edit = QLineEdit(self.config.get('ct_images_dir', ''))
+        ct_images_btn = QPushButton("Обзор...")
+        ct_images_btn.clicked.connect(lambda: self.browse_folder(self.ct_images_edit, "Выберите папку КТ-изображений"))
+        h_layout_ct = QHBoxLayout()
+        h_layout_ct.addWidget(self.ct_images_edit)
+        h_layout_ct.addWidget(ct_images_btn)
+        general_form.addRow("Папка CT Images:", h_layout_ct)
+
+        # Разделитель для КТ-папки
+        line_ct = QFrame()
+        line_ct.setFrameShape(QFrame.Shape.HLine)
+        line_ct.setFrameShadow(QFrame.Shadow.Sunken)
+        line_ct.setStyleSheet("background-color: #2d2d2d; margin-top: 5px; margin-bottom: 5px;")
+        general_form.addRow(line_ct)
+        
         # Notifications
         self.notify_cb = ToggleSwitch()
         self.notify_cb.setChecked(self.config.get('notification_is', 'on').lower() == 'on')
@@ -496,6 +512,7 @@ class SettingsDialog(QDialog):
 
     def setup_dynamic_updates(self):
         # Подключаем сигналы изменения виджетов для применения на лету
+        self.ct_images_edit.textChanged.connect(self.on_setting_changed)
         self.pacs_scan_spin.valueChanged.connect(self.on_setting_changed)
         self.archive_slice_spin.valueChanged.connect(self.on_setting_changed)
         self.font_size_spin.valueChanged.connect(self.on_setting_changed)
@@ -518,6 +535,7 @@ class SettingsDialog(QDialog):
 
     def on_setting_changed(self):
         # Обновляем текущую конфигурацию
+        self.config['ct_images_dir'] = self.ct_images_edit.text()
         self.config['archive_dir'] = self.archive_edit.text()
         self.config['pacs_scan_time'] = self.pacs_scan_spin.value() * 1000
         self.config['archive_slice'] = self.archive_slice_spin.value()
