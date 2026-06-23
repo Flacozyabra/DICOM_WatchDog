@@ -539,19 +539,22 @@ class SettingsDialog(QDialog):
         self.highlight_no_str_cb.setEnabled(highlighting_active)
 
     def accept_settings(self):
-        ct_dir = os.path.normpath(self.ct_images_edit.text().strip())
-        archive_dir = os.path.normpath(self.archive_edit.text().strip())
+        ct_text = self.ct_images_edit.text().strip()
+        archive_text = self.archive_edit.text().strip()
         
-        if ct_dir and archive_dir and ct_dir.lower() == archive_dir.lower():
-            msg = QMessageBox(self)
-            msg.setIcon(QMessageBox.Icon.Warning)
-            msg.setWindowTitle("Ошибка")
-            msg.setText("Папка CT Images и папка CT Archive не могут быть одной и той же папкой.")
-            apply_dark_title_bar(msg)
-            msg.exec()
-            return
+        if ct_text and archive_text:
+            ct_dir = os.path.normpath(ct_text)
+            archive_dir = os.path.normpath(archive_text)
+            if ct_dir.lower() == archive_dir.lower():
+                msg = QMessageBox(self)
+                msg.setIcon(QMessageBox.Icon.Warning)
+                msg.setWindowTitle("Ошибка")
+                msg.setText("Папка CT Images и папка CT Archive не могут быть одной и той же папкой.")
+                apply_dark_title_bar(msg)
+                msg.exec()
+                return
 
-        if self.archive_enabled_cb.isChecked() and not self.archive_edit.text().strip():
+        if self.archive_enabled_cb.isChecked() and not archive_text:
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Warning)
             msg.setWindowTitle("Предупреждение")
