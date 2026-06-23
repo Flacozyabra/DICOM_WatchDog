@@ -28,29 +28,72 @@ from themes.theme_manager import load_theme
 class ToggleTableWidget(QTableWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.placeholder_widget = None
         self.placeholder_label = None
+        self.placeholder_btn = None
 
-    def set_placeholder_text(self, text):
-        if not self.placeholder_label:
-            self.placeholder_label = QLabel(text, self.viewport())
+    def set_placeholder_state(self, text, show_button=False, button_callback=None):
+        if not self.placeholder_widget:
+            self.placeholder_widget = QWidget(self.viewport())
+            layout = QVBoxLayout(self.placeholder_widget)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(10)
+            layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            self.placeholder_label = QLabel(text, self.placeholder_widget)
             self.placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.placeholder_label.setStyleSheet("color: #666666; font-size: 15px; font-family: 'Segoe UI'; background: transparent;")
-            self.placeholder_label.hide()
-        else:
-            self.placeholder_label.setText(text)
+            layout.addWidget(self.placeholder_label)
+            
+            self.placeholder_btn = QPushButton("Обзор", self.placeholder_widget)
+            self.placeholder_btn.setFixedSize(120, 30)
+            self.placeholder_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #2b2b2b;
+                    color: #ffffff;
+                    border: 1px solid #3d3d3d;
+                    border-radius: 4px;
+                    font-family: 'Segoe UI';
+                    font-size: 13px;
+                }
+                QPushButton:hover {
+                    background-color: #3d3d3d;
+                }
+                QPushButton:pressed {
+                    background-color: #1a1a1a;
+                }
+            """)
+            layout.addWidget(self.placeholder_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+            self.placeholder_widget.hide()
+            
+        self.placeholder_label.setText(text)
+        self.placeholder_btn.setVisible(show_button)
+        
+        try:
+            self.placeholder_btn.clicked.disconnect()
+        except TypeError:
+            pass
+            
+        if button_callback:
+            self.placeholder_btn.clicked.connect(button_callback)
+            
+        self.update_placeholder_visibility()
+
+    def set_placeholder_text(self, text):
+        self.set_placeholder_state(text, show_button=False)
 
     def update_placeholder_visibility(self):
-        if self.placeholder_label:
+        if self.placeholder_widget:
             if self.rowCount() == 0:
-                self.placeholder_label.setGeometry(self.viewport().rect())
-                self.placeholder_label.show()
+                self.placeholder_widget.setGeometry(self.viewport().rect())
+                self.placeholder_widget.show()
             else:
-                self.placeholder_label.hide()
+                self.placeholder_widget.hide()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if self.placeholder_label:
-            self.placeholder_label.setGeometry(self.viewport().rect())
+        if self.placeholder_widget:
+            self.placeholder_widget.setGeometry(self.viewport().rect())
 
     def mousePressEvent(self, event):
         if event.button() != Qt.MouseButton.LeftButton:
@@ -316,7 +359,7 @@ class MainWindow(QMainWindow):
         self.output_field.setFont(font)
         
         # 3. Синхронизируем чекбокс автообновления и перезапускаем таймеры
-        self.pacs_auto_scan_cb.setChecked(self.config.get('auto_update_is', 'on').lower() == 'on')
+        self.pacs_auto_scan_cb.setChecked(self.config.get('auto_update_is', 'off').lower() == 'on')
         self.update_pacs_controls_state()
         self.restart_timers()
         
@@ -391,12 +434,12 @@ class MainWindow(QMainWindow):
         # Таймер PACS работает, если активна вкладка PACS и включено автообновление, либо включены фоновые уведомления PACS
         pacs_notify_on = self.config.get('pacs_notification_is', 'off').lower() == 'on'
         is_pacs_tab_active = (self.tab_widget.currentIndex() == 2)
-        pacs_auto_scan_on = self.config.get('auto_update_is', 'on').lower() == 'on'
+        pacs_auto_scan_on = self.config.get('auto_update_is', 'off').lower() == 'on'
         if (is_pacs_tab_active and pacs_auto_scan_on) or pacs_notify_on:
             self.pacs_timer.start(self.config.get('pacs_scan_time', 10000))
 
     def update_pacs_controls_state(self):
-        auto_update_on = self.config.get('auto_update_is', 'on').lower() == 'on'
+        auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
         
         # Если включен Standby mode (автообновление), выставляем принудительно Today
         if auto_update_on:
@@ -489,7 +532,7 @@ class MainWindow(QMainWindow):
             lambda pos: self.show_header_context_menu(pos, self.images_table)
         )
         self.setup_table_properties(self.images_table)
-        self.images_table.set_placeholder_text("В этой папке нет КТ-исследований")
+        self.images_table.set_placeholder_text("В этой папке нет исследований")
         self.images_table.update_placeholder_visibility()
         self.restore_table_state(self.images_table)
         self.images_table.cellDoubleClicked.connect(self.open_current_folder_cmd)
@@ -555,7 +598,7 @@ class MainWindow(QMainWindow):
             lambda pos: self.show_header_context_menu(pos, self.archive_table)
         )
         self.setup_table_properties(self.archive_table)
-        self.archive_table.set_placeholder_text("В архиве нет исследований")
+        self.archive_table.set_placeholder_text("В этой папке нет исследований")
         self.archive_table.update_placeholder_visibility()
         self.restore_table_state(self.archive_table)
         self.archive_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -613,7 +656,7 @@ class MainWindow(QMainWindow):
             lambda pos: self.show_header_context_menu(pos, self.pacs_table)
         )
         self.setup_table_properties(self.pacs_table)
-        self.pacs_table.set_placeholder_text("Исследования на сервере PACS не найдены")
+        self.pacs_table.set_placeholder_text("Сканирование сервера PACS не настроено")
         self.pacs_table.update_placeholder_visibility()
         self.restore_table_state(self.pacs_table)
         self.pacs_table.itemSelectionChanged.connect(self.on_pacs_selection_changed)
@@ -651,7 +694,7 @@ class MainWindow(QMainWindow):
         self.pacs_date_to.dateChanged.connect(lambda: self.fill_pacs_list(silent=True))
         
         self.pacs_auto_scan_cb = ToggleSwitch("Standby mode")
-        self.pacs_auto_scan_cb.setChecked(self.config.get('auto_update_is', 'on').lower() == 'on')
+        self.pacs_auto_scan_cb.setChecked(self.config.get('auto_update_is', 'off').lower() == 'on')
         self.pacs_auto_scan_cb.stateChanged.connect(self.on_pacs_auto_scan_changed)
         
         self.send_to_ct_btn = QPushButton("Send to CT images")
@@ -858,8 +901,15 @@ class MainWindow(QMainWindow):
             return
 
         ct_dir = self.config.get('ct_images_dir', '')
-        if not os.path.exists(ct_dir):
+        if not ct_dir or not os.path.exists(ct_dir):
             log_message(self.output_field, "Неверный путь к папке CT Images")
+            self.images_table.setRowCount(0)
+            self.images_table.set_placeholder_state(
+                "Папка для сканирования не выбрана", 
+                show_button=True, 
+                button_callback=self.browse_ct_images_dir
+            )
+            self.images_table.update_placeholder_visibility()
             return
 
         # Запоминаем выделенного пациента
@@ -1046,6 +1096,7 @@ class MainWindow(QMainWindow):
                     self.images_table.selectRow(r)
                     break
 
+        self.images_table.set_placeholder_state("В этой папке нет исследований", show_button=False)
         self.images_table.update_placeholder_visibility()
         self.images_table.blockSignals(False)
         self.images_table.setUpdatesEnabled(True)
@@ -1171,9 +1222,16 @@ class MainWindow(QMainWindow):
             return
 
         archive_dir = self.config.get('archive_dir', '')
-        if not os.path.exists(archive_dir):
+        if not archive_dir or not os.path.exists(archive_dir):
             if not silent:
                 log_message(self.output_field, "Папка архива не существует")
+            self.archive_table.setRowCount(0)
+            self.archive_table.set_placeholder_state(
+                "Папка для сканирования не выбрана", 
+                show_button=True, 
+                button_callback=self.browse_archive_dir
+            )
+            self.archive_table.update_placeholder_visibility()
             return
             
         if not silent:
@@ -1285,6 +1343,7 @@ class MainWindow(QMainWindow):
                     self.archive_table.selectRow(r)
                     break
 
+        self.archive_table.set_placeholder_state("В этой папке нет исследований", show_button=False)
         self.archive_table.update_placeholder_visibility()
         self.archive_table.blockSignals(False)
         self.archive_table.setUpdatesEnabled(True)
@@ -1473,6 +1532,11 @@ class MainWindow(QMainWindow):
         self.pacs_worker.start()
 
     def on_pacs_scan_finished(self, pacs_dict, con, log_messages, silent=False):
+        if con:
+            self.pacs_table.set_placeholder_text("Исследования на сервере PACS не найдены")
+        else:
+            self.pacs_table.set_placeholder_text("Сканирование сервера PACS не настроено")
+            
         has_fail_msg = False
         for msg in log_messages:
             if "подключиться к серверу PACS" in msg:
@@ -1489,7 +1553,7 @@ class MainWindow(QMainWindow):
             
             # Фоновое уведомление о новых КТ в PACS
             pacs_notify_on = self.config.get('pacs_notification_is', 'off').lower() == 'on'
-            auto_update_on = self.config.get('auto_update_is', 'on').lower() == 'on'
+            auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
             
             # Определение абсолютного пути к синей иконке
             icon_blue_path = ""
@@ -1613,6 +1677,25 @@ class MainWindow(QMainWindow):
                 self.pacs_table.update_placeholder_visibility()
 
     # ================= УПРАВЛЕНИЕ НАСТРОЙКАМИ =================
+
+    def browse_ct_images_dir(self):
+        current_dir = self.config.get('ct_images_dir', '')
+        dir_path = QFileDialog.getExistingDirectory(self, "Выберите папку КТ-изображений", current_dir)
+        if dir_path:
+            norm_path = os.path.normpath(dir_path)
+            self.config['ct_images_dir'] = norm_path
+            self.save_current_config()
+            self.update_watcher_path()
+            self.start_folder_scan()
+
+    def browse_archive_dir(self):
+        current_dir = self.config.get('archive_dir', '')
+        dir_path = QFileDialog.getExistingDirectory(self, "Выберите папку архива", current_dir)
+        if dir_path:
+            norm_path = os.path.normpath(dir_path)
+            self.config['archive_dir'] = norm_path
+            self.save_current_config()
+            self.fill_archive_list()
 
     def open_settings_cmd(self):
         dialog = SettingsDialog(self)

@@ -116,7 +116,7 @@ class SettingsDialog(QDialog):
             'notification_is': 'on',
             'icon_path': '',
             'pacs_scan_time': 10000,
-            'auto_update_is': 'on',
+            'auto_update_is': 'off',
             'pacs_notification_is': 'off',
             'patient_font_size': 14,
             'patient_weight': 'Regular',
@@ -544,7 +544,7 @@ class SettingsDialog(QDialog):
         self.config['patient_weight'] = self.patient_weight_combo.currentText()
         self.config['notification_is'] = 'on' if self.notify_cb.isChecked() else 'off'
         self.config['pacs_notification_is'] = 'on' if self.pacs_notify_cb.isChecked() else 'off'
-        self.config['auto_update_is'] = 'on'
+        self.config['auto_update_is'] = self.config.get('auto_update_is', 'off')
         self.config['cleanup_structures_enabled'] = 'True' if self.cleanup_str_cb.isChecked() else 'False'
         self.config['fix_patient_id_enabled'] = 'True' if self.fix_patient_id_cb.isChecked() else 'False'
         self.config['id_prefixes'] = self.id_prefixes_edit.text()
