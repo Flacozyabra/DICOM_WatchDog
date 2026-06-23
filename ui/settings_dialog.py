@@ -403,16 +403,13 @@ class SettingsDialog(QDialog):
         self.highlighting_cb.setChecked(self.config.get('highlighting_enabled', 'False').lower() == 'true')
         ui_form.addRow("Включить цветовую подсветку исследований:", self.highlighting_cb)
         
-        # Контейнер для зависимых свичей (с визуальным отступом и линией)
+        # Контейнер для зависимых свичей (с отступом текста)
         self.highlight_sub_container = QFrame()
         self.highlight_sub_container.setObjectName("highlightSubContainer")
         self.highlight_sub_container.setStyleSheet(
             "QFrame#highlightSubContainer { "
             "  border: none; "
-            "  border-left: 2px solid #3d3d3d; "
-            "  margin-left: 20px; "
-            "  margin-right: 40px; "
-            "  padding-left: 15px; "
+            "  margin-left: 30px; "
             "}"
         )
         sub_layout = QFormLayout(self.highlight_sub_container)
