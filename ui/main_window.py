@@ -781,22 +781,22 @@ class MainWindow(QMainWindow):
         
         # Установим пропорции ширины по умолчанию
         if table.columnCount() == 8:
-            table.setColumnWidth(0, 130)  # ID
+            table.setColumnWidth(0, 110)  # ID
             table.setColumnWidth(1, 200)  # Name
-            table.setColumnWidth(2, 80)   # Modality
-            table.setColumnWidth(3, 80)   # Slices
-            table.setColumnWidth(4, 150)  # Scanning Area
-            table.setColumnWidth(5, 150)  # Study
-            table.setColumnWidth(6, 150)  # Folder
-            table.setColumnWidth(7, 50)   # STR
+            table.setColumnWidth(2, 65)   # Modality
+            table.setColumnWidth(3, 65)   # Slices
+            table.setColumnWidth(4, 120)  # Scanning Area
+            table.setColumnWidth(5, 120)  # Study
+            table.setColumnWidth(6, 120)  # Folder
+            table.setColumnWidth(7, 45)   # STR
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Имя тянется
         elif table.columnCount() == 6:
-            table.setColumnWidth(0, 180)  # ID
+            table.setColumnWidth(0, 120)  # ID
             table.setColumnWidth(1, 250)  # Name
-            table.setColumnWidth(2, 100)  # Modality
-            table.setColumnWidth(3, 80)   # Slices
-            table.setColumnWidth(4, 180)  # Scanning Area
-            table.setColumnWidth(5, 200)  # Study
+            table.setColumnWidth(2, 70)   # Modality
+            table.setColumnWidth(3, 65)   # Slices
+            table.setColumnWidth(4, 130)  # Scanning Area
+            table.setColumnWidth(5, 130)  # Study
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
 
     def show_header_context_menu(self, pos, table):
