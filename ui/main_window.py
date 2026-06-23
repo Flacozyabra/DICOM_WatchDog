@@ -373,6 +373,7 @@ class MainWindow(QMainWindow):
         
         # 4. Обновляем путь наблюдателя, если он изменился
         if old_dir != new_dir:
+            self.is_first_scan = True
             self.update_watcher_path()
 
     def init_file_watcher(self):
@@ -1019,7 +1020,7 @@ class MainWindow(QMainWindow):
                 continue
             
             patient_name = str(data.get('patient_name', '')).lower()
-            if search_text and search_text not in patient_name:
+            if search_text and not patient_name.startswith(search_text):
                 continue
                 
             valid_patients[patient_id] = data
@@ -1452,7 +1453,7 @@ class MainWindow(QMainWindow):
                 continue
                 
             name_lower = str(data['patient_name']).lower()
-            if search_text in name_lower:
+            if not search_text or name_lower.startswith(search_text):
                 self.archive_table.insertRow(row_idx)
                 
                 id_item = QTableWidgetItem(str(patient_id))
@@ -1694,6 +1695,7 @@ class MainWindow(QMainWindow):
             self.config['ct_images_dir'] = norm_path
             self.save_current_config()
             self.update_watcher_path()
+            self.is_first_scan = True
             self.start_folder_scan()
 
     def browse_archive_dir(self):
