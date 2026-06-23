@@ -403,32 +403,23 @@ class SettingsDialog(QDialog):
         self.highlighting_cb.setChecked(self.config.get('highlighting_enabled', 'False').lower() == 'true')
         ui_form.addRow("Включить цветовую подсветку исследований:", self.highlighting_cb)
         
-        # Контейнер для зависимых свичей
-        self.highlight_sub_container = QFrame()
-        self.highlight_sub_container.setObjectName("highlightSubContainer")
-        self.highlight_sub_container.setStyleSheet("QFrame#highlightSubContainer { border: none; }")
-        sub_layout = QFormLayout(self.highlight_sub_container)
-        sub_layout.setContentsMargins(0, 5, 0, 5)
-        
         self.lbl_highlight_new = QLabel("Выделять новые исследования:")
         self.lbl_highlight_new.setStyleSheet("QLabel { padding-left: 30px; }")
         self.highlight_new_cb = ToggleSwitch()
         self.highlight_new_cb.setChecked(self.config.get('highlight_new_enabled', 'False').lower() == 'true')
-        sub_layout.addRow(self.lbl_highlight_new, self.highlight_new_cb)
+        ui_form.addRow(self.lbl_highlight_new, self.highlight_new_cb)
         
         self.lbl_highlight_today = QLabel("Выделять сегодняшние исследования:")
         self.lbl_highlight_today.setStyleSheet("QLabel { padding-left: 30px; }")
         self.highlight_today_cb = ToggleSwitch()
         self.highlight_today_cb.setChecked(self.config.get('highlight_today_enabled', 'False').lower() == 'true')
-        sub_layout.addRow(self.lbl_highlight_today, self.highlight_today_cb)
+        ui_form.addRow(self.lbl_highlight_today, self.highlight_today_cb)
         
         self.lbl_highlight_no_str = QLabel("Выделять исследования без структур:")
         self.lbl_highlight_no_str.setStyleSheet("QLabel { padding-left: 30px; }")
         self.highlight_no_str_cb = ToggleSwitch()
         self.highlight_no_str_cb.setChecked(self.config.get('highlight_no_str_enabled', 'False').lower() == 'true')
-        sub_layout.addRow(self.lbl_highlight_no_str, self.highlight_no_str_cb)
-        
-        ui_form.addRow(self.highlight_sub_container)
+        ui_form.addRow(self.lbl_highlight_no_str, self.highlight_no_str_cb)
         
         ui_layout.addLayout(ui_form)
         ui_layout.addStretch()
@@ -540,8 +531,11 @@ class SettingsDialog(QDialog):
         self.id_prefixes_edit.setEnabled(self.fix_patient_id_cb.isChecked())
 
         highlighting_active = self.highlighting_cb.isChecked()
+        self.lbl_highlight_new.setEnabled(highlighting_active)
         self.highlight_new_cb.setEnabled(highlighting_active)
+        self.lbl_highlight_today.setEnabled(highlighting_active)
         self.highlight_today_cb.setEnabled(highlighting_active)
+        self.lbl_highlight_no_str.setEnabled(highlighting_active)
         self.highlight_no_str_cb.setEnabled(highlighting_active)
 
     def accept_settings(self):
