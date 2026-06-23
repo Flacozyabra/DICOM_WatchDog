@@ -582,8 +582,7 @@ class SettingsDialog(QDialog):
         self.patient_font_spin.valueChanged.connect(self.on_setting_changed)
         self.patient_weight_combo.currentTextChanged.connect(self.on_setting_changed)
         self.notify_cb.toggled.connect(self.on_setting_changed)
-        self.highlighting_cb.toggled.connect(self.update_fields_state)
-        self.highlighting_cb.toggled.connect(self.on_setting_changed)
+        self.highlighting_cb.toggled.connect(self.on_highlighting_toggled)
         self.highlight_new_cb.toggled.connect(self.on_setting_changed)
         self.highlight_today_cb.toggled.connect(self.on_setting_changed)
         self.highlight_no_str_cb.toggled.connect(self.on_setting_changed)
@@ -600,6 +599,22 @@ class SettingsDialog(QDialog):
         self.pacs_port_spin.valueChanged.connect(self.on_setting_changed)
         self.pacs_called_aet_edit.textChanged.connect(self.on_setting_changed)
         self.pacs_calling_aet_edit.textChanged.connect(self.on_setting_changed)
+
+    def on_highlighting_toggled(self, checked):
+        self.highlight_new_cb.blockSignals(True)
+        self.highlight_today_cb.blockSignals(True)
+        self.highlight_no_str_cb.blockSignals(True)
+        
+        self.highlight_new_cb.setChecked(checked)
+        self.highlight_today_cb.setChecked(checked)
+        self.highlight_no_str_cb.setChecked(checked)
+        
+        self.highlight_new_cb.blockSignals(False)
+        self.highlight_today_cb.blockSignals(False)
+        self.highlight_no_str_cb.blockSignals(False)
+        
+        self.update_fields_state()
+        self.on_setting_changed()
 
     def on_setting_changed(self):
         # Обновляем текущую конфигурацию
