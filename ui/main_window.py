@@ -320,7 +320,7 @@ class MainWindow(QMainWindow):
         return dialog.config
 
     def init_window_geometry(self):
-        width = self.config.get('x', 1250)
+        width = max(self.config.get('x', 1250), 1250)
         height = self.config.get('y', 600)
         
         screen = QApplication.primaryScreen()
