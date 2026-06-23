@@ -108,7 +108,7 @@ class SettingsDialog(QDialog):
             'id_prefixes': 'CT_',
             'client_dir': '',
             'archive_slice': 0,
-            'x': 1250,
+            'x': 1100,
             'y': 600,
             'dx': 350,
             'dy': 100,
