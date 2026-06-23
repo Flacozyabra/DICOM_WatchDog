@@ -320,7 +320,7 @@ class MainWindow(QMainWindow):
         return dialog.config
 
     def init_window_geometry(self):
-        width = self.config.get('x', 1150)
+        width = self.config.get('x', 1250)
         height = self.config.get('y', 600)
         
         screen = QApplication.primaryScreen()
@@ -782,7 +782,7 @@ class MainWindow(QMainWindow):
         # Установим пропорции ширины по умолчанию
         if table.columnCount() == 8:
             table.setColumnWidth(0, 110)  # ID
-            table.setColumnWidth(1, 200)  # Name
+            table.setColumnWidth(1, 450)  # Name
             table.setColumnWidth(2, 65)   # Modality
             table.setColumnWidth(3, 65)   # Slices
             table.setColumnWidth(4, 120)  # Scanning Area
@@ -792,7 +792,7 @@ class MainWindow(QMainWindow):
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Имя тянется
         elif table.columnCount() == 6:
             table.setColumnWidth(0, 120)  # ID
-            table.setColumnWidth(1, 250)  # Name
+            table.setColumnWidth(1, 450)  # Name
             table.setColumnWidth(2, 70)   # Modality
             table.setColumnWidth(3, 65)   # Slices
             table.setColumnWidth(4, 130)  # Scanning Area
