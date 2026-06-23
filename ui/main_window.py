@@ -168,6 +168,9 @@ class FolderScanWorker(QThread):
                 for dir_name in dirs:
                     rename_patient_folder(os.path.join(root, dir_name), collector, prefixes=prefixes_list)
             
+        if is_archive_on and not self.archive_dir:
+            collector.appendPlainText("Предупреждение: Автоархивирование включено, но папка архива не настроена.")
+
         if self.archive_dir and is_archive_on and os.path.exists(self.ct_images_dir):
             from core.archive import move_old_folders_to_archive
             move_old_folders_to_archive(self.ct_images_dir, self.archive_dir, self.archive_days, collector)

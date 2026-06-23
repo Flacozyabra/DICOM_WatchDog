@@ -497,6 +497,15 @@ class SettingsDialog(QDialog):
         self.id_prefixes_edit.setEnabled(self.fix_patient_id_cb.isChecked())
 
     def accept_settings(self):
+        if self.archive_enabled_cb.isChecked() and not self.archive_edit.text().strip():
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle("Предупреждение")
+            msg.setText("Включено автоархивирование, но не указан путь к папке архива.\nПожалуйста, укажите путь к архиву или отключите автоархивирование.")
+            apply_dark_title_bar(msg)
+            msg.exec()
+            return
+
         # Принудительно синхронизируем все настройки перед сохранением
         self.on_setting_changed()
         # Save to file
