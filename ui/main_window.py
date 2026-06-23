@@ -1721,7 +1721,37 @@ class MainWindow(QMainWindow):
         if success:
             self.start_folder_scan()
         else:
-            QMessageBox.warning(self, "Ошибка скачивания", msg)
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(QMessageBox.Icon.Warning)
+            msg_box.setWindowTitle("Ошибка скачивания")
+            msg_box.setText(msg)
+            
+            # Применение темного заголовка
+            if sys.platform == "win32":
+                import ctypes
+                try:
+                    hwnd = int(msg_box.winId())
+                    ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                        hwnd, 20, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
+                    )
+                except Exception:
+                    try:
+                        ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                            hwnd, 19, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
+                        )
+                    except Exception:
+                        pass
+                try:
+                    hwnd = int(msg_box.winId())
+                    ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                        hwnd, 35, ctypes.byref(ctypes.c_int(0x00242424)), ctypes.sizeof(ctypes.c_int)
+                    )
+                    ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                        hwnd, 36, ctypes.byref(ctypes.c_int(0x00ffffff)), ctypes.sizeof(ctypes.c_int)
+                    )
+                except Exception:
+                    pass
+            msg_box.exec()
 
     def save_current_config(self):
         dialog = SettingsDialog(self)

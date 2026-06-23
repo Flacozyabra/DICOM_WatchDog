@@ -193,6 +193,16 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
             d_set.save_as(file_path, write_like_original=False)
             return 0x0000
         except Exception as e:
+            import traceback
+            from datetime import datetime
+            try:
+                with open("pacs_error.log", "a", encoding="utf-8") as f:
+                    f.write(f"\n--- {datetime.now()} ---\n")
+                    traceback.print_exc(file=f)
+                    f.write(f"Error details: {str(e)}\n")
+            except Exception:
+                pass
+            traceback.print_exc()
             return 0xC000
             
     handlers = [(evt.EVT_C_STORE, handle_store, [target_dir])]
