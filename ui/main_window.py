@@ -225,6 +225,7 @@ class ArchiveScanWorker(QThread):
 
 class PacsDownloadWorker(QThread):
     finished = pyqtSignal(bool, str)
+    progress = pyqtSignal(int, int)
 
     def __init__(self, patient_id, target_dir, pacs_ip, pacs_port, called_aet, calling_aet):
         super().__init__()
@@ -239,7 +240,8 @@ class PacsDownloadWorker(QThread):
         success, msg = download_patient_from_pacs(
             self.patient_id, self.target_dir,
             self.pacs_ip, self.pacs_port,
-            self.called_aet, self.calling_aet
+            self.called_aet, self.calling_aet,
+            progress_callback=self.progress.emit
         )
         self.finished.emit(success, msg)
 
@@ -1528,6 +1530,13 @@ class MainWindow(QMainWindow):
         sorted_items = sorted(valid_items.items(), key=lambda x: x[1]['folder_datetime'], reverse=True)
 
         row_idx = 0
+        total_items = len(sorted_items)
+        progress_dialog = None
+        if total_items > 100:
+            from ui.loading_dialog import LoadingProgressDialog
+            progress_dialog = LoadingProgressDialog(self, title="Заполнение таблицы Архива")
+            progress_dialog.show()
+
         for patient_id, data in sorted_items:
             self.archive_table.insertRow(row_idx)
             
@@ -1577,7 +1586,12 @@ class MainWindow(QMainWindow):
             self.archive_table.setItem(row_idx, 6, folder_item)
             self.archive_table.setItem(row_idx, 7, str_item)
             
+            if progress_dialog:
+                progress_dialog.set_progress(row_idx + 1, total_items)
             row_idx += 1
+
+        if progress_dialog:
+            progress_dialog.close()
 
         self.archive_table.update_placeholder_visibility()
         self.archive_table.blockSignals(False)
@@ -1706,6 +1720,13 @@ class MainWindow(QMainWindow):
                 row_idx = 0
                 sorted_items = sorted(display_dict.items(), key=lambda x: x[1]['study_datetime_obj'], reverse=True)
                 
+                total_items = len(sorted_items)
+                progress_dialog = None
+                if total_items > 100:
+                    from ui.loading_dialog import LoadingProgressDialog
+                    progress_dialog = LoadingProgressDialog(self, title="Заполнение таблицы PACS")
+                    progress_dialog.show()
+
                 for patient_id, data in sorted_items:
                     self.pacs_table.insertRow(row_idx)
                     
@@ -1745,7 +1766,12 @@ class MainWindow(QMainWindow):
                     self.pacs_table.setItem(row_idx, 4, area_item)
                     self.pacs_table.setItem(row_idx, 5, study_item)
                     
+                    if progress_dialog:
+                        progress_dialog.set_progress(row_idx + 1, total_items)
                     row_idx += 1
+
+                if progress_dialog:
+                    progress_dialog.close()
 
                 if hasattr(self, 'selected_pacs_patient_id') and self.selected_pacs_patient_id:
                     for r in range(self.pacs_table.rowCount()):
@@ -1893,13 +1919,28 @@ class MainWindow(QMainWindow):
         called_aet = self.config.get('pacs_called_aet', 'ANY-SCP')
         calling_aet = self.config.get('pacs_calling_aet', 'ECHOSCU')
         
+        from ui.loading_dialog import LoadingProgressDialog
+        self.download_progress_dialog = LoadingProgressDialog(self, title="Скачивание из PACS")
+        self.download_progress_dialog.label.setText("Подключение к PACS и запуск скачивания...")
+        self.download_progress_dialog.show()
+
         self.pacs_download_worker = PacsDownloadWorker(
             patient_id, ct_images_dir, pacs_ip, pacs_port, called_aet, calling_aet
         )
         self.pacs_download_worker.finished.connect(self.on_pacs_download_finished)
+        self.pacs_download_worker.progress.connect(self.on_pacs_download_progress)
         self.pacs_download_worker.start()
 
+    def on_pacs_download_progress(self, completed, total):
+        if hasattr(self, 'download_progress_dialog') and self.download_progress_dialog:
+            self.download_progress_dialog.progress.setValue(int((completed / total) * 100))
+            self.download_progress_dialog.label.setText(f"Скачивание снимков: {completed} из {total}...")
+
     def on_pacs_download_finished(self, success, msg):
+        if hasattr(self, 'download_progress_dialog') and self.download_progress_dialog:
+            self.download_progress_dialog.close()
+            self.download_progress_dialog = None
+
         self.send_to_ct_btn.setEnabled(True)
         self.send_to_ct_btn.setText("Send to CT images")
         log_message(self.output_field, msg)

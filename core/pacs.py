@@ -144,7 +144,7 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
         return False, f"Произошла ошибка при подключении:\n{str(e)}"
 
 
-def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, called_aet, calling_aet):
+def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, called_aet, calling_aet, progress_callback=None):
     from pydicom.dataset import Dataset
     from pynetdicom import AE, evt, build_role, ALL_TRANSFER_SYNTAXES
     from pynetdicom.sop_class import (
@@ -225,6 +225,16 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
                         f.write("\n")
                 except Exception:
                     pass
+                if progress_callback:
+                    completed = getattr(status, 'NumberOfCompletedSuboperations', 0)
+                    remaining = getattr(status, 'NumberOfRemainingSuboperations', 0)
+                    failed = getattr(status, 'NumberOfFailedSuboperations', 0)
+                    completed_val = completed.value if hasattr(completed, 'value') else int(completed or 0)
+                    remaining_val = remaining.value if hasattr(remaining, 'value') else int(remaining or 0)
+                    failed_val = failed.value if hasattr(failed, 'value') else int(failed or 0)
+                    total_val = completed_val + remaining_val + failed_val
+                    if total_val > 0:
+                        progress_callback(completed_val, total_val)
         assoc.release()
         
         if status_list and (status_list[-1] == 0x0000 or status_list[-1] == 0xB000):
