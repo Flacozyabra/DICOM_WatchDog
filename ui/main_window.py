@@ -505,7 +505,7 @@ class MainWindow(QMainWindow):
         # Главный виджет (старый интерфейс)
         main_widget = QWidget()
         main_layout = QVBoxLayout(main_widget)
-        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(10)
         
         # Вкладки
@@ -539,7 +539,7 @@ class MainWindow(QMainWindow):
     def create_tab_ct_images(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        layout.setContentsMargins(10, 24, 10, 10)
+        layout.setContentsMargins(4, 6, 4, 6)
         layout.setSpacing(10)
         
         # Таблица КТ-изображений
@@ -606,7 +606,7 @@ class MainWindow(QMainWindow):
     def create_tab_ct_archive(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        layout.setContentsMargins(10, 24, 10, 10)
+        layout.setContentsMargins(4, 6, 4, 6)
         layout.setSpacing(10)
         
         # Таблица архива
@@ -669,7 +669,7 @@ class MainWindow(QMainWindow):
     def create_tab_pacs(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        layout.setContentsMargins(10, 24, 10, 10)
+        layout.setContentsMargins(4, 6, 4, 6)
         layout.setSpacing(10)
         
         # Таблица PACS

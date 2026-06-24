@@ -890,7 +890,7 @@ class DicomViewerPanel(QWidget):
 
     def setup_structures_panel(self) -> None:
         self.structures_panel = QFrame(self)
-        self.structures_panel.setFixedWidth(180)
+        self.structures_panel.setFixedWidth(205)
         self.structures_panel.setStyleSheet("""
             QFrame {
                 background-color: #141414;
@@ -917,7 +917,7 @@ class DicomViewerPanel(QWidget):
             QListWidget::item {
                 padding: 6px 10px;
                 border-radius: 4px;
-                margin: 2px 4px;
+                margin: 2px 2px;
             }
             QListWidget::item:hover {
                 background-color: #222222;
@@ -945,7 +945,7 @@ class DicomViewerPanel(QWidget):
             }
         """)
         panel_layout = QVBoxLayout(self.structures_panel)
-        panel_layout.setContentsMargins(10, 10, 10, 10)
+        panel_layout.setContentsMargins(4, 5, 4, 5)
         panel_layout.setSpacing(8)
 
         lbl_title = QLabel("Структуры", self.structures_panel)
