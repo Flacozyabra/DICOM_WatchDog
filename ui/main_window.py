@@ -402,6 +402,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"DICOM WatchDog v{VERSION}")
+        self.setWindowIcon(QIcon(get_resource_path("src/icon.png")))
         MainWindow.instance = self
         self.config = self.load_config()
         self.init_window_geometry()
