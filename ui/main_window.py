@@ -3,13 +3,14 @@ import sys
 import shutil
 from datetime import datetime
 
-from PyQt6.QtCore import Qt, QTimer, QSize, QThread, pyqtSignal, QObject, QDate
-from PyQt6.QtGui import QColor, QAction, QIcon, QFont
+from PyQt6.QtCore import Qt, QTimer, QSize, QThread, pyqtSignal, QObject, QDate, QPoint
+from PyQt6.QtGui import QColor, QAction, QIcon, QFont, QPainter, QPen, QBrush, QPolygon
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, 
                              QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, 
                              QPlainTextEdit, QPushButton, QMessageBox, 
                              QHeaderView, QMenu, QAbstractItemView, QLineEdit, QLabel,
-                             QDialog, QFileDialog, QDateEdit, QStackedWidget, QSplitter)
+                             QDialog, QFileDialog, QDateEdit, QStackedWidget, QSplitter,
+                             QSplitterHandle)
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -246,6 +247,153 @@ class PacsDownloadWorker(QThread):
             progress_callback=self.progress.emit
         )
         self.finished.emit(success, msg)
+
+
+class CustomSplitterHandle(QSplitterHandle):
+    def __init__(self, orientation: Qt.Orientation, parent) -> None:
+        super().__init__(orientation, parent)
+        self.is_collapsed = False
+        self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        if orientation == Qt.Orientation.Horizontal:
+            self.setFixedWidth(8)
+        else:
+            self.setFixedHeight(8)
+
+    def get_handle_index(self) -> int:
+        splitter = self.splitter()
+        if not splitter:
+            return -1
+        for i in range(1, splitter.count()):
+            if splitter.handle(i) is self:
+                return i
+        return -1
+
+    def enterEvent(self, event) -> None:
+        super().enterEvent(event)
+        self.update()
+
+    def leaveEvent(self, event) -> None:
+        super().leaveEvent(event)
+        self.update()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        idx = self.get_handle_index()
+        splitter = self.splitter()
+        if splitter and idx != -1:
+            sizes = splitter.sizes()
+            if len(sizes) >= 2 and idx == 1:
+                self.is_collapsed = (sizes[1] <= 5)
+        self.update()
+
+    def mouseMoveEvent(self, event) -> None:
+        event.ignore()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            idx = self.get_handle_index()
+            if idx != -1:
+                self.toggle_collapse()
+        else:
+            event.ignore()
+
+    def paintEvent(self, event) -> None:
+        idx = self.get_handle_index()
+        if idx == -1:
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        line_color = QColor("#3F3F46")
+        if self.underMouse():
+            arrow_color = QColor("#1f538d")
+        else:
+            arrow_color = QColor("#71717A")
+
+        w = self.width()
+        h = self.height()
+        cx = w // 2
+        cy = h // 2
+
+        poly = QPolygon()
+
+        if self.orientation() == Qt.Orientation.Horizontal:
+            painter.setPen(QPen(line_color, 1))
+            painter.drawLine(cx, 0, cx, h)
+
+            if not self.is_collapsed:
+                poly.append(QPoint(cx - 2, cy))
+                poly.append(QPoint(cx + 2, cy - 10))
+                poly.append(QPoint(cx + 2, cy + 10))
+            else:
+                poly.append(QPoint(cx + 2, cy))
+                poly.append(QPoint(cx - 2, cy - 10))
+                poly.append(QPoint(cx - 2, cy + 10))
+        else:
+            painter.setPen(QPen(line_color, 1))
+            painter.drawLine(15, cy, w - 15, cy)
+
+            if not self.is_collapsed:
+                poly.append(QPoint(cx, cy + 2))
+                poly.append(QPoint(cx - 10, cy - 2))
+                poly.append(QPoint(cx + 10, cy - 2))
+            else:
+                poly.append(QPoint(cx, cy - 2))
+                poly.append(QPoint(cx - 10, cy + 2))
+                poly.append(QPoint(cx + 10, cy + 2))
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(arrow_color))
+        painter.drawPolygon(poly)
+
+    def toggle_collapse(self) -> None:
+        splitter = self.splitter()
+        if not splitter:
+            return
+
+        sizes = splitter.sizes()
+        idx = self.get_handle_index()
+
+        if splitter.orientation() == Qt.Orientation.Horizontal:
+            if len(sizes) < 2:
+                return
+            if idx == 1:
+                if not self.is_collapsed:
+                    self.saved_width = sizes[0] if sizes[0] > 5 else 385
+                    new_sizes = [0, sizes[1] + sizes[0]]
+                    splitter.setSizes(new_sizes)
+                    self.is_collapsed = True
+                else:
+                    w = getattr(self, 'saved_width', 385)
+                    new_sizes = [w, max(50, sizes[1] + sizes[0] - w)]
+                    splitter.setSizes(new_sizes)
+                    self.is_collapsed = False
+        else:
+            if len(sizes) < 2:
+                return
+            if idx == 1:
+                if not self.is_collapsed:
+                    self.saved_log_height = sizes[1] if sizes[1] > 5 else 150
+                    new_sizes = [sizes[0] + sizes[1], 0]
+                    splitter.setSizes(new_sizes)
+                    self.is_collapsed = True
+                else:
+                    h = getattr(self, 'saved_log_height', 150)
+                    new_sizes = [max(50, sizes[0] + sizes[1] - h), h]
+                    splitter.setSizes(new_sizes)
+                    self.is_collapsed = False
+
+        self.update()
+
+
+class CustomSplitter(QSplitter):
+    def __init__(self, orientation: Qt.Orientation, parent: QWidget = None) -> None:
+        super().__init__(orientation, parent)
+
+    def createHandle(self) -> QSplitterHandle:
+        return CustomSplitterHandle(self.orientation(), self)
 
 
 class MainWindow(QMainWindow):
@@ -513,7 +661,7 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(10)
         
         # Вертикальный сплиттер для разделения вкладок и логов
-        self.log_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.log_splitter = CustomSplitter(Qt.Orientation.Vertical)
         self.log_splitter.setObjectName("logSplitter")
         
         # Вкладки
