@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget,
                              QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, 
                              QPlainTextEdit, QPushButton, QMessageBox, 
                              QHeaderView, QMenu, QAbstractItemView, QLineEdit, QLabel,
-                             QDialog, QFileDialog, QDateEdit, QStackedWidget)
+                             QDialog, QFileDialog, QDateEdit, QStackedWidget, QSplitter)
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -512,9 +512,13 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(10)
         
+        # Вертикальный сплиттер для разделения вкладок и логов
+        self.log_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.log_splitter.setObjectName("logSplitter")
+        
         # Вкладки
         self.tab_widget = QTabWidget()
-        main_layout.addWidget(self.tab_widget)
+        self.log_splitter.addWidget(self.tab_widget)
         
         # Создание вкладок
         self.create_tab_ct_images()
@@ -527,8 +531,19 @@ class MainWindow(QMainWindow):
         # Установка размера шрифта из настроек
         font = QFont("Consolas", self.config.get('log_font_size', 12))
         self.output_field.setFont(font)
-        self.output_field.setFixedHeight(150)
-        main_layout.addWidget(self.output_field)
+        self.output_field.setMinimumHeight(30)
+        self.log_splitter.addWidget(self.output_field)
+        
+        # Настройка пропорций и начальных размеров сплиттера
+        self.log_splitter.setStretchFactor(0, 1)
+        self.log_splitter.setStretchFactor(1, 0)
+        
+        window_height = self.geometry().height()
+        log_height = 150
+        tab_height = max(100, window_height - log_height - 30)
+        self.log_splitter.setSizes([tab_height, log_height])
+        
+        main_layout.addWidget(self.log_splitter)
         
         # Подключаем сигнал изменения вкладок после полной инициализации виджетов
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
