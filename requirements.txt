@@ -3,3 +3,4 @@ watchdog
 pydicom
 pynetdicom
 winotify
+numpy
