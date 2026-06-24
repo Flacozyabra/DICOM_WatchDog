@@ -68,6 +68,14 @@ if USE_PYQT5:
         if hasattr(PyQt5.QtWidgets, 'QActionGroup'):
             PyQt5.QtGui.QActionGroup = PyQt5.QtWidgets.QActionGroup
 
+        # Патчим QMouseEvent для поддержки .position(), возвращающего QPointF как в PyQt6
+        PyQt5.QtGui.QMouseEvent.position = lambda self: self.localPos()
+
+        # Включаем поддержку High DPI масштабирования для PyQt5
+        PyQt5.QtCore.QCoreApplication.setAttribute(PyQt5.QtCore.Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
+        PyQt5.QtCore.QCoreApplication.setAttribute(PyQt5.QtCore.Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+        os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
+
         # Подменяем модули в sys.modules
         sys.modules['PyQt6'] = sys.modules.get('PyQt5')
         sys.modules['PyQt6.QtCore'] = PyQt5.QtCore
