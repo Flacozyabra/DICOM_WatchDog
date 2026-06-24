@@ -505,7 +505,7 @@ class MainWindow(QMainWindow):
         # Главный виджет (старый интерфейс)
         main_widget = QWidget()
         main_layout = QVBoxLayout(main_widget)
-        main_layout.setContentsMargins(15, 10, 15, 10)
+        main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(10)
         
         # Вкладки

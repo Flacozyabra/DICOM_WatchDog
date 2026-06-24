@@ -762,7 +762,7 @@ class DicomViewerPanel(QWidget):
 
     def setup_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 10, 15, 10)
+        layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
 
         # 1. Верхняя панель управления
@@ -890,7 +890,7 @@ class DicomViewerPanel(QWidget):
 
     def setup_structures_panel(self) -> None:
         self.structures_panel = QFrame(self)
-        self.structures_panel.setFixedWidth(220)
+        self.structures_panel.setFixedWidth(180)
         self.structures_panel.setStyleSheet("""
             QFrame {
                 background-color: #141414;
