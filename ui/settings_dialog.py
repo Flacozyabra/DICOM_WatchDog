@@ -268,17 +268,6 @@ class SettingsDialog(QDialog):
         self.pacs_notify_cb = ToggleSwitch()
         self.pacs_notify_cb.setChecked(self.config.get('pacs_notification_is', 'off').lower() == 'on')
         general_form.addRow("Уведомления PACS:", self.pacs_notify_cb)
-
-        # Автопроверка обновлений
-        self.check_updates_cb = ToggleSwitch()
-        self.check_updates_cb.setChecked(self.config.get('check_updates_at_startup', 'on').lower() == 'on')
-        general_form.addRow("Проверять обновления при запуске:", self.check_updates_cb)
-
-        # Кнопка ручной проверки обновлений
-        self.btn_check_updates = QPushButton("Проверить обновления")
-        self.btn_check_updates.setFixedHeight(30)
-        self.btn_check_updates.clicked.connect(self.manual_check_updates)
-        general_form.addRow("", self.btn_check_updates)
         
         # Разделитель
         line = QFrame()
@@ -306,6 +295,31 @@ class SettingsDialog(QDialog):
             "QLineEdit:disabled { background-color: #141414; color: #808080; border: 1px solid #1a1a1a; }"
         )
         general_form.addRow("Префиксы для удаления:", self.id_prefixes_edit)
+
+        # Разделитель под префиксами
+        line_updates = QFrame()
+        line_updates.setFrameShape(QFrame.Shape.HLine)
+        line_updates.setFrameShadow(QFrame.Shadow.Sunken)
+        line_updates.setStyleSheet("background-color: #2d2d2d; margin-top: 15px; margin-bottom: 10px;")
+        general_form.addRow(line_updates)
+
+        # Контейнер для проверки обновлений и свитча
+        updates_layout = QHBoxLayout()
+        updates_layout.setContentsMargins(0, 5, 0, 5)
+        updates_layout.setSpacing(10)
+        
+        self.check_updates_cb = ToggleSwitch("Проверять обновления при запуске")
+        self.check_updates_cb.setChecked(self.config.get('check_updates_at_startup', 'on').lower() == 'on')
+        
+        self.btn_check_updates = QPushButton("Проверить обновления")
+        self.btn_check_updates.setFixedHeight(30)
+        self.btn_check_updates.setMinimumWidth(180)
+        self.btn_check_updates.clicked.connect(self.manual_check_updates)
+        
+        updates_layout.addWidget(self.check_updates_cb)
+        updates_layout.addStretch()
+        updates_layout.addWidget(self.btn_check_updates)
+        general_form.addRow(updates_layout)
         
         general_layout.addLayout(general_form)
         general_layout.addStretch()
