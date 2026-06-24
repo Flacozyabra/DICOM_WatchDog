@@ -28,29 +28,72 @@ from themes.theme_manager import load_theme
 class ToggleTableWidget(QTableWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.placeholder_widget = None
         self.placeholder_label = None
+        self.placeholder_btn = None
 
-    def set_placeholder_text(self, text):
-        if not self.placeholder_label:
-            self.placeholder_label = QLabel(text, self.viewport())
+    def set_placeholder_state(self, text, show_button=False, button_callback=None):
+        if not self.placeholder_widget:
+            self.placeholder_widget = QWidget(self.viewport())
+            layout = QVBoxLayout(self.placeholder_widget)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(10)
+            layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            self.placeholder_label = QLabel(text, self.placeholder_widget)
             self.placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.placeholder_label.setStyleSheet("color: #666666; font-size: 15px; font-family: 'Segoe UI'; background: transparent;")
-            self.placeholder_label.hide()
-        else:
-            self.placeholder_label.setText(text)
+            layout.addWidget(self.placeholder_label)
+            
+            self.placeholder_btn = QPushButton("Обзор", self.placeholder_widget)
+            self.placeholder_btn.setFixedSize(120, 30)
+            self.placeholder_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #2b2b2b;
+                    color: #ffffff;
+                    border: 1px solid #3d3d3d;
+                    border-radius: 4px;
+                    font-family: 'Segoe UI';
+                    font-size: 13px;
+                }
+                QPushButton:hover {
+                    background-color: #3d3d3d;
+                }
+                QPushButton:pressed {
+                    background-color: #1a1a1a;
+                }
+            """)
+            layout.addWidget(self.placeholder_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+            self.placeholder_widget.hide()
+            
+        self.placeholder_label.setText(text)
+        self.placeholder_btn.setVisible(show_button)
+        
+        try:
+            self.placeholder_btn.clicked.disconnect()
+        except TypeError:
+            pass
+            
+        if button_callback:
+            self.placeholder_btn.clicked.connect(button_callback)
+            
+        self.update_placeholder_visibility()
+
+    def set_placeholder_text(self, text):
+        self.set_placeholder_state(text, show_button=False)
 
     def update_placeholder_visibility(self):
-        if self.placeholder_label:
+        if self.placeholder_widget:
             if self.rowCount() == 0:
-                self.placeholder_label.setGeometry(self.viewport().rect())
-                self.placeholder_label.show()
+                self.placeholder_widget.setGeometry(self.viewport().rect())
+                self.placeholder_widget.show()
             else:
-                self.placeholder_label.hide()
+                self.placeholder_widget.hide()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if self.placeholder_label:
-            self.placeholder_label.setGeometry(self.viewport().rect())
+        if self.placeholder_widget:
+            self.placeholder_widget.setGeometry(self.viewport().rect())
 
     def mousePressEvent(self, event):
         if event.button() != Qt.MouseButton.LeftButton:
@@ -125,6 +168,9 @@ class FolderScanWorker(QThread):
                 for dir_name in dirs:
                     rename_patient_folder(os.path.join(root, dir_name), collector, prefixes=prefixes_list)
             
+        if is_archive_on and not self.archive_dir:
+            collector.appendPlainText("Предупреждение: Автоархивирование включено, но папка архива не настроена.")
+
         if self.archive_dir and is_archive_on and os.path.exists(self.ct_images_dir):
             from core.archive import move_old_folders_to_archive
             move_old_folders_to_archive(self.ct_images_dir, self.archive_dir, self.archive_days, collector)
@@ -274,11 +320,19 @@ class MainWindow(QMainWindow):
         return dialog.config
 
     def init_window_geometry(self):
-        x = self.config.get('x', 1000)
-        y = self.config.get('y', 600)
-        dx = self.config.get('dx', 350)
-        dy = self.config.get('dy', 100)
-        self.setGeometry(dx, dy, x, y)
+        width = max(self.config.get('x', 1100), 1100)
+        height = self.config.get('y', 600)
+        
+        screen = QApplication.primaryScreen()
+        if screen:
+            screen_geometry = screen.geometry()
+            dx = screen_geometry.x() + (screen_geometry.width() - width) // 2
+            dy = screen_geometry.y() + (screen_geometry.height() - height) // 2
+        else:
+            dx = 350
+            dy = 100
+            
+        self.setGeometry(dx, dy, width, height)
 
     def apply_theme(self):
         theme_content = load_theme("dark")
@@ -292,7 +346,7 @@ class MainWindow(QMainWindow):
         self.config = config.copy()
         
         # 1. Обновляем шрифты таблиц
-        font_size = self.config.get('patient_font_size', 14)
+        font_size = self.config.get('patient_font_size', 16)
         row_height = max(25, font_size + 12)
         
         weight_map = {
@@ -300,7 +354,7 @@ class MainWindow(QMainWindow):
             "Semibold": "600",
             "Bold": "700"
         }
-        weight_str = self.config.get('patient_weight', 'Regular')
+        weight_str = self.config.get('patient_weight', 'Semibold')
         weight = weight_map.get(weight_str, "400")
         table_style = f"font-size: {font_size}px; font-weight: {weight}; font-family: 'Segoe UI';"
         
@@ -316,12 +370,13 @@ class MainWindow(QMainWindow):
         self.output_field.setFont(font)
         
         # 3. Синхронизируем чекбокс автообновления и перезапускаем таймеры
-        self.pacs_auto_scan_cb.setChecked(self.config.get('auto_update_is', 'on').lower() == 'on')
+        self.pacs_auto_scan_cb.setChecked(self.config.get('auto_update_is', 'off').lower() == 'on')
         self.update_pacs_controls_state()
         self.restart_timers()
         
         # 4. Обновляем путь наблюдателя, если он изменился
         if old_dir != new_dir:
+            self.is_first_scan = True
             self.update_watcher_path()
 
     def init_file_watcher(self):
@@ -391,12 +446,12 @@ class MainWindow(QMainWindow):
         # Таймер PACS работает, если активна вкладка PACS и включено автообновление, либо включены фоновые уведомления PACS
         pacs_notify_on = self.config.get('pacs_notification_is', 'off').lower() == 'on'
         is_pacs_tab_active = (self.tab_widget.currentIndex() == 2)
-        pacs_auto_scan_on = self.config.get('auto_update_is', 'on').lower() == 'on'
+        pacs_auto_scan_on = self.config.get('auto_update_is', 'off').lower() == 'on'
         if (is_pacs_tab_active and pacs_auto_scan_on) or pacs_notify_on:
             self.pacs_timer.start(self.config.get('pacs_scan_time', 10000))
 
     def update_pacs_controls_state(self):
-        auto_update_on = self.config.get('auto_update_is', 'on').lower() == 'on'
+        auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
         
         # Если включен Standby mode (автообновление), выставляем принудительно Today
         if auto_update_on:
@@ -479,17 +534,18 @@ class MainWindow(QMainWindow):
         
         # Таблица КТ-изображений
         self.images_table = ToggleTableWidget()
-        self.images_table.setColumnCount(7)
+        self.images_table.setColumnCount(8)
         self.images_table.setHorizontalHeaderLabels([
-            "Patient ID", "Patient Name", "Slices", "Scanning Area", 
+            "Patient ID", "Patient Name", "Modality", "Slices", "Scanning Area", 
             "Study datetime", "Folder datetime", "STR"
         ])
+        self.images_table.setColumnHidden(2, True)
         self.images_table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.images_table.horizontalHeader().customContextMenuRequested.connect(
             lambda pos: self.show_header_context_menu(pos, self.images_table)
         )
         self.setup_table_properties(self.images_table)
-        self.images_table.set_placeholder_text("В этой папке нет КТ-исследований")
+        self.images_table.set_placeholder_text("В этой папке нет исследований")
         self.images_table.update_placeholder_visibility()
         self.restore_table_state(self.images_table)
         self.images_table.cellDoubleClicked.connect(self.open_current_folder_cmd)
@@ -545,17 +601,18 @@ class MainWindow(QMainWindow):
         
         # Таблица архива
         self.archive_table = ToggleTableWidget()
-        self.archive_table.setColumnCount(7)
+        self.archive_table.setColumnCount(8)
         self.archive_table.setHorizontalHeaderLabels([
-            "Patient ID", "Patient Name", "Slices", "Scanning Area", 
+            "Patient ID", "Patient Name", "Modality", "Slices", "Scanning Area", 
             "Study datetime", "Folder datetime", "STR"
         ])
+        self.archive_table.setColumnHidden(2, True)
         self.archive_table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.archive_table.horizontalHeader().customContextMenuRequested.connect(
             lambda pos: self.show_header_context_menu(pos, self.archive_table)
         )
         self.setup_table_properties(self.archive_table)
-        self.archive_table.set_placeholder_text("В архиве нет исследований")
+        self.archive_table.set_placeholder_text("В этой папке нет исследований")
         self.archive_table.update_placeholder_visibility()
         self.restore_table_state(self.archive_table)
         self.archive_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -606,16 +663,17 @@ class MainWindow(QMainWindow):
         
         # Таблица PACS
         self.pacs_table = ToggleTableWidget()
-        self.pacs_table.setColumnCount(5)
+        self.pacs_table.setColumnCount(6)
         self.pacs_table.setHorizontalHeaderLabels([
-            "Patient ID", "Patient Name", "Slices", "Scanning Area", "Study datetime"
+            "Patient ID", "Patient Name", "Modality", "Slices", "Scanning Area", "Study datetime"
         ])
+        self.pacs_table.setColumnHidden(2, True)
         self.pacs_table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.pacs_table.horizontalHeader().customContextMenuRequested.connect(
             lambda pos: self.show_header_context_menu(pos, self.pacs_table)
         )
         self.setup_table_properties(self.pacs_table)
-        self.pacs_table.set_placeholder_text("Исследования на сервере PACS не найдены")
+        self.pacs_table.set_placeholder_text("Сканирование сервера PACS не настроено")
         self.pacs_table.update_placeholder_visibility()
         self.restore_table_state(self.pacs_table)
         self.pacs_table.itemSelectionChanged.connect(self.on_pacs_selection_changed)
@@ -653,7 +711,7 @@ class MainWindow(QMainWindow):
         self.pacs_date_to.dateChanged.connect(lambda: self.fill_pacs_list(silent=True))
         
         self.pacs_auto_scan_cb = ToggleSwitch("Standby mode")
-        self.pacs_auto_scan_cb.setChecked(self.config.get('auto_update_is', 'on').lower() == 'on')
+        self.pacs_auto_scan_cb.setChecked(self.config.get('auto_update_is', 'off').lower() == 'on')
         self.pacs_auto_scan_cb.stateChanged.connect(self.on_pacs_auto_scan_changed)
         
         self.send_to_ct_btn = QPushButton("Send to CT images")
@@ -696,7 +754,7 @@ class MainWindow(QMainWindow):
         table.verticalHeader().setVisible(False)
         
         # Динамическая высота строки в зависимости от размера шрифта
-        font_size = self.config.get('patient_font_size', 14)
+        font_size = self.config.get('patient_font_size', 16)
         row_height = max(25, font_size + 12)
         table.verticalHeader().setDefaultSectionSize(row_height)
         
@@ -706,7 +764,7 @@ class MainWindow(QMainWindow):
             "Semibold": "600",
             "Bold": "700"
         }
-        weight_str = self.config.get('patient_weight', 'Regular')
+        weight_str = self.config.get('patient_weight', 'Semibold')
         weight = weight_map.get(weight_str, "400")
         table_style = f"font-size: {font_size}px; font-weight: {weight}; font-family: 'Segoe UI';"
         header_style = "font-size: 14px; font-weight: normal; font-family: 'Segoe UI';"
@@ -724,21 +782,23 @@ class MainWindow(QMainWindow):
         header.setStretchLastSection(False)
         
         # Установим пропорции ширины по умолчанию
-        if table.columnCount() == 7:
-            table.setColumnWidth(0, 130)  # ID
-            table.setColumnWidth(1, 200)  # Name
-            table.setColumnWidth(2, 80)   # Slices
-            table.setColumnWidth(3, 150)  # Scanning Area
-            table.setColumnWidth(4, 150)  # Study
-            table.setColumnWidth(5, 150)  # Folder
-            table.setColumnWidth(6, 50)   # STR
+        if table.columnCount() == 8:
+            table.setColumnWidth(0, 110)  # ID
+            table.setColumnWidth(1, 300)  # Name
+            table.setColumnWidth(2, 65)   # Modality
+            table.setColumnWidth(3, 65)   # Slices
+            table.setColumnWidth(4, 120)  # Scanning Area
+            table.setColumnWidth(5, 150)  # Study
+            table.setColumnWidth(6, 150)  # Folder
+            table.setColumnWidth(7, 45)   # STR
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Имя тянется
-        elif table.columnCount() == 5:
-            table.setColumnWidth(0, 180)  # ID
-            table.setColumnWidth(1, 250)  # Name
-            table.setColumnWidth(2, 80)   # Slices
-            table.setColumnWidth(3, 180)  # Scanning Area
-            table.setColumnWidth(4, 200)  # Study
+        elif table.columnCount() == 6:
+            table.setColumnWidth(0, 120)  # ID
+            table.setColumnWidth(1, 300)  # Name
+            table.setColumnWidth(2, 70)   # Modality
+            table.setColumnWidth(3, 65)   # Slices
+            table.setColumnWidth(4, 130)  # Scanning Area
+            table.setColumnWidth(5, 150)  # Study
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
 
     def show_header_context_menu(self, pos, table):
@@ -855,13 +915,20 @@ class MainWindow(QMainWindow):
         self.start_folder_scan()
 
 
-    def start_folder_scan(self):
+    def start_folder_scan(self, show_progress=False):
         if self.scan_worker and self.scan_worker.isRunning():
             return
 
         ct_dir = self.config.get('ct_images_dir', '')
-        if not os.path.exists(ct_dir):
+        if not ct_dir or not os.path.exists(ct_dir):
             log_message(self.output_field, "Неверный путь к папке CT Images")
+            self.images_table.setRowCount(0)
+            self.images_table.set_placeholder_state(
+                "Папка для сканирования не выбрана", 
+                show_button=True, 
+                button_callback=self.browse_ct_images_dir
+            )
+            self.images_table.update_placeholder_visibility()
             return
 
         # Запоминаем выделенного пациента
@@ -873,11 +940,11 @@ class MainWindow(QMainWindow):
             if id_item:
                 self.selected_images_patient_id = id_item.text()
 
-        cleanup_str_val = self.config.get('cleanup_structures_enabled', 'True')
-        fix_id_val = self.config.get('fix_patient_id_enabled', 'True')
+        cleanup_str_val = self.config.get('cleanup_structures_enabled', 'False')
+        fix_id_val = self.config.get('fix_patient_id_enabled', 'False')
         prefixes_val = self.config.get('id_prefixes', 'CT_')
         archive_dir = self.config.get('archive_dir', '')
-        archive_enabled = self.config.get('archive_enabled', 'True')
+        archive_enabled = self.config.get('archive_enabled', 'False')
         archive_days = int(self.config.get('archive_days', 3))
         archive_cleanup_enabled = self.config.get('archive_cleanup_enabled', 'False')
         archive_cleanup_days = int(self.config.get('archive_cleanup_days', 30))
@@ -888,7 +955,18 @@ class MainWindow(QMainWindow):
             archive_cleanup_enabled, archive_cleanup_days
         )
         self.scan_worker.finished.connect(self.on_folder_scan_finished)
-        self.scan_worker.start()
+        
+        if show_progress:
+            from ui.loading_dialog import LoadingProgressDialog
+            self.scan_progress_dialog = LoadingProgressDialog(self, title="Сканирование папки КТ")
+            self.scan_progress_dialog.label.setText("Пожалуйста, подождите. Идет сканирование DICOM-файлов...")
+            self.scan_progress_dialog.progress.setRange(0, 0)
+            self.scan_worker.finished.connect(self.scan_progress_dialog.accept)
+            
+            self.scan_worker.start()
+            self.scan_progress_dialog.exec()
+        else:
+            self.scan_worker.start()
 
     def on_folder_scan_finished(self, patient_dict, log_messages):
         for msg in log_messages:
@@ -1016,6 +1094,7 @@ class MainWindow(QMainWindow):
             
             id_item = QTableWidgetItem(str(patient_id))
             name_item = QTableWidgetItem(str(data['patient_name']))
+            modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
             slices_item = QTableWidgetItem(str(data.get('slices', 0)))
             area_item = QTableWidgetItem(str(data.get('body_part', '')))
             study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
@@ -1024,6 +1103,7 @@ class MainWindow(QMainWindow):
             
             id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            modality_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1031,25 +1111,32 @@ class MainWindow(QMainWindow):
             str_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             
             color = QColor("#ffffff")
-            folder_dt = data['folder_datetime']
-            if (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
-                color = QColor("lime")
-            elif folder_dt.date() == datetime.now().date():
-                color = QColor("mediumturquoise")
+            highlighting_enabled = self.config.get('highlighting_enabled', 'False').lower() == 'true'
+            if highlighting_enabled:
+                folder_dt = data['folder_datetime']
+                highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
+                highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
+                highlight_no_str = self.config.get('highlight_no_str_enabled', 'False').lower() == 'true'
                 
-            if data['str'] == 0 or data['str'] > 1:
-                color = QColor("crimson")
+                if highlight_new and (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
+                    color = QColor("lime")
+                elif highlight_today and folder_dt.date() == datetime.now().date():
+                    color = QColor("mediumturquoise")
+                    
+                if highlight_no_str and (data['str'] == 0 or data['str'] > 1):
+                    color = QColor("crimson")
                 
-            for item in [id_item, name_item, slices_item, area_item, study_item, folder_item, str_item]:
+            for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
                 item.setForeground(color)
                 
             self.images_table.setItem(row_idx, 0, id_item)
             self.images_table.setItem(row_idx, 1, name_item)
-            self.images_table.setItem(row_idx, 2, slices_item)
-            self.images_table.setItem(row_idx, 3, area_item)
-            self.images_table.setItem(row_idx, 4, study_item)
-            self.images_table.setItem(row_idx, 5, folder_item)
-            self.images_table.setItem(row_idx, 6, str_item)
+            self.images_table.setItem(row_idx, 2, modality_item)
+            self.images_table.setItem(row_idx, 3, slices_item)
+            self.images_table.setItem(row_idx, 4, area_item)
+            self.images_table.setItem(row_idx, 5, study_item)
+            self.images_table.setItem(row_idx, 6, folder_item)
+            self.images_table.setItem(row_idx, 7, str_item)
             
             row_idx += 1
             if progress_dialog:
@@ -1066,6 +1153,7 @@ class MainWindow(QMainWindow):
                     self.images_table.selectRow(r)
                     break
 
+        self.images_table.set_placeholder_state("В этой папке нет исследований", show_button=False)
         self.images_table.update_placeholder_visibility()
         self.images_table.blockSignals(False)
         self.images_table.setUpdatesEnabled(True)
@@ -1186,14 +1274,21 @@ class MainWindow(QMainWindow):
 
     # ================= ЛОГИКА ТАБЛИЦЫ CT ARCHIVE =================
 
-    def fill_archive_list(self, silent=False):
+    def fill_archive_list(self, silent=False, show_progress=False):
         if self.archive_worker and self.archive_worker.isRunning():
             return
 
         archive_dir = self.config.get('archive_dir', '')
-        if not os.path.exists(archive_dir):
+        if not archive_dir or not os.path.exists(archive_dir):
             if not silent:
                 log_message(self.output_field, "Папка архива не существует")
+            self.archive_table.setRowCount(0)
+            self.archive_table.set_placeholder_state(
+                "Папка для сканирования не выбрана", 
+                show_button=True, 
+                button_callback=self.browse_archive_dir
+            )
+            self.archive_table.update_placeholder_visibility()
             return
             
         if not silent:
@@ -1208,10 +1303,21 @@ class MainWindow(QMainWindow):
             if id_item:
                 self.selected_archive_patient_id = id_item.text()
 
-        cleanup_str_val = self.config.get('cleanup_structures_enabled', 'True')
+        cleanup_str_val = self.config.get('cleanup_structures_enabled', 'False')
         self.archive_worker = ArchiveScanWorker(archive_dir, cleanup_str_val)
         self.archive_worker.finished.connect(lambda ad, lm: self.on_archive_scan_finished(ad, lm, silent))
-        self.archive_worker.start()
+        
+        if show_progress:
+            from ui.loading_dialog import LoadingProgressDialog
+            self.archive_progress_dialog = LoadingProgressDialog(self, title="Сканирование папки архива")
+            self.archive_progress_dialog.label.setText("Пожалуйста, подождите. Идет сканирование файлов архива...")
+            self.archive_progress_dialog.progress.setRange(0, 0)
+            self.archive_worker.finished.connect(self.archive_progress_dialog.accept)
+            
+            self.archive_worker.start()
+            self.archive_progress_dialog.exec()
+        else:
+            self.archive_worker.start()
 
     def on_archive_scan_finished(self, archive_dict, log_messages, silent=False):
         if not silent:
@@ -1256,6 +1362,7 @@ class MainWindow(QMainWindow):
             
             id_item = QTableWidgetItem(str(patient_id))
             name_item = QTableWidgetItem(str(data['patient_name']))
+            modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
             slices_item = QTableWidgetItem(str(data.get('slices', 0)))
             area_item = QTableWidgetItem(str(data.get('body_part', '')))
             study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
@@ -1264,6 +1371,7 @@ class MainWindow(QMainWindow):
             
             id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            modality_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1271,25 +1379,32 @@ class MainWindow(QMainWindow):
             str_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             
             color = QColor("#ffffff")
-            folder_dt = data['folder_datetime']
-            if (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
-                color = QColor("lime")
-            elif folder_dt.date() == datetime.now().date():
-                color = QColor("mediumturquoise")
+            highlighting_enabled = self.config.get('highlighting_enabled', 'False').lower() == 'true'
+            if highlighting_enabled:
+                folder_dt = data['folder_datetime']
+                highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
+                highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
+                highlight_no_str = self.config.get('highlight_no_str_enabled', 'False').lower() == 'true'
                 
-            if data['str'] == 0 or data['str'] > 1:
-                color = QColor("crimson")
+                if highlight_new and (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
+                    color = QColor("lime")
+                elif highlight_today and folder_dt.date() == datetime.now().date():
+                    color = QColor("mediumturquoise")
+                    
+                if highlight_no_str and (data['str'] == 0 or data['str'] > 1):
+                    color = QColor("crimson")
                 
-            for item in [id_item, name_item, slices_item, area_item, study_item, folder_item, str_item]:
+            for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
                 item.setForeground(color)
                 
             self.archive_table.setItem(row_idx, 0, id_item)
             self.archive_table.setItem(row_idx, 1, name_item)
-            self.archive_table.setItem(row_idx, 2, slices_item)
-            self.archive_table.setItem(row_idx, 3, area_item)
-            self.archive_table.setItem(row_idx, 4, study_item)
-            self.archive_table.setItem(row_idx, 5, folder_item)
-            self.archive_table.setItem(row_idx, 6, str_item)
+            self.archive_table.setItem(row_idx, 2, modality_item)
+            self.archive_table.setItem(row_idx, 3, slices_item)
+            self.archive_table.setItem(row_idx, 4, area_item)
+            self.archive_table.setItem(row_idx, 5, study_item)
+            self.archive_table.setItem(row_idx, 6, folder_item)
+            self.archive_table.setItem(row_idx, 7, str_item)
             
             row_idx += 1
             if progress_dialog:
@@ -1305,6 +1420,7 @@ class MainWindow(QMainWindow):
                     self.archive_table.selectRow(r)
                     break
 
+        self.archive_table.set_placeholder_state("В этой папке нет исследований", show_button=False)
         self.archive_table.update_placeholder_visibility()
         self.archive_table.blockSignals(False)
         self.archive_table.setUpdatesEnabled(True)
@@ -1406,7 +1522,7 @@ class MainWindow(QMainWindow):
                 
             name_lower = str(data['patient_name']).lower()
             words = name_lower.replace('^', ' ').split()
-            if words and words[0].startswith(search_text):
+            if not search_text or (words and words[0].startswith(search_text)):
                 valid_items[patient_id] = data
 
         sorted_items = sorted(valid_items.items(), key=lambda x: x[1]['folder_datetime'], reverse=True)
@@ -1417,6 +1533,7 @@ class MainWindow(QMainWindow):
             
             id_item = QTableWidgetItem(str(patient_id))
             name_item = QTableWidgetItem(str(data['patient_name']))
+            modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
             slices_item = QTableWidgetItem(str(data.get('slices', 0)))
             area_item = QTableWidgetItem(str(data.get('body_part', '')))
             study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
@@ -1425,6 +1542,7 @@ class MainWindow(QMainWindow):
             
             id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            modality_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1432,25 +1550,32 @@ class MainWindow(QMainWindow):
             str_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             
             color = QColor("#ffffff")
-            folder_dt = data['folder_datetime']
-            if (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
-                color = QColor("lime")
-            elif folder_dt.date() == datetime.now().date():
-                color = QColor("mediumturquoise")
+            highlighting_enabled = self.config.get('highlighting_enabled', 'False').lower() == 'true'
+            if highlighting_enabled:
+                folder_dt = data['folder_datetime']
+                highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
+                highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
+                highlight_no_str = self.config.get('highlight_no_str_enabled', 'False').lower() == 'true'
                 
-            if data['str'] == 0 or data['str'] > 1:
-                color = QColor("crimson")
+                if highlight_new and (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
+                    color = QColor("lime")
+                elif highlight_today and folder_dt.date() == datetime.now().date():
+                    color = QColor("mediumturquoise")
+                    
+                if highlight_no_str and (data['str'] == 0 or data['str'] > 1):
+                    color = QColor("crimson")
                 
-            for item in [id_item, name_item, slices_item, area_item, study_item, folder_item, str_item]:
+            for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
                 item.setForeground(color)
                 
             self.archive_table.setItem(row_idx, 0, id_item)
             self.archive_table.setItem(row_idx, 1, name_item)
-            self.archive_table.setItem(row_idx, 2, slices_item)
-            self.archive_table.setItem(row_idx, 3, area_item)
-            self.archive_table.setItem(row_idx, 4, study_item)
-            self.archive_table.setItem(row_idx, 5, folder_item)
-            self.archive_table.setItem(row_idx, 6, str_item)
+            self.archive_table.setItem(row_idx, 2, modality_item)
+            self.archive_table.setItem(row_idx, 3, slices_item)
+            self.archive_table.setItem(row_idx, 4, area_item)
+            self.archive_table.setItem(row_idx, 5, study_item)
+            self.archive_table.setItem(row_idx, 6, folder_item)
+            self.archive_table.setItem(row_idx, 7, str_item)
             
             row_idx += 1
 
@@ -1500,6 +1625,11 @@ class MainWindow(QMainWindow):
         self.pacs_worker.start()
 
     def on_pacs_scan_finished(self, pacs_dict, con, log_messages, silent=False):
+        if con:
+            self.pacs_table.set_placeholder_text("Исследования на сервере PACS не найдены")
+        else:
+            self.pacs_table.set_placeholder_text("Сканирование сервера PACS не настроено")
+            
         has_fail_msg = False
         for msg in log_messages:
             if "подключиться к серверу PACS" in msg:
@@ -1516,7 +1646,7 @@ class MainWindow(QMainWindow):
             
             # Фоновое уведомление о новых КТ в PACS
             pacs_notify_on = self.config.get('pacs_notification_is', 'off').lower() == 'on'
-            auto_update_on = self.config.get('auto_update_is', 'on').lower() == 'on'
+            auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
             
             # Определение абсолютного пути к синей иконке
             icon_blue_path = ""
@@ -1581,31 +1711,39 @@ class MainWindow(QMainWindow):
                     
                     id_item = QTableWidgetItem(str(patient_id))
                     name_item = QTableWidgetItem(str(data['patient_name']))
+                    modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
                     slices_item = QTableWidgetItem(str(data.get('slices', '0')))
                     area_item = QTableWidgetItem(str(data.get('body_part', '')))
                     study_item = QTableWidgetItem(data['study_datetime_str'])
                     
                     id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                     name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                    modality_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     
                     color = QColor("#ffffff")
-                    d_time = datetime.strptime(data['study_datetime_str'], "%d.%m.%y - %H:%M")
-                    if (datetime.now() - d_time).total_seconds() / 3600 < 1:
-                        color = QColor("lime")
-                    elif d_time.date() == datetime.now().date():
-                        color = QColor("mediumturquoise")
+                    highlighting_enabled = self.config.get('highlighting_enabled', 'False').lower() == 'true'
+                    if highlighting_enabled:
+                        highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
+                        highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
+                        d_time = datetime.strptime(data['study_datetime_str'], "%d.%m.%y - %H:%M")
                         
-                    for item in [id_item, name_item, slices_item, area_item, study_item]:
+                        if highlight_new and (datetime.now() - d_time).total_seconds() / 3600 < 1:
+                            color = QColor("lime")
+                        elif highlight_today and d_time.date() == datetime.now().date():
+                            color = QColor("mediumturquoise")
+                        
+                    for item in [id_item, name_item, modality_item, slices_item, area_item, study_item]:
                         item.setForeground(color)
                         
                     self.pacs_table.setItem(row_idx, 0, id_item)
                     self.pacs_table.setItem(row_idx, 1, name_item)
-                    self.pacs_table.setItem(row_idx, 2, slices_item)
-                    self.pacs_table.setItem(row_idx, 3, area_item)
-                    self.pacs_table.setItem(row_idx, 4, study_item)
+                    self.pacs_table.setItem(row_idx, 2, modality_item)
+                    self.pacs_table.setItem(row_idx, 3, slices_item)
+                    self.pacs_table.setItem(row_idx, 4, area_item)
+                    self.pacs_table.setItem(row_idx, 5, study_item)
                     
                     row_idx += 1
 
@@ -1641,7 +1779,29 @@ class MainWindow(QMainWindow):
 
     # ================= УПРАВЛЕНИЕ НАСТРОЙКАМИ =================
 
+    def browse_ct_images_dir(self):
+        current_dir = self.config.get('ct_images_dir', '')
+        dir_path = QFileDialog.getExistingDirectory(self, "Выберите папку КТ-изображений", current_dir)
+        if dir_path:
+            norm_path = os.path.normpath(dir_path)
+            self.config['ct_images_dir'] = norm_path
+            self.save_current_config()
+            self.update_watcher_path()
+            self.is_first_scan = True
+            self.start_folder_scan(show_progress=True)
+
+    def browse_archive_dir(self):
+        current_dir = self.config.get('archive_dir', '')
+        dir_path = QFileDialog.getExistingDirectory(self, "Выберите папку архива", current_dir)
+        if dir_path:
+            norm_path = os.path.normpath(dir_path)
+            self.config['archive_dir'] = norm_path
+            self.save_current_config()
+            self.fill_archive_list(show_progress=True)
+
     def open_settings_cmd(self):
+        old_ct_dir = self.config.get('ct_images_dir', '')
+        old_archive_dir = self.config.get('archive_dir', '')
         dialog = SettingsDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             # Перечитываем настройки
@@ -1652,14 +1812,14 @@ class MainWindow(QMainWindow):
             self.output_field.setFont(font)
             
             # Обновляем шрифты и высоту строк таблиц через styleSheet
-            font_size = self.config.get('patient_font_size', 14)
+            font_size = self.config.get('patient_font_size', 16)
             row_height = max(25, font_size + 12)
             weight_map = {
                 "Regular": "400",
                 "Semibold": "600",
                 "Bold": "700"
             }
-            weight_str = self.config.get('patient_weight', 'Regular')
+            weight_str = self.config.get('patient_weight', 'Semibold')
             weight = weight_map.get(weight_str, "400")
             table_style = f"font-size: {font_size}px; font-weight: {weight}; font-family: 'Segoe UI';"
             header_style = "font-size: 14px; font-weight: normal; font-family: 'Segoe UI';"
@@ -1673,10 +1833,20 @@ class MainWindow(QMainWindow):
             
             log_message(self.output_field, "Настройки сохранены и применены")
             
+            new_ct_dir = self.config.get('ct_images_dir', '')
+            new_archive_dir = self.config.get('archive_dir', '')
+            
+            ct_changed = (old_ct_dir != new_ct_dir)
+            archive_changed = (old_archive_dir != new_archive_dir)
+            
             # Обновляем текущую вкладку
-            self.on_tab_changed(self.tab_widget.currentIndex())
-            if self.tab_widget.currentIndex() == 0:
-                self.show_patient_list()
+            current_idx = self.tab_widget.currentIndex()
+            if current_idx == 0:
+                self.start_folder_scan(show_progress=ct_changed)
+            elif current_idx == 1:
+                self.fill_archive_list(show_progress=archive_changed)
+            else:
+                self.on_tab_changed(current_idx)
 
     def on_pacs_selection_changed(self):
         has_selection = len(self.pacs_table.selectedRanges()) > 0

@@ -32,6 +32,7 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
     ds.BodyPartExamined = ''
     ds.StudyDescription = ''
     ds.NumberOfStudyRelatedInstances = ''
+    ds.ModalitiesInStudy = ''
 
     # Associate with the peer AE
     assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet)
@@ -53,6 +54,7 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
                     pacs_data[patient_id]['study_date'] = identifier.get(
                         'StudyDate', 'Нет инфы о дате')
                     pacs_data[patient_id]['slices'] = str(identifier.get('NumberOfStudyRelatedInstances', '0'))
+                    pacs_data[patient_id]['modality'] = str(identifier.get('ModalitiesInStudy', 'CT'))
 
                     # Область сканирования
                     body_part = identifier.get('BodyPartExamined', '')

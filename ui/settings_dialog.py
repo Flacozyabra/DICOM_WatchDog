@@ -103,12 +103,12 @@ class SettingsDialog(QDialog):
             'ct_images_dir': '',
             'archive_dir': '',
             'fix_switch_value': 'True',
-            'cleanup_structures_enabled': 'True',
-            'fix_patient_id_enabled': 'True',
+            'cleanup_structures_enabled': 'False',
+            'fix_patient_id_enabled': 'False',
             'id_prefixes': 'CT_',
             'client_dir': '',
             'archive_slice': 0,
-            'x': 1000,
+            'x': 1100,
             'y': 600,
             'dx': 350,
             'dy': 100,
@@ -116,11 +116,11 @@ class SettingsDialog(QDialog):
             'notification_is': 'on',
             'icon_path': '',
             'pacs_scan_time': 10000,
-            'auto_update_is': 'on',
+            'auto_update_is': 'off',
             'pacs_notification_is': 'off',
-            'patient_font_size': 14,
-            'patient_weight': 'Regular',
-            'archive_enabled': 'True',
+            'patient_font_size': 16,
+            'patient_weight': 'Semibold',
+            'archive_enabled': 'False',
             'archive_days': 3,
             'archive_cleanup_enabled': 'False',
             'archive_cleanup_days': 30,
@@ -128,7 +128,11 @@ class SettingsDialog(QDialog):
             'pacs_port': 11112,
             'pacs_called_aet': 'ANY-SCP',
             'pacs_calling_aet': 'ECHOSCU',
-            'tables_state': {}
+            'tables_state': {},
+            'highlighting_enabled': 'False',
+            'highlight_new_enabled': 'False',
+            'highlight_today_enabled': 'False',
+            'highlight_no_str_enabled': 'False'
         }
         
         # 1. Проверяем config.json
@@ -249,13 +253,13 @@ class SettingsDialog(QDialog):
 
         # Автоудаление дубликатов структур
         self.cleanup_str_cb = ToggleSwitch()
-        self.cleanup_str_cb.setChecked(self.config.get('cleanup_structures_enabled', 'True').lower() == 'true')
+        self.cleanup_str_cb.setChecked(self.config.get('cleanup_structures_enabled', 'False').lower() == 'true')
         self.cleanup_str_cb.setToolTip("Удаляются старые файлы структур и остается только последний файл.")
         general_form.addRow("Автоудаление дубликатов структур:", self.cleanup_str_cb)
 
         # Исправление ID
         self.fix_patient_id_cb = ToggleSwitch()
-        self.fix_patient_id_cb.setChecked(self.config.get('fix_patient_id_enabled', 'True').lower() == 'true')
+        self.fix_patient_id_cb.setChecked(self.config.get('fix_patient_id_enabled', 'False').lower() == 'true')
         general_form.addRow("Исправление ID:", self.fix_patient_id_cb)
 
         # Поле ввода префиксов
@@ -294,7 +298,7 @@ class SettingsDialog(QDialog):
 
         # Автоматическое архивирование (свич и количество дней в одной строке)
         self.archive_enabled_cb = ToggleSwitch()
-        self.archive_enabled_cb.setChecked(self.config.get('archive_enabled', 'True').lower() == 'true')
+        self.archive_enabled_cb.setChecked(self.config.get('archive_enabled', 'False').lower() == 'true')
         
         self.archive_days_spin = QSpinBox()
         self.archive_days_spin.setRange(1, 365)
@@ -372,20 +376,50 @@ class SettingsDialog(QDialog):
         # Patient Font Size
         self.patient_font_spin = QSpinBox()
         self.patient_font_spin.setRange(8, 36)
-        self.patient_font_spin.setValue(self.config.get('patient_font_size', 14))
+        self.patient_font_spin.setValue(self.config.get('patient_font_size', 16))
         ui_form.addRow("Размер шрифта пациентов:", self.patient_font_spin)
         
         # Patient Font Weight
         self.patient_weight_combo = QComboBox()
         self.patient_weight_combo.addItems(["Regular", "Semibold", "Bold"])
-        self.patient_weight_combo.setCurrentText(self.config.get('patient_weight', 'Regular'))
-        ui_form.addRow("Толщина шрифта пациентов:", self.patient_weight_combo)
+        self.patient_weight_combo.setCurrentText(self.config.get('patient_weight', 'Semibold'))
+        ui_form.addRow("Толщина шрифта списков:", self.patient_weight_combo)
         
         # Font size (logs)
         self.font_size_spin = QSpinBox()
         self.font_size_spin.setRange(8, 24)
         self.font_size_spin.setValue(self.config['log_font_size'])
         ui_form.addRow("Размер шрифта логов:", self.font_size_spin)
+        
+        # Разделитель
+        ui_line = QFrame()
+        ui_line.setFrameShape(QFrame.Shape.HLine)
+        ui_line.setFrameShadow(QFrame.Shadow.Sunken)
+        ui_line.setStyleSheet("background-color: #2d2d2d; margin-top: 10px; margin-bottom: 10px;")
+        ui_form.addRow(ui_line)
+        
+        # Основной свич подсветки
+        self.highlighting_cb = ToggleSwitch()
+        self.highlighting_cb.setChecked(self.config.get('highlighting_enabled', 'False').lower() == 'true')
+        ui_form.addRow("Включить цветовую подсветку исследований:", self.highlighting_cb)
+        
+        self.lbl_highlight_new = QLabel("Выделять новые исследования:")
+        self.lbl_highlight_new.setStyleSheet("QLabel { padding-left: 30px; }")
+        self.highlight_new_cb = ToggleSwitch()
+        self.highlight_new_cb.setChecked(self.config.get('highlight_new_enabled', 'False').lower() == 'true')
+        ui_form.addRow(self.lbl_highlight_new, self.highlight_new_cb)
+        
+        self.lbl_highlight_today = QLabel("Выделять сегодняшние исследования:")
+        self.lbl_highlight_today.setStyleSheet("QLabel { padding-left: 30px; }")
+        self.highlight_today_cb = ToggleSwitch()
+        self.highlight_today_cb.setChecked(self.config.get('highlight_today_enabled', 'False').lower() == 'true')
+        ui_form.addRow(self.lbl_highlight_today, self.highlight_today_cb)
+        
+        self.lbl_highlight_no_str = QLabel("Выделять исследования без структур:")
+        self.lbl_highlight_no_str.setStyleSheet("QLabel { padding-left: 30px; }")
+        self.highlight_no_str_cb = ToggleSwitch()
+        self.highlight_no_str_cb.setChecked(self.config.get('highlight_no_str_enabled', 'False').lower() == 'true')
+        ui_form.addRow(self.lbl_highlight_no_str, self.highlight_no_str_cb)
         
         ui_layout.addLayout(ui_form)
         ui_layout.addStretch()
@@ -496,7 +530,39 @@ class SettingsDialog(QDialog):
 
         self.id_prefixes_edit.setEnabled(self.fix_patient_id_cb.isChecked())
 
+        highlighting_active = self.highlighting_cb.isChecked()
+        self.lbl_highlight_new.setEnabled(highlighting_active)
+        self.highlight_new_cb.setEnabled(highlighting_active)
+        self.lbl_highlight_today.setEnabled(highlighting_active)
+        self.highlight_today_cb.setEnabled(highlighting_active)
+        self.lbl_highlight_no_str.setEnabled(highlighting_active)
+        self.highlight_no_str_cb.setEnabled(highlighting_active)
+
     def accept_settings(self):
+        ct_text = self.ct_images_edit.text().strip()
+        archive_text = self.archive_edit.text().strip()
+        
+        if ct_text and archive_text:
+            ct_dir = os.path.normpath(ct_text)
+            archive_dir = os.path.normpath(archive_text)
+            if ct_dir.lower() == archive_dir.lower():
+                msg = QMessageBox(self)
+                msg.setIcon(QMessageBox.Icon.Warning)
+                msg.setWindowTitle("Ошибка")
+                msg.setText("Папка CT Images и папка CT Archive не могут быть одной и той же папкой.")
+                apply_dark_title_bar(msg)
+                msg.exec()
+                return
+
+        if self.archive_enabled_cb.isChecked() and not archive_text:
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle("Предупреждение")
+            msg.setText("Включено автоархивирование, но не указан путь к папке архива.\nПожалуйста, укажите путь к архиву или отключите автоархивирование.")
+            apply_dark_title_bar(msg)
+            msg.exec()
+            return
+
         # Принудительно синхронизируем все настройки перед сохранением
         self.on_setting_changed()
         # Save to file
@@ -519,6 +585,10 @@ class SettingsDialog(QDialog):
         self.patient_font_spin.valueChanged.connect(self.on_setting_changed)
         self.patient_weight_combo.currentTextChanged.connect(self.on_setting_changed)
         self.notify_cb.toggled.connect(self.on_setting_changed)
+        self.highlighting_cb.toggled.connect(self.on_highlighting_toggled)
+        self.highlight_new_cb.toggled.connect(self.on_setting_changed)
+        self.highlight_today_cb.toggled.connect(self.on_setting_changed)
+        self.highlight_no_str_cb.toggled.connect(self.on_setting_changed)
         self.pacs_notify_cb.toggled.connect(self.on_setting_changed)
         self.cleanup_str_cb.toggled.connect(self.on_setting_changed)
         self.fix_patient_id_cb.toggled.connect(self.on_setting_changed)
@@ -533,6 +603,22 @@ class SettingsDialog(QDialog):
         self.pacs_called_aet_edit.textChanged.connect(self.on_setting_changed)
         self.pacs_calling_aet_edit.textChanged.connect(self.on_setting_changed)
 
+    def on_highlighting_toggled(self, checked):
+        self.highlight_new_cb.blockSignals(True)
+        self.highlight_today_cb.blockSignals(True)
+        self.highlight_no_str_cb.blockSignals(True)
+        
+        self.highlight_new_cb.setChecked(checked)
+        self.highlight_today_cb.setChecked(checked)
+        self.highlight_no_str_cb.setChecked(checked)
+        
+        self.highlight_new_cb.blockSignals(False)
+        self.highlight_today_cb.blockSignals(False)
+        self.highlight_no_str_cb.blockSignals(False)
+        
+        self.update_fields_state()
+        self.on_setting_changed()
+
     def on_setting_changed(self):
         # Обновляем текущую конфигурацию
         self.config['ct_images_dir'] = self.ct_images_edit.text()
@@ -544,7 +630,7 @@ class SettingsDialog(QDialog):
         self.config['patient_weight'] = self.patient_weight_combo.currentText()
         self.config['notification_is'] = 'on' if self.notify_cb.isChecked() else 'off'
         self.config['pacs_notification_is'] = 'on' if self.pacs_notify_cb.isChecked() else 'off'
-        self.config['auto_update_is'] = 'on'
+        self.config['auto_update_is'] = self.config.get('auto_update_is', 'off')
         self.config['cleanup_structures_enabled'] = 'True' if self.cleanup_str_cb.isChecked() else 'False'
         self.config['fix_patient_id_enabled'] = 'True' if self.fix_patient_id_cb.isChecked() else 'False'
         self.config['id_prefixes'] = self.id_prefixes_edit.text()
@@ -556,6 +642,10 @@ class SettingsDialog(QDialog):
         self.config['pacs_port'] = self.pacs_port_spin.value()
         self.config['pacs_called_aet'] = self.pacs_called_aet_edit.text()
         self.config['pacs_calling_aet'] = self.pacs_calling_aet_edit.text()
+        self.config['highlighting_enabled'] = 'True' if self.highlighting_cb.isChecked() else 'False'
+        self.config['highlight_new_enabled'] = 'True' if self.highlight_new_cb.isChecked() else 'False'
+        self.config['highlight_today_enabled'] = 'True' if self.highlight_today_cb.isChecked() else 'False'
+        self.config['highlight_no_str_enabled'] = 'True' if self.highlight_no_str_cb.isChecked() else 'False'
 
         # Применяем настройки на лету в главном окне
         from ui.main_window import MainWindow

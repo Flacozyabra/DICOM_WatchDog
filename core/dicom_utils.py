@@ -50,9 +50,10 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False):
             file = files[0]
             if file.endswith('.dcm'):
                 try:
-                    ds = pydicom.read_file(os.path.join(root, file))
+                    ds = pydicom.dcmread(os.path.join(root, file))
                     patient_data[ds.PatientID]['patient_id'] = ds.PatientID
                     patient_data[ds.PatientID]['patient_name'] = ds.PatientName
+                    patient_data[ds.PatientID]['modality'] = str(ds.get('Modality', 'CT'))
 
                     # учитываем два варианта записи времени исследования (с мкс и без)
                     date_time_string = ds.StudyDate + ds.StudyTime
@@ -111,7 +112,7 @@ def rename_patient_folder(path, output_field, prefixes=None):
         return
 
     try:
-        ds = pydicom.read_file(os.path.join(path, files[0]))
+        ds = pydicom.dcmread(os.path.join(path, files[0]))
     except Exception as e:
         log_message(output_field, f"Ошибка чтения DICOM в {patient_folder}: {e}")
         return
@@ -142,7 +143,7 @@ def rename_patient_folder(path, output_field, prefixes=None):
                 # Если файл DICOM или структура, пытаемся обновить PatientID
                 if filename.lower().endswith('.dcm') or filename.startswith('STR'):
                     try:
-                        ds_file = pydicom.read_file(src_file)
+                        ds_file = pydicom.dcmread(src_file)
                         ds_file.PatientID = new_id
                         ds_file.save_as(dest_file)
                     except Exception:
@@ -161,7 +162,7 @@ def rename_patient_folder(path, output_field, prefixes=None):
                 if filename.lower().endswith('.dcm') or filename.startswith('STR'):
                     src_file = os.path.join(dirpath, filename)
                     try:
-                        ds_file = pydicom.read_file(src_file)
+                        ds_file = pydicom.dcmread(src_file)
                         ds_file.PatientID = new_id
                         ds_file.save_as(src_file)
                     except Exception as e:
