@@ -141,7 +141,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                         'body_part': body_part_str,
                         'folder_datetime': folder_dt,
                         'str': str_count,
-                        'slices': slices_count
+                        'slices': len(dcm_files)
                     }
                     
                     cache[root] = {
@@ -153,7 +153,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                         'body_part': body_part_str,
                         'folder_datetime': folder_dt.isoformat(),
                         'str': str_count,
-                        'slices': slices_count
+                        'slices': len(dcm_files)
                     }
                 except Exception as e:
                     if output_field:

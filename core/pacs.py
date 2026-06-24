@@ -13,6 +13,14 @@ from core.config_utils import get_log_path
 def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11112, called_aet="ANY-SCP", calling_aet="ECHOSCU", study_date=None):
     pacs_data = defaultdict(dict)
     con = False
+    
+    if len(calling_aet) > 16:
+        log_message(output_field, f"Ошибка PACS: Локальный AE Title '{calling_aet}' превышает 16 символов.")
+        return pacs_data, False
+    if len(called_aet) > 16:
+        log_message(output_field, f"Ошибка PACS: Удаленный AE Title '{called_aet}' превышает 16 символов.")
+        return pacs_data, False
+
     ae = AE()
     ae.ae_title = calling_aet
     ae.add_requested_context('1.2.840.10008.5.1.4.1.2.1.1')  # C-FIND (Patient Root Query)
@@ -97,6 +105,11 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
 
 
 def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
+    if len(calling_aet) > 16:
+        return False, f"Ошибка: Локальный AE Title (AET Local) '{calling_aet}' превышает 16 символов."
+    if len(called_aet) > 16:
+        return False, f"Ошибка: Удаленный AE Title (AET Remote) '{called_aet}' превышает 16 символов."
+
     ae = AE()
     ae.ae_title = calling_aet
     ae.connection_timeout = 3
@@ -146,6 +159,11 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
 
 
 def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, called_aet, calling_aet, progress_callback=None):
+    if len(calling_aet) > 16:
+        return False, f"Ошибка: Локальный AE Title '{calling_aet}' превышает 16 символов."
+    if len(called_aet) > 16:
+        return False, f"Ошибка: Удаленный AE Title '{called_aet}' превышает 16 символов."
+
     from pydicom.dataset import Dataset
     from pynetdicom import AE, evt, build_role, ALL_TRANSFER_SYNTAXES
     from pynetdicom.sop_class import (

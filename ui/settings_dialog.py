@@ -473,10 +473,12 @@ class SettingsDialog(QDialog):
 
         # AET Remote (метка слева, поле ввода справа)
         self.pacs_called_aet_edit = QLineEdit(self.config.get('pacs_called_aet', 'ANY-SCP'))
+        self.pacs_called_aet_edit.setMaxLength(16)
         pacs_form.addRow("AET Remote:", self.pacs_called_aet_edit)
 
         # AET Local (метка слева, поле ввода справа)
         self.pacs_calling_aet_edit = QLineEdit(self.config.get('pacs_calling_aet', 'ECHOSCU'))
+        self.pacs_calling_aet_edit.setMaxLength(16)
         pacs_form.addRow("AET Local:", self.pacs_calling_aet_edit)
         
         pacs_layout.addLayout(pacs_form)
@@ -585,6 +587,23 @@ class SettingsDialog(QDialog):
             msg.setIcon(QMessageBox.Icon.Warning)
             msg.setWindowTitle("Предупреждение")
             msg.setText("Включено автоархивирование, но не указан путь к папке архива.\nПожалуйста, укажите путь к архиву или отключите автоархивирование.")
+            apply_dark_title_bar(msg)
+            msg.exec()
+            return
+
+        # Валидация AE Title
+        called_aet = self.pacs_called_aet_edit.text().strip()
+        calling_aet = self.pacs_calling_aet_edit.text().strip()
+        if len(called_aet) > 16 or len(calling_aet) > 16:
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle("Ошибка")
+            msg.setText(
+                "AE Title не должен превышать 16 символов по стандарту DICOM.\n\n"
+                f"AET Remote: \"{called_aet}\" ({len(called_aet)} симв.)\n"
+                f"AET Local: \"{calling_aet}\" ({len(calling_aet)} симв.)\n\n"
+                "Пожалуйста, исправьте значения."
+            )
             apply_dark_title_bar(msg)
             msg.exec()
             return
