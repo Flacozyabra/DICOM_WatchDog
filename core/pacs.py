@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from pprint import pprint
 
 from core.logger import log_message
+from core.config_utils import get_log_path
 
 
 def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11112, called_aet="ANY-SCP", calling_aet="ECHOSCU", study_date=None):
@@ -198,7 +199,7 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
             import traceback
             from datetime import datetime
             try:
-                with open("pacs_error.log", "a", encoding="utf-8") as f:
+                with open(get_log_path(), "a", encoding="utf-8") as f:
                     f.write(f"\n--- {datetime.now()} ---\n")
                     traceback.print_exc(file=f)
                     f.write(f"Error details: {str(e)}\n")
@@ -219,7 +220,7 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
             if status:
                 status_list.append(status.Status)
                 try:
-                    with open("pacs_error.log", "a", encoding="utf-8") as f:
+                    with open(get_log_path(), "a", encoding="utf-8") as f:
                         f.write(f"\n--- C-GET Status Response ({datetime.now()}) ---\n")
                         f.write(str(status))
                         f.write("\n")

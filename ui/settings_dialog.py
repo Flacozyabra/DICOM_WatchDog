@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QComboBox, QListWidget, QStackedWidget, QWidget, QFrame)
 
 from ui.toggle_switch import ToggleSwitch
+from core.config_utils import get_config_path, get_app_data_dir
 
 
 def apply_dark_title_bar(widget):
@@ -135,10 +136,11 @@ class SettingsDialog(QDialog):
             'highlight_no_str_enabled': 'False'
         }
         
-        # 1. Проверяем config.json
-        if os.path.exists("config.json"):
+        # 1. Проверяем config.json в AppData
+        config_path = get_config_path()
+        if os.path.exists(config_path):
             try:
-                with open("config.json", "r", encoding="utf-8") as f:
+                with open(config_path, "r", encoding="utf-8") as f:
                     loaded = json.load(f)
                     config.update(loaded)
                 return config
@@ -177,8 +179,8 @@ class SettingsDialog(QDialog):
                     if len(lines) > 61: config['pacs_called_aet'] = lines[61].strip()
                     if len(lines) > 64: config['pacs_calling_aet'] = lines[64].strip()
                 
-                # Сохраняем в config.json и бэкапим config.txt
-                with open("config.json", "w", encoding="utf-8") as f_json:
+                # Сохраняем в config.json в AppData и бэкапим config.txt
+                with open(get_config_path(), "w", encoding="utf-8") as f_json:
                     json.dump(config, f_json, ensure_ascii=False, indent=4)
                     
                 if os.path.exists("config.txt.bak"):
@@ -192,7 +194,7 @@ class SettingsDialog(QDialog):
 
     def save_config(self):
         try:
-            with open("config.json", "w", encoding="utf-8") as f:
+            with open(get_config_path(), "w", encoding="utf-8") as f:
                 json.dump(self.config, f, ensure_ascii=False, indent=4)
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить конфигурацию: {e}")
@@ -226,6 +228,19 @@ class SettingsDialog(QDialog):
         h_layout_ct.addWidget(self.ct_images_edit)
         h_layout_ct.addWidget(ct_images_btn)
         general_form.addRow("Папка CT Images:", h_layout_ct)
+
+        # App Settings Dir
+        self.app_data_edit = QLineEdit(get_app_data_dir())
+        self.app_data_edit.setReadOnly(True)
+        self.app_data_edit.setStyleSheet(
+            "QLineEdit { background-color: #1e1e1e; color: #888888; border: 1px solid #2d2d2d; padding: 4px; border-radius: 4px; }"
+        )
+        app_data_btn = QPushButton("Открыть")
+        app_data_btn.clicked.connect(self.open_app_data_folder)
+        h_layout_app = QHBoxLayout()
+        h_layout_app.addWidget(self.app_data_edit)
+        h_layout_app.addWidget(app_data_btn)
+        general_form.addRow("Папка настроек:", h_layout_app)
 
         # Разделитель для КТ-папки
         line_ct = QFrame()
@@ -516,6 +531,17 @@ class SettingsDialog(QDialog):
         dir_path = QFileDialog.getExistingDirectory(self, title, line_edit.text())
         if dir_path:
             line_edit.setText(os.path.normpath(dir_path))
+
+    def open_app_data_folder(self):
+        import subprocess
+        app_data_dir = get_app_data_dir()
+        if os.path.exists(app_data_dir):
+            if sys.platform == "win32":
+                os.startfile(app_data_dir)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", app_data_dir])
+            else:
+                subprocess.Popen(["xdg-open", app_data_dir])
 
     def update_fields_state(self):
         archive_active = self.archive_enabled_cb.isChecked()

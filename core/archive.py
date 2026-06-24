@@ -6,14 +6,14 @@ from datetime import datetime
 from collections import defaultdict
 
 from core.logger import log_message
-
-CACHE_FILE = "archive_cache.json"
+from core.config_utils import get_cache_path
 
 
 def load_cache():
-    if os.path.exists(CACHE_FILE):
+    cache_path = get_cache_path()
+    if os.path.exists(cache_path):
         try:
-            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+            with open(cache_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return {}
@@ -22,7 +22,7 @@ def load_cache():
 
 def save_cache(cache_data):
     try:
-        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        with open(get_cache_path(), "w", encoding="utf-8") as f:
             json.dump(cache_data, f, ensure_ascii=False, indent=4)
     except Exception:
         pass
