@@ -653,10 +653,11 @@ class DicomViewerWidget(QWidget):
                     for line in top_lines:
                         metrics = painter.fontMetrics()
                         rect_line = metrics.boundingRect(line)
+                        rect_line.setWidth(rect_line.width() + 15)
                         rect_line.moveTopLeft(QPoint(15, y_offset))
                         painter.fillRect(rect_line.adjusted(-4, -2, 4, 2), QColor(0, 0, 0, 150))
                         painter.setPen(QColor("#E5E7EB"))
-                        painter.drawText(rect_line, Qt.AlignmentFlag.AlignLeft, line)
+                        painter.drawText(rect_line, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, line)
                         y_offset += rect_line.height() + 5
 
                 # Параметры окна HU, Zoom
@@ -685,10 +686,11 @@ class DicomViewerWidget(QWidget):
                 y_offset_b = self.height() - 15
                 for line in reversed(lines_bottom):
                     rect_info = metrics_b.boundingRect(line)
+                    rect_info.setWidth(rect_info.width() + 15)
                     rect_info.moveBottomLeft(QPoint(15, y_offset_b))
                     painter.fillRect(rect_info.adjusted(-4, -2, 4, 2), QColor(0, 0, 0, 150))
                     painter.setPen(QColor("#E5E7EB"))
-                    painter.drawText(rect_info, Qt.AlignmentFlag.AlignLeft, line)
+                    painter.drawText(rect_info, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, line)
                     y_offset_b -= rect_info.height() + 5
 
                 # Срезы
@@ -711,17 +713,19 @@ class DicomViewerWidget(QWidget):
                     metrics_r = painter.fontMetrics()
                     
                     rect_slice = metrics_r.boundingRect(slice_info)
+                    rect_slice.setWidth(rect_slice.width() + 15)
                     rect_slice.moveBottomRight(QPoint(self.width() - 15, self.height() - 15))
                     painter.fillRect(rect_slice.adjusted(-4, -2, 4, 2), QColor(0, 0, 0, 150))
                     painter.setPen(QColor("#E5E7EB"))
-                    painter.drawText(rect_slice, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, slice_info)
+                    painter.drawText(rect_slice, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, slice_info)
                     
                     if spacing_text:
                         rect_spacing = metrics_r.boundingRect(spacing_text)
+                        rect_spacing.setWidth(rect_spacing.width() + 15)
                         rect_spacing.moveBottomRight(QPoint(self.width() - 15, rect_slice.top() - 8))
                         painter.fillRect(rect_spacing.adjusted(-4, -2, 4, 2), QColor(0, 0, 0, 150))
                         painter.setPen(QColor("#E5E7EB"))
-                        painter.drawText(rect_spacing, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, spacing_text)
+                        painter.drawText(rect_spacing, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, spacing_text)
 
     def draw_tick(self, painter: QPainter, pt1: QPointF, pt2: QPointF) -> None:
         dx = pt2.x() - pt1.x()
