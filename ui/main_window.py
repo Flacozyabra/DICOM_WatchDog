@@ -673,14 +673,19 @@ class MainWindow(QMainWindow):
         self.create_tab_ct_archive()
         self.create_tab_pacs()
         
-        # Поле вывода логов
+        # Поле вывода логов в контейнере с верхним отступом от сплиттера
+        self.output_container = QWidget()
+        output_layout = QVBoxLayout(self.output_container)
+        output_layout.setContentsMargins(0, 10, 0, 0)
+        
         self.output_field = QPlainTextEdit()
         self.output_field.setReadOnly(True)
         # Установка размера шрифта из настроек
         font = QFont("Consolas", self.config.get('log_font_size', 12))
         self.output_field.setFont(font)
-        self.output_field.setMinimumHeight(30)
-        self.log_splitter.addWidget(self.output_field)
+        output_layout.addWidget(self.output_field)
+        
+        self.log_splitter.addWidget(self.output_container)
         
         # Настройка пропорций и начальных размеров сплиттера
         self.log_splitter.setStretchFactor(0, 1)
