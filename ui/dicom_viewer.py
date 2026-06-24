@@ -15,6 +15,7 @@ from PyQt6.QtGui import (
     QPen, QImage, QLinearGradient, QPolygon, QPolygonF
 )
 from ui.toggle_switch import ToggleSwitch
+from core.config_utils import get_resource_path
 
 
 def load_rtstruct(filepath):
@@ -800,10 +801,10 @@ class DicomViewerPanel(QWidget):
         top_layout.addWidget(self.cb_presets)
 
         # Загружаем иконки
-        self.img_ruler = QIcon("themes/ruler.png")
-        self.img_hu = QIcon("themes/hu.png")
-        self.img_osd = QIcon("themes/eye.png")
-        self.img_close = QIcon("themes/close.png")
+        self.img_ruler = QIcon(get_resource_path("themes/ruler.png"))
+        self.img_hu = QIcon(get_resource_path("themes/hu.png"))
+        self.img_osd = QIcon(get_resource_path("themes/eye.png"))
+        self.img_close = QIcon(get_resource_path("themes/close.png"))
 
         # Кнопка линейки
         self.btn_ruler = QPushButton(self)
@@ -891,7 +892,9 @@ class DicomViewerPanel(QWidget):
     def setup_structures_panel(self) -> None:
         self.structures_panel = QFrame(self)
         self.structures_panel.setFixedWidth(205)
-        self.structures_panel.setStyleSheet("""
+        
+        eye_path = get_resource_path("themes/eye.png").replace(os.sep, "/")
+        style = """
             QFrame {
                 background-color: #141414;
                 border: 1px solid #282828;
@@ -943,7 +946,9 @@ class DicomViewerPanel(QWidget):
                 border-radius: 3px;
                 background-color: #1f538d;
             }
-        """)
+        """
+        style = style.replace("url(themes/eye.png)", f"url({eye_path})")
+        self.structures_panel.setStyleSheet(style)
         panel_layout = QVBoxLayout(self.structures_panel)
         panel_layout.setContentsMargins(4, 5, 4, 5)
         panel_layout.setSpacing(8)

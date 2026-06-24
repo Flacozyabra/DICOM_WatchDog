@@ -44,3 +44,10 @@ def get_cache_path():
 
 def get_log_path():
     return os.path.join(get_app_data_dir(), "pacs_error.log")
+
+def get_resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except AttributeError:
+        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    return os.path.normpath(os.path.join(base_path, relative_path))
