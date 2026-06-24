@@ -364,6 +364,8 @@ class DicomViewerWidget(QWidget):
         self.pan_offset = QPointF(0, 0)
         self.current_slice = 0
         self.total_slices = 0
+        self.ruler_active = False
+        self.hu_active = False
         self.structures = {}
         self.enabled_structures = set()
         self.show_structures_globally = True
@@ -1230,6 +1232,8 @@ class DicomViewerPanel(QWidget):
         self.sorted_files = []
         self.current_index = -1
         self.viewer.clear_viewer()
+        self.hu_panel.hide()
+        self.update_buttons_style()
 
         self.cb_presets.blockSignals(True)
         self.cb_presets.setCurrentIndex(0)
