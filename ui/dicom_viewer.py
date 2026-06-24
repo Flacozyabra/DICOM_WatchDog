@@ -14,6 +14,7 @@ from PyQt6.QtGui import (
     QIcon, QFont, QPixmap, QBrush, QColor, QPainter,
     QPen, QImage, QLinearGradient, QPolygon, QPolygonF
 )
+from ui.toggle_switch import ToggleSwitch
 
 
 def load_rtstruct(filepath):
@@ -879,6 +880,7 @@ class DicomViewerPanel(QWidget):
 
         self.retranslate_ui()
         self.cb_presets.currentIndexChanged.connect(self.apply_preset)
+        self.update_buttons_style()
 
     def setup_structures_panel(self) -> None:
         self.structures_panel = QFrame(self)
@@ -895,11 +897,6 @@ class DicomViewerPanel(QWidget):
                 color: #FFFFFF;
                 font-size: 13px;
                 font-weight: bold;
-                font-family: "Segoe UI", -apple-system, Roboto, sans-serif;
-            }
-            QCheckBox {
-                color: #FFFFFF;
-                font-size: 12px;
                 font-family: "Segoe UI", -apple-system, Roboto, sans-serif;
             }
             QListWidget {
@@ -923,15 +920,32 @@ class DicomViewerPanel(QWidget):
                 background-color: #1f538d;
                 color: #FFFFFF;
             }
+            QListWidget::indicator {
+                width: 14px;
+                height: 14px;
+                border: 1px solid #3d3d3d;
+                border-radius: 3px;
+                background-color: #0f0f0f;
+            }
+            QListWidget::indicator:hover {
+                border-color: #1f538d;
+                background-color: #151515;
+            }
+            QListWidget::indicator:checked {
+                image: url(themes/eye.png);
+                border: 1px solid #1f538d;
+                border-radius: 3px;
+                background-color: #1f538d;
+            }
         """)
         panel_layout = QVBoxLayout(self.structures_panel)
         panel_layout.setContentsMargins(10, 10, 10, 10)
         panel_layout.setSpacing(8)
 
-        lbl_title = QLabel("Структуры (RTSTRUCT)", self.structures_panel)
+        lbl_title = QLabel("Структуры", self.structures_panel)
         panel_layout.addWidget(lbl_title)
 
-        self.cb_show_structures = QCheckBox("Показывать структуры", self.structures_panel)
+        self.cb_show_structures = ToggleSwitch("Показывать структуры", self.structures_panel)
         self.cb_show_structures.setChecked(True)
         self.cb_show_structures.stateChanged.connect(self.on_global_structures_changed)
         panel_layout.addWidget(self.cb_show_structures)

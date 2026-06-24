@@ -2039,7 +2039,6 @@ class MainWindow(QMainWindow):
                 log_message(self.output_field, f"Папка {patient_id} пуста")
                 return
                 
-            log_message(self.output_field, f"Открытие вьюера для пациента {patient_id}")
             self.viewer_panel.load_series(files)
             self.viewer_panel.apply_theme()
             self.stacked_widget.setCurrentIndex(1)
@@ -2050,7 +2049,7 @@ class MainWindow(QMainWindow):
         self.stacked_widget.setCurrentIndex(0)
         self.viewer_panel.viewer.clear_viewer()
         self.show_patient_list()
-        self.fill_archive_list()
+        self.fill_archive_list(silent=True)
 
     def closeEvent(self, event):
         # Останавливаем наблюдатель перед выходом, чтобы не зависал фоновый поток
