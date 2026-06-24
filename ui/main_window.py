@@ -676,7 +676,7 @@ class MainWindow(QMainWindow):
         # Поле вывода логов в контейнере с верхним отступом от сплиттера
         self.output_container = QWidget()
         output_layout = QVBoxLayout(self.output_container)
-        output_layout.setContentsMargins(0, 10, 0, 0)
+        output_layout.setContentsMargins(0, 4, 0, 0)
         
         self.output_field = QPlainTextEdit()
         self.output_field.setReadOnly(True)
