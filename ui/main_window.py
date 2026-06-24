@@ -402,7 +402,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"DICOM WatchDog v{VERSION}")
-        self.setWindowIcon(QIcon(get_resource_path("src/icon.png")))
+        self.setWindowIcon(QIcon(get_resource_path("src/app_logo.png")))
         MainWindow.instance = self
         self.config = self.load_config()
         self.init_window_geometry()
@@ -1173,18 +1173,18 @@ class MainWindow(QMainWindow):
                 icon_path = os.path.abspath(icon_path)
                 custom_icon_found = True
             elif os.path.isdir(icon_path):
-                potential_icon = os.path.abspath(os.path.join(icon_path, "src", "icon.png"))
+                potential_icon = os.path.abspath(os.path.join(icon_path, "src", "app_logo.png"))
                 if os.path.exists(potential_icon):
                     icon_path = potential_icon
                     custom_icon_found = True
                 else:
-                    potential_root_icon = os.path.abspath(os.path.join(icon_path, "icon.png"))
+                    potential_root_icon = os.path.abspath(os.path.join(icon_path, "app_logo.png"))
                     if os.path.exists(potential_root_icon):
                         icon_path = potential_root_icon
                         custom_icon_found = True
                         
         if not custom_icon_found:
-            potential_icon = get_resource_path("src/icon.png")
+            potential_icon = get_resource_path("src/app_logo.png")
             if os.path.exists(potential_icon):
                 icon_path = potential_icon
             else:
