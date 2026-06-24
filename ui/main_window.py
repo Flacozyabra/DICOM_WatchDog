@@ -493,6 +493,11 @@ class MainWindow(QMainWindow):
     def apply_theme(self):
         theme_content = load_theme("dark")
         if theme_content:
+            from main import USE_PYQT5
+            if USE_PYQT5:
+                # Компенсируем разницу в высоте шрифта при рендеринге через FreeType в PyQt5,
+                # уменьшая вертикальный padding с 4px до 1px.
+                theme_content = theme_content.replace("padding: 4px 12px;", "padding: 1px 12px;")
             self.setStyleSheet(theme_content)
 
     def apply_settings_dynamic(self, config):
