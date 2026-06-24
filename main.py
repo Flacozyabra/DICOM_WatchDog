@@ -4,11 +4,12 @@ import time
 import random
 import math
 
-from PyQt6.QtCore import Qt, QTimer, QRect, QPoint
+from PyQt6.QtCore import Qt, QTimer, QRect, QPoint, QThread, pyqtSignal
 from PyQt6.QtGui import QPixmap, QColor, QPainter, QPen, QBrush
 from PyQt6.QtWidgets import QApplication, QSplashScreen, QProgressBar, QHBoxLayout, QVBoxLayout, QLabel
 
 MainWindow = None
+_worker = None
 
 
 def exception_hook(exctype, value, traceback_obj):
@@ -24,6 +25,31 @@ def exception_hook(exctype, value, traceback_obj):
 
 
 sys.excepthook = exception_hook
+
+
+class ImportWorker(QThread):
+    progress = pyqtSignal(int, str)
+    finished_import = pyqtSignal()
+
+    def run(self):
+        self.progress.emit(10, "Загрузка базовых компонентов...")
+        time.sleep(0.1)
+        
+        self.progress.emit(30, "Загрузка модулей DICOM...")
+        import pydicom
+        
+        self.progress.emit(50, "Загрузка сетевых компонентов PACS...")
+        import pynetdicom
+        
+        self.progress.emit(70, "Загрузка модулей обработки изображений...")
+        import numpy
+        
+        self.progress.emit(90, "Инициализация интерфейса...")
+        import ui.main_window
+        
+        self.progress.emit(100, "Запуск...")
+        time.sleep(0.1)
+        self.finished_import.emit()
 
 
 class LoadingSplash(QSplashScreen):
@@ -176,32 +202,27 @@ class LoadingSplash(QSplashScreen):
 
 
 def main():
-    global MainWindow
+    global MainWindow, _worker
     app = QApplication(sys.argv)
     
     splash = LoadingSplash()
     splash.show()
     
-    splash.set_progress(10, "Загрузка базовых компонентов...")
+    _worker = ImportWorker()
+    _worker.progress.connect(splash.set_progress)
     
-    splash.set_progress(30, "Загрузка модулей DICOM...")
-    import pydicom
+    def on_finished():
+        global MainWindow
+        from ui.main_window import MainWindow as MW
+        MainWindow = MW
+        
+        window = MainWindow()
+        window.show()
+        splash.finish(window)
+        
+    _worker.finished_import.connect(on_finished)
+    _worker.start()
     
-    splash.set_progress(50, "Загрузка сетевых компонентов PACS...")
-    import pynetdicom
-    
-    splash.set_progress(70, "Загрузка модулей обработки изображений...")
-    import numpy as np
-    
-    splash.set_progress(90, "Инициализация интерфейса...")
-    from ui.main_window import MainWindow as MW
-    MainWindow = MW
-    
-    splash.set_progress(100, "Запуск...")
-    window = MainWindow()
-    window.show()
-    
-    splash.finish(window)
     sys.exit(app.exec())
 
 
