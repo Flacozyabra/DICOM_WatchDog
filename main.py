@@ -98,7 +98,21 @@ class LoadingSplash(QSplashScreen):
 
 def main():
     global MainWindow, _worker
+    
+    # Set AppUserModelID so Windows taskbar correctly groups windows under the custom icon
+    if sys.platform == "win32":
+        import ctypes
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("dicom.watchdog.app.v1")
+        except Exception:
+            pass
+
     app = QApplication(sys.argv)
+    
+    # Set application-wide default window icon
+    from PyQt6.QtGui import QIcon
+    from core.config_utils import get_resource_path
+    app.setWindowIcon(QIcon(get_resource_path("src/logo.png")))
     
     splash = LoadingSplash()
     splash.show()
