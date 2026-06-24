@@ -1237,7 +1237,8 @@ class MainWindow(QMainWindow):
                 self.show_patient_list()
             except Exception as e:
                 QMessageBox.critical(self, "Ошибка удаления", f"Не удалось удалить папку: {e}")
-                log_message(self.output_field, f"Ошибка удаления папки {patient_id}: {e}")
+                patient_name_str = f" [{patient_name}]" if patient_name else ""
+                log_message(self.output_field, f"Ошибка удаления папки {patient_id}{patient_name_str}: {e}")
 
     def archive_patient_action(self, patient_id, patient_name=None):
         path = os.path.join(self.config.get('ct_images_dir', ''), patient_id)
@@ -1265,7 +1266,11 @@ class MainWindow(QMainWindow):
         path = os.path.join(self.config.get('ct_images_dir', ''), patient_id)
         if os.path.exists(path):
             deleted = delete_redundant_str(path, self.output_field)
-            log_message(self.output_field, f"Очищено {deleted} лишних файлов STR для {patient_id}")
+            patient_name = ""
+            if self.images_cache and patient_id in self.images_cache:
+                patient_name = self.images_cache[patient_id].get('patient_name', '')
+            name_str = f" [{patient_name}]" if patient_name else ""
+            log_message(self.output_field, f"Очищено {deleted} лишних файлов STR для {patient_id}{name_str}")
             self.show_patient_list()
 
     def on_images_selection_changed(self):
@@ -1503,7 +1508,7 @@ class MainWindow(QMainWindow):
         
         path = os.path.join(archive_dir, patient_id)
         if not os.path.exists(path):
-            log_message(self.output_field, f"Папка {patient_id} не найдена в архиве")
+            log_message(self.output_field, f"Папка {patient_id} [{patient_name}] не найдена в архиве")
             return
             
         dest_path = os.path.join(ct_images_dir, patient_id)
@@ -1520,7 +1525,7 @@ class MainWindow(QMainWindow):
             self.restored_patient_ids.add(patient_id)
             self.show_patient_list()
         except Exception as e:
-            log_message(self.output_field, f"Ошибка восстановления {patient_id}: {e}")
+            log_message(self.output_field, f"Ошибка восстановления {patient_id} [{patient_name}]: {e}")
 
     def search_patient_archive(self):
         search_text = self.search_entry.text().lower()

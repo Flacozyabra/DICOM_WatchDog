@@ -199,10 +199,19 @@ def move_old_folders_to_archive(ct_images_dir, archive_dir, archive_days, output
                         continue
 
                 try:
+                    patient_name = "Неизвестно"
+                    try:
+                        dcm_files = [f for f in os.listdir(folder_path) if f.endswith('.dcm')]
+                        if dcm_files:
+                            ds = pydicom.dcmread(os.path.join(folder_path, dcm_files[0]), specific_tags=['PatientName'])
+                            patient_name = str(ds.get('PatientName', 'Неизвестно'))
+                    except Exception:
+                        pass
+
                     shutil.move(folder_path, archive_path)
-                    log_message(output_field, f"Папка {dir} перемещена в архив")
+                    log_message(output_field, f"Папка пациента {patient_name} ({dir}) перемещена в архив")
                 except Exception as e:
-                    log_message(output_field, f"Ошибка перемещения {dir} в архив: {e}")
+                    log_message(output_field, f"Ошибка перемещения пациента {dir} в архив: {e}")
 
 
 def cleanup_old_archive_folders(archive_dir, cleanup_days, output_field):
@@ -233,8 +242,17 @@ def cleanup_old_archive_folders(archive_dir, cleanup_days, output_field):
             days_old = (now - folder_date).days
             if days_old >= cleanup_days:
                 try:
+                    patient_name = "Неизвестно"
+                    try:
+                        dcm_files = [f for f in os.listdir(path) if f.endswith('.dcm')]
+                        if dcm_files:
+                            ds = pydicom.dcmread(os.path.join(path, dcm_files[0]), specific_tags=['PatientName'])
+                            patient_name = str(ds.get('PatientName', 'Неизвестно'))
+                    except Exception:
+                        pass
+
                     shutil.rmtree(path)
                     deleted_count += 1
-                    log_message(output_field, f"Автоочистка архива: удалена устаревшая папка {item} (возраст {days_old} дн.)")
+                    log_message(output_field, f"Автоочистка архива: удалена устаревшая папка пациента {patient_name} ({item}) (возраст {days_old} дн.)")
                 except Exception as e:
                     log_message(output_field, f"Автоочистка архива: не удалось удалить {item}: {e}")
