@@ -2,8 +2,10 @@ import os
 import sys
 import shutil
 
+VERSION = "1.0.0"
+
 def get_app_data_dir():
-    app_name = "DICOM_Explorer"
+    app_name = "DICOM_WatchDog"
     if sys.platform == "win32":
         base_dir = os.environ.get("LOCALAPPDATA", os.environ.get("APPDATA", os.path.expanduser("~")))
     else:

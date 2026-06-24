@@ -19,7 +19,7 @@ from core.archive import move_old_folders_to_archive
 from core.notifier import show_notification
 from core.logger import log_message
 from core.pacs import pacs_dict_create, download_patient_from_pacs
-from core.config_utils import get_resource_path
+from core.config_utils import get_resource_path, VERSION
 from ui.settings_dialog import SettingsDialog
 from ui.toggle_switch import ToggleSwitch
 from ui.centered_date_edit import CenteredDateEdit
@@ -253,7 +253,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("DICOM Explorer")
+        self.setWindowTitle(f"DICOM WatchDog v{VERSION}")
         MainWindow.instance = self
         self.config = self.load_config()
         self.init_window_geometry()
