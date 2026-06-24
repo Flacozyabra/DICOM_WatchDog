@@ -210,7 +210,20 @@ def main():
         except Exception:
             pass
 
+    if USE_PYQT5 and sys.platform == "win32":
+        # Force FreeType font engine on Windows to prevent ClearType blending artifacts on transparent backgrounds
+        if "-platform" not in sys.argv:
+            sys.argv.insert(1, "windows:fontengine=freetype")
+            sys.argv.insert(1, "-platform")
+
     app = QApplication(sys.argv)
+    
+    # Отключаем субпиксельное сглаживание ClearType для PyQt5, чтобы убрать цветную кайму и утолщение букв
+    if USE_PYQT5:
+        from PyQt5.QtGui import QFont
+        font = QFont("Segoe UI")
+        font.setStyleStrategy(QFont.StyleStrategy.NoSubpixelAntialias)
+        app.setFont(font)
     
     # Set application-wide default window icon
     from PyQt6.QtGui import QIcon
