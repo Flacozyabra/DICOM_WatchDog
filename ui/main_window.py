@@ -2050,7 +2050,7 @@ class MainWindow(QMainWindow):
         self.stacked_widget.setCurrentIndex(0)
         self.viewer_panel.viewer.clear_viewer()
         self.show_patient_list()
-        self.show_archive_list()
+        self.fill_archive_list()
 
     def closeEvent(self, event):
         # Останавливаем наблюдатель перед выходом, чтобы не зависал фоновый поток

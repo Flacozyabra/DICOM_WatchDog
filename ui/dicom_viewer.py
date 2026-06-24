@@ -885,8 +885,8 @@ class DicomViewerPanel(QWidget):
         self.structures_panel.setFixedWidth(220)
         self.structures_panel.setStyleSheet("""
             QFrame {
-                background-color: #1F2937;
-                border: 1px solid #374151;
+                background-color: #141414;
+                border: 1px solid #282828;
                 border-radius: 6px;
             }
             QLabel {
@@ -895,15 +895,32 @@ class DicomViewerPanel(QWidget):
                 color: #FFFFFF;
                 font-size: 13px;
                 font-weight: bold;
+                font-family: "Segoe UI", -apple-system, Roboto, sans-serif;
             }
             QCheckBox {
                 color: #FFFFFF;
                 font-size: 12px;
+                font-family: "Segoe UI", -apple-system, Roboto, sans-serif;
             }
             QListWidget {
-                background-color: #111827;
-                border: 1px solid #374151;
+                background-color: #0f0f0f;
+                border: 1px solid #282828;
+                border-radius: 6px;
+                color: #FFFFFF;
+                outline: 0;
+                font-family: "Segoe UI", -apple-system, Roboto, sans-serif;
+                font-size: 12px;
+            }
+            QListWidget::item {
+                padding: 6px 10px;
                 border-radius: 4px;
+                margin: 2px 4px;
+            }
+            QListWidget::item:hover {
+                background-color: #222222;
+            }
+            QListWidget::item:selected {
+                background-color: #1f538d;
                 color: #FFFFFF;
             }
         """)
