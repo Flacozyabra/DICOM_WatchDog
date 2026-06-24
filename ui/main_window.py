@@ -657,7 +657,7 @@ class MainWindow(QMainWindow):
         # Главный виджет (старый интерфейс)
         main_widget = QWidget()
         main_layout = QVBoxLayout(main_widget)
-        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setContentsMargins(4, 4, 4, 4)
         main_layout.setSpacing(10)
         
         # Вертикальный сплиттер для разделения вкладок и логов
