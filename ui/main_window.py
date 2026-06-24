@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget,
                              QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, 
                              QPlainTextEdit, QPushButton, QMessageBox, 
                              QHeaderView, QMenu, QAbstractItemView, QLineEdit, QLabel,
-                             QDialog, QFileDialog, QDateEdit)
+                             QDialog, QFileDialog, QDateEdit, QStackedWidget)
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -23,6 +23,7 @@ from ui.settings_dialog import SettingsDialog
 from ui.toggle_switch import ToggleSwitch
 from ui.centered_date_edit import CenteredDateEdit
 from themes.theme_manager import load_theme
+from ui.dicom_viewer import DicomViewerPanel
 
 
 class ToggleTableWidget(QTableWidget):
@@ -498,11 +499,11 @@ class MainWindow(QMainWindow):
         self.fill_pacs_list(silent=True)
 
     def init_ui(self):
-        # Главный виджет
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
+        self.stacked_widget = QStackedWidget()
+        self.setCentralWidget(self.stacked_widget)
         
-        # Основной вертикальный макет (просторные отступы как на макете)
+        # Главный виджет (старый интерфейс)
+        main_widget = QWidget()
         main_layout = QVBoxLayout(main_widget)
         main_layout.setContentsMargins(15, 10, 15, 10)
         main_layout.setSpacing(10)
@@ -527,6 +528,13 @@ class MainWindow(QMainWindow):
         
         # Подключаем сигнал изменения вкладок после полной инициализации виджетов
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
+        
+        self.stacked_widget.addWidget(main_widget)
+        
+        # Панель вьюера DICOM
+        self.viewer_panel = DicomViewerPanel(self)
+        self.viewer_panel.close_requested.connect(self.close_viewer)
+        self.stacked_widget.addWidget(self.viewer_panel)
 
     def create_tab_ct_images(self):
         tab = QWidget()
@@ -550,7 +558,7 @@ class MainWindow(QMainWindow):
         self.images_table.set_placeholder_text("В этой папке нет исследований")
         self.images_table.update_placeholder_visibility()
         self.restore_table_state(self.images_table)
-        self.images_table.cellDoubleClicked.connect(self.open_current_folder_cmd)
+        self.images_table.cellDoubleClicked.connect(self.on_images_double_clicked)
         self.images_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.images_table.customContextMenuRequested.connect(self.show_images_context_menu)
         self.images_table.itemSelectionChanged.connect(self.on_images_selection_changed)
@@ -617,6 +625,7 @@ class MainWindow(QMainWindow):
         self.archive_table.set_placeholder_text("В этой папке нет исследований")
         self.archive_table.update_placeholder_visibility()
         self.restore_table_state(self.archive_table)
+        self.archive_table.cellDoubleClicked.connect(self.on_archive_double_clicked)
         self.archive_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.archive_table.customContextMenuRequested.connect(self.show_archive_context_menu)
         self.archive_table.itemSelectionChanged.connect(self.on_archive_selection_changed)
@@ -1189,6 +1198,9 @@ class MainWindow(QMainWindow):
         
         menu = QMenu(self)
         
+        open_folder_action = QAction("Открыть папку", self)
+        open_folder_action.triggered.connect(lambda: self.open_patient_folder(patient_id, is_archive=False))
+        
         delete_action = QAction("Удалить пациента", self)
         delete_action.triggered.connect(lambda: self.delete_patient_action(patient_id, patient_name))
         
@@ -1198,6 +1210,7 @@ class MainWindow(QMainWindow):
         clean_str_action = QAction("Удалить лишние STR", self)
         clean_str_action.triggered.connect(lambda: self.clean_str_action(patient_id))
         
+        menu.addAction(open_folder_action)
         menu.addAction(delete_action)
         menu.addAction(archive_action)
         menu.addAction(clean_str_action)
@@ -1438,12 +1451,16 @@ class MainWindow(QMainWindow):
         
         menu = QMenu(self)
         
+        open_folder_action = QAction("Открыть папку", self)
+        open_folder_action.triggered.connect(lambda: self.open_patient_folder(patient_id, is_archive=True))
+        
         restore_action = QAction("Восстановить в CT images", self)
         restore_action.triggered.connect(self.move_from_archive_cmd)
         
         delete_action = QAction("Удалить пациента навсегда", self)
         delete_action.triggered.connect(lambda: self.delete_archive_patient_action(patient_id, patient_name))
         
+        menu.addAction(open_folder_action)
         menu.addAction(restore_action)
         menu.addAction(delete_action)
         
@@ -1984,6 +2001,56 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self)
         dialog.config = self.config
         dialog.save_config()
+
+    def open_patient_folder(self, patient_id, is_archive=False):
+        dir_key = 'archive_dir' if is_archive else 'ct_images_dir'
+        path = os.path.join(self.config.get(dir_key, ''), patient_id)
+        if os.path.exists(path):
+            try:
+                os.startfile(path)
+            except Exception as e:
+                log_message(self.output_field, f"Не удалось открыть папку {patient_id}: {e}")
+        else:
+            log_message(self.output_field, f"Папка {path} не существует")
+
+    def on_images_double_clicked(self, row, column):
+        patient_id = self.images_table.item(row, 0).text()
+        self.open_viewer(patient_id, is_archive=False)
+
+    def on_archive_double_clicked(self, row, column):
+        patient_id = self.archive_table.item(row, 0).text()
+        self.open_viewer(patient_id, is_archive=True)
+
+    def open_viewer(self, patient_id, is_archive=False):
+        dir_key = 'archive_dir' if is_archive else 'ct_images_dir'
+        patient_dir = os.path.join(self.config.get(dir_key, ''), patient_id)
+        
+        if not os.path.exists(patient_dir):
+            log_message(self.output_field, f"Путь {patient_dir} не существует")
+            return
+            
+        try:
+            files = []
+            for root, dirs, filenames in os.walk(patient_dir):
+                for filename in filenames:
+                    files.append(os.path.join(root, filename))
+                    
+            if not files:
+                log_message(self.output_field, f"Папка {patient_id} пуста")
+                return
+                
+            log_message(self.output_field, f"Открытие вьюера для пациента {patient_id}")
+            self.viewer_panel.load_series(files)
+            self.viewer_panel.apply_theme()
+            self.stacked_widget.setCurrentIndex(1)
+        except Exception as e:
+            log_message(self.output_field, f"Ошибка при открытии вьюера для {patient_id}: {e}")
+
+    def close_viewer(self):
+        self.stacked_widget.setCurrentIndex(0)
+        self.viewer_panel.viewer.clear_viewer()
+        self.show_patient_list()
+        self.show_archive_list()
 
     def closeEvent(self, event):
         # Останавливаем наблюдатель перед выходом, чтобы не зависал фоновый поток
