@@ -26,15 +26,19 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pyinstaller
+        pip install pyinstaller pillow PyQt5 PyQt6
 
-    - name: Build executable
+    - name: Build PyQt6 executable
       run: |
-        pyinstaller --onefile --windowed --add-data "themes;themes" --add-data "src;src" --name "DICOM_WatchDog_${{ github.ref_name }}" main.py
+        python build_PyQt6.py
 
-    - name: Create Release and Upload Asset
+    - name: Build PyQt5 executable
+      run: |
+        python build_PyQt5.py
+
+    - name: Create Release and Upload Assets
       uses: softprops/action-gh-release@v2
       with:
-        files: dist/DICOM_WatchDog_${{ github.ref_name }}.exe
+        files: dist/*.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
