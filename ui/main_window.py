@@ -19,6 +19,7 @@ from core.archive import move_old_folders_to_archive
 from core.notifier import show_notification
 from core.logger import log_message
 from core.pacs import pacs_dict_create, download_patient_from_pacs
+from core.config_utils import get_resource_path
 from ui.settings_dialog import SettingsDialog
 from ui.toggle_switch import ToggleSwitch
 from ui.centered_date_edit import CenteredDateEdit
@@ -592,7 +593,7 @@ class MainWindow(QMainWindow):
         
         # Кнопка настроек (шестеренка)
         self.settings_btn1 = QPushButton()
-        self.settings_btn1.setIcon(QIcon("themes/settings.svg"))
+        self.settings_btn1.setIcon(QIcon(get_resource_path("themes/settings.svg")))
         self.settings_btn1.setIconSize(QSize(20, 20))
         self.settings_btn1.setFixedSize(35, 30)
         self.settings_btn1.setToolTip("Настройки папок и интервалов")
@@ -655,7 +656,7 @@ class MainWindow(QMainWindow):
         
         # Кнопка настроек (шестеренка)
         self.settings_btn2 = QPushButton()
-        self.settings_btn2.setIcon(QIcon("themes/settings.svg"))
+        self.settings_btn2.setIcon(QIcon(get_resource_path("themes/settings.svg")))
         self.settings_btn2.setIconSize(QSize(20, 20))
         self.settings_btn2.setFixedSize(35, 30)
         self.settings_btn2.setToolTip("Настройки папок и интервалов")
@@ -732,7 +733,7 @@ class MainWindow(QMainWindow):
         
         # Кнопка настроек (шестеренка)
         self.settings_btn3 = QPushButton()
-        self.settings_btn3.setIcon(QIcon("themes/settings.svg"))
+        self.settings_btn3.setIcon(QIcon(get_resource_path("themes/settings.svg")))
         self.settings_btn3.setIconSize(QSize(20, 20))
         self.settings_btn3.setFixedSize(35, 30)
         self.settings_btn3.setToolTip("Настройки папок и интервалов")
@@ -1011,16 +1012,11 @@ class MainWindow(QMainWindow):
                         custom_icon_found = True
                         
         if not custom_icon_found:
-            base_dir = os.getcwd()
-            potential_icon = os.path.abspath(os.path.join(base_dir, "src", "icon.png"))
+            potential_icon = get_resource_path("src/icon.png")
             if os.path.exists(potential_icon):
                 icon_path = potential_icon
             else:
-                potential_root_icon = os.path.abspath(os.path.join(base_dir, "icon.png"))
-                if os.path.exists(potential_root_icon):
-                    icon_path = potential_root_icon
-                else:
-                    icon_path = ""
+                icon_path = ""
 
         # Проверяем на появление новых файлов до фильтрации
         for patient_id, data in patient_dict.items():
@@ -1681,14 +1677,9 @@ class MainWindow(QMainWindow):
             
             # Определение абсолютного пути к синей иконке
             icon_blue_path = ""
-            base_dir = os.getcwd()
-            potential_icon = os.path.abspath(os.path.join(base_dir, "src", "icon_blue.png"))
+            potential_icon = get_resource_path("src/icon_blue.png")
             if os.path.exists(potential_icon):
                 icon_blue_path = potential_icon
-            else:
-                potential_root_icon = os.path.abspath(os.path.join(base_dir, "icon_blue.png"))
-                if os.path.exists(potential_root_icon):
-                    icon_blue_path = potential_root_icon
 
             if auto_update_on:
                 if self.is_first_pacs_scan:
