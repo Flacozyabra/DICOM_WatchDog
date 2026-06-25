@@ -28,7 +28,7 @@ def save_cache(cache_data):
         pass
 
 
-def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False):
+def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False, progress_callback=None):
     """
     Создает словарь пациентов для архива, используя кэширование метаданных в файл JSON.
     Это предотвращает повторное чтение DICOM-файлов при больших архивах.
@@ -55,8 +55,14 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
             log_message(output_field, f"Ошибка доступа к папке архива: {e}")
         return patient_data
 
+    total_items = len(items)
+    processed = 0
+
     for item in items:
         root = os.path.join(archive_dir, item)
+        processed += 1
+        if progress_callback and total_items > 0:
+            progress_callback(processed, total_items)
         if not os.path.isdir(root):
             continue
             

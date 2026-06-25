@@ -37,7 +37,7 @@ def delete_redundant_str(patient_dir, output_field=None):
     return deleted_count
 
 
-def dict_create(ct_images_dir, output_field=None, cleanup_structures=False):
+def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, progress_callback=None):
     patient_data = defaultdict(dict)
 
     is_cleanup_on = False
@@ -46,7 +46,21 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False):
     else:
         is_cleanup_on = (cleanup_structures == 'on' or cleanup_structures is True)
 
+    # Pre-count top-level subdirectories for accurate progress reporting
+    try:
+        top_dirs = [d for d in os.listdir(ct_images_dir) if os.path.isdir(os.path.join(ct_images_dir, d))]
+        total_dirs = len(top_dirs)
+    except Exception:
+        total_dirs = 0
+    processed = 0
+
     for root, dirs, files in os.walk(ct_images_dir):
+        # Track progress at the top level only
+        if os.path.dirname(root) == ct_images_dir or root == ct_images_dir:
+            processed += 1
+            if progress_callback and total_dirs > 0:
+                progress_callback(processed, total_dirs)
+
         if files:
             file = files[0]
             if file.endswith('.dcm'):

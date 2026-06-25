@@ -142,6 +142,7 @@ class ThreadLogCollector:
 
 class FolderScanWorker(QThread):
     finished = pyqtSignal(dict, list)
+    progress = pyqtSignal(int, int)  # (current, total)
 
     def __init__(self, ct_images_dir, cleanup_structures_enabled, fix_patient_id_enabled, id_prefixes, archive_dir, archive_enabled, archive_days, archive_cleanup_enabled, archive_cleanup_days):
         super().__init__()
@@ -182,7 +183,11 @@ class FolderScanWorker(QThread):
             from core.archive import cleanup_old_archive_folders
             cleanup_old_archive_folders(self.archive_dir, self.archive_cleanup_days, collector)
 
-        patient_dict = dict_create(self.ct_images_dir, collector, cleanup_structures=is_cleanup_struct_on)
+        patient_dict = dict_create(
+            self.ct_images_dir, collector,
+            cleanup_structures=is_cleanup_struct_on,
+            progress_callback=self.progress.emit
+        )
         self.finished.emit(patient_dict, collector.messages)
 
 
@@ -212,6 +217,7 @@ class PacsScanWorker(QThread):
 
 class ArchiveScanWorker(QThread):
     finished = pyqtSignal(dict, list)
+    progress = pyqtSignal(int, int)  # (current, total)
 
     def __init__(self, archive_dir, cleanup_structures_enabled):
         super().__init__()
@@ -222,7 +228,11 @@ class ArchiveScanWorker(QThread):
         collector = ThreadLogCollector()
         is_cleanup_struct_on = self.cleanup_structures_enabled.lower() == 'true'
         from core.archive import archive_dict_create
-        d = archive_dict_create(self.archive_dir, collector, cleanup_structures=is_cleanup_struct_on)
+        d = archive_dict_create(
+            self.archive_dir, collector,
+            cleanup_structures=is_cleanup_struct_on,
+            progress_callback=self.progress.emit
+        )
         self.finished.emit(d, collector.messages)
 
 
@@ -1142,9 +1152,10 @@ class MainWindow(QMainWindow):
         
         if show_progress:
             from ui.loading_dialog import LoadingProgressDialog
-            self.scan_progress_dialog = LoadingProgressDialog(self, title="Сканирование папки КТ")
-            self.scan_progress_dialog.label.setText("Пожалуйста, подождите. Идет сканирование DICOM-файлов...")
-            self.scan_progress_dialog.progress.setRange(0, 0)
+            self.scan_progress_dialog = LoadingProgressDialog(self, title="Сканирование")
+            self.scan_progress_dialog.label.setText("Подготовка к сканированию DICOM-файлов...")
+            self.scan_progress_dialog.progress.setRange(0, 100)
+            self.scan_worker.progress.connect(self.scan_progress_dialog.set_scan_progress)
             self.scan_worker.finished.connect(self.scan_progress_dialog.accept)
             
             self.scan_worker.start()
@@ -1497,9 +1508,10 @@ class MainWindow(QMainWindow):
         
         if show_progress:
             from ui.loading_dialog import LoadingProgressDialog
-            self.archive_progress_dialog = LoadingProgressDialog(self, title="Сканирование папки архива")
-            self.archive_progress_dialog.label.setText("Пожалуйста, подождите. Идет сканирование файлов архива...")
-            self.archive_progress_dialog.progress.setRange(0, 0)
+            self.archive_progress_dialog = LoadingProgressDialog(self, title="Сканирование")
+            self.archive_progress_dialog.label.setText("Подготовка к сканированию файлов архива...")
+            self.archive_progress_dialog.progress.setRange(0, 100)
+            self.archive_worker.progress.connect(self.archive_progress_dialog.set_scan_progress)
             self.archive_worker.finished.connect(self.archive_progress_dialog.accept)
             
             self.archive_worker.start()

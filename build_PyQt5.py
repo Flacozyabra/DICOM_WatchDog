@@ -102,7 +102,7 @@ def build_executable(has_icon):
         "--windowed",  # без консоли
         "--add-data=src;src",
         "--add-data=themes;themes",
-        "--name=DICOM_WatchDog_v1.1.0_PyQt5",
+        "--name=DICOM_WatchDog_v1.2.0_PyQt5",
     ]
     
     if has_icon:

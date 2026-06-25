@@ -70,3 +70,12 @@ class LoadingProgressDialog(QDialog):
         self.progress.setValue(percent)
         self.label.setText(f"Отрисовка таблицы: {current} из {total} пациентов...")
         QCoreApplication.processEvents()
+
+    def set_scan_progress(self, current, total):
+        """Update progress bar during folder scanning: shows percent + 'X из N папок'."""
+        if total <= 0:
+            return
+        percent = int((current / total) * 100)
+        self.progress.setValue(percent)
+        self.label.setText(f"Сканирование: {current} из {total} папок — {percent}%")
+        QCoreApplication.processEvents()
