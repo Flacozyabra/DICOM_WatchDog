@@ -134,6 +134,11 @@
   "dlg_rename_server_label": "Введите новое имя для '{}':",
   "btn_checking": "Проверка...",
   "btn_browse": "Обзор",
+  "settings_btn_add": "Добавить",
+  "settings_btn_del": "Удалить",
+  "settings_btn_rename": "Переименовать",
+  "btn_save": "Сохранить",
+  "btn_cancel": "Отмена",
 
   "ping_success": "Соединение успешно установлено!\nPACS сервер ответил на пинг и разрешил поиск (устройство зарегистрировано).",
   "ping_aet_local_too_long": "Ошибка: Локальный AE Title (AET Local) '{}' превышает 16 символов.",

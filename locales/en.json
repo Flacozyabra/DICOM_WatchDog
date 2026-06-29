@@ -134,6 +134,11 @@
   "dlg_rename_server_label": "Enter new name for '{}':",
   "btn_checking": "Checking...",
   "btn_browse": "Browse",
+  "settings_btn_add": "Add",
+  "settings_btn_del": "Del",
+  "settings_btn_rename": "Rename",
+  "btn_save": "Save",
+  "btn_cancel": "Cancel",
 
   "ping_success": "Connection established successfully!\nPACS server responded to ping and allowed search (device is registered).",
   "ping_aet_local_too_long": "Error: Local AE Title (AET Local) '{}' exceeds 16 characters.",

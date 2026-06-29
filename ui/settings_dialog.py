@@ -334,7 +334,6 @@ class SettingsDialog(QDialog):
         # Левая часть: боковое меню
         self.sidebar = QListWidget()
         self.sidebar.setObjectName("settingsSidebar")
-        self.sidebar.addItems([tr_ui("settings_tab_general"), tr_ui("settings_tab_archive"), tr_ui("settings_tab_ui"), tr_ui("settings_tab_pacs")])
         main_layout.addWidget(self.sidebar)
         
         # Правая часть: stacked widget с контентом
@@ -348,12 +347,13 @@ class SettingsDialog(QDialog):
         
         # CT Images Dir
         self.ct_images_edit = QLineEdit(self.config.get('ct_images_dir', ''))
-        ct_images_btn = QPushButton(tr_ui("settings_browse"))
-        ct_images_btn.clicked.connect(lambda: self.browse_folder(self.ct_images_edit, tr_ui("settings_ct_images_folder").rstrip(":")))
+        self.btn_ct_images_browse = QPushButton()
+        self.btn_ct_images_browse.clicked.connect(lambda: self.browse_folder(self.ct_images_edit, tr_ui("settings_ct_images_folder").rstrip(":")))
         h_layout_ct = QHBoxLayout()
         h_layout_ct.addWidget(self.ct_images_edit)
-        h_layout_ct.addWidget(ct_images_btn)
-        general_form.addRow(tr_ui("settings_ct_images_folder"), h_layout_ct)
+        h_layout_ct.addWidget(self.btn_ct_images_browse)
+        self.lbl_ct_folder = QLabel()
+        general_form.addRow(self.lbl_ct_folder, h_layout_ct)
 
         # App Settings Dir
         self.app_data_edit = QLineEdit(get_app_data_dir())
@@ -361,12 +361,13 @@ class SettingsDialog(QDialog):
         self.app_data_edit.setStyleSheet(
             "QLineEdit { background-color: #1e1e1e; color: #888888; border: 1px solid #2d2d2d; padding: 4px; border-radius: 4px; }"
         )
-        app_data_btn = QPushButton(tr_ui("settings_open"))
-        app_data_btn.clicked.connect(self.open_app_data_folder)
+        self.btn_app_data_open = QPushButton()
+        self.btn_app_data_open.clicked.connect(self.open_app_data_folder)
         h_layout_app = QHBoxLayout()
         h_layout_app.addWidget(self.app_data_edit)
-        h_layout_app.addWidget(app_data_btn)
-        general_form.addRow(tr_ui("settings_settings_folder"), h_layout_app)
+        h_layout_app.addWidget(self.btn_app_data_open)
+        self.lbl_settings_folder = QLabel()
+        general_form.addRow(self.lbl_settings_folder, h_layout_app)
 
         # Разделитель для КТ-папки
         line_ct = QFrame()
@@ -378,12 +379,14 @@ class SettingsDialog(QDialog):
         # Notifications
         self.notify_cb = ToggleSwitch()
         self.notify_cb.setChecked(self.config.get('notification_is', 'on').lower() == 'on')
-        general_form.addRow(tr_ui("settings_notifications_label"), self.notify_cb)
+        self.lbl_notify = QLabel()
+        general_form.addRow(self.lbl_notify, self.notify_cb)
 
         # PACS Notifications
         self.pacs_notify_cb = ToggleSwitch()
         self.pacs_notify_cb.setChecked(self.config.get('pacs_notification_is', 'off').lower() == 'on')
-        general_form.addRow(tr_ui("settings_pacs_notifications_label"), self.pacs_notify_cb)
+        self.lbl_pacs_notify = QLabel()
+        general_form.addRow(self.lbl_pacs_notify, self.pacs_notify_cb)
         
         # Разделитель
         line = QFrame()
@@ -395,22 +398,23 @@ class SettingsDialog(QDialog):
         # Автоудаление дубликатов структур
         self.cleanup_str_cb = ToggleSwitch()
         self.cleanup_str_cb.setChecked(self.config.get('cleanup_structures_enabled', 'False').lower() == 'true')
-        self.cleanup_str_cb.setToolTip(tr_ui("settings_cleanup_str"))
-        general_form.addRow(tr_ui("settings_cleanup_str"), self.cleanup_str_cb)
+        self.lbl_cleanup_str = QLabel()
+        general_form.addRow(self.lbl_cleanup_str, self.cleanup_str_cb)
 
         # Fix Patient ID
         self.fix_patient_id_cb = ToggleSwitch()
         self.fix_patient_id_cb.setChecked(self.config.get('fix_patient_id_enabled', 'False').lower() == 'true')
-        general_form.addRow(tr_ui("settings_fix_id_label"), self.fix_patient_id_cb)
+        self.lbl_fix_id = QLabel()
+        general_form.addRow(self.lbl_fix_id, self.fix_patient_id_cb)
 
         # ID prefixes field
         self.id_prefixes_edit = QLineEdit(self.config.get('id_prefixes', 'CT_'))
-        self.id_prefixes_edit.setPlaceholderText(tr_ui("settings_id_prefixes_placeholder"))
         self.id_prefixes_edit.setStyleSheet(
             "QLineEdit { background-color: #1e1e1e; color: #ffffff; border: 1px solid #2d2d2d; padding: 4px; border-radius: 4px; }"
             "QLineEdit:disabled { background-color: #141414; color: #808080; border: 1px solid #1a1a1a; }"
         )
-        general_form.addRow(tr_ui("settings_id_prefixes_label"), self.id_prefixes_edit)
+        self.lbl_id_prefixes = QLabel()
+        general_form.addRow(self.lbl_id_prefixes, self.id_prefixes_edit)
 
         # Разделитель под префиксами
         line_updates = QFrame()
@@ -424,10 +428,10 @@ class SettingsDialog(QDialog):
         updates_layout.setContentsMargins(0, 5, 0, 5)
         updates_layout.setSpacing(10)
         
-        self.check_updates_cb = ToggleSwitch(tr_ui("settings_check_updates_toggle"))
+        self.check_updates_cb = ToggleSwitch()
         self.check_updates_cb.setChecked(self.config.get('check_updates_at_startup', 'on').lower() == 'on')
         
-        self.btn_check_updates = QPushButton(tr_ui("settings_check_updates_btn"))
+        self.btn_check_updates = QPushButton()
         self.btn_check_updates.setFixedHeight(30)
         self.btn_check_updates.setMinimumWidth(180)
         self.btn_check_updates.clicked.connect(self.manual_check_updates)
@@ -448,19 +452,20 @@ class SettingsDialog(QDialog):
         
         # Archive Dir
         self.archive_edit = QLineEdit(self.config['archive_dir'])
-        archive_btn = QPushButton(tr_ui("settings_browse"))
-        archive_btn.clicked.connect(lambda: self.browse_folder(self.archive_edit, tr_ui("settings_archive_dir").rstrip(":")))
+        self.btn_archive_browse = QPushButton()
+        self.btn_archive_browse.clicked.connect(lambda: self.browse_folder(self.archive_edit, tr_ui("settings_archive_dir").rstrip(":")))
         h_layout2 = QHBoxLayout()
         h_layout2.addWidget(self.archive_edit)
-        h_layout2.addWidget(archive_btn)
-        archive_form.addRow(tr_ui("settings_archive_dir"), h_layout2)
+        h_layout2.addWidget(self.btn_archive_browse)
+        self.lbl_archive_dir = QLabel()
+        archive_form.addRow(self.lbl_archive_dir, h_layout2)
         
         # Archive Slice (Max visible rows)
         self.archive_slice_spin = QSpinBox()
         self.archive_slice_spin.setRange(0, 1000)
         self.archive_slice_spin.setValue(self.config['archive_slice'])
-        self.archive_slice_spin.setToolTip(tr_ui("settings_archive_slice"))
-        archive_form.addRow(tr_ui("settings_archive_slice"), self.archive_slice_spin)
+        self.lbl_archive_slice = QLabel()
+        archive_form.addRow(self.lbl_archive_slice, self.archive_slice_spin)
 
         # Автоматическое архивирование (свич и количество дней в одной строке)
         self.archive_enabled_cb = ToggleSwitch()
@@ -494,7 +499,8 @@ class SettingsDialog(QDialog):
         archive_row_layout.addWidget(self.archive_days_spin)
         archive_row_layout.addWidget(self.archive_label_days)
 
-        archive_form.addRow(tr_ui("settings_auto_archive_row"), archive_row_layout)
+        self.lbl_auto_archive_row = QLabel()
+        archive_form.addRow(self.lbl_auto_archive_row, archive_row_layout)
 
         # Автоочистка архива (свич и количество дней в одной строке)
         self.archive_cleanup_enabled_cb = ToggleSwitch()
@@ -528,7 +534,8 @@ class SettingsDialog(QDialog):
         cleanup_row_layout.addWidget(self.archive_cleanup_days_spin)
         cleanup_row_layout.addWidget(self.cleanup_label_days)
 
-        archive_form.addRow(tr_ui("settings_auto_cleanup_row"), cleanup_row_layout)
+        self.lbl_auto_cleanup_row = QLabel()
+        archive_form.addRow(self.lbl_auto_cleanup_row, cleanup_row_layout)
         
         archive_layout.addLayout(archive_form)
         archive_layout.addStretch()
@@ -540,12 +547,14 @@ class SettingsDialog(QDialog):
         ui_form = QFormLayout()
         
         # Язык интерфейса
-        self.interface_lang_switch = LanguageSwitch(self, current_lang=self.config.get('interface_lang', 'ru'))
-        ui_form.addRow(tr_ui("settings_interface_lang"), self.interface_lang_switch)
+        self.interface_lang_switch = LanguageSwitch(self, command=self.on_interface_lang_changed, current_lang=self.config.get('interface_lang', 'ru'))
+        self.lbl_interface_lang = QLabel()
+        ui_form.addRow(self.lbl_interface_lang, self.interface_lang_switch)
         
         # Язык лога
-        self.log_lang_switch = LanguageSwitch(self, current_lang=self.config.get('log_lang', 'ru'))
-        ui_form.addRow(tr_ui("settings_log_lang"), self.log_lang_switch)
+        self.log_lang_switch = LanguageSwitch(self, command=self.on_log_lang_changed, current_lang=self.config.get('log_lang', 'ru'))
+        self.lbl_log_lang = QLabel()
+        ui_form.addRow(self.lbl_log_lang, self.log_lang_switch)
 
         # Разделитель под языками
         lang_line = QFrame()
@@ -558,19 +567,22 @@ class SettingsDialog(QDialog):
         self.patient_font_spin = QSpinBox()
         self.patient_font_spin.setRange(8, 36)
         self.patient_font_spin.setValue(self.config.get('patient_font_size', 16))
-        ui_form.addRow(tr_ui("settings_patient_font"), self.patient_font_spin)
+        self.lbl_patient_font = QLabel()
+        ui_form.addRow(self.lbl_patient_font, self.patient_font_spin)
         
         # Patient Font Weight
         self.patient_weight_combo = QComboBox()
         self.patient_weight_combo.addItems(["Regular", "Semibold", "Bold"])
         self.patient_weight_combo.setCurrentText(self.config.get('patient_weight', 'Semibold'))
-        ui_form.addRow(tr_ui("settings_patient_weight"), self.patient_weight_combo)
+        self.lbl_patient_weight = QLabel()
+        ui_form.addRow(self.lbl_patient_weight, self.patient_weight_combo)
         
         # Font size (logs)
         self.font_size_spin = QSpinBox()
         self.font_size_spin.setRange(8, 24)
         self.font_size_spin.setValue(self.config['log_font_size'])
-        ui_form.addRow(tr_ui("settings_log_font"), self.font_size_spin)
+        self.lbl_log_font = QLabel()
+        ui_form.addRow(self.lbl_log_font, self.font_size_spin)
         
         # Разделитель
         ui_line = QFrame()
@@ -582,21 +594,22 @@ class SettingsDialog(QDialog):
         # Основной свич подсветки
         self.highlighting_cb = ToggleSwitch()
         self.highlighting_cb.setChecked(self.config.get('highlighting_enabled', 'False').lower() == 'true')
-        ui_form.addRow(tr_ui("settings_highlighting"), self.highlighting_cb)
+        self.lbl_highlighting = QLabel()
+        ui_form.addRow(self.lbl_highlighting, self.highlighting_cb)
         
-        self.lbl_highlight_new = QLabel(tr_ui("settings_highlight_new"))
+        self.lbl_highlight_new = QLabel()
         self.lbl_highlight_new.setStyleSheet("QLabel { padding-left: 30px; }")
         self.highlight_new_cb = ToggleSwitch()
         self.highlight_new_cb.setChecked(self.config.get('highlight_new_enabled', 'False').lower() == 'true')
         ui_form.addRow(self.lbl_highlight_new, self.highlight_new_cb)
         
-        self.lbl_highlight_today = QLabel(tr_ui("settings_highlight_today"))
+        self.lbl_highlight_today = QLabel()
         self.lbl_highlight_today.setStyleSheet("QLabel { padding-left: 30px; }")
         self.highlight_today_cb = ToggleSwitch()
         self.highlight_today_cb.setChecked(self.config.get('highlight_today_enabled', 'False').lower() == 'true')
         ui_form.addRow(self.lbl_highlight_today, self.highlight_today_cb)
         
-        self.lbl_highlight_no_str = QLabel(tr_ui("settings_highlight_no_str"))
+        self.lbl_highlight_no_str = QLabel()
         self.lbl_highlight_no_str.setStyleSheet("QLabel { padding-left: 30px; }")
         self.highlight_no_str_cb = ToggleSwitch()
         self.highlight_no_str_cb.setChecked(self.config.get('highlight_no_str_enabled', 'False').lower() == 'true')
@@ -641,13 +654,15 @@ class SettingsDialog(QDialog):
         server_select_layout.addWidget(self.del_server_btn)
         server_select_layout.addWidget(self.rename_server_btn)
         
-        pacs_form.addRow(tr_ui("settings_pacs_server_label"), server_select_layout)
+        self.lbl_pacs_server = QLabel()
+        pacs_form.addRow(self.lbl_pacs_server, server_select_layout)
         
         # PACS Scan Interval (sec)
         self.pacs_scan_spin = QSpinBox()
         self.pacs_scan_spin.setRange(1, 300)
         self.pacs_scan_spin.setValue(self.config['pacs_scan_time'] // 1000)
-        pacs_form.addRow(tr_ui("settings_standby_interval"), self.pacs_scan_spin)
+        self.lbl_standby_interval = QLabel()
+        pacs_form.addRow(self.lbl_standby_interval, self.pacs_scan_spin)
 
         # IP PACS and Port on same row
         ip_port_layout = QHBoxLayout()
@@ -655,26 +670,29 @@ class SettingsDialog(QDialog):
         
         self.pacs_ip_edit = QLineEdit(self.config.get('pacs_ip', '127.0.0.1'))
         
-        port_label = QLabel("Port:")
+        self.lbl_port = QLabel("Port:")
         self.pacs_port_spin = QSpinBox()
         self.pacs_port_spin.setRange(1, 65535)
         self.pacs_port_spin.setValue(int(self.config.get('pacs_port', 11112)))
         
         ip_port_layout.addWidget(self.pacs_ip_edit, stretch=1)
-        ip_port_layout.addWidget(port_label)
+        ip_port_layout.addWidget(self.lbl_port)
         ip_port_layout.addWidget(self.pacs_port_spin)
         
-        pacs_form.addRow(tr_ui("settings_pacs_ip"), ip_port_layout)
+        self.lbl_pacs_ip = QLabel()
+        pacs_form.addRow(self.lbl_pacs_ip, ip_port_layout)
 
         # AET Remote
         self.pacs_called_aet_edit = QLineEdit(self.config.get('pacs_called_aet', 'ANY-SCP'))
         self.pacs_called_aet_edit.setMaxLength(16)
-        pacs_form.addRow(tr_ui("settings_pacs_called_aet"), self.pacs_called_aet_edit)
+        self.lbl_pacs_called_aet = QLabel()
+        pacs_form.addRow(self.lbl_pacs_called_aet, self.pacs_called_aet_edit)
 
         # AET Local
         self.pacs_calling_aet_edit = QLineEdit(self.config.get('pacs_calling_aet', 'ECHOSCU'))
         self.pacs_calling_aet_edit.setMaxLength(16)
-        pacs_form.addRow(tr_ui("settings_pacs_calling_aet"), self.pacs_calling_aet_edit)
+        self.lbl_pacs_calling_aet = QLabel()
+        pacs_form.addRow(self.lbl_pacs_calling_aet, self.pacs_calling_aet_edit)
         
         pacs_layout.addLayout(pacs_form)
 
@@ -706,19 +724,22 @@ class SettingsDialog(QDialog):
         outer_layout.setContentsMargins(0, 0, 0, 10)
         outer_layout.addLayout(main_layout)
         
-        # Dialog Buttons (OK / Cancel)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self.accept_settings)
-        buttons.rejected.connect(self.reject)
+        # Dialog Buttons (Save / Cancel)
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        self.button_box.accepted.connect(self.accept_settings)
+        self.button_box.rejected.connect(self.reject)
         
         # Контейнер для кнопок с правым отступом
         button_layout = QHBoxLayout()
         button_layout.setContentsMargins(0, 5, 15, 0)
         button_layout.addStretch()
-        button_layout.addWidget(buttons)
+        button_layout.addWidget(self.button_box)
         outer_layout.addLayout(button_layout)
         
         self.setLayout(outer_layout)
+        
+        # Переводим интерфейс диалога при первом открытии
+        self.retranslate_ui()
         
         # Подключаем слежение за состоянием полей архива и префиксов ID
         self.archive_enabled_cb.toggled.connect(self.update_fields_state)
@@ -897,6 +918,102 @@ class SettingsDialog(QDialog):
         from ui.main_window import MainWindow
         if MainWindow.instance:
             MainWindow.instance.apply_settings_dynamic(self.config)
+
+    def on_interface_lang_changed(self, lang):
+        self.config['interface_lang'] = lang
+        # Retranslate SettingsDialog itself
+        self.retranslate_ui()
+        # Apply to MainWindow
+        from ui.main_window import MainWindow
+        if MainWindow.instance:
+            MainWindow.instance.apply_settings_dynamic(self.config)
+
+    def on_log_lang_changed(self, lang):
+        self.config['log_lang'] = lang
+        # Apply to MainWindow
+        from ui.main_window import MainWindow
+        if MainWindow.instance:
+            MainWindow.instance.apply_settings_dynamic(self.config)
+
+    def retranslate_sidebar(self):
+        self.sidebar.blockSignals(True)
+        current_row = self.sidebar.currentRow()
+        self.sidebar.clear()
+        self.sidebar.addItems([
+            tr_ui("settings_tab_general"),
+            tr_ui("settings_tab_archive"),
+            tr_ui("settings_tab_ui"),
+            tr_ui("settings_tab_pacs")
+        ])
+        if current_row >= 0:
+            self.sidebar.setCurrentRow(current_row)
+        else:
+            self.sidebar.setCurrentRow(0)
+        self.sidebar.blockSignals(False)
+
+    def retranslate_ui(self):
+        self.setWindowTitle(tr_ui("settings_title"))
+        
+        # Sidebar
+        self.retranslate_sidebar()
+        
+        # Labels in Form Layouts:
+        self.lbl_ct_folder.setText(tr_ui("settings_ct_images_folder"))
+        self.lbl_settings_folder.setText(tr_ui("settings_settings_folder"))
+        self.lbl_notify.setText(tr_ui("settings_notifications_label"))
+        self.lbl_pacs_notify.setText(tr_ui("settings_pacs_notifications_label"))
+        self.lbl_cleanup_str.setText(tr_ui("settings_cleanup_str"))
+        self.cleanup_str_cb.setToolTip(tr_ui("settings_cleanup_str"))
+        self.lbl_fix_id.setText(tr_ui("settings_fix_id_label"))
+        self.lbl_id_prefixes.setText(tr_ui("settings_id_prefixes_label"))
+        self.id_prefixes_edit.setPlaceholderText(tr_ui("settings_id_prefixes_placeholder"))
+        self.check_updates_cb.setText(tr_ui("settings_check_updates_toggle"))
+        self.btn_check_updates.setText(tr_ui("settings_check_updates_btn"))
+        
+        # Browse/open buttons in General tab
+        self.btn_ct_images_browse.setText(tr_ui("settings_browse"))
+        self.btn_app_data_open.setText(tr_ui("settings_open"))
+        
+        # Archive tab
+        self.lbl_archive_dir.setText(tr_ui("settings_archive_dir"))
+        self.btn_archive_browse.setText(tr_ui("settings_browse"))
+        self.lbl_archive_slice.setText(tr_ui("settings_archive_slice"))
+        self.archive_slice_spin.setToolTip(tr_ui("settings_archive_slice"))
+        self.lbl_auto_archive_row.setText(tr_ui("settings_auto_archive_row"))
+        self.archive_label_through.setText(tr_ui("lbl_archive_through"))
+        self.archive_label_days.setText(tr_ui("lbl_archive_days"))
+        self.lbl_auto_cleanup_row.setText(tr_ui("settings_auto_cleanup_row"))
+        self.cleanup_label_through.setText(tr_ui("lbl_archive_through"))
+        self.cleanup_label_days.setText(tr_ui("lbl_archive_days"))
+        
+        # UI tab
+        self.lbl_interface_lang.setText(tr_ui("settings_interface_lang"))
+        self.lbl_log_lang.setText(tr_ui("settings_log_lang"))
+        self.lbl_patient_font.setText(tr_ui("settings_patient_font"))
+        self.lbl_patient_weight.setText(tr_ui("settings_patient_weight"))
+        self.lbl_log_font.setText(tr_ui("settings_log_font"))
+        self.lbl_highlighting.setText(tr_ui("settings_highlighting"))
+        self.lbl_highlight_new.setText(tr_ui("settings_highlight_new"))
+        self.lbl_highlight_today.setText(tr_ui("settings_highlight_today"))
+        self.lbl_highlight_no_str.setText(tr_ui("settings_highlight_no_str"))
+        
+        # PACS tab
+        self.lbl_pacs_server.setText(tr_ui("settings_pacs_server_label"))
+        self.lbl_standby_interval.setText(tr_ui("settings_standby_interval"))
+        self.lbl_pacs_ip.setText(tr_ui("settings_pacs_ip"))
+        self.lbl_pacs_called_aet.setText(tr_ui("settings_pacs_called_aet"))
+        self.lbl_pacs_calling_aet.setText(tr_ui("settings_pacs_calling_aet"))
+        self.add_server_btn.setText(tr_ui("settings_btn_add"))
+        self.del_server_btn.setText(tr_ui("settings_btn_del"))
+        self.rename_server_btn.setText(tr_ui("settings_btn_rename"))
+        
+        # Standard buttons Save/Cancel
+        save_btn = self.button_box.button(QDialogButtonBox.StandardButton.Save)
+        if save_btn:
+            save_btn.setText(tr_ui("btn_save"))
+        cancel_btn = self.button_box.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_btn:
+            cancel_btn.setText(tr_ui("btn_cancel"))
 
     def ping_pacs_action(self):
         pacs_ip = self.pacs_ip_edit.text().strip()
