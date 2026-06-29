@@ -896,6 +896,7 @@ class SettingsDialog(QDialog):
                 active_idx = i
                 
         self.settings_server_combo.setCurrentIndex(active_idx)
+        self.last_selected_server_idx = active_idx
         self.settings_server_combo.blockSignals(False)
         
         # Load fields for the active server
@@ -910,9 +911,10 @@ class SettingsDialog(QDialog):
             self.pacs_called_aet_edit.setText(s.get('pacs_called_aet', 'ANY-SCP'))
             self.pacs_calling_aet_edit.setText(s.get('pacs_calling_aet', 'ECHOSCU'))
 
-    def save_current_fields_to_config(self):
+    def save_current_fields_to_config(self, idx=None):
         servers = self.config.get('pacs_servers', [])
-        idx = self.settings_server_combo.currentIndex()
+        if idx is None:
+            idx = self.settings_server_combo.currentIndex()
         if 0 <= idx < len(servers):
             servers[idx]['pacs_ip'] = self.pacs_ip_edit.text().strip()
             servers[idx]['pacs_port'] = self.pacs_port_spin.value()
@@ -920,17 +922,24 @@ class SettingsDialog(QDialog):
             servers[idx]['pacs_calling_aet'] = self.pacs_calling_aet_edit.text().strip()
             
             # Also update current server config keys for backward compatibility
-            self.config['pacs_ip'] = servers[idx]['pacs_ip']
-            self.config['pacs_port'] = servers[idx]['pacs_port']
-            self.config['pacs_called_aet'] = servers[idx]['pacs_called_aet']
-            self.config['pacs_calling_aet'] = servers[idx]['pacs_calling_aet']
-            self.config['pacs_current_server_name'] = servers[idx]['name']
+            if idx == self.settings_server_combo.currentIndex():
+                self.config['pacs_ip'] = servers[idx]['pacs_ip']
+                self.config['pacs_port'] = servers[idx]['pacs_port']
+                self.config['pacs_called_aet'] = servers[idx]['pacs_called_aet']
+                self.config['pacs_calling_aet'] = servers[idx]['pacs_calling_aet']
+                self.config['pacs_current_server_name'] = servers[idx]['name']
 
     def on_settings_server_changed(self, index):
-        # Save current inputs to the previously active server configuration
-        self.save_current_fields_to_config()
+        # Save inputs to the PREVIOUSLY active server index
+        if hasattr(self, 'last_selected_server_idx') and self.last_selected_server_idx != index:
+            self.save_current_fields_to_config(self.last_selected_server_idx)
+            
         # Load fields for the newly selected server
         self.load_server_fields(index)
+        
+        # Update last selected index
+        self.last_selected_server_idx = index
+        
         # Update currently active server name
         servers = self.config.get('pacs_servers', [])
         if 0 <= index < len(servers):
@@ -938,7 +947,7 @@ class SettingsDialog(QDialog):
 
     def add_server_action(self):
         from PyQt6.QtWidgets import QInputDialog
-        self.save_current_fields_to_config()
+        self.save_current_fields_to_config(self.last_selected_server_idx)
         
         name, ok = QInputDialog.getText(self, "Новый сервер", "Введите имя PACS-сервера:")
         if ok and name.strip():
