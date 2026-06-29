@@ -218,7 +218,9 @@ class SettingsDialog(QDialog):
             'highlighting_enabled': 'False',
             'highlight_new_enabled': 'False',
             'highlight_today_enabled': 'False',
-            'highlight_no_str_enabled': 'False'
+            'highlight_no_str_enabled': 'False',
+            'rename_study_folder_enabled': 'False',
+            'rename_study_folder_mode': 'id'
         }
         
         # 1. Проверяем config.json в AppData
@@ -415,6 +417,17 @@ class SettingsDialog(QDialog):
         )
         self.lbl_id_prefixes = QLabel()
         general_form.addRow(self.lbl_id_prefixes, self.id_prefixes_edit)
+
+        # Rename Study Folder
+        self.rename_study_folder_cb = ToggleSwitch()
+        self.rename_study_folder_cb.setChecked(self.config.get('rename_study_folder_enabled', 'False').lower() == 'true')
+        self.lbl_rename_folder = QLabel()
+        general_form.addRow(self.lbl_rename_folder, self.rename_study_folder_cb)
+
+        # Rename Study Folder Mode
+        self.rename_study_folder_mode_combo = QComboBox()
+        self.lbl_rename_folder_mode = QLabel()
+        general_form.addRow(self.lbl_rename_folder_mode, self.rename_study_folder_mode_combo)
 
         # Разделитель под префиксами
         line_updates = QFrame()
@@ -745,6 +758,7 @@ class SettingsDialog(QDialog):
         self.archive_enabled_cb.toggled.connect(self.update_fields_state)
         self.archive_cleanup_enabled_cb.toggled.connect(self.update_fields_state)
         self.fix_patient_id_cb.toggled.connect(self.update_fields_state)
+        self.rename_study_folder_cb.toggled.connect(self.update_fields_state)
         self.update_fields_state()
 
         self.setup_dynamic_updates()
@@ -777,6 +791,9 @@ class SettingsDialog(QDialog):
         self.cleanup_label_days.setEnabled(cleanup_active)
 
         self.id_prefixes_edit.setEnabled(self.fix_patient_id_cb.isChecked())
+        
+        rename_folder_active = self.rename_study_folder_cb.isChecked()
+        self.rename_study_folder_mode_combo.setEnabled(rename_folder_active)
 
         highlighting_active = self.highlighting_cb.isChecked()
         self.lbl_highlight_new.setEnabled(highlighting_active)
@@ -842,6 +859,8 @@ class SettingsDialog(QDialog):
     def setup_dynamic_updates(self):
         # Подключаем сигналы изменения виджетов для применения на лету
         self.ct_images_edit.textChanged.connect(self.on_setting_changed)
+        self.rename_study_folder_cb.toggled.connect(self.on_setting_changed)
+        self.rename_study_folder_mode_combo.currentIndexChanged.connect(self.on_setting_changed)
         self.pacs_scan_spin.valueChanged.connect(self.on_setting_changed)
         self.archive_slice_spin.valueChanged.connect(self.on_setting_changed)
         self.font_size_spin.valueChanged.connect(self.on_setting_changed)
@@ -899,6 +918,8 @@ class SettingsDialog(QDialog):
         self.config['cleanup_structures_enabled'] = 'True' if self.cleanup_str_cb.isChecked() else 'False'
         self.config['fix_patient_id_enabled'] = 'True' if self.fix_patient_id_cb.isChecked() else 'False'
         self.config['id_prefixes'] = self.id_prefixes_edit.text()
+        self.config['rename_study_folder_enabled'] = 'True' if self.rename_study_folder_cb.isChecked() else 'False'
+        self.config['rename_study_folder_mode'] = 'id' if self.rename_study_folder_mode_combo.currentIndex() == 0 else 'name'
         self.config['archive_enabled'] = 'True' if self.archive_enabled_cb.isChecked() else 'False'
         self.config['archive_days'] = self.archive_days_spin.value()
         self.config['archive_cleanup_enabled'] = 'True' if self.archive_cleanup_enabled_cb.isChecked() else 'False'
@@ -969,6 +990,21 @@ class SettingsDialog(QDialog):
         self.lbl_fix_id.setText(tr_ui("settings_fix_id_label"))
         self.lbl_id_prefixes.setText(tr_ui("settings_id_prefixes_label"))
         self.id_prefixes_edit.setPlaceholderText(tr_ui("settings_id_prefixes_placeholder"))
+        self.lbl_rename_folder.setText(tr_ui("settings_rename_folder_label"))
+        self.lbl_rename_folder_mode.setText(tr_ui("settings_rename_folder_mode_label"))
+        
+        # Populate rename folder mode combo
+        self.rename_study_folder_mode_combo.blockSignals(True)
+        current_idx = self.rename_study_folder_mode_combo.currentIndex()
+        if current_idx < 0:
+            current_mode = self.config.get('rename_study_folder_mode', 'id')
+            current_idx = 0 if current_mode == 'id' else 1
+        self.rename_study_folder_mode_combo.clear()
+        self.rename_study_folder_mode_combo.addItem(tr_ui("settings_rename_folder_mode_id"))
+        self.rename_study_folder_mode_combo.addItem(tr_ui("settings_rename_folder_mode_name"))
+        self.rename_study_folder_mode_combo.setCurrentIndex(current_idx)
+        self.rename_study_folder_mode_combo.blockSignals(False)
+        
         self.check_updates_cb.setText(tr_ui("settings_check_updates_toggle"))
         self.btn_check_updates.setText(tr_ui("settings_check_updates_btn"))
         

@@ -173,5 +173,13 @@
   "loading_preparing_table": "Подготовка к заполнению таблицы...",
   "loading_rendering_table": "Отрисовка таблицы: {} из {} пациентов...",
   "loading_scanning_folders": "Сканирование: {} из {} папок — {}%",
-  "pacs_standby_mode": "Режим ожидания"
+  "pacs_standby_mode": "Режим ожидания",
+  "settings_rename_folder_label": "Переименовывать папки исследований:",
+  "settings_rename_folder_mode_label": "Переименовывать в:",
+  "settings_rename_folder_mode_id": "Patient ID",
+  "settings_rename_folder_mode_name": "ФИО Пациента (Patient Name)",
+  "loading_fixing_folders_status": "Исправление Patient ID и переименование папок...",
+  "loading_archiving_status": "Архивирование старых исследований...",
+  "loading_cleanup_status": "Очистка старых папок архива...",
+  "loading_scanning_folders_status": "Построение списка пациентов..."
 }

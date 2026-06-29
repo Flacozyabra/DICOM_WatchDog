@@ -173,5 +173,13 @@
   "loading_preparing_table": "Preparing to fill the table...",
   "loading_rendering_table": "Rendering table: {} of {} patients...",
   "loading_scanning_folders": "Scanning: {} of {} folders — {}%",
-  "pacs_standby_mode": "Standby mode"
+  "pacs_standby_mode": "Standby mode",
+  "settings_rename_folder_label": "Rename study folders:",
+  "settings_rename_folder_mode_label": "Rename folders to:",
+  "settings_rename_folder_mode_id": "Patient ID",
+  "settings_rename_folder_mode_name": "Patient Name",
+  "loading_fixing_folders_status": "Fixing Patient ID and renaming folders...",
+  "loading_archiving_status": "Archiving old studies...",
+  "loading_cleanup_status": "Cleaning up old archive folders...",
+  "loading_scanning_folders_status": "Building patient list..."
 }

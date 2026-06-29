@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget,
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-from core.dicom_utils import dict_create, rename_patient_folder, delete_redundant_str
+from core.dicom_utils import dict_create, process_patient_folder, delete_redundant_str
 from core.archive import move_old_folders_to_archive
 from core.notifier import show_notification
 from core.logger import log_message
@@ -145,13 +145,18 @@ class ThreadLogCollector:
 class FolderScanWorker(QThread):
     finished = pyqtSignal(dict, list)
     progress = pyqtSignal(int, int)  # (current, total)
+    status_changed = pyqtSignal(str) # (status_text)
 
-    def __init__(self, ct_images_dir, cleanup_structures_enabled, fix_patient_id_enabled, id_prefixes, archive_dir, archive_enabled, archive_days, archive_cleanup_enabled, archive_cleanup_days):
+    def __init__(self, ct_images_dir, cleanup_structures_enabled, fix_patient_id_enabled, id_prefixes,
+                 rename_study_folder_enabled, rename_study_folder_mode,
+                 archive_dir, archive_enabled, archive_days, archive_cleanup_enabled, archive_cleanup_days):
         super().__init__()
         self.ct_images_dir = ct_images_dir
         self.cleanup_structures_enabled = cleanup_structures_enabled
         self.fix_patient_id_enabled = fix_patient_id_enabled
         self.id_prefixes = id_prefixes
+        self.rename_study_folder_enabled = rename_study_folder_enabled
+        self.rename_study_folder_mode = rename_study_folder_mode
         self.archive_dir = archive_dir
         self.archive_enabled = archive_enabled
         self.archive_days = archive_days
@@ -162,6 +167,7 @@ class FolderScanWorker(QThread):
         collector = ThreadLogCollector()
         is_cleanup_struct_on = self.cleanup_structures_enabled.lower() == 'true'
         is_fix_id_on = self.fix_patient_id_enabled.lower() == 'true'
+        is_rename_folder_on = self.rename_study_folder_enabled.lower() == 'true'
         is_archive_on = self.archive_enabled.lower() == 'true'
         is_cleanup_on = self.archive_cleanup_enabled.lower() == 'true'
         
@@ -169,22 +175,47 @@ class FolderScanWorker(QThread):
         if self.id_prefixes:
             prefixes_list = [p.strip() for p in self.id_prefixes.split(',') if p.strip()]
 
-        if is_fix_id_on and os.path.exists(self.ct_images_dir):
-            for root, dirs, files in os.walk(self.ct_images_dir):
-                for dir_name in dirs:
-                    rename_patient_folder(os.path.join(root, dir_name), collector, prefixes=prefixes_list)
+        patient_folders = []
+        if os.path.exists(self.ct_images_dir):
+            try:
+                patient_folders = [os.path.join(self.ct_images_dir, d) for d in os.listdir(self.ct_images_dir)
+                                   if os.path.isdir(os.path.join(self.ct_images_dir, d))]
+            except Exception:
+                pass
+
+        total_folders = len(patient_folders)
+
+        # 1. Фаза исправления ID и переименования папок
+        if (is_fix_id_on or is_rename_folder_on) and total_folders > 0:
+            self.status_changed.emit(tr_ui("loading_fixing_folders_status"))
+            for i, path in enumerate(patient_folders):
+                self.progress.emit(i, total_folders)
+                process_patient_folder(
+                    path, collector,
+                    fix_patient_id=is_fix_id_on,
+                    prefixes=prefixes_list,
+                    rename_folder=is_rename_folder_on,
+                    rename_mode=self.rename_study_folder_mode
+                )
+            self.progress.emit(total_folders, total_folders)
             
+        # 2. Фаза архивации
         if is_archive_on and not self.archive_dir:
             collector.appendPlainText(tr_log("log_warn_auto_archive_not_configured"))
 
         if self.archive_dir and is_archive_on and os.path.exists(self.ct_images_dir):
+            self.status_changed.emit(tr_ui("loading_archiving_status"))
             from core.archive import move_old_folders_to_archive
             move_old_folders_to_archive(self.ct_images_dir, self.archive_dir, self.archive_days, collector)
 
+        # 3. Фаза очистки архива
         if self.archive_dir and is_cleanup_on:
+            self.status_changed.emit(tr_ui("loading_cleanup_status"))
             from core.archive import cleanup_old_archive_folders
             cleanup_old_archive_folders(self.archive_dir, self.archive_cleanup_days, collector)
 
+        # 4. Фаза сканирования папок для таблицы
+        self.status_changed.emit(tr_ui("loading_scanning_folders_status"))
         patient_dict = dict_create(
             self.ct_images_dir, collector,
             cleanup_structures=is_cleanup_struct_on,
@@ -1183,6 +1214,8 @@ class MainWindow(QMainWindow):
         cleanup_str_val = self.config.get('cleanup_structures_enabled', 'False')
         fix_id_val = self.config.get('fix_patient_id_enabled', 'False')
         prefixes_val = self.config.get('id_prefixes', 'CT_')
+        rename_folder_enabled = self.config.get('rename_study_folder_enabled', 'False')
+        rename_folder_mode = self.config.get('rename_study_folder_mode', 'id')
         archive_dir = self.config.get('archive_dir', '')
         archive_enabled = self.config.get('archive_enabled', 'False')
         archive_days = int(self.config.get('archive_days', 3))
@@ -1190,8 +1223,9 @@ class MainWindow(QMainWindow):
         archive_cleanup_days = int(self.config.get('archive_cleanup_days', 30))
 
         self.scan_worker = FolderScanWorker(
-            ct_dir, cleanup_str_val, fix_id_val, prefixes_val, archive_dir,
-            archive_enabled, archive_days,
+            ct_dir, cleanup_str_val, fix_id_val, prefixes_val,
+            rename_folder_enabled, rename_folder_mode,
+            archive_dir, archive_enabled, archive_days,
             archive_cleanup_enabled, archive_cleanup_days
         )
         self.scan_worker.finished.connect(self.on_folder_scan_finished)
@@ -1202,6 +1236,7 @@ class MainWindow(QMainWindow):
             self.scan_progress_dialog.label.setText("Подготовка к сканированию DICOM-файлов...")
             self.scan_progress_dialog.progress.setRange(0, 100)
             self.scan_worker.progress.connect(self.scan_progress_dialog.set_scan_progress)
+            self.scan_worker.status_changed.connect(self.scan_progress_dialog.label.setText)
             self.scan_worker.finished.connect(self.scan_progress_dialog.accept)
             
             self.scan_worker.start()

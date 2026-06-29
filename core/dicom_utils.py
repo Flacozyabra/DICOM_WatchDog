@@ -118,7 +118,47 @@ def remove_non_digits(input_string):
     return result
 
 
-def rename_patient_folder(path, output_field, prefixes=None):
+def sanitize_folder_name(name):
+    import re
+    name_str = str(name)
+    sanitized = re.sub(r'[\\/*?:"<>|]', '_', name_str)
+    return sanitized.strip()
+
+def safe_merge_folders(src, dest, new_id):
+    for dirpath, dirnames, filenames in os.walk(src):
+        for filename in filenames:
+            src_file = os.path.join(dirpath, filename)
+            rel_path = os.path.relpath(dirpath, src)
+            dest_dir = os.path.join(dest, rel_path)
+            os.makedirs(dest_dir, exist_ok=True)
+            dest_file = os.path.join(dest_dir, filename)
+            
+            if filename.lower().endswith('.dcm') or filename.startswith('STR'):
+                try:
+                    ds_file = pydicom.dcmread(src_file)
+                    ds_file.PatientID = new_id
+                    ds_file.save_as(dest_file)
+                except Exception:
+                    shutil.copy2(src_file, dest_file)
+            else:
+                shutil.copy2(src_file, dest_file)
+    shutil.rmtree(src)
+
+def safe_update_patient_ids(folder_path, new_id, output_field=None):
+    for dirpath, dirnames, filenames in os.walk(folder_path):
+        for filename in filenames:
+            if filename.lower().endswith('.dcm') or filename.startswith('STR'):
+                src_file = os.path.join(dirpath, filename)
+                try:
+                    ds_file = pydicom.dcmread(src_file)
+                    if ds_file.PatientID != new_id:
+                        ds_file.PatientID = new_id
+                        ds_file.save_as(src_file)
+                except Exception as e:
+                    if output_field:
+                        log_message(output_field, tr_log("log_dcm_update_id_warning", filename, e))
+
+def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=None, rename_folder=False, rename_mode='id'):
     if not os.path.isdir(path):
         return
 
@@ -133,83 +173,46 @@ def rename_patient_folder(path, output_field, prefixes=None):
         log_message(output_field, tr_log("log_dcm_read_patient_error", patient_folder, e))
         return
 
-    new_patient_id = ds.PatientID
-    if prefixes:
-        for prefix in prefixes:
-            prefix = prefix.strip()
-            if prefix and new_patient_id.startswith(prefix):
-                new_patient_id = new_patient_id[len(prefix):]
-                break
+    raw_patient_id = ds.PatientID
+    new_patient_id = raw_patient_id
 
-    # Внутренняя функция для безопасного слияния папок без потери данных
-    def safe_merge_folders(src, dest, new_id):
-        for dirpath, dirnames, filenames in os.walk(src):
-            for filename in filenames:
-                src_file = os.path.join(dirpath, filename)
-                dest_file = os.path.join(dest, filename)
-                
-                # Если файл DICOM или структура, пытаемся обновить PatientID
-                if filename.lower().endswith('.dcm') or filename.startswith('STR'):
-                    try:
-                        ds_file = pydicom.dcmread(src_file)
-                        ds_file.PatientID = new_id
-                        ds_file.save_as(dest_file)
-                    except Exception:
-                        # Если не удалось обработать как DICOM, просто копируем файл
-                        shutil.copy2(src_file, dest_file)
-                else:
-                    # Все остальные файлы копируем как есть
-                    shutil.copy2(src_file, dest_file)
-        # Удаляем исходную папку только после успешного копирования всего содержимого
-        shutil.rmtree(src)
+    # 1. Если включено исправление ID (fix_patient_id)
+    if fix_patient_id:
+        if prefixes:
+            for prefix in prefixes:
+                prefix = prefix.strip()
+                if prefix and new_patient_id.startswith(prefix):
+                    new_patient_id = new_patient_id[len(prefix):]
+                    break
+        # костыль для удаления точек и других символов
+        if not new_patient_id.isdigit():
+            new_patient_id = remove_non_digits(new_patient_id)
 
-    # Внутренняя функция для обновления PatientID во всех DICOM-файлах после переименования папки
-    def safe_update_patient_ids(folder_path, new_id):
-        for dirpath, dirnames, filenames in os.walk(folder_path):
-            for filename in filenames:
-                if filename.lower().endswith('.dcm') or filename.startswith('STR'):
-                    src_file = os.path.join(dirpath, filename)
-                    try:
-                        ds_file = pydicom.dcmread(src_file)
-                        ds_file.PatientID = new_id
-                        ds_file.save_as(src_file)
-                    except Exception as e:
-                        log_message(output_field, tr_log("log_dcm_update_id_warning", filename, e))
+    # 2. Если ID изменился в процессе фиксации, обновляем его во всех DICOM-файлах
+    if fix_patient_id and new_patient_id != raw_patient_id:
+        safe_update_patient_ids(path, new_patient_id, output_field)
 
-    if patient_folder != new_patient_id:
-        new_folder = str(new_patient_id)
-        new_path = os.path.join(os.path.dirname(path), new_folder)
-
-        if os.path.exists(new_path):
-            try:
-                safe_merge_folders(path, new_path, new_patient_id)
-                log_message(output_field, tr_log("log_files_merged_success", new_folder, new_patient_id, patient_folder))
-            except Exception as e:
-                log_message(output_field, tr_log("log_folders_merge_error", patient_folder, new_folder, e))
+    # 3. Если включено переименование папки исследования (rename_folder)
+    if rename_folder:
+        if rename_mode == 'id':
+            target_folder_name = str(new_patient_id)
+        elif rename_mode == 'name':
+            target_folder_name = sanitize_folder_name(getattr(ds, "PatientName", ""))
         else:
-            try:
-                os.rename(path, new_path)
-                safe_update_patient_ids(new_path, new_patient_id)
-                log_message(output_field, tr_log("log_folder_renamed_success", patient_folder, new_folder, new_patient_id))
-            except Exception as e:
-                log_message(output_field, tr_log("log_folder_rename_error", patient_folder, e))
+            target_folder_name = patient_folder
 
-    # костыль для удаления точек и других символов
-    elif not patient_folder.isdigit():
-        new_patient_id = remove_non_digits(ds.PatientID)
-        new_folder = str(new_patient_id)
-        new_path = os.path.join(os.path.dirname(path), new_folder)
-
-        if os.path.exists(new_path):
-            try:
-                safe_merge_folders(path, new_path, new_patient_id)
-                log_message(output_field, tr_log("log_files_merged_success", new_folder, new_patient_id, patient_folder))
-            except Exception as e:
-                log_message(output_field, tr_log("log_folders_merge_error", patient_folder, new_folder, e))
-        else:
-            try:
-                os.rename(path, new_path)
-                safe_update_patient_ids(new_path, new_patient_id)
-                log_message(output_field, tr_log("log_folder_renamed_success", patient_folder, new_folder, new_patient_id))
-            except Exception as e:
-                log_message(output_field, tr_log("log_folder_rename_error", patient_folder, e))
+        if patient_folder != target_folder_name and target_folder_name:
+            new_path = os.path.join(os.path.dirname(path), target_folder_name)
+            if os.path.exists(new_path):
+                try:
+                    safe_merge_folders(path, new_path, new_patient_id)
+                    log_message(output_field, tr_log("log_files_merged_success", target_folder_name, new_patient_id, patient_folder))
+                except Exception as e:
+                    log_message(output_field, tr_log("log_folders_merge_error", patient_folder, target_folder_name, e))
+            else:
+                try:
+                    os.rename(path, new_path)
+                    safe_update_patient_ids(new_path, new_patient_id, output_field)
+                    log_message(output_field, tr_log("log_folder_renamed_success", patient_folder, target_folder_name, new_patient_id))
+                except Exception as e:
+                    log_message(output_field, tr_log("log_folder_rename_error", patient_folder, e))
