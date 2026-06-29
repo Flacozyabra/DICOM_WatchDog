@@ -2,14 +2,15 @@ import os
 import sys
 import json
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QPixmap
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QLineEdit, QPushButton, QFileDialog, QFormLayout, 
                              QSpinBox, QDialogButtonBox, QMessageBox,
                              QComboBox, QListWidget, QStackedWidget, QWidget, QFrame)
 
 from ui.toggle_switch import ToggleSwitch
-from core.config_utils import get_config_path, get_app_data_dir
+from core.config_utils import get_config_path, get_app_data_dir, get_resource_path
+from core.locale_utils import tr_ui
 
 
 def apply_dark_title_bar(widget):
@@ -67,10 +68,84 @@ class UpdateCheckWorker(QThread):
         self.finished.emit(tag or "", url or "")
 
 
+class LanguageSwitch(QFrame):
+    """Кастомный горизонтальный переключатель языков с флагами."""
+
+    def __init__(self, parent: QWidget, command=None, current_lang: str = "ru") -> None:
+        super().__init__(parent)
+        self.command = command
+        self.lang = current_lang
+        
+        self.setFixedSize(76, 30)
+        self.setStyleSheet("""
+            QFrame {
+                background-color: #2D2D2D;
+                border: 1px solid #4B5563;
+                border-radius: 15px;
+            }
+        """)
+
+        # Загружаем картинки флагов
+        self.px_ru = QPixmap(get_resource_path("themes/ru_flag.png"))
+        self.px_gb = QPixmap(get_resource_path("themes/gb_flag.png"))
+
+        # Метка RU флага (слева)
+        self.lbl_ru = QLabel(self)
+        self.lbl_ru.setPixmap(self.px_ru)
+        self.lbl_ru.setScaledContents(True)
+        self.lbl_ru.setFixedSize(24, 16)
+        self.lbl_ru.move(9, 7)
+        self.lbl_ru.setStyleSheet("background: transparent; border: none;")
+
+        # Метка GB флага (справа)
+        self.lbl_gb = QLabel(self)
+        self.lbl_gb.setPixmap(self.px_gb)
+        self.lbl_gb.setScaledContents(True)
+        self.lbl_gb.setFixedSize(24, 16)
+        self.lbl_gb.move(43, 7)
+        self.lbl_gb.setStyleSheet("background: transparent; border: none;")
+
+        # Ползунок (slider)
+        self.slider = QFrame(self)
+        self.slider.setFixedSize(36, 24)
+        self.slider.setStyleSheet("""
+            QFrame {
+                background-color: #4B5563;
+                border: none;
+                border-radius: 12px;
+            }
+        """)
+
+        self.slider_img = QLabel(self.slider)
+        self.slider_img.setScaledContents(True)
+        self.slider_img.setFixedSize(24, 16)
+        self.slider_img.move(6, 4)
+        self.slider_img.setStyleSheet("background: transparent; border: none;")
+
+        self.update_slider_position()
+
+    def update_slider_position(self) -> None:
+        if self.lang == "ru":
+            self.slider.move(3, 3)
+            self.slider_img.setPixmap(self.px_ru)
+        else:
+            self.slider.move(37, 3)
+            self.slider_img.setPixmap(self.px_gb)
+
+    def mousePressEvent(self, event) -> None:
+        if self.lang == "ru":
+            self.lang = "en"
+        else:
+            self.lang = "ru"
+        self.update_slider_position()
+        if self.command:
+            self.command(self.lang)
+
+
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Настройки")
+        self.setWindowTitle(tr_ui("settings_title"))
         self.setMinimumWidth(650)
         
         # Темная рамка окна Windows и цвет заголовка
@@ -259,7 +334,7 @@ class SettingsDialog(QDialog):
         # Левая часть: боковое меню
         self.sidebar = QListWidget()
         self.sidebar.setObjectName("settingsSidebar")
-        self.sidebar.addItems(["General", "Archive", "UI Settings", "PACS"])
+        self.sidebar.addItems([tr_ui("settings_tab_general"), tr_ui("settings_tab_archive"), tr_ui("settings_tab_ui"), tr_ui("settings_tab_pacs")])
         main_layout.addWidget(self.sidebar)
         
         # Правая часть: stacked widget с контентом
@@ -464,23 +539,31 @@ class SettingsDialog(QDialog):
         ui_layout = QVBoxLayout(ui_widget)
         ui_form = QFormLayout()
         
+        # Язык интерфейса
+        self.interface_lang_switch = LanguageSwitch(self, current_lang=self.config.get('interface_lang', 'ru'))
+        ui_form.addRow(tr_ui("settings_interface_lang"), self.interface_lang_switch)
+        
+        # Язык лога
+        self.log_lang_switch = LanguageSwitch(self, current_lang=self.config.get('log_lang', 'ru'))
+        ui_form.addRow(tr_ui("settings_log_lang"), self.log_lang_switch)
+
         # Patient Font Size
         self.patient_font_spin = QSpinBox()
         self.patient_font_spin.setRange(8, 36)
         self.patient_font_spin.setValue(self.config.get('patient_font_size', 16))
-        ui_form.addRow("Размер шрифта пациентов:", self.patient_font_spin)
+        ui_form.addRow(tr_ui("settings_patient_font"), self.patient_font_spin)
         
         # Patient Font Weight
         self.patient_weight_combo = QComboBox()
         self.patient_weight_combo.addItems(["Regular", "Semibold", "Bold"])
         self.patient_weight_combo.setCurrentText(self.config.get('patient_weight', 'Semibold'))
-        ui_form.addRow("Толщина шрифта списков:", self.patient_weight_combo)
+        ui_form.addRow(tr_ui("settings_patient_weight"), self.patient_weight_combo)
         
         # Font size (logs)
         self.font_size_spin = QSpinBox()
         self.font_size_spin.setRange(8, 24)
         self.font_size_spin.setValue(self.config['log_font_size'])
-        ui_form.addRow("Размер шрифта логов:", self.font_size_spin)
+        ui_form.addRow(tr_ui("settings_log_font"), self.font_size_spin)
         
         # Разделитель
         ui_line = QFrame()
@@ -805,6 +888,8 @@ class SettingsDialog(QDialog):
         self.config['highlight_new_enabled'] = 'True' if self.highlight_new_cb.isChecked() else 'False'
         self.config['highlight_today_enabled'] = 'True' if self.highlight_today_cb.isChecked() else 'False'
         self.config['highlight_no_str_enabled'] = 'True' if self.highlight_no_str_cb.isChecked() else 'False'
+        self.config['interface_lang'] = self.interface_lang_switch.lang
+        self.config['log_lang'] = self.log_lang_switch.lang
 
         # Применяем настройки на лету в главном окне
         from ui.main_window import MainWindow

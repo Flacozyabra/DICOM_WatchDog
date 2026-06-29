@@ -21,6 +21,7 @@ from core.notifier import show_notification
 from core.logger import log_message
 from core.pacs import pacs_dict_create, download_patient_from_pacs
 from core.config_utils import get_resource_path, VERSION
+from core.locale_utils import tr_ui, tr_log
 from ui.settings_dialog import SettingsDialog
 from ui.toggle_switch import ToggleSwitch
 from ui.centered_date_edit import CenteredDateEdit
@@ -540,6 +541,9 @@ class MainWindow(QMainWindow):
         self.update_pacs_controls_state()
         self.restart_timers()
         
+        # Обновляем локализацию интерфейса
+        self.retranslate_ui()
+        
         # 4. Обновляем путь наблюдателя, если он изменился
         if old_dir != new_dir:
             self.is_first_scan = True
@@ -718,6 +722,9 @@ class MainWindow(QMainWindow):
         # Подключаем сигнал изменения вкладок после полной инициализации виджетов
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
         
+        # Обновляем локализацию интерфейса перед отображением
+        self.retranslate_ui()
+        
         self.stacked_widget.addWidget(main_widget)
         
         # Панель вьюера DICOM
@@ -790,7 +797,7 @@ class MainWindow(QMainWindow):
         
         layout.addLayout(control_layout)
         
-        self.tab_widget.addTab(tab, "CT images")
+        self.tab_widget.addTab(tab, tr_ui("tab_ct_images"))
 
     def create_tab_ct_archive(self):
         tab = QWidget()
@@ -853,7 +860,7 @@ class MainWindow(QMainWindow):
         
         layout.addLayout(search_layout)
         
-        self.tab_widget.addTab(tab, "CT archive")
+        self.tab_widget.addTab(tab, tr_ui("tab_ct_archive"))
 
     def create_tab_pacs(self):
         tab = QWidget()
@@ -971,7 +978,7 @@ class MainWindow(QMainWindow):
         
         self.update_pacs_controls_state()
         
-        self.tab_widget.addTab(tab, "PACS")
+        self.tab_widget.addTab(tab, tr_ui("tab_pacs"))
 
     def setup_table_properties(self, table):
         # Настройка поведения таблиц
@@ -1857,9 +1864,9 @@ class MainWindow(QMainWindow):
                 return
 
         if not silent:
-            log_message(self.output_field, "Пытаюсь подключиться к серверу PACS")
+            log_message(self.output_field, tr_log("log_connecting_pacs"))
             self.pacs_table.setRowCount(0)
-            self.pacs_table.set_placeholder_text("Выполняется сканирование PACS сервера...")
+            self.pacs_table.set_placeholder_text(tr_ui("placeholder_scanning"))
             self.pacs_table.update_placeholder_visibility()
             self.previous_pacs_data = {}
 
@@ -1893,11 +1900,11 @@ class MainWindow(QMainWindow):
         auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
         if con:
             if auto_update_on:
-                self.pacs_table.set_placeholder_text("Ожидаю появления новых исследований на сервере")
+                self.pacs_table.set_placeholder_text(tr_ui("placeholder_standby"))
             else:
-                self.pacs_table.set_placeholder_text("Исследования на сервере PACS не найдены")
+                self.pacs_table.set_placeholder_text(tr_ui("placeholder_no_studies"))
         else:
-            self.pacs_table.set_placeholder_text("Сканирование сервера PACS не настроено")
+            self.pacs_table.set_placeholder_text(tr_ui("placeholder_not_configured"))
             self.pacs_table.setRowCount(0)
             self.pacs_table.update_placeholder_visibility()
             self.previous_pacs_data = {}
@@ -1905,9 +1912,9 @@ class MainWindow(QMainWindow):
             
         has_fail_msg = False
         for msg in log_messages:
-            if "подключиться к серверу PACS" in msg:
+            if "подключиться к серверу PACS" in msg or "Failed to connect" in msg:
                 if not silent:
-                    log_message(self.output_field, msg, replace_suffix="Пытаюсь подключиться к серверу PACS")
+                    log_message(self.output_field, msg, replace_suffix=tr_log("log_connecting_pacs"))
                 has_fail_msg = True
             else:
                 if not silent:
@@ -1915,7 +1922,7 @@ class MainWindow(QMainWindow):
 
         if con:
             if not silent:
-                log_message(self.output_field, "Установлено подключение к серверу PACS", replace_suffix="Пытаюсь подключиться к серверу PACS")
+                log_message(self.output_field, tr_log("log_connected_pacs"), replace_suffix=tr_log("log_connecting_pacs"))
             
             # Фоновое уведомление о новых КТ в PACS
             pacs_notify_on = self.config.get('pacs_notification_is', 'off').lower() == 'on'
@@ -2044,7 +2051,7 @@ class MainWindow(QMainWindow):
 
         elif not con and not has_fail_msg:
             if not silent:
-                log_message(self.output_field, "Не удалось подключиться к серверу PACS", replace_suffix="Пытаюсь подключиться к серверу PACS")
+                log_message(self.output_field, tr_log("log_failed_connect_pacs"), replace_suffix=tr_log("log_connecting_pacs"))
             
             if self.previous_pacs_data:
                 self.pacs_table.setUpdatesEnabled(False)
@@ -2370,5 +2377,30 @@ class MainWindow(QMainWindow):
             
             # Trigger immediate scan
             self.fill_pacs_list()
+
+    def retranslate_ui(self):
+        # Названия вкладок
+        self.tab_widget.setTabText(0, tr_ui("tab_ct_images"))
+        self.tab_widget.setTabText(1, tr_ui("tab_ct_archive"))
+        self.tab_widget.setTabText(2, tr_ui("tab_pacs"))
+        
+        # Кнопки и плейсхолдеры
+        self.search_images_entry.setPlaceholderText(tr_ui("placeholder_search_patient"))
+        self.search_images_btn.setText(tr_ui("btn_search"))
+        self.move_to_archive_btn.setText(tr_ui("btn_move_to_archive"))
+        
+        self.search_archive_entry.setPlaceholderText(tr_ui("placeholder_search_patient"))
+        self.search_archive_btn.setText(tr_ui("btn_search"))
+        self.move_from_archive_btn.setText(tr_ui("btn_restore_from_archive"))
+        
+        self.pacs_today_btn.setText(tr_ui("btn_today"))
+        self.pacs_3days_btn.setText(tr_ui("btn_3days"))
+        self.lbl_from.setText(tr_ui("lbl_from"))
+        self.lbl_to.setText(tr_ui("lbl_to"))
+        self.lbl_server.setText(tr_ui("lbl_server"))
+        self.send_to_ct_btn.setText(tr_ui("btn_send_to_ct"))
+        
+        self.images_table.set_placeholder_text(tr_ui("placeholder_no_studies_in_folder"))
+        self.archive_table.set_placeholder_text(tr_ui("placeholder_no_studies_in_folder"))
 
 
