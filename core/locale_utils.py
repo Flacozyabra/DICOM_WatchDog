@@ -8,43 +8,57 @@ def get_locale_dir():
         return os.path.join(sys._MEIPASS, "locales")
     return os.path.join(os.path.dirname(os.path.dirname(__file__)), "locales")
 
-_translations = {}
+_ui_translations = {}
+_log_translations = {}
 
 def load_locales():
-    global _translations
+    global _ui_translations, _log_translations
     locale_dir = get_locale_dir()
     for lang in ['ru', 'en']:
-        path = os.path.join(locale_dir, f"{lang}.json")
-        if os.path.exists(path):
+        # Load UI Translations
+        ui_path = os.path.join(locale_dir, f"{lang}.json")
+        if os.path.exists(ui_path):
             try:
-                with open(path, "r", encoding="utf-8") as f:
-                    _translations[lang] = json.load(f)
+                with open(ui_path, "r", encoding="utf-8") as f:
+                    _ui_translations[lang] = json.load(f)
             except Exception as e:
-                print(f"Error loading locale {lang}: {e}")
-                _translations[lang] = {}
+                print(f"Error loading UI locale {lang}: {e}")
+                _ui_translations[lang] = {}
         else:
-            _translations[lang] = {}
+            _ui_translations[lang] = {}
+            
+        # Load LOG Translations
+        log_path = os.path.join(locale_dir, f"log_{lang}.json")
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, "r", encoding="utf-8") as f:
+                    _log_translations[lang] = json.load(f)
+            except Exception as e:
+                print(f"Error loading LOG locale {lang}: {e}")
+                _log_translations[lang] = {}
+        else:
+            _log_translations[lang] = {}
 
 # Auto load on module import
 load_locales()
 
 def get_current_langs():
     config_path = get_config_path()
-    interface_lang = 'ru'
-    log_lang = 'ru'
+    interface_lang = 'en'
+    log_lang = 'en'
     if os.path.exists(config_path):
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
-                interface_lang = config.get('interface_lang', 'ru')
-                log_lang = config.get('log_lang', 'ru')
+                interface_lang = config.get('interface_lang', 'en')
+                log_lang = config.get('log_lang', 'en')
         except Exception:
             pass
     return interface_lang, log_lang
 
 def tr_ui(key, *args):
     lang, _ = get_current_langs()
-    val = _translations.get(lang, {}).get(key, key)
+    val = _ui_translations.get(lang, {}).get(key, key)
     if args:
         try:
             return val.format(*args)
@@ -54,7 +68,7 @@ def tr_ui(key, *args):
 
 def tr_log(key, *args):
     _, lang = get_current_langs()
-    val = _translations.get(lang, {}).get(key, key)
+    val = _log_translations.get(lang, {}).get(key, key)
     if args:
         try:
             return val.format(*args)

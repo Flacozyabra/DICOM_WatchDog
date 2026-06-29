@@ -5,6 +5,7 @@ from collections import defaultdict
 import pydicom
 
 from core.logger import log_message
+from core.locale_utils import tr_log
 
 
 def delete_redundant_str(patient_dir, output_field=None):
@@ -29,10 +30,10 @@ def delete_redundant_str(patient_dir, output_field=None):
             deleted_count += 1
             if output_field:
                 patient_id = os.path.basename(patient_dir)
-                log_message(output_field, f"У пациента {patient_id} был удален старый файл структур ({file})")
+                log_message(output_field, tr_log("log_str_deleted", patient_id, file))
         except Exception as e:
             if output_field:
-                log_message(output_field, f"Ошибка при удалении {file}: {e}")
+                log_message(output_field, tr_log("log_str_delete_error", file, e))
                 
     return deleted_count
 
@@ -104,7 +105,7 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
                         patient_data[ds.PatientID]['str'] = len(files)
 
                 except Exception as e:
-                    log_message(output_field, f"Ошибка чтения файла {os.path.join(root, file)}: {e}")
+                    log_message(output_field, tr_log("log_dcm_read_error", os.path.join(root, file), e))
 
     return patient_data
 
@@ -129,7 +130,7 @@ def rename_patient_folder(path, output_field, prefixes=None):
     try:
         ds = pydicom.dcmread(os.path.join(path, files[0]))
     except Exception as e:
-        log_message(output_field, f"Ошибка чтения DICOM в {patient_folder}: {e}")
+        log_message(output_field, tr_log("log_dcm_read_patient_error", patient_folder, e))
         return
 
     new_patient_id = ds.PatientID
@@ -173,7 +174,7 @@ def rename_patient_folder(path, output_field, prefixes=None):
                         ds_file.PatientID = new_id
                         ds_file.save_as(src_file)
                     except Exception as e:
-                        log_message(output_field, f"Предупреждение: не удалось обновить PatientID в файле {filename}: {e}")
+                        log_message(output_field, tr_log("log_dcm_update_id_warning", filename, e))
 
     if patient_folder != new_patient_id:
         new_folder = str(new_patient_id)
@@ -182,16 +183,16 @@ def rename_patient_folder(path, output_field, prefixes=None):
         if os.path.exists(new_path):
             try:
                 safe_merge_folders(path, new_path, new_patient_id)
-                log_message(output_field, f"Файлы успешно объединены в существующую папку: {new_folder}, новый PatientID: {new_patient_id}, исходная папка {patient_folder} удалена")
+                log_message(output_field, tr_log("log_files_merged_success", new_folder, new_patient_id, patient_folder))
             except Exception as e:
-                log_message(output_field, f"Ошибка при слиянии папок {patient_folder} -> {new_folder}: {e}")
+                log_message(output_field, tr_log("log_folders_merge_error", patient_folder, new_folder, e))
         else:
             try:
                 os.rename(path, new_path)
                 safe_update_patient_ids(new_path, new_patient_id)
-                log_message(output_field, f"Переименовано: {patient_folder} -> {new_folder}, новый PatientID: {new_patient_id}")
+                log_message(output_field, tr_log("log_folder_renamed_success", patient_folder, new_folder, new_patient_id))
             except Exception as e:
-                log_message(output_field, f"Ошибка переименования {patient_folder}: {e}")
+                log_message(output_field, tr_log("log_folder_rename_error", patient_folder, e))
 
     # костыль для удаления точек и других символов
     elif not patient_folder.isdigit():
@@ -202,13 +203,13 @@ def rename_patient_folder(path, output_field, prefixes=None):
         if os.path.exists(new_path):
             try:
                 safe_merge_folders(path, new_path, new_patient_id)
-                log_message(output_field, f"Файлы успешно объединены в существующую папку: {new_folder}, новый PatientID: {new_patient_id}, исходная папка {patient_folder} удалена")
+                log_message(output_field, tr_log("log_files_merged_success", new_folder, new_patient_id, patient_folder))
             except Exception as e:
-                log_message(output_field, f"Ошибка при слиянии папок {patient_folder} -> {new_folder}: {e}")
+                log_message(output_field, tr_log("log_folders_merge_error", patient_folder, new_folder, e))
         else:
             try:
                 os.rename(path, new_path)
                 safe_update_patient_ids(new_path, new_patient_id)
-                log_message(output_field, f"Переименовано: {patient_folder} -> {new_folder}, новый PatientID: {new_patient_id}")
+                log_message(output_field, tr_log("log_folder_renamed_success", patient_folder, new_folder, new_patient_id))
             except Exception as e:
-                log_message(output_field, f"Ошибка переименования {patient_folder}: {e}")
+                log_message(output_field, tr_log("log_folder_rename_error", patient_folder, e))

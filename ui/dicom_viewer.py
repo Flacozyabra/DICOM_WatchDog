@@ -18,6 +18,7 @@ from PyQt6.QtGui import (
 )
 from ui.toggle_switch import ToggleSwitch
 from core.config_utils import get_resource_path
+from core.locale_utils import tr_ui, tr_log
 
 
 def load_rtstruct(filepath):
@@ -76,7 +77,7 @@ def load_rtstruct(filepath):
                     "contours": contours
                 }
     except Exception as e:
-        print(f"Ошибка при парсинге RTSTRUCT {filepath}: {e}")
+        print(f"Error parsing RTSTRUCT {filepath}: {e}")
         
     return structures
 
@@ -572,7 +573,7 @@ class DicomViewerWidget(QWidget):
                 dy = (y2 - y1) * row_spacing
                 dist_mm = math.sqrt(dx * dx + dy * dy)
                 
-                text_dist = f"{dist_mm:.1f} мм"
+                text_dist = f"{dist_mm:.1f} " + tr_ui("hud_mm")
                 mid_x = (self.start_pos.x() + self.current_pos.x()) / 2
                 mid_y = (self.start_pos.y() + self.current_pos.y()) / 2
 
@@ -699,7 +700,7 @@ class DicomViewerWidget(QWidget):
                 # Срезы
                 if self.total_slices > 0:
                     painter.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
-                    slice_info = f"Срез: {self.current_slice} / {self.total_slices}"
+                    slice_info = tr_ui("hud_slice", self.current_slice, self.total_slices)
                     
                     spacing_text = ""
                     if self.current_dataset:
@@ -709,7 +710,7 @@ class DicomViewerWidget(QWidget):
                         if spacing is not None:
                             try:
                                 spacing_val = float(spacing)
-                                spacing_text = f"Шаг: {spacing_val:.1f} мм"
+                                spacing_text = tr_ui("hud_spacing", spacing_val)
                             except (ValueError, TypeError):
                                 pass
 

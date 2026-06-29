@@ -238,7 +238,7 @@ class SettingsDialog(QDialog):
                     pacs_called_aet = config.get('pacs_called_aet', 'ANY-SCP')
                     pacs_calling_aet = config.get('pacs_calling_aet', 'ECHOSCU')
                     default_server = {
-                        'name': f"Сервер ({pacs_ip}:{pacs_port})",
+                        'name': f"Server ({pacs_ip}:{pacs_port})",
                         'pacs_ip': pacs_ip,
                         'pacs_port': pacs_port,
                         'pacs_called_aet': pacs_called_aet,
@@ -294,7 +294,7 @@ class SettingsDialog(QDialog):
                     pacs_called_aet = config.get('pacs_called_aet', 'ANY-SCP')
                     pacs_calling_aet = config.get('pacs_calling_aet', 'ECHOSCU')
                     default_server = {
-                        'name': f"Сервер ({pacs_ip}:{pacs_port})",
+                        'name': f"Server ({pacs_ip}:{pacs_port})",
                         'pacs_ip': pacs_ip,
                         'pacs_port': pacs_port,
                         'pacs_called_aet': pacs_called_aet,
@@ -323,7 +323,7 @@ class SettingsDialog(QDialog):
             with open(get_config_path(), "w", encoding="utf-8") as f:
                 json.dump(self.config, f, ensure_ascii=False, indent=4)
         except Exception as e:
-            QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить конфигурацию: {e}")
+            QMessageBox.critical(self, tr_ui("dlg_error_title"), f"Failed to save configuration: {e}")
 
     def init_ui(self):
         # Главный горизонтальный макет окна
@@ -348,12 +348,12 @@ class SettingsDialog(QDialog):
         
         # CT Images Dir
         self.ct_images_edit = QLineEdit(self.config.get('ct_images_dir', ''))
-        ct_images_btn = QPushButton("Обзор...")
-        ct_images_btn.clicked.connect(lambda: self.browse_folder(self.ct_images_edit, "Выберите папку КТ-изображений"))
+        ct_images_btn = QPushButton(tr_ui("settings_browse"))
+        ct_images_btn.clicked.connect(lambda: self.browse_folder(self.ct_images_edit, tr_ui("settings_ct_images_folder").rstrip(":")))
         h_layout_ct = QHBoxLayout()
         h_layout_ct.addWidget(self.ct_images_edit)
         h_layout_ct.addWidget(ct_images_btn)
-        general_form.addRow("Папка CT Images:", h_layout_ct)
+        general_form.addRow(tr_ui("settings_ct_images_folder"), h_layout_ct)
 
         # App Settings Dir
         self.app_data_edit = QLineEdit(get_app_data_dir())
@@ -361,12 +361,12 @@ class SettingsDialog(QDialog):
         self.app_data_edit.setStyleSheet(
             "QLineEdit { background-color: #1e1e1e; color: #888888; border: 1px solid #2d2d2d; padding: 4px; border-radius: 4px; }"
         )
-        app_data_btn = QPushButton("Открыть")
+        app_data_btn = QPushButton(tr_ui("settings_open"))
         app_data_btn.clicked.connect(self.open_app_data_folder)
         h_layout_app = QHBoxLayout()
         h_layout_app.addWidget(self.app_data_edit)
         h_layout_app.addWidget(app_data_btn)
-        general_form.addRow("Папка настроек:", h_layout_app)
+        general_form.addRow(tr_ui("settings_settings_folder"), h_layout_app)
 
         # Разделитель для КТ-папки
         line_ct = QFrame()
@@ -378,12 +378,12 @@ class SettingsDialog(QDialog):
         # Notifications
         self.notify_cb = ToggleSwitch()
         self.notify_cb.setChecked(self.config.get('notification_is', 'on').lower() == 'on')
-        general_form.addRow("Уведомления:", self.notify_cb)
+        general_form.addRow(tr_ui("settings_notifications_label"), self.notify_cb)
 
         # PACS Notifications
         self.pacs_notify_cb = ToggleSwitch()
         self.pacs_notify_cb.setChecked(self.config.get('pacs_notification_is', 'off').lower() == 'on')
-        general_form.addRow("Уведомления PACS:", self.pacs_notify_cb)
+        general_form.addRow(tr_ui("settings_pacs_notifications_label"), self.pacs_notify_cb)
         
         # Разделитель
         line = QFrame()
@@ -395,22 +395,22 @@ class SettingsDialog(QDialog):
         # Автоудаление дубликатов структур
         self.cleanup_str_cb = ToggleSwitch()
         self.cleanup_str_cb.setChecked(self.config.get('cleanup_structures_enabled', 'False').lower() == 'true')
-        self.cleanup_str_cb.setToolTip("Удаляются старые файлы структур и остается только последний файл.")
-        general_form.addRow("Автоудаление дубликатов структур:", self.cleanup_str_cb)
+        self.cleanup_str_cb.setToolTip(tr_ui("settings_cleanup_str"))
+        general_form.addRow(tr_ui("settings_cleanup_str"), self.cleanup_str_cb)
 
-        # Исправление ID
+        # Fix Patient ID
         self.fix_patient_id_cb = ToggleSwitch()
         self.fix_patient_id_cb.setChecked(self.config.get('fix_patient_id_enabled', 'False').lower() == 'true')
-        general_form.addRow("Исправление ID:", self.fix_patient_id_cb)
+        general_form.addRow(tr_ui("settings_fix_id_label"), self.fix_patient_id_cb)
 
-        # Поле ввода префиксов
+        # ID prefixes field
         self.id_prefixes_edit = QLineEdit(self.config.get('id_prefixes', 'CT_'))
-        self.id_prefixes_edit.setPlaceholderText("Например: CT_, PT_")
+        self.id_prefixes_edit.setPlaceholderText(tr_ui("settings_id_prefixes_placeholder"))
         self.id_prefixes_edit.setStyleSheet(
             "QLineEdit { background-color: #1e1e1e; color: #ffffff; border: 1px solid #2d2d2d; padding: 4px; border-radius: 4px; }"
             "QLineEdit:disabled { background-color: #141414; color: #808080; border: 1px solid #1a1a1a; }"
         )
-        general_form.addRow("Префиксы для удаления:", self.id_prefixes_edit)
+        general_form.addRow(tr_ui("settings_id_prefixes_label"), self.id_prefixes_edit)
 
         # Разделитель под префиксами
         line_updates = QFrame()
@@ -424,10 +424,10 @@ class SettingsDialog(QDialog):
         updates_layout.setContentsMargins(0, 5, 0, 5)
         updates_layout.setSpacing(10)
         
-        self.check_updates_cb = ToggleSwitch("Проверять обновления при запуске")
+        self.check_updates_cb = ToggleSwitch(tr_ui("settings_check_updates_toggle"))
         self.check_updates_cb.setChecked(self.config.get('check_updates_at_startup', 'on').lower() == 'on')
         
-        self.btn_check_updates = QPushButton("Проверить обновления")
+        self.btn_check_updates = QPushButton(tr_ui("settings_check_updates_btn"))
         self.btn_check_updates.setFixedHeight(30)
         self.btn_check_updates.setMinimumWidth(180)
         self.btn_check_updates.clicked.connect(self.manual_check_updates)
@@ -448,19 +448,19 @@ class SettingsDialog(QDialog):
         
         # Archive Dir
         self.archive_edit = QLineEdit(self.config['archive_dir'])
-        archive_btn = QPushButton("Обзор...")
-        archive_btn.clicked.connect(lambda: self.browse_folder(self.archive_edit, "Выберите папку архива"))
+        archive_btn = QPushButton(tr_ui("settings_browse"))
+        archive_btn.clicked.connect(lambda: self.browse_folder(self.archive_edit, tr_ui("settings_archive_dir").rstrip(":")))
         h_layout2 = QHBoxLayout()
         h_layout2.addWidget(self.archive_edit)
         h_layout2.addWidget(archive_btn)
-        archive_form.addRow("Папка CT Archive:", h_layout2)
+        archive_form.addRow(tr_ui("settings_archive_dir"), h_layout2)
         
         # Archive Slice (Max visible rows)
         self.archive_slice_spin = QSpinBox()
         self.archive_slice_spin.setRange(0, 1000)
         self.archive_slice_spin.setValue(self.config['archive_slice'])
-        self.archive_slice_spin.setToolTip("Максимальное количество отображаемых пациентов в архиве. Установите 0, чтобы показывать всех пациентов без ограничений.")
-        archive_form.addRow("Лимит строк архива:", self.archive_slice_spin)
+        self.archive_slice_spin.setToolTip(tr_ui("settings_archive_slice"))
+        archive_form.addRow(tr_ui("settings_archive_slice"), self.archive_slice_spin)
 
         # Автоматическое архивирование (свич и количество дней в одной строке)
         self.archive_enabled_cb = ToggleSwitch()
@@ -475,12 +475,12 @@ class SettingsDialog(QDialog):
             "QSpinBox:disabled { background-color: #141414; color: #666666; border: 1px solid #1c1c1c; }"
         )
 
-        self.archive_label_through = QLabel("через")
+        self.archive_label_through = QLabel(tr_ui("lbl_archive_through"))
         self.archive_label_through.setStyleSheet(
             "QLabel { color: #aaaaaa; }"
             "QLabel:disabled { color: #444444; }"
         )
-        self.archive_label_days = QLabel("дн.")
+        self.archive_label_days = QLabel(tr_ui("lbl_archive_days"))
         self.archive_label_days.setStyleSheet(
             "QLabel { color: #aaaaaa; }"
             "QLabel:disabled { color: #444444; }"
@@ -494,7 +494,7 @@ class SettingsDialog(QDialog):
         archive_row_layout.addWidget(self.archive_days_spin)
         archive_row_layout.addWidget(self.archive_label_days)
 
-        archive_form.addRow("Автоматическое архивирование:", archive_row_layout)
+        archive_form.addRow(tr_ui("settings_auto_archive_row"), archive_row_layout)
 
         # Автоочистка архива (свич и количество дней в одной строке)
         self.archive_cleanup_enabled_cb = ToggleSwitch()
@@ -509,12 +509,12 @@ class SettingsDialog(QDialog):
             "QSpinBox:disabled { background-color: #141414; color: #666666; border: 1px solid #1c1c1c; }"
         )
 
-        self.cleanup_label_through = QLabel("через")
+        self.cleanup_label_through = QLabel(tr_ui("lbl_archive_through"))
         self.cleanup_label_through.setStyleSheet(
             "QLabel { color: #aaaaaa; }"
             "QLabel:disabled { color: #444444; }"
         )
-        self.cleanup_label_days = QLabel("дн.")
+        self.cleanup_label_days = QLabel(tr_ui("lbl_archive_days"))
         self.cleanup_label_days.setStyleSheet(
             "QLabel { color: #aaaaaa; }"
             "QLabel:disabled { color: #444444; }"
@@ -528,7 +528,7 @@ class SettingsDialog(QDialog):
         cleanup_row_layout.addWidget(self.archive_cleanup_days_spin)
         cleanup_row_layout.addWidget(self.cleanup_label_days)
 
-        archive_form.addRow("Автоочистка архива:", cleanup_row_layout)
+        archive_form.addRow(tr_ui("settings_auto_cleanup_row"), cleanup_row_layout)
         
         archive_layout.addLayout(archive_form)
         archive_layout.addStretch()
@@ -546,6 +546,13 @@ class SettingsDialog(QDialog):
         # Язык лога
         self.log_lang_switch = LanguageSwitch(self, current_lang=self.config.get('log_lang', 'ru'))
         ui_form.addRow(tr_ui("settings_log_lang"), self.log_lang_switch)
+
+        # Разделитель под языками
+        lang_line = QFrame()
+        lang_line.setFrameShape(QFrame.Shape.HLine)
+        lang_line.setFrameShadow(QFrame.Shadow.Sunken)
+        lang_line.setStyleSheet("background-color: #2d2d2d; margin-top: 10px; margin-bottom: 10px;")
+        ui_form.addRow(lang_line)
 
         # Patient Font Size
         self.patient_font_spin = QSpinBox()
@@ -575,21 +582,21 @@ class SettingsDialog(QDialog):
         # Основной свич подсветки
         self.highlighting_cb = ToggleSwitch()
         self.highlighting_cb.setChecked(self.config.get('highlighting_enabled', 'False').lower() == 'true')
-        ui_form.addRow("Включить цветовую подсветку исследований:", self.highlighting_cb)
+        ui_form.addRow(tr_ui("settings_highlighting"), self.highlighting_cb)
         
-        self.lbl_highlight_new = QLabel("Выделять новые исследования:")
+        self.lbl_highlight_new = QLabel(tr_ui("settings_highlight_new"))
         self.lbl_highlight_new.setStyleSheet("QLabel { padding-left: 30px; }")
         self.highlight_new_cb = ToggleSwitch()
         self.highlight_new_cb.setChecked(self.config.get('highlight_new_enabled', 'False').lower() == 'true')
         ui_form.addRow(self.lbl_highlight_new, self.highlight_new_cb)
         
-        self.lbl_highlight_today = QLabel("Выделять сегодняшние исследования:")
+        self.lbl_highlight_today = QLabel(tr_ui("settings_highlight_today"))
         self.lbl_highlight_today.setStyleSheet("QLabel { padding-left: 30px; }")
         self.highlight_today_cb = ToggleSwitch()
         self.highlight_today_cb.setChecked(self.config.get('highlight_today_enabled', 'False').lower() == 'true')
         ui_form.addRow(self.lbl_highlight_today, self.highlight_today_cb)
         
-        self.lbl_highlight_no_str = QLabel("Выделять исследования без структур:")
+        self.lbl_highlight_no_str = QLabel(tr_ui("settings_highlight_no_str"))
         self.lbl_highlight_no_str.setStyleSheet("QLabel { padding-left: 30px; }")
         self.highlight_no_str_cb = ToggleSwitch()
         self.highlight_no_str_cb.setChecked(self.config.get('highlight_no_str_enabled', 'False').lower() == 'true')
@@ -634,15 +641,15 @@ class SettingsDialog(QDialog):
         server_select_layout.addWidget(self.del_server_btn)
         server_select_layout.addWidget(self.rename_server_btn)
         
-        pacs_form.addRow("PACS сервер:", server_select_layout)
+        pacs_form.addRow(tr_ui("settings_pacs_server_label"), server_select_layout)
         
         # PACS Scan Interval (sec)
         self.pacs_scan_spin = QSpinBox()
         self.pacs_scan_spin.setRange(1, 300)
         self.pacs_scan_spin.setValue(self.config['pacs_scan_time'] // 1000)
-        pacs_form.addRow("Интервал автообновления в режиме ожидания:", self.pacs_scan_spin)
+        pacs_form.addRow(tr_ui("settings_standby_interval"), self.pacs_scan_spin)
 
-        # IP PACS и Port на одной строке
+        # IP PACS and Port on same row
         ip_port_layout = QHBoxLayout()
         ip_port_layout.setSpacing(10)
         
@@ -657,17 +664,17 @@ class SettingsDialog(QDialog):
         ip_port_layout.addWidget(port_label)
         ip_port_layout.addWidget(self.pacs_port_spin)
         
-        pacs_form.addRow("IP PACS:", ip_port_layout)
+        pacs_form.addRow(tr_ui("settings_pacs_ip"), ip_port_layout)
 
-        # AET Remote (метка слева, поле ввода справа)
+        # AET Remote
         self.pacs_called_aet_edit = QLineEdit(self.config.get('pacs_called_aet', 'ANY-SCP'))
         self.pacs_called_aet_edit.setMaxLength(16)
-        pacs_form.addRow("AET Remote:", self.pacs_called_aet_edit)
+        pacs_form.addRow(tr_ui("settings_pacs_called_aet"), self.pacs_called_aet_edit)
 
-        # AET Local (метка слева, поле ввода справа)
+        # AET Local
         self.pacs_calling_aet_edit = QLineEdit(self.config.get('pacs_calling_aet', 'ECHOSCU'))
         self.pacs_calling_aet_edit.setMaxLength(16)
-        pacs_form.addRow("AET Local:", self.pacs_calling_aet_edit)
+        pacs_form.addRow(tr_ui("settings_pacs_calling_aet"), self.pacs_calling_aet_edit)
         
         pacs_layout.addLayout(pacs_form)
 
@@ -771,8 +778,8 @@ class SettingsDialog(QDialog):
             if ct_dir.lower() == archive_dir.lower():
                 msg = QMessageBox(self)
                 msg.setIcon(QMessageBox.Icon.Warning)
-                msg.setWindowTitle("Ошибка")
-                msg.setText("Папка CT Images и папка CT Archive не могут быть одной и той же папкой.")
+                msg.setWindowTitle(tr_ui("dlg_error_title"))
+                msg.setText(tr_ui("dlg_ct_archive_same"))
                 apply_dark_title_bar(msg)
                 msg.exec()
                 return
@@ -780,8 +787,8 @@ class SettingsDialog(QDialog):
         if self.archive_enabled_cb.isChecked() and not archive_text:
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Warning)
-            msg.setWindowTitle("Предупреждение")
-            msg.setText("Включено автоархивирование, но не указан путь к папке архива.\nПожалуйста, укажите путь к архиву или отключите автоархивирование.")
+            msg.setWindowTitle(tr_ui("dlg_warning_title"))
+            msg.setText(tr_ui("dlg_archive_empty_path"))
             apply_dark_title_bar(msg)
             msg.exec()
             return
@@ -792,13 +799,8 @@ class SettingsDialog(QDialog):
         if len(called_aet) > 16 or len(calling_aet) > 16:
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Warning)
-            msg.setWindowTitle("Ошибка")
-            msg.setText(
-                "AE Title не должен превышать 16 символов по стандарту DICOM.\n\n"
-                f"AET Remote: \"{called_aet}\" ({len(called_aet)} симв.)\n"
-                f"AET Local: \"{calling_aet}\" ({len(calling_aet)} симв.)\n\n"
-                "Пожалуйста, исправьте значения."
-            )
+            msg.setWindowTitle(tr_ui("dlg_error_title"))
+            msg.setText(tr_ui("dlg_aet_too_long", called_aet, len(called_aet), calling_aet, len(calling_aet)))
             apply_dark_title_bar(msg)
             msg.exec()
             return
@@ -905,8 +907,8 @@ class SettingsDialog(QDialog):
         if not pacs_ip:
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Warning)
-            msg.setWindowTitle("Ошибка")
-            msg.setText("Пожалуйста, укажите IP-адрес PACS сервера.")
+            msg.setWindowTitle(tr_ui("dlg_error_title"))
+            msg.setText(tr_ui("dlg_ping_ip_empty"))
             apply_dark_title_bar(msg)
             msg.exec()
             return
@@ -925,17 +927,17 @@ class SettingsDialog(QDialog):
         msg = QMessageBox(self)
         if success:
             msg.setIcon(QMessageBox.Icon.Information)
-            msg.setWindowTitle("Успешно")
+            msg.setWindowTitle(tr_ui("dlg_ping_success_title"))
         else:
             msg.setIcon(QMessageBox.Icon.Warning)
-            msg.setWindowTitle("Сбой")
+            msg.setWindowTitle(tr_ui("dlg_ping_fail_title"))
         msg.setText(message)
         apply_dark_title_bar(msg)
         msg.exec()
 
     def manual_check_updates(self):
         self.btn_check_updates.setEnabled(False)
-        self.btn_check_updates.setText("Проверка...")
+        self.btn_check_updates.setText(tr_ui("btn_checking"))
         
         self.manual_update_worker = UpdateCheckWorker()
         self.manual_update_worker.finished.connect(self.on_manual_update_checked)
@@ -943,14 +945,14 @@ class SettingsDialog(QDialog):
 
     def on_manual_update_checked(self, latest_version, html_url):
         self.btn_check_updates.setEnabled(True)
-        self.btn_check_updates.setText("Проверить обновления")
+        self.btn_check_updates.setText(tr_ui("settings_check_updates_btn"))
         
         from core.config_utils import VERSION, is_newer_version
         if latest_version and is_newer_version(VERSION, latest_version):
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Information)
-            msg.setWindowTitle("Доступно обновление")
-            msg.setText(f"Доступна новая версия: {latest_version}.\n\nХотите перейти на страницу скачивания?")
+            msg.setWindowTitle(tr_ui("dlg_update_available_title"))
+            msg.setText(tr_ui("dlg_update_available_msg", latest_version))
             msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             msg.setDefaultButton(QMessageBox.StandardButton.Yes)
             apply_dark_title_bar(msg)
@@ -962,8 +964,8 @@ class SettingsDialog(QDialog):
         else:
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Information)
-            msg.setWindowTitle("Обновление")
-            msg.setText("У вас установлена актуальная версия приложения.")
+            msg.setWindowTitle(tr_ui("dlg_update_current_title"))
+            msg.setText(tr_ui("dlg_update_current_msg"))
             apply_dark_title_bar(msg)
             msg.exec()
 
@@ -1035,8 +1037,8 @@ class SettingsDialog(QDialog):
         self.save_current_fields_to_config(self.last_selected_server_idx)
         
         dialog = QInputDialog(self)
-        dialog.setWindowTitle("Новый сервер")
-        dialog.setLabelText("Введите имя PACS-сервера:")
+        dialog.setWindowTitle(tr_ui("dlg_add_server_title"))
+        dialog.setLabelText(tr_ui("dlg_add_server_label"))
         apply_dark_title_bar(dialog)
         
         ok = dialog.exec()
@@ -1049,8 +1051,8 @@ class SettingsDialog(QDialog):
             if any(s['name'] == name for s in servers):
                 msg = QMessageBox(self)
                 msg.setIcon(QMessageBox.Icon.Warning)
-                msg.setWindowTitle("Предупреждение")
-                msg.setText("Сервер с таким именем уже существует.")
+                msg.setWindowTitle(tr_ui("dlg_warning_title"))
+                msg.setText(tr_ui("dlg_server_exists"))
                 apply_dark_title_bar(msg)
                 msg.exec()
                 return
@@ -1071,8 +1073,8 @@ class SettingsDialog(QDialog):
         if len(servers) <= 1:
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Warning)
-            msg.setWindowTitle("Предупреждение")
-            msg.setText("Нельзя удалить единственный сервер.")
+            msg.setWindowTitle(tr_ui("dlg_warning_title"))
+            msg.setText(tr_ui("dlg_del_last_server"))
             apply_dark_title_bar(msg)
             msg.exec()
             return
@@ -1081,8 +1083,8 @@ class SettingsDialog(QDialog):
         if 0 <= idx < len(servers):
             confirm = QMessageBox(self)
             confirm.setIcon(QMessageBox.Icon.Question)
-            confirm.setWindowTitle("Удаление сервера")
-            confirm.setText(f"Вы уверены, что хотите удалить PACS-сервер '{servers[idx]['name']}'?")
+            confirm.setWindowTitle(tr_ui("dlg_del_server_title"))
+            confirm.setText(tr_ui("dlg_del_server_msg", servers[idx]['name']))
             confirm.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             apply_dark_title_bar(confirm)
             if confirm.exec() == QMessageBox.StandardButton.Yes:
@@ -1099,8 +1101,8 @@ class SettingsDialog(QDialog):
             old_name = servers[idx]['name']
             
             dialog = QInputDialog(self)
-            dialog.setWindowTitle("Переименовать сервер")
-            dialog.setLabelText(f"Введите новое имя для '{old_name}':")
+            dialog.setWindowTitle(tr_ui("dlg_rename_server_title"))
+            dialog.setLabelText(tr_ui("dlg_rename_server_label", old_name))
             dialog.setTextValue(old_name)
             apply_dark_title_bar(dialog)
             
@@ -1112,8 +1114,8 @@ class SettingsDialog(QDialog):
                 if any(s['name'] == name for s in servers):
                     msg = QMessageBox(self)
                     msg.setIcon(QMessageBox.Icon.Warning)
-                    msg.setWindowTitle("Предупреждение")
-                    msg.setText("Сервер с таким именем уже существует.")
+                    msg.setWindowTitle(tr_ui("dlg_warning_title"))
+                    msg.setText(tr_ui("dlg_server_exists"))
                     apply_dark_title_bar(msg)
                     msg.exec()
                     return

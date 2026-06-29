@@ -2,6 +2,7 @@ import sys
 import time
 
 import os
+from core.locale_utils import tr_ui, tr_log
 
 # --- ШИМ ДЛЯ СОВМЕСТИМОСТИ PYQT6 -> PYQT5 ---
 USE_PYQT5 = os.environ.get('FORCE_PYQT5') == '1'
@@ -86,13 +87,12 @@ if USE_PYQT5:
         if sys.platform == "win32":
             import ctypes
             error_msg = (
-                "Ошибка запуска приложения:\n\n"
-                "Не удалось загрузить компоненты PyQt6 или PyQt5. Обычно это связано с тем, что на компьютере не установлен пакет Microsoft Visual C++ Redistributable (MSVC++).\n\n"
-                "Пожалуйста, скачайте и установите распространяемый пакет Visual C++ (версии 2015-2022) с официального сайта Microsoft и запустите программу снова.\n\n"
-                f"Детали ошибки (PyQt6): Не удалось загрузить DLL\n"
-                f"Детали ошибки (PyQt5): {e_pyqt5}"
+                tr_ui("main_err_startup") + ":\n\n" +
+                tr_ui("main_err_missing_qt") + "\n\n" +
+                tr_ui("main_err_details_qt6") + "\n" +
+                tr_ui("main_err_details_qt5", str(e_pyqt5))
             )
-            ctypes.windll.user32.MessageBoxW(0, error_msg, "Критическая ошибка - DICOM WatchDog", 0x10) # 0x10 = MB_ICONERROR
+            ctypes.windll.user32.MessageBoxW(0, error_msg, tr_ui("main_critical_error_title"), 0x10) # 0x10 = MB_ICONERROR
         else:
             print(f"Error: failed to load PyQt6/PyQt5. Details: {e_pyqt5}")
         sys.exit(1)
@@ -103,7 +103,7 @@ try:
 except ImportError as e:
     if sys.platform == "win32":
         import ctypes
-        ctypes.windll.user32.MessageBoxW(0, f"Критическая ошибка импорта:\n{e}", "Ошибка запуска - DICOM WatchDog", 0x10)
+        ctypes.windll.user32.MessageBoxW(0, tr_ui("main_err_import_msg", str(e)), tr_ui("main_err_import_title"), 0x10)
     else:
         print(f"Critical import error: {e}")
     sys.exit(1)
@@ -119,7 +119,7 @@ def exception_hook(exctype, value, traceback_obj):
     if hasattr(MainWindow, 'instance') and MainWindow.instance:
         try:
             from core.logger import log_message
-            log_message(MainWindow.instance.output_field, f"Ошибка выполнения:\n{err_msg}")
+            log_message(MainWindow.instance.output_field, tr_log("log_runtime_error", err_msg))
         except Exception:
             pass
 
@@ -132,22 +132,22 @@ class ImportWorker(QThread):
     finished_import = pyqtSignal()
 
     def run(self):
-        self.progress.emit(10, "Загрузка базовых компонентов...")
+        self.progress.emit(10, tr_ui("main_progress_base"))
         time.sleep(0.1)
         
-        self.progress.emit(30, "Загрузка модулей DICOM...")
+        self.progress.emit(30, tr_ui("main_progress_dicom"))
         import pydicom
         
-        self.progress.emit(50, "Загрузка сетевых компонентов PACS...")
+        self.progress.emit(50, tr_ui("main_progress_pacs"))
         import pynetdicom
         
-        self.progress.emit(70, "Загрузка модулей обработки изображений...")
+        self.progress.emit(70, tr_ui("main_progress_image"))
         import numpy
         
-        self.progress.emit(90, "Инициализация интерфейса...")
+        self.progress.emit(90, tr_ui("main_progress_ui"))
         import ui.main_window
         
-        self.progress.emit(100, "Запуск...")
+        self.progress.emit(100, tr_ui("main_progress_launch"))
         time.sleep(0.1)
         self.finished_import.emit()
 
@@ -169,7 +169,7 @@ class LoadingSplash(QSplashScreen):
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.title_label)
         
-        self.status_label = QLabel("Инициализация...")
+        self.status_label = QLabel(tr_ui("main_status_init"))
         self.status_label.setStyleSheet("color: #aaaaaa; font-size: 13px; font-family: 'Segoe UI';")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.status_label)

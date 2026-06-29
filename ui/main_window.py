@@ -49,7 +49,7 @@ class ToggleTableWidget(QTableWidget):
             self.placeholder_label.setStyleSheet("color: #666666; font-size: 15px; font-family: 'Segoe UI'; background: transparent;")
             layout.addWidget(self.placeholder_label)
             
-            self.placeholder_btn = QPushButton("Обзор", self.placeholder_widget)
+            self.placeholder_btn = QPushButton(tr_ui("btn_browse"), self.placeholder_widget)
             self.placeholder_btn.setFixedSize(120, 30)
             self.placeholder_btn.setStyleSheet("""
                 QPushButton {
@@ -71,6 +71,7 @@ class ToggleTableWidget(QTableWidget):
             self.placeholder_widget.hide()
             
         self.placeholder_label.setText(text)
+        self.placeholder_btn.setText(tr_ui("btn_browse"))
         self.placeholder_btn.setVisible(show_button)
         
         try:
@@ -174,7 +175,7 @@ class FolderScanWorker(QThread):
                     rename_patient_folder(os.path.join(root, dir_name), collector, prefixes=prefixes_list)
             
         if is_archive_on and not self.archive_dir:
-            collector.appendPlainText("Предупреждение: Автоархивирование включено, но папка архива не настроена.")
+            collector.appendPlainText(tr_log("log_warn_auto_archive_not_configured"))
 
         if self.archive_dir and is_archive_on and os.path.exists(self.ct_images_dir):
             from core.archive import move_old_folders_to_archive
@@ -584,10 +585,10 @@ class MainWindow(QMainWindow):
             self.watcher_observer.schedule(self.watcher_handler, ct_dir, recursive=True)
             self.watcher_observer.start()
             self.currently_watched_dir = ct_dir
-            log_message(self.output_field, f"Запущен мониторинг папки в реальном времени: {ct_dir}")
+            log_message(self.output_field, tr_log("log_watcher_started", ct_dir))
         except Exception as e:
             self.currently_watched_dir = None
-            log_message(self.output_field, f"Не удалось запустить мониторинг папки: {e}")
+            log_message(self.output_field, tr_log("log_watcher_failed", e))
 
     def stop_file_watcher(self):
         if hasattr(self, 'watcher_observer') and self.watcher_observer:
@@ -1159,10 +1160,10 @@ class MainWindow(QMainWindow):
 
         ct_dir = self.config.get('ct_images_dir', '')
         if not ct_dir or not os.path.exists(ct_dir):
-            log_message(self.output_field, "Неверный путь к папке CT Images")
+            log_message(self.output_field, tr_log("log_invalid_ct_path"))
             self.images_table.setRowCount(0)
             self.images_table.set_placeholder_state(
-                "Папка для сканирования не выбрана", 
+                tr_ui("placeholder_not_selected_ct"), 
                 show_button=True, 
                 button_callback=self.browse_ct_images_dir
             )
@@ -1287,7 +1288,7 @@ class MainWindow(QMainWindow):
         valid_patients = {}
         for patient_id, data in self.images_cache.items():
             if 'patient_name' not in data or 'study_datetime' not in data or 'folder_datetime' not in data or 'str' not in data:
-                log_message(self.output_field, f"Пропущен пациент {patient_id} из-за неполных данных DICOM")
+                log_message(self.output_field, tr_log("log_skipped_patient_incomplete", patient_id))
                 continue
             
             patient_name = str(data.get('patient_name', '')).lower()
@@ -1405,7 +1406,7 @@ class MainWindow(QMainWindow):
             try:
                 os.startfile(path)
             except Exception as e:
-                log_message(self.output_field, f"Не удалось открыть папку {patient_id}: {e}")
+                log_message(self.output_field, tr_log("log_failed_open_folder", patient_id, e))
 
     # ================= КОНТЕКСТНЫЕ МЕНЮ И ДЕЙСТВИЯ =================
 
@@ -1421,16 +1422,16 @@ class MainWindow(QMainWindow):
         
         menu = QMenu(self)
         
-        open_folder_action = QAction("Открыть папку", self)
+        open_folder_action = QAction(tr_ui("ctx_open_folder"), self)
         open_folder_action.triggered.connect(lambda: self.open_patient_folder(patient_id, is_archive=False))
         
-        delete_action = QAction("Удалить пациента", self)
+        delete_action = QAction(tr_ui("ctx_delete_patient"), self)
         delete_action.triggered.connect(lambda: self.delete_patient_action(patient_id, patient_name))
         
-        archive_action = QAction("Переместить в архив", self)
+        archive_action = QAction(tr_ui("ctx_move_to_archive"), self)
         archive_action.triggered.connect(lambda: self.archive_patient_action(patient_id, patient_name))
         
-        clean_str_action = QAction("Удалить лишние STR", self)
+        clean_str_action = QAction(tr_ui("ctx_delete_str"), self)
         clean_str_action.triggered.connect(lambda: self.clean_str_action(patient_id))
         
         menu.addAction(open_folder_action)
@@ -1443,33 +1444,33 @@ class MainWindow(QMainWindow):
     def delete_patient_action(self, patient_id, patient_name):
         path = os.path.join(self.config.get('ct_images_dir', ''), patient_id)
         if not os.path.exists(path):
-            log_message(self.output_field, f"Путь {path} не существует")
+            log_message(self.output_field, tr_log("log_path_not_exist", path))
             return
 
         reply = QMessageBox.question(
-            self, 
-            'Подтверждение удаления',
-            f'Вы действительно хотите безвозвратно удалить пациента\n"{patient_name}" ({patient_id}) с диска?',
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
+            self,
+            tr_ui("dlg_confirm_delete_title"),
+            tr_ui("dlg_confirm_delete_msg", patient_name, patient_id),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
         
         if reply == QMessageBox.StandardButton.Yes:
             try:
                 shutil.rmtree(path)
-                log_message(self.output_field, f"Папка пациента {patient_name} ({patient_id}) полностью удалена")
+                log_message(self.output_field, tr_log("log_patient_deleted", patient_name, patient_id))
                 self.show_patient_list()
             except Exception as e:
-                QMessageBox.critical(self, "Ошибка удаления", f"Не удалось удалить папку: {e}")
+                QMessageBox.critical(self, tr_ui("dlg_error_delete_title"), tr_ui("dlg_error_delete_msg", e))
                 patient_name_str = f" [{patient_name}]" if patient_name else ""
-                log_message(self.output_field, f"Ошибка удаления папки {patient_id}{patient_name_str}: {e}")
+                log_message(self.output_field, tr_log("log_failed_delete_patient", patient_id, patient_name_str, e))
 
     def archive_patient_action(self, patient_id, patient_name=None):
         path = os.path.join(self.config.get('ct_images_dir', ''), patient_id)
         archive_dir = self.config.get('archive_dir', '')
         
         if not os.path.exists(path):
-            log_message(self.output_field, f"Путь {path} не существует")
+            log_message(self.output_field, tr_log("log_path_not_exist", path))
             return
             
         if not os.path.exists(archive_dir):
@@ -1481,10 +1482,10 @@ class MainWindow(QMainWindow):
                 shutil.rmtree(dest_path)
             shutil.move(path, archive_dir)
             name_str = f" [{patient_name}]" if patient_name else ""
-            log_message(self.output_field, f"Папка {patient_id}{name_str} перемещена в архив")
+            log_message(self.output_field, tr_log("log_patient_archived", patient_id, name_str))
             self.show_patient_list()
         except Exception as e:
-            QMessageBox.critical(self, "Ошибка архивации", f"Не удалось переместить в архив: {e}")
+            QMessageBox.critical(self, tr_ui("dlg_error_archive_title"), tr_ui("dlg_error_archive_msg", e))
 
     def clean_str_action(self, patient_id):
         path = os.path.join(self.config.get('ct_images_dir', ''), patient_id)
@@ -1494,7 +1495,7 @@ class MainWindow(QMainWindow):
             if self.images_cache and patient_id in self.images_cache:
                 patient_name = self.images_cache[patient_id].get('patient_name', '')
             name_str = f" [{patient_name}]" if patient_name else ""
-            log_message(self.output_field, f"Очищено {deleted} лишних файлов STR для {patient_id}{name_str}")
+            log_message(self.output_field, tr_log("log_cleaned_str_files", deleted, patient_id, name_str))
             self.show_patient_list()
 
     def on_images_selection_changed(self):
@@ -1524,18 +1525,18 @@ class MainWindow(QMainWindow):
         archive_dir = self.config.get('archive_dir', '')
         if not archive_dir or not os.path.exists(archive_dir):
             if not silent:
-                log_message(self.output_field, "Папка архива не существует")
+                log_message(self.output_field, tr_log("log_archive_dir_not_exist"))
             self.archive_table.setRowCount(0)
             self.archive_table.set_placeholder_state(
-                "Папка для сканирования не выбрана", 
-                show_button=True, 
+                tr_ui("placeholder_not_selected_ct"),
+                show_button=True,
                 button_callback=self.browse_archive_dir
             )
             self.archive_table.update_placeholder_visibility()
             return
             
         if not silent:
-            log_message(self.output_field, "Загрузка списка архивных пациентов...")
+            log_message(self.output_field, tr_log("log_loading_archive"))
 
         # Запоминаем выделенного пациента
         self.selected_archive_patient_id = None
@@ -1568,7 +1569,7 @@ class MainWindow(QMainWindow):
             for msg in log_messages:
                 log_message(self.output_field, msg)
 
-            log_message(self.output_field, "Список архивных пациентов загружен", replace_suffix="Загрузка списка архивных пациентов...")
+            log_message(self.output_field, tr_log("log_archive_loaded"), replace_suffix=tr_log("log_loading_archive"))
         self.archive_cache = archive_dict
         
         search_text = self.search_entry.text().lower()
@@ -1586,7 +1587,7 @@ class MainWindow(QMainWindow):
             if 'patient_name' in v and 'study_datetime' in v and 'folder_datetime' in v and 'str' in v:
                 valid_items[k] = v
             else:
-                log_message(self.output_field, f"Пропущен пациент {k} в архиве из-за неполных данных DICOM")
+                log_message(self.output_field, tr_log("log_skipped_archive_patient", k))
 
         row_idx = 0
         if slice_limit > 0:
@@ -1664,7 +1665,7 @@ class MainWindow(QMainWindow):
                     self.archive_table.selectRow(r)
                     break
 
-        self.archive_table.set_placeholder_state("В этой папке нет исследований", show_button=False)
+        self.archive_table.set_placeholder_state(tr_ui("placeholder_no_studies_in_folder"), show_button=False)
         self.archive_table.update_placeholder_visibility()
         self.archive_table.blockSignals(False)
         self.archive_table.setUpdatesEnabled(True)
@@ -1680,13 +1681,13 @@ class MainWindow(QMainWindow):
         
         menu = QMenu(self)
         
-        open_folder_action = QAction("Открыть папку", self)
+        open_folder_action = QAction(tr_ui("ctx_open_folder"), self)
         open_folder_action.triggered.connect(lambda: self.open_patient_folder(patient_id, is_archive=True))
         
-        restore_action = QAction("Восстановить в CT images", self)
+        restore_action = QAction(tr_ui("ctx_restore_from_archive"), self)
         restore_action.triggered.connect(self.move_from_archive_cmd)
         
-        delete_action = QAction("Удалить пациента навсегда", self)
+        delete_action = QAction(tr_ui("ctx_delete_archive_patient"), self)
         delete_action.triggered.connect(lambda: self.delete_archive_patient_action(patient_id, patient_name))
         
         menu.addAction(open_folder_action)
@@ -1698,26 +1699,26 @@ class MainWindow(QMainWindow):
     def delete_archive_patient_action(self, patient_id, patient_name):
         path = os.path.join(self.config.get('archive_dir', ''), patient_id)
         if not os.path.exists(path):
-            log_message(self.output_field, f"Путь {path} не найден")
+            log_message(self.output_field, tr_log("log_path_not_exist", path))
             return
 
         reply = QMessageBox.question(
-            self, 
-            'Подтверждение удаления',
-            f'Вы действительно хотите безвозвратно удалить архивного пациента\n"{patient_name}" ({patient_id}) с диска?',
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
+            self,
+            tr_ui("dlg_confirm_delete_title"),
+            tr_ui("dlg_confirm_delete_archive_msg", patient_name, patient_id),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
         
         if reply == QMessageBox.StandardButton.Yes:
             try:
                 shutil.rmtree(path)
-                log_message(self.output_field, f"Архивный пациент {patient_name} ({patient_id}) полностью удален с диска")
-                # Сбрасываем кэш, чтобы принудительно обновить список
+                log_message(self.output_field, tr_log("log_patient_deleted", patient_name, patient_id))
+                # Reset cache to force list refresh
                 self.archive_cache = None
                 self.fill_archive_list()
             except Exception as e:
-                QMessageBox.critical(self, "Ошибка удаления", f"Не удалось удалить: {e}")
+                QMessageBox.critical(self, tr_ui("dlg_error_delete_title"), tr_ui("dlg_error_delete_msg", e))
 
     def move_from_archive_cmd(self):
         selected_ranges = self.archive_table.selectedRanges()
@@ -1733,7 +1734,7 @@ class MainWindow(QMainWindow):
         
         path = os.path.join(archive_dir, patient_id)
         if not os.path.exists(path):
-            log_message(self.output_field, f"Папка {patient_id} [{patient_name}] не найдена в архиве")
+            log_message(self.output_field, tr_log("log_patient_not_found_in_archive", patient_id, patient_name))
             return
             
         dest_path = os.path.join(ct_images_dir, patient_id)
@@ -1744,13 +1745,13 @@ class MainWindow(QMainWindow):
             shutil.copytree(path, dest_path)
             shutil.rmtree(path)
             
-            log_message(self.output_field, f"Папка {patient_id} [{patient_name}] перемещена в CT images и удалена из архива")
+            log_message(self.output_field, tr_log("log_patient_restored_from_archive", patient_id, patient_name))
             self.archive_cache = None
             self.fill_archive_list(silent=True)
             self.restored_patient_ids.add(patient_id)
             self.show_patient_list()
         except Exception as e:
-            log_message(self.output_field, f"Ошибка восстановления {patient_id} [{patient_name}]: {e}")
+            log_message(self.output_field, tr_log("log_failed_restore_patient", patient_id, patient_name, e))
 
     def search_patient_archive(self):
         search_text = self.search_entry.text().lower()

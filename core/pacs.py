@@ -8,6 +8,7 @@ from pprint import pprint
 
 from core.logger import log_message
 from core.config_utils import get_log_path
+from core.locale_utils import tr_log
 
 
 def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11112, called_aet="ANY-SCP", calling_aet="ECHOSCU", study_date=None):
@@ -15,10 +16,10 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
     con = False
     
     if len(calling_aet) > 16:
-        log_message(output_field, f"Ошибка PACS: Локальный AE Title '{calling_aet}' превышает 16 символов.")
+        log_message(output_field, tr_log("log_pacs_aet_local_too_long", calling_aet))
         return pacs_data, False
     if len(called_aet) > 16:
-        log_message(output_field, f"Ошибка PACS: Удаленный AE Title '{called_aet}' превышает 16 символов.")
+        log_message(output_field, tr_log("log_pacs_aet_remote_too_long", called_aet))
         return pacs_data, False
 
     ae = AE()
@@ -54,14 +55,14 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
 
             for (status, identifier) in responses:
                 if status and identifier:
-                    patient_id = identifier.get('PatientID', 'Нет инфы об айди')
+                    patient_id = identifier.get('PatientID', 'N/A')
                     pacs_data[patient_id]['study_patient_id'] = patient_id
                     pacs_data[patient_id]['patient_name'] = identifier.get(
-                        'PatientName', 'Нет инфы об имени')
+                        'PatientName', 'N/A')
                     pacs_data[patient_id]['study_time'] = identifier.get(
-                        'StudyTime', 'Нет инфы о времени')
+                        'StudyTime', 'N/A')
                     pacs_data[patient_id]['study_date'] = identifier.get(
-                        'StudyDate', 'Нет инфы о дате')
+                        'StudyDate', 'N/A')
                     pacs_data[patient_id]['slices'] = str(identifier.get('NumberOfStudyRelatedInstances', '0'))
                     pacs_data[patient_id]['modality'] = str(identifier.get('ModalitiesInStudy', 'CT'))
 
@@ -92,23 +93,23 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
                     pacs_data[patient_id]['study_datetime_str'] = date_time
             
             if assoc.is_aborted:
-                log_message(output_field, f"Соединение с PACS было сброшено сервером во время поиска.\nВозможно, локальный AE Title ({calling_aet}) или IP этого компьютера не зарегистрированы на сервере PACS.")
+                log_message(output_field, tr_log("log_pacs_cfind_aborted", calling_aet))
         except Exception as e:
-            log_message(output_field, f"Ошибка при выполнении запроса C-FIND к PACS: {e}")
+            log_message(output_field, tr_log("log_pacs_cfind_error", e))
         finally:
             assoc.release()
     else:
         con = False
-        log_message(output_field, "Не удалось подключиться к серверу PACS")
+        log_message(output_field, tr_log("log_failed_connect_pacs"))
 
     return pacs_data, con
 
 
 def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
     if len(calling_aet) > 16:
-        return False, f"Ошибка: Локальный AE Title (AET Local) '{calling_aet}' превышает 16 символов."
+        return False, tr_ui("ping_aet_local_too_long", calling_aet)
     if len(called_aet) > 16:
-        return False, f"Ошибка: Удаленный AE Title (AET Remote) '{called_aet}' превышает 16 символов."
+        return False, tr_ui("ping_aet_remote_too_long", called_aet)
 
     import io
     import logging
@@ -144,7 +145,7 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
             if not echo_status or echo_status.Status != 0x0000:
                 assoc.release()
                 status_hex = f"0x{echo_status.Status:04x}" if echo_status and echo_status.Status is not None else "None"
-                return False, f"Ошибка: PACS сервер вернул код статуса {status_hex} на C-ECHO."
+                return False, tr_ui("ping_echo_bad_status", status_hex)
 
             # 2. Проверяем возможность C-FIND (проверка регистрации AET/IP)
             from pydicom.dataset import Dataset
@@ -166,30 +167,18 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
             assoc.release()
             
             if find_aborted:
-                return False, (
-                    f"Связь есть, но устройство не зарегистрировано!\n\n"
-                    f"PACS сервер успешно ответил на C-ECHO (пинг), но сбросил соединение при попытке C-FIND (поиск).\n"
-                    f"Проверьте, что локальный AE Title (AET Local: \"{calling_aet}\") и IP-адрес этого компьютера зарегистрированы на PACS сервере, либо неверно указан AET Remote (\"{called_aet}\")."
-                )
-                
-            return True, "Соединение успешно установлено!\nPACS сервер ответил на пинг и разрешил поиск (устройство зарегистрировано)."
+                return False, tr_ui("ping_cfind_unregistered", calling_aet, called_aet)
+
+            return True, tr_ui("ping_success")
         else:
             # Parse reject/connection details from logs
             if "timed out" in log_output or "timeout" in log_output or "Connection timed out" in log_output:
-                return False, (
-                    f"Ошибка: Не удалось подключиться к PACS серверу по адресу {pacs_ip}:{pacs_port}.\n\n"
-                    f"Превышено время ожидания подключения (таймаут).\n"
-                    f"Проверьте, что PACS сервер включен, IP-адрес указан верно, и соединение не блокируется брандмауэром."
-                )
+                return False, tr_ui("ping_timeout", pacs_ip, pacs_port)
             elif "Connection refused" in log_output or "refused" in log_output:
-                return False, (
-                    f"Ошибка: Не удалось подключиться к PACS серверу по адресу {pacs_ip}:{pacs_port}.\n\n"
-                    f"Подключение отклонено (Connection refused).\n"
-                    f"Проверьте, что PACS порт ({pacs_port}) указан верно и служба PACS на сервере запущена."
-                )
+                return False, tr_ui("ping_refused", pacs_ip, pacs_port, pacs_port)
             elif "Calling AE title not recognised" in log_output or "Calling AE Title Not Recognized" in log_output:
                 import socket
-                local_ip = "не определен"
+                local_ip = "N/A"
                 try:
                     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                     s.connect((pacs_ip, pacs_port))
@@ -197,19 +186,9 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
                     s.close()
                 except Exception:
                     pass
-                return False, (
-                    f"Ошибка: PACS сервер отклонил DICOM-ассоциацию.\n\n"
-                    f"Причина: Локальный AE Title (AET Local: \"{calling_aet}\") не зарегистрирован на PACS сервере.\n\n"
-                    f"Пожалуйста, обратитесь к администратору PACS и попросите зарегистрировать ваш компьютер:\n"
-                    f"- IP-адрес: {local_ip}\n"
-                    f"- AE Title (AET Local): {calling_aet}"
-                )
+                return False, tr_ui("ping_calling_not_recognized", calling_aet, local_ip, calling_aet)
             elif "Called AE title not recognised" in log_output or "Called AE Title Not Recognized" in log_output:
-                return False, (
-                    f"Ошибка: PACS сервер отклонил DICOM-ассоциацию.\n\n"
-                    f"Причина: Удаленный AE Title (AET Remote: \"{called_aet}\") не распознан сервером.\n\n"
-                    f"Проверьте правильность написания AET Remote (он чувствителен к регистру)."
-                )
+                return False, tr_ui("ping_called_not_recognized", called_aet)
 
             # Extract generic reason if present
             reason_line = ""
@@ -219,23 +198,23 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
                     break
 
             if reason_line:
-                return False, f"Ошибка: PACS сервер отклонил ассоциацию.\nПричина: {reason_line}."
+                return False, tr_ui("ping_rejected_with_reason", reason_line)
 
-            return False, "Ошибка: Не удалось установить связь с PACS сервером.\nПроверьте IP-адрес, порт и AE Titles."
+            return False, tr_ui("ping_generic_fail")
     except Exception as e:
         try:
             pynetdicom_logger.removeHandler(log_handler)
             pynetdicom_logger.setLevel(orig_level)
         except Exception:
             pass
-        return False, f"Произошла ошибка при подключении:\n{str(e)}"
+        return False, tr_ui("ping_exception", str(e))
 
 
 def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, called_aet, calling_aet, progress_callback=None):
     if len(calling_aet) > 16:
-        return False, f"Ошибка: Локальный AE Title '{calling_aet}' превышает 16 символов."
+        return False, tr_ui("ping_aet_local_too_long", calling_aet)
     if len(called_aet) > 16:
-        return False, f"Ошибка: Удаленный AE Title '{called_aet}' превышает 16 символов."
+        return False, tr_ui("ping_aet_remote_too_long", called_aet)
 
     from pydicom.dataset import Dataset
     from pynetdicom import AE, evt, build_role, ALL_TRANSFER_SYNTAXES
@@ -331,17 +310,17 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
         
         if status_list and (status_list[-1] == 0x0000 or status_list[-1] == 0xB000):
             success = True
-            msg = f"Пациент {patient_id} успешно скачан из PACS"
+            msg = tr_log("log_pacs_download_success", patient_id)
         elif status_list and (0x0000 in status_list or 0xB000 in status_list):
             success = True
-            msg = f"Пациент {patient_id} успешно скачан из PACS"
+            msg = tr_log("log_pacs_download_success", patient_id)
         else:
             last_status = f"0x{status_list[-1]:04x}" if status_list else "unknown status"
             success = False
-            msg = f"PACS сервер вернул ошибку при скачивании: {last_status}"
+            msg = tr_log("log_pacs_download_server_error", last_status)
     else:
         success = False
-        msg = "Не удалось установить соединение с PACS сервером для скачивания."
+        msg = tr_log("log_pacs_download_no_connection")
         
     return success, msg
 

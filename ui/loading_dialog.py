@@ -1,10 +1,13 @@
 import sys
 from PyQt6.QtCore import Qt, QCoreApplication
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QProgressBar
+from core.locale_utils import tr_ui
 
 class LoadingProgressDialog(QDialog):
-    def __init__(self, parent=None, title="Загрузка данных"):
+    def __init__(self, parent=None, title=None):
         super().__init__(parent)
+        if title is None:
+            title = tr_ui("loading_title_data")
         self.setWindowTitle(title)
         self.setMinimumWidth(400)
         self.setModal(True)
@@ -36,7 +39,7 @@ class LoadingProgressDialog(QDialog):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
         
-        self.label = QLabel("Подготовка к заполнению таблицы...")
+        self.label = QLabel(tr_ui("loading_preparing_table"))
         self.label.setStyleSheet("color: #ffffff; font-size: 13px; font-family: 'Segoe UI';")
         layout.addWidget(self.label)
         
@@ -68,7 +71,7 @@ class LoadingProgressDialog(QDialog):
             return
         percent = int((current / total) * 100)
         self.progress.setValue(percent)
-        self.label.setText(f"Отрисовка таблицы: {current} из {total} пациентов...")
+        self.label.setText(tr_ui("loading_rendering_table", current, total))
         QCoreApplication.processEvents()
 
     def set_scan_progress(self, current, total):
@@ -77,5 +80,5 @@ class LoadingProgressDialog(QDialog):
             return
         percent = int((current / total) * 100)
         self.progress.setValue(percent)
-        self.label.setText(f"Сканирование: {current} из {total} папок — {percent}%")
+        self.label.setText(tr_ui("loading_scanning_folders", current, total, percent))
         QCoreApplication.processEvents()

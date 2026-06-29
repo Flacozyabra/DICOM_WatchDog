@@ -7,6 +7,7 @@ from collections import defaultdict
 
 from core.logger import log_message
 from core.config_utils import get_cache_path
+from core.locale_utils import tr_log
 
 
 def load_cache():
@@ -52,7 +53,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
         items = os.listdir(archive_dir)
     except Exception as e:
         if output_field:
-            log_message(output_field, f"Ошибка доступа к папке архива: {e}")
+            log_message(output_field, tr_log("log_archive_access_error", e))
         return patient_data
 
     total_items = len(items)
@@ -163,7 +164,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                     }
                 except Exception as e:
                     if output_field:
-                        log_message(output_field, f"Ошибка чтения файла {file_path}: {e}")
+                        log_message(output_field, tr_log("log_dcm_read_error", file_path, e))
                         
     # Удаляем из кэша папки, которых больше нет
     cleaned_cache = {path: data for path, data in cache.items() if path in scanned_paths}
@@ -192,7 +193,7 @@ def move_old_folders_to_archive(ct_images_dir, archive_dir, archive_days, output
                     try:
                         os.makedirs(archive_dir)
                     except Exception as e:
-                        log_message(output_field, f"Ошибка создания папки архива: {e}")
+                        log_message(output_field, tr_log("log_archive_create_error", e))
                         continue
 
                 archive_path = os.path.join(archive_dir, dir)
@@ -201,23 +202,23 @@ def move_old_folders_to_archive(ct_images_dir, archive_dir, archive_days, output
                     try:
                         shutil.rmtree(archive_path)
                     except Exception as e:
-                        log_message(output_field, f"Ошибка удаления существующей папки в архиве: {e}")
+                        log_message(output_field, tr_log("log_archive_delete_existing_error", e))
                         continue
 
                 try:
-                    patient_name = "Неизвестно"
+                    patient_name = tr_log("log_patient_unknown")
                     try:
                         dcm_files = [f for f in os.listdir(folder_path) if f.endswith('.dcm')]
                         if dcm_files:
                             ds = pydicom.dcmread(os.path.join(folder_path, dcm_files[0]), specific_tags=['PatientName'])
-                            patient_name = str(ds.get('PatientName', 'Неизвестно'))
+                            patient_name = str(ds.get('PatientName', tr_log("log_patient_unknown")))
                     except Exception:
                         pass
 
                     shutil.move(folder_path, archive_path)
-                    log_message(output_field, f"Папка пациента {patient_name} ({dir}) перемещена в архив")
+                    log_message(output_field, tr_log("log_patient_moved_to_archive", patient_name, dir))
                 except Exception as e:
-                    log_message(output_field, f"Ошибка перемещения пациента {dir} в архив: {e}")
+                    log_message(output_field, tr_log("log_patient_move_to_archive_error", dir, e))
 
 
 def cleanup_old_archive_folders(archive_dir, cleanup_days, output_field):
@@ -233,7 +234,7 @@ def cleanup_old_archive_folders(archive_dir, cleanup_days, output_field):
     try:
         items = os.listdir(archive_dir)
     except Exception as e:
-        log_message(output_field, f"Ошибка при доступе к архиву для очистки: {e}")
+        log_message(output_field, tr_log("log_archive_cleanup_access_error", e))
         return
 
     for item in items:
@@ -248,17 +249,17 @@ def cleanup_old_archive_folders(archive_dir, cleanup_days, output_field):
             days_old = (now - folder_date).days
             if days_old >= cleanup_days:
                 try:
-                    patient_name = "Неизвестно"
+                    patient_name = tr_log("log_patient_unknown")
                     try:
                         dcm_files = [f for f in os.listdir(path) if f.endswith('.dcm')]
                         if dcm_files:
                             ds = pydicom.dcmread(os.path.join(path, dcm_files[0]), specific_tags=['PatientName'])
-                            patient_name = str(ds.get('PatientName', 'Неизвестно'))
+                            patient_name = str(ds.get('PatientName', tr_log("log_patient_unknown")))
                     except Exception:
                         pass
 
                     shutil.rmtree(path)
                     deleted_count += 1
-                    log_message(output_field, f"Автоочистка архива: удалена устаревшая папка пациента {patient_name} ({item}) (возраст {days_old} дн.)")
+                    log_message(output_field, tr_log("log_archive_cleanup_success", patient_name, item, days_old))
                 except Exception as e:
-                    log_message(output_field, f"Автоочистка архива: не удалось удалить {item}: {e}")
+                    log_message(output_field, tr_log("log_archive_cleanup_error", item, e))
