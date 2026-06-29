@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget,
                              QPlainTextEdit, QPushButton, QMessageBox, 
                              QHeaderView, QMenu, QAbstractItemView, QLineEdit, QLabel,
                              QDialog, QFileDialog, QDateEdit, QStackedWidget, QSplitter,
-                             QSplitterHandle)
+                             QSplitterHandle, QComboBox)
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -927,12 +927,41 @@ class MainWindow(QMainWindow):
         self.settings_btn3.setToolTip("Настройки папок и интервалов")
         self.settings_btn3.clicked.connect(self.open_settings_cmd)
         
+        # Выпадающий список серверов PACS
+        self.lbl_server = QLabel("Сервер:")
+        self.lbl_server.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
+        
+        self.pacs_server_combo = QComboBox()
+        self.pacs_server_combo.setFixedWidth(160)
+        self.pacs_server_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #2A2A2A;
+                border: 1px solid #374151;
+                border-radius: 4px;
+                color: #FFFFFF;
+                padding: 0px 8px;
+                font-size: 12px;
+                min-height: 28px;
+                max-height: 28px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1A1A1A;
+                border: 1px solid #374151;
+                color: #FFFFFF;
+                selection-background-color: #3B82F6;
+            }
+        """)
+        self.populate_pacs_server_combo()
+        self.pacs_server_combo.currentIndexChanged.connect(self.on_pacs_server_changed)
+        
         pacs_control_layout.addWidget(self.pacs_today_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.pacs_3days_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.lbl_from, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.pacs_date_from, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.lbl_to, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.pacs_date_to, alignment=Qt.AlignmentFlag.AlignVCenter)
+        pacs_control_layout.addWidget(self.lbl_server, alignment=Qt.AlignmentFlag.AlignVCenter)
+        pacs_control_layout.addWidget(self.pacs_server_combo, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.pacs_auto_scan_cb, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addStretch(1)
         pacs_control_layout.addWidget(self.send_to_ct_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
@@ -2051,6 +2080,7 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             # Перечитываем настройки
             self.config = dialog.config
+            self.populate_pacs_server_combo()
             
             # Обновляем шрифт лога
             font = QFont("Consolas", self.config.get('log_font_size', 12))
@@ -2296,5 +2326,43 @@ class MainWindow(QMainWindow):
                         json.dump(self.config, f, ensure_ascii=False, indent=4)
                 except Exception as e:
                     print(f"Failed to save config: {e}")
+
+    def populate_pacs_server_combo(self):
+        self.pacs_server_combo.blockSignals(True)
+        self.pacs_server_combo.clear()
+        
+        servers = self.config.get('pacs_servers', [])
+        current_name = self.config.get('pacs_current_server_name', '')
+        
+        active_idx = 0
+        for i, s in enumerate(servers):
+            self.pacs_server_combo.addItem(s['name'])
+            if s['name'] == current_name:
+                active_idx = i
+                
+        self.pacs_server_combo.setCurrentIndex(active_idx)
+        self.pacs_server_combo.blockSignals(False)
+
+    def on_pacs_server_changed(self, index):
+        servers = self.config.get('pacs_servers', [])
+        if 0 <= index < len(servers):
+            s = servers[index]
+            self.config['pacs_current_server_name'] = s['name']
+            self.config['pacs_ip'] = s['pacs_ip']
+            self.config['pacs_port'] = s['pacs_port']
+            self.config['pacs_called_aet'] = s['pacs_called_aet']
+            self.config['pacs_calling_aet'] = s['pacs_calling_aet']
+            
+            # Save configuration to file
+            self.save_current_config()
+            
+            # Reset PACS states for the new server
+            self.is_first_pacs_scan = True
+            self.standby_new_patients = {}
+            self.previous_pacs_data = {}
+            self.pacs_table.setRowCount(0)
+            
+            # Trigger immediate scan
+            self.fill_pacs_list()
 
 

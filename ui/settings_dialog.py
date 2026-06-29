@@ -153,6 +153,27 @@ class SettingsDialog(QDialog):
                 with open(config_path, "r", encoding="utf-8") as f:
                     loaded = json.load(f)
                     config.update(loaded)
+                
+                # Инициализация списка PACS серверов для обратной совместимости
+                if 'pacs_servers' not in config:
+                    config['pacs_servers'] = []
+                if not config['pacs_servers']:
+                    pacs_ip = config.get('pacs_ip', '127.0.0.1')
+                    pacs_port = int(config.get('pacs_port', 11112))
+                    pacs_called_aet = config.get('pacs_called_aet', 'ANY-SCP')
+                    pacs_calling_aet = config.get('pacs_calling_aet', 'ECHOSCU')
+                    default_server = {
+                        'name': f"Сервер ({pacs_ip}:{pacs_port})",
+                        'pacs_ip': pacs_ip,
+                        'pacs_port': pacs_port,
+                        'pacs_called_aet': pacs_called_aet,
+                        'pacs_calling_aet': pacs_calling_aet
+                    }
+                    config['pacs_servers'].append(default_server)
+                    config['pacs_current_server_name'] = default_server['name']
+                elif 'pacs_current_server_name' not in config or not config['pacs_current_server_name']:
+                    config['pacs_current_server_name'] = config['pacs_servers'][0]['name']
+
                 return config
             except Exception as e:
                 print(f"Error loading config.json: {e}")
@@ -189,6 +210,26 @@ class SettingsDialog(QDialog):
                     if len(lines) > 61: config['pacs_called_aet'] = lines[61].strip()
                     if len(lines) > 64: config['pacs_calling_aet'] = lines[64].strip()
                 
+                # Инициализация списка PACS серверов для обратной совместимости
+                if 'pacs_servers' not in config:
+                    config['pacs_servers'] = []
+                if not config['pacs_servers']:
+                    pacs_ip = config.get('pacs_ip', '127.0.0.1')
+                    pacs_port = int(config.get('pacs_port', 11112))
+                    pacs_called_aet = config.get('pacs_called_aet', 'ANY-SCP')
+                    pacs_calling_aet = config.get('pacs_calling_aet', 'ECHOSCU')
+                    default_server = {
+                        'name': f"Сервер ({pacs_ip}:{pacs_port})",
+                        'pacs_ip': pacs_ip,
+                        'pacs_port': pacs_port,
+                        'pacs_called_aet': pacs_called_aet,
+                        'pacs_calling_aet': pacs_calling_aet
+                    }
+                    config['pacs_servers'].append(default_server)
+                    config['pacs_current_server_name'] = default_server['name']
+                elif 'pacs_current_server_name' not in config or not config['pacs_current_server_name']:
+                    config['pacs_current_server_name'] = config['pacs_servers'][0]['name']
+
                 # Сохраняем в config.json в AppData и бэкапим config.txt
                 with open(get_config_path(), "w", encoding="utf-8") as f_json:
                     json.dump(config, f_json, ensure_ascii=False, indent=4)
@@ -483,6 +524,35 @@ class SettingsDialog(QDialog):
         pacs_form = QFormLayout()
         pacs_form.setContentsMargins(0, 0, 0, 0)
         
+        # Выбор сервера PACS
+        server_select_layout = QHBoxLayout()
+        server_select_layout.setSpacing(10)
+        
+        self.settings_server_combo = QComboBox()
+        self.settings_server_combo.setFixedHeight(30)
+        
+        self.add_server_btn = QPushButton("+ Добавить")
+        self.add_server_btn.setFixedWidth(80)
+        self.add_server_btn.setFixedHeight(30)
+        self.add_server_btn.clicked.connect(self.add_server_action)
+        
+        self.del_server_btn = QPushButton("- Удалить")
+        self.del_server_btn.setFixedWidth(80)
+        self.del_server_btn.setFixedHeight(30)
+        self.del_server_btn.clicked.connect(self.del_server_action)
+
+        self.rename_server_btn = QPushButton("Имя")
+        self.rename_server_btn.setFixedWidth(60)
+        self.rename_server_btn.setFixedHeight(30)
+        self.rename_server_btn.clicked.connect(self.rename_server_action)
+
+        server_select_layout.addWidget(self.settings_server_combo, stretch=1)
+        server_select_layout.addWidget(self.add_server_btn)
+        server_select_layout.addWidget(self.del_server_btn)
+        server_select_layout.addWidget(self.rename_server_btn)
+        
+        pacs_form.addRow("PACS сервер:", server_select_layout)
+        
         # PACS Scan Interval (sec)
         self.pacs_scan_spin = QSpinBox()
         self.pacs_scan_spin.setRange(1, 300)
@@ -528,6 +598,10 @@ class SettingsDialog(QDialog):
         
         pacs_layout.addStretch()
         self.stacked_widget.addWidget(pacs_widget)
+
+        # Инициализация списка серверов
+        self.populate_server_combo()
+        self.settings_server_combo.currentIndexChanged.connect(self.on_settings_server_changed)
 
         
         # Подключаем сигналы переключения меню к QStackedWidget
@@ -602,6 +676,9 @@ class SettingsDialog(QDialog):
         self.highlight_no_str_cb.setEnabled(highlighting_active)
 
     def accept_settings(self):
+        # Save active inputs to current server structure
+        self.save_current_fields_to_config()
+
         ct_text = self.ct_images_edit.text().strip()
         archive_text = self.archive_edit.text().strip()
         
@@ -804,4 +881,117 @@ class SettingsDialog(QDialog):
             msg.setText("У вас установлена актуальная версия приложения.")
             apply_dark_title_bar(msg)
             msg.exec()
+
+    def populate_server_combo(self):
+        self.settings_server_combo.blockSignals(True)
+        self.settings_server_combo.clear()
+        
+        servers = self.config.get('pacs_servers', [])
+        current_name = self.config.get('pacs_current_server_name', '')
+        
+        active_idx = 0
+        for i, s in enumerate(servers):
+            self.settings_server_combo.addItem(s['name'])
+            if s['name'] == current_name:
+                active_idx = i
+                
+        self.settings_server_combo.setCurrentIndex(active_idx)
+        self.settings_server_combo.blockSignals(False)
+        
+        # Load fields for the active server
+        self.load_server_fields(active_idx)
+
+    def load_server_fields(self, index):
+        servers = self.config.get('pacs_servers', [])
+        if 0 <= index < len(servers):
+            s = servers[index]
+            self.pacs_ip_edit.setText(s.get('pacs_ip', '127.0.0.1'))
+            self.pacs_port_spin.setValue(int(s.get('pacs_port', 11112)))
+            self.pacs_called_aet_edit.setText(s.get('pacs_called_aet', 'ANY-SCP'))
+            self.pacs_calling_aet_edit.setText(s.get('pacs_calling_aet', 'ECHOSCU'))
+
+    def save_current_fields_to_config(self):
+        servers = self.config.get('pacs_servers', [])
+        idx = self.settings_server_combo.currentIndex()
+        if 0 <= idx < len(servers):
+            servers[idx]['pacs_ip'] = self.pacs_ip_edit.text().strip()
+            servers[idx]['pacs_port'] = self.pacs_port_spin.value()
+            servers[idx]['pacs_called_aet'] = self.pacs_called_aet_edit.text().strip()
+            servers[idx]['pacs_calling_aet'] = self.pacs_calling_aet_edit.text().strip()
+            
+            # Also update current server config keys for backward compatibility
+            self.config['pacs_ip'] = servers[idx]['pacs_ip']
+            self.config['pacs_port'] = servers[idx]['pacs_port']
+            self.config['pacs_called_aet'] = servers[idx]['pacs_called_aet']
+            self.config['pacs_calling_aet'] = servers[idx]['pacs_calling_aet']
+            self.config['pacs_current_server_name'] = servers[idx]['name']
+
+    def on_settings_server_changed(self, index):
+        # Save current inputs to the previously active server configuration
+        self.save_current_fields_to_config()
+        # Load fields for the newly selected server
+        self.load_server_fields(index)
+        # Update currently active server name
+        servers = self.config.get('pacs_servers', [])
+        if 0 <= index < len(servers):
+            self.config['pacs_current_server_name'] = servers[index]['name']
+
+    def add_server_action(self):
+        from PyQt6.QtWidgets import QInputDialog
+        self.save_current_fields_to_config()
+        
+        name, ok = QInputDialog.getText(self, "Новый сервер", "Введите имя PACS-сервера:")
+        if ok and name.strip():
+            name = name.strip()
+            servers = self.config.get('pacs_servers', [])
+            # Check for duplicate names
+            if any(s['name'] == name for s in servers):
+                QMessageBox.warning(self, "Предупреждение", "Сервер с таким именем уже существует.")
+                return
+                
+            new_server = {
+                'name': name,
+                'pacs_ip': '127.0.0.1',
+                'pacs_port': 11112,
+                'pacs_called_aet': 'ANY-SCP',
+                'pacs_calling_aet': 'ECHOSCU'
+            }
+            servers.append(new_server)
+            self.config['pacs_current_server_name'] = name
+            self.populate_server_combo()
+
+    def del_server_action(self):
+        servers = self.config.get('pacs_servers', [])
+        if len(servers) <= 1:
+            QMessageBox.warning(self, "Предупреждение", "Нельзя удалить единственный сервер.")
+            return
+            
+        idx = self.settings_server_combo.currentIndex()
+        if 0 <= idx < len(servers):
+            confirm = QMessageBox.question(
+                self, "Удаление сервера", 
+                f"Вы уверены, что хотите удалить PACS-сервер '{servers[idx]['name']}'?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if confirm == QMessageBox.StandardButton.Yes:
+                servers.pop(idx)
+                # Set active to the first remaining server
+                self.config['pacs_current_server_name'] = servers[0]['name']
+                self.populate_server_combo()
+
+    def rename_server_action(self):
+        from PyQt6.QtWidgets import QInputDialog
+        servers = self.config.get('pacs_servers', [])
+        idx = self.settings_server_combo.currentIndex()
+        if 0 <= idx < len(servers):
+            old_name = servers[idx]['name']
+            name, ok = QInputDialog.getText(self, "Переименовать сервер", f"Введите новое имя для '{old_name}':", text=old_name)
+            if ok and name.strip() and name.strip() != old_name:
+                name = name.strip()
+                if any(s['name'] == name for s in servers):
+                    QMessageBox.warning(self, "Предупреждение", "Сервер с таким именем уже существует.")
+                    return
+                servers[idx]['name'] = name
+                self.config['pacs_current_server_name'] = name
+                self.populate_server_combo()
 
