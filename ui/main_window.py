@@ -2389,8 +2389,8 @@ class MainWindow(QMainWindow):
         self.search_images_btn.setText(tr_ui("btn_search"))
         self.move_to_archive_btn.setText(tr_ui("btn_move_to_archive"))
         
-        self.search_archive_entry.setPlaceholderText(tr_ui("placeholder_search_patient"))
-        self.search_archive_btn.setText(tr_ui("btn_search"))
+        self.search_entry.setPlaceholderText(tr_ui("placeholder_search_patient"))
+        self.search_btn.setText(tr_ui("btn_search"))
         self.move_from_archive_btn.setText(tr_ui("btn_restore_from_archive"))
         
         self.pacs_today_btn.setText(tr_ui("btn_today"))
