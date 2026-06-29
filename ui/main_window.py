@@ -1858,6 +1858,7 @@ class MainWindow(QMainWindow):
 
         if not silent:
             log_message(self.output_field, "Пытаюсь подключиться к серверу PACS")
+            self.pacs_table.setRowCount(0)
             self.pacs_table.set_placeholder_text("Выполняется сканирование PACS сервера...")
             self.pacs_table.update_placeholder_visibility()
 
@@ -1896,6 +1897,10 @@ class MainWindow(QMainWindow):
                 self.pacs_table.set_placeholder_text("Исследования на сервере PACS не найдены")
         else:
             self.pacs_table.set_placeholder_text("Сканирование сервера PACS не настроено")
+            self.pacs_table.setRowCount(0)
+            self.pacs_table.update_placeholder_visibility()
+            self.previous_pacs_data = {}
+            self.standby_new_patients = {}
             
         has_fail_msg = False
         for msg in log_messages:
