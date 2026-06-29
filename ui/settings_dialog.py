@@ -542,7 +542,7 @@ class SettingsDialog(QDialog):
         self.del_server_btn.clicked.connect(self.del_server_action)
 
         self.rename_server_btn = QPushButton("Rename")
-        self.rename_server_btn.setFixedWidth(70)
+        self.rename_server_btn.setFixedWidth(80)
         self.rename_server_btn.setFixedHeight(30)
         self.rename_server_btn.clicked.connect(self.rename_server_action)
 
