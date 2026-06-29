@@ -1861,6 +1861,7 @@ class MainWindow(QMainWindow):
             self.pacs_table.setRowCount(0)
             self.pacs_table.set_placeholder_text("Выполняется сканирование PACS сервера...")
             self.pacs_table.update_placeholder_visibility()
+            self.previous_pacs_data = {}
 
         self.selected_pacs_patient_id = None
         selected_ranges = self.pacs_table.selectedRanges()
