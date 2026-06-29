@@ -949,13 +949,25 @@ class SettingsDialog(QDialog):
         from PyQt6.QtWidgets import QInputDialog
         self.save_current_fields_to_config(self.last_selected_server_idx)
         
-        name, ok = QInputDialog.getText(self, "Новый сервер", "Введите имя PACS-сервера:")
+        dialog = QInputDialog(self)
+        dialog.setWindowTitle("Новый сервер")
+        dialog.setLabelText("Введите имя PACS-сервера:")
+        apply_dark_title_bar(dialog)
+        
+        ok = dialog.exec()
+        name = dialog.textValue()
+        
         if ok and name.strip():
             name = name.strip()
             servers = self.config.get('pacs_servers', [])
             # Check for duplicate names
             if any(s['name'] == name for s in servers):
-                QMessageBox.warning(self, "Предупреждение", "Сервер с таким именем уже существует.")
+                msg = QMessageBox(self)
+                msg.setIcon(QMessageBox.Icon.Warning)
+                msg.setWindowTitle("Предупреждение")
+                msg.setText("Сервер с таким именем уже существует.")
+                apply_dark_title_bar(msg)
+                msg.exec()
                 return
                 
             new_server = {
@@ -972,17 +984,23 @@ class SettingsDialog(QDialog):
     def del_server_action(self):
         servers = self.config.get('pacs_servers', [])
         if len(servers) <= 1:
-            QMessageBox.warning(self, "Предупреждение", "Нельзя удалить единственный сервер.")
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle("Предупреждение")
+            msg.setText("Нельзя удалить единственный сервер.")
+            apply_dark_title_bar(msg)
+            msg.exec()
             return
             
         idx = self.settings_server_combo.currentIndex()
         if 0 <= idx < len(servers):
-            confirm = QMessageBox.question(
-                self, "Удаление сервера", 
-                f"Вы уверены, что хотите удалить PACS-сервер '{servers[idx]['name']}'?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            if confirm == QMessageBox.StandardButton.Yes:
+            confirm = QMessageBox(self)
+            confirm.setIcon(QMessageBox.Icon.Question)
+            confirm.setWindowTitle("Удаление сервера")
+            confirm.setText(f"Вы уверены, что хотите удалить PACS-сервер '{servers[idx]['name']}'?")
+            confirm.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            apply_dark_title_bar(confirm)
+            if confirm.exec() == QMessageBox.StandardButton.Yes:
                 servers.pop(idx)
                 # Set active to the first remaining server
                 self.config['pacs_current_server_name'] = servers[0]['name']
@@ -994,11 +1012,25 @@ class SettingsDialog(QDialog):
         idx = self.settings_server_combo.currentIndex()
         if 0 <= idx < len(servers):
             old_name = servers[idx]['name']
-            name, ok = QInputDialog.getText(self, "Переименовать сервер", f"Введите новое имя для '{old_name}':", text=old_name)
+            
+            dialog = QInputDialog(self)
+            dialog.setWindowTitle("Переименовать сервер")
+            dialog.setLabelText(f"Введите новое имя для '{old_name}':")
+            dialog.setTextValue(old_name)
+            apply_dark_title_bar(dialog)
+            
+            ok = dialog.exec()
+            name = dialog.textValue()
+            
             if ok and name.strip() and name.strip() != old_name:
                 name = name.strip()
                 if any(s['name'] == name for s in servers):
-                    QMessageBox.warning(self, "Предупреждение", "Сервер с таким именем уже существует.")
+                    msg = QMessageBox(self)
+                    msg.setIcon(QMessageBox.Icon.Warning)
+                    msg.setWindowTitle("Предупреждение")
+                    msg.setText("Сервер с таким именем уже существует.")
+                    apply_dark_title_bar(msg)
+                    msg.exec()
                     return
                 servers[idx]['name'] = name
                 self.config['pacs_current_server_name'] = name
