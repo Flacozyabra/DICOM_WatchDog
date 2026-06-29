@@ -173,5 +173,5 @@
   "loading_preparing_table": "Подготовка к заполнению таблицы...",
   "loading_rendering_table": "Отрисовка таблицы: {} из {} пациентов...",
   "loading_scanning_folders": "Сканирование: {} из {} папок — {}%",
-  "pacs_standby_mode": "Дежурный режим"
+  "pacs_standby_mode": "Режим ожидания"
 }
