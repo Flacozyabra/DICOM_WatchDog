@@ -652,6 +652,12 @@ class MainWindow(QMainWindow):
         # Сбрасываем кэши и перерисовываем
         self.standby_new_patients = {}
         self.previous_pacs_data = {}
+        
+        if is_checked:
+            self.pacs_table.set_placeholder_text("Ожидаю появления новых исследований на сервере")
+        else:
+            self.pacs_table.set_placeholder_text("Сканирование сервера PACS не настроено")
+
         self.pacs_table.setRowCount(0)
         self.pacs_table.update_placeholder_visibility()
         
@@ -1853,8 +1859,12 @@ class MainWindow(QMainWindow):
         self.pacs_worker.start()
 
     def on_pacs_scan_finished(self, pacs_dict, con, log_messages, silent=False):
+        auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
         if con:
-            self.pacs_table.set_placeholder_text("Исследования на сервере PACS не найдены")
+            if auto_update_on:
+                self.pacs_table.set_placeholder_text("Ожидаю появления новых исследований на сервере")
+            else:
+                self.pacs_table.set_placeholder_text("Исследования на сервере PACS не найдены")
         else:
             self.pacs_table.set_placeholder_text("Сканирование сервера PACS не настроено")
             
