@@ -1,10 +1,30 @@
 # DICOM WatchDog
 
-![DICOM WatchDog Screenshot](src/screenshot.jpg)
+[English](#english) | [Русский](#русский)
+
+<details>
+  <summary>📷 View Screenshot / Посмотреть скриншот</summary>
+
+  ![DICOM WatchDog Screenshot](src/screenshot.jpg)
+</details>
+
+---
 
 ## English
 
 DICOM WatchDog is a lightweight desktop utility designed for automated monitoring, organization, and backup of DICOM studies (CT images) from scanning workstations and local archives, with optional integration with PACS servers.
+
+### Executable (EXE) Versions Detail
+When downloading release assets, choose the executable that best fits your environment:
+- **`DICOM_WatchDog_v1.3.0_PyQt6.exe`** (Recommended for Modern Windows 10/11)
+  - Built on Python 3.11 with PyQt6.
+  - Recommended for modern computers. Includes native bootloader splash screen for instant visual feedback on startup.
+- **`DICOM_WatchDog_v1.3.0_PyQt5.exe`** (Windows 10/11 Compatible)
+  - Built on Python 3.11 with PyQt5.
+  - A fallback version for modern OS environments in case PyQt6 encounters hardware/driver compatibility issues. Includes startup splash screen.
+- **`DICOM_WatchDog_v1.3.0_PyQt5_Legacy.exe`** (Windows 7/8/10 Legacy)
+  - Built on Python 3.8 with PyQt5.
+  - Tailored specifically for legacy OS workstations (e.g. Windows 7). Native splash screen is completely disabled to avoid startup DLL/DWM API crashes and ensure 100% compatibility.
 
 ### Key Features
 - **Real-Time Monitoring**: Automatically scans folders for new CT scan files.
@@ -12,7 +32,6 @@ DICOM WatchDog is a lightweight desktop utility designed for automated monitorin
 - **Dynamic Renaming**: Renames study folders using customizable patterns: `Patient ID`, `Patient Name`, `Patient Name [Patient ID]`, or `[Patient ID] Patient Name`.
 - **Auto-Archiving**: Archives old patient studies after a defined period and cleans up obsolete structures.
 - **PACS Integration**: Search and download patient studies directly from PACS servers.
-- **Cross-Platform Compatibility**: Full support for Windows 10/11 (PyQt6/PyQt5) and a legacy build for Windows 7.
 
 ### Quick Start
 1. Install dependencies: `pip install -r requirements.txt`
@@ -25,13 +44,24 @@ DICOM WatchDog is a lightweight desktop utility designed for automated monitorin
 
 DICOM WatchDog — это легковесная утилита для автоматического мониторинга, сортировки и резервного копирования КТ-исследований (DICOM) с рабочих станций сканирования и локальных архивов с возможностью работы с PACS-серверами.
 
+### Подробное описание EXE-версий
+При скачивании релизов выберите файл, подходящий для вашего рабочего окружения:
+- **`DICOM_WatchDog_v1.3.0_PyQt6.exe`** (Рекомендуется для современной Windows 10/11)
+  - Собрано на Python 3.11 и PyQt6.
+  - Предназначено для современных ПК. Содержит мгновенный нативный загрузочный сплеш-скрин для визуального отклика сразу при клике.
+- **`DICOM_WatchDog_v1.3.0_PyQt5.exe`** (Windows 10/11 Совместимая)
+  - Собрано на Python 3.11 и PyQt5.
+  - Резервная версия для современных ОС на случай проблем совместимости видеодрайверов с PyQt6. Содержит стартовый сплеш-скрин.
+- **`DICOM_WatchDog_v1.3.0_PyQt5_Legacy.exe`** (Легаси Windows 7/8/10)
+  - Собрано на Python 3.8 и PyQt5.
+  - Специальная стабильная версия для устаревших рабочих станций (например, на Windows 7). Стартовый сплеш-скрин полностью исключен из сборки для предотвращения сбоев системных вызовов DWM/DLL и обеспечения максимальной совместимости.
+
 ### Ключевые возможности
 - **Мониторинг в реальном времени**: Автоматическое сканирование папок на наличие новых КТ-снимков.
 - **Исправление метаданных**: Автоматическая коррекция неверных Patient ID (удаление точек, префиксов) в тегах DICOM.
 - **Гибкое переименование папок**: Переименование папок пациентов по шаблонам: `Patient ID`, `Patient Name`, `Patient Name [Patient ID]`, или `[Patient ID] Patient Name`.
 - **Автоархивирование**: Автоматическое перемещение старых исследований в архив по истечении заданных дней и очистка лишних структур.
 - **PACS интеграция**: Быстрый поиск и скачивание исследований напрямую с PACS-серверов.
-- **Широкая совместимость**: Поддержка Windows 10/11 (PyQt6/PyQt5) и отдельная legacy-версия для Windows 7.
 
 ### Быстрый старт
 1. Установите зависимости: `pip install -r requirements.txt`
