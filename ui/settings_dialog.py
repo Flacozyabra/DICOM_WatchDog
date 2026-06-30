@@ -220,7 +220,9 @@ class SettingsDialog(QDialog):
             'highlight_today_enabled': 'False',
             'highlight_no_str_enabled': 'False',
             'rename_study_folder_enabled': 'False',
-            'rename_study_folder_mode': 'id'
+            'rename_study_folder_mode': 'id',
+            'interface_lang': 'en',
+            'log_lang': 'en'
         }
         
         # 1. Проверяем config.json в AppData
@@ -560,12 +562,12 @@ class SettingsDialog(QDialog):
         ui_form = QFormLayout()
         
         # Язык интерфейса
-        self.interface_lang_switch = LanguageSwitch(self, command=self.on_interface_lang_changed, current_lang=self.config.get('interface_lang', 'ru'))
+        self.interface_lang_switch = LanguageSwitch(self, command=self.on_interface_lang_changed, current_lang=self.config.get('interface_lang', 'en'))
         self.lbl_interface_lang = QLabel()
         ui_form.addRow(self.lbl_interface_lang, self.interface_lang_switch)
         
         # Язык лога
-        self.log_lang_switch = LanguageSwitch(self, command=self.on_log_lang_changed, current_lang=self.config.get('log_lang', 'ru'))
+        self.log_lang_switch = LanguageSwitch(self, command=self.on_log_lang_changed, current_lang=self.config.get('log_lang', 'en'))
         self.lbl_log_lang = QLabel()
         ui_form.addRow(self.lbl_log_lang, self.log_lang_switch)
 
