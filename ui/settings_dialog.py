@@ -919,7 +919,17 @@ class SettingsDialog(QDialog):
         self.config['fix_patient_id_enabled'] = 'True' if self.fix_patient_id_cb.isChecked() else 'False'
         self.config['id_prefixes'] = self.id_prefixes_edit.text()
         self.config['rename_study_folder_enabled'] = 'True' if self.rename_study_folder_cb.isChecked() else 'False'
-        self.config['rename_study_folder_mode'] = 'id' if self.rename_study_folder_mode_combo.currentIndex() == 0 else 'name'
+        idx = self.rename_study_folder_mode_combo.currentIndex()
+        if idx == 0:
+            self.config['rename_study_folder_mode'] = 'id'
+        elif idx == 1:
+            self.config['rename_study_folder_mode'] = 'name'
+        elif idx == 2:
+            self.config['rename_study_folder_mode'] = 'name_id'
+        elif idx == 3:
+            self.config['rename_study_folder_mode'] = 'id_name'
+        else:
+            self.config['rename_study_folder_mode'] = 'id'
         self.config['archive_enabled'] = 'True' if self.archive_enabled_cb.isChecked() else 'False'
         self.config['archive_days'] = self.archive_days_spin.value()
         self.config['archive_cleanup_enabled'] = 'True' if self.archive_cleanup_enabled_cb.isChecked() else 'False'
@@ -998,10 +1008,13 @@ class SettingsDialog(QDialog):
         current_idx = self.rename_study_folder_mode_combo.currentIndex()
         if current_idx < 0:
             current_mode = self.config.get('rename_study_folder_mode', 'id')
-            current_idx = 0 if current_mode == 'id' else 1
+            mode_map = {'id': 0, 'name': 1, 'name_id': 2, 'id_name': 3}
+            current_idx = mode_map.get(current_mode, 0)
         self.rename_study_folder_mode_combo.clear()
         self.rename_study_folder_mode_combo.addItem(tr_ui("settings_rename_folder_mode_id"))
         self.rename_study_folder_mode_combo.addItem(tr_ui("settings_rename_folder_mode_name"))
+        self.rename_study_folder_mode_combo.addItem(tr_ui("settings_rename_folder_mode_name_id"))
+        self.rename_study_folder_mode_combo.addItem(tr_ui("settings_rename_folder_mode_id_name"))
         self.rename_study_folder_mode_combo.setCurrentIndex(current_idx)
         self.rename_study_folder_mode_combo.blockSignals(False)
         

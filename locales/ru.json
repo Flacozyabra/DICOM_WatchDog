@@ -178,6 +178,8 @@
   "settings_rename_folder_mode_label": "Переименовывать в:",
   "settings_rename_folder_mode_id": "Patient ID",
   "settings_rename_folder_mode_name": "ФИО Пациента (Patient Name)",
+  "settings_rename_folder_mode_name_id": "ФИО Пациента [Patient ID]",
+  "settings_rename_folder_mode_id_name": "[Patient ID] ФИО Пациента",
   "loading_fixing_folders_status": "Исправление Patient ID и переименование папок...",
   "loading_archiving_status": "Архивирование старых исследований...",
   "loading_cleanup_status": "Очистка старых папок архива...",

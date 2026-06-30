@@ -194,10 +194,15 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
 
     # 3. Если включено переименование папки исследования (rename_folder)
     if rename_folder:
+        name_part = sanitize_folder_name(getattr(ds, "PatientName", ""))
         if rename_mode == 'id':
             target_folder_name = str(new_patient_id)
         elif rename_mode == 'name':
-            target_folder_name = sanitize_folder_name(getattr(ds, "PatientName", ""))
+            target_folder_name = name_part if name_part else str(new_patient_id)
+        elif rename_mode == 'name_id':
+            target_folder_name = f"{name_part} [{new_patient_id}]" if name_part else str(new_patient_id)
+        elif rename_mode == 'id_name':
+            target_folder_name = f"[{new_patient_id}] {name_part}" if name_part else str(new_patient_id)
         else:
             target_folder_name = patient_folder
 
