@@ -59,6 +59,7 @@
   "placeholder_no_studies_in_folder": "В этой папке нет исследований",
 
   "ctx_open_folder": "Открыть папку",
+  "ctx_rename": "Переименовать",
   "ctx_delete_patient": "Удалить пациента",
   "ctx_move_to_archive": "Переместить в архив",
   "ctx_delete_str": "Удалить лишние STR",
@@ -132,6 +133,8 @@
   "dlg_del_last_server": "Нельзя удалить единственный сервер.",
   "dlg_rename_server_title": "Переименовать сервер",
   "dlg_rename_server_label": "Введите новое имя для '{}':",
+  "dlg_rename_tab_title": "Переименовать вкладку",
+  "dlg_rename_tab_label": "Введите новое имя для вкладки '{}':",
   "btn_checking": "Проверка...",
   "btn_browse": "Обзор",
   "settings_btn_add": "Доб.",

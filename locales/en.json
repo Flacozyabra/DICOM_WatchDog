@@ -59,6 +59,7 @@
   "placeholder_no_studies_in_folder": "No studies in this folder",
 
   "ctx_open_folder": "Open folder",
+  "ctx_rename": "Rename",
   "ctx_delete_patient": "Delete patient",
   "ctx_move_to_archive": "Move to Archive",
   "ctx_delete_str": "Delete redundant STR",
@@ -132,6 +133,8 @@
   "dlg_del_last_server": "Cannot delete the only server.",
   "dlg_rename_server_title": "Rename server",
   "dlg_rename_server_label": "Enter new name for '{}':",
+  "dlg_rename_tab_title": "Rename Tab",
+  "dlg_rename_tab_label": "Enter new name for tab '{}':",
   "btn_checking": "Checking...",
   "btn_browse": "Browse",
   "settings_btn_add": "Add",

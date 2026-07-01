@@ -725,6 +725,8 @@ class MainWindow(QMainWindow):
         
         # Вкладки
         self.tab_widget = QTabWidget()
+        self.tab_widget.tabBar().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tab_widget.tabBar().customContextMenuRequested.connect(self.show_tab_context_menu)
         self.log_splitter.addWidget(self.tab_widget)
         
         # Создание вкладок
@@ -1450,6 +1452,59 @@ class MainWindow(QMainWindow):
                 log_message(self.output_field, tr_log("log_failed_open_folder", patient_id, e))
 
     # ================= КОНТЕКСТНЫЕ МЕНЮ И ДЕЙСТВИЯ =================
+
+    def show_tab_context_menu(self, pos):
+        index = self.tab_widget.tabBar().tabAt(pos)
+        if index < 0:
+            return
+            
+        menu = QMenu(self)
+        
+        # Только для вкладок КТ-снимки (0) и Архив (1) есть пункт "Открыть папку"
+        if index in (0, 1):
+            open_folder_action = QAction(tr_ui("ctx_open_folder"), self)
+            path = self.config.get('ct_images_dir', '') if index == 0 else self.config.get('archive_dir', '')
+            
+            def open_dir():
+                if path and os.path.exists(path):
+                    try:
+                        os.startfile(path)
+                    except Exception as e:
+                        log_message(self.output_field, tr_log("log_failed_open_folder", os.path.basename(path), e))
+            
+            open_folder_action.triggered.connect(open_dir)
+            if not path or not os.path.exists(path):
+                open_folder_action.setEnabled(False)
+            menu.addAction(open_folder_action)
+            
+        # Для всех вкладок есть пункт "Переименовать"
+        rename_action = QAction(tr_ui("ctx_rename"), self)
+        rename_action.triggered.connect(lambda: self.rename_tab_dialog(index))
+        menu.addAction(rename_action)
+        
+        menu.exec(self.tab_widget.tabBar().mapToGlobal(pos))
+
+    def rename_tab_dialog(self, index):
+        from PyQt6.QtWidgets import QInputDialog
+        
+        current_name = self.tab_widget.tabText(index)
+        new_name, ok = QInputDialog.getText(
+            self, 
+            tr_ui("dlg_rename_tab_title"), 
+            tr_ui("dlg_rename_tab_label", current_name),
+            text=current_name
+        )
+        
+        if ok and new_name.strip():
+            new_name = new_name.strip()
+            self.tab_widget.setTabText(index, new_name)
+            
+            # Сохраняем в конфиг
+            config_keys = {0: 'custom_tab_name_ct', 1: 'custom_tab_name_archive', 2: 'custom_tab_name_pacs'}
+            key = config_keys.get(index)
+            if key:
+                self.config[key] = new_name
+                self.save_current_config()
 
     def show_images_context_menu(self, pos):
         # Получаем строку под курсором
@@ -2430,9 +2485,9 @@ class MainWindow(QMainWindow):
 
     def retranslate_ui(self):
         # Названия вкладок
-        self.tab_widget.setTabText(0, tr_ui("tab_ct_images"))
-        self.tab_widget.setTabText(1, tr_ui("tab_ct_archive"))
-        self.tab_widget.setTabText(2, tr_ui("tab_pacs"))
+        self.tab_widget.setTabText(0, self.config.get('custom_tab_name_ct') or tr_ui("tab_ct_images"))
+        self.tab_widget.setTabText(1, self.config.get('custom_tab_name_archive') or tr_ui("tab_ct_archive"))
+        self.tab_widget.setTabText(2, self.config.get('custom_tab_name_pacs') or tr_ui("tab_pacs"))
         
         # Кнопки и плейсхолдеры
         self.search_images_entry.setPlaceholderText(tr_ui("placeholder_search_patient"))
