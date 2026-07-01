@@ -66,7 +66,7 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
             file = files[0]
             if file.endswith('.dcm'):
                 try:
-                    ds = pydicom.dcmread(os.path.join(root, file))
+                    ds = pydicom.dcmread(os.path.join(root, file), stop_before_pixels=True)
                     patient_data[ds.PatientID]['patient_id'] = ds.PatientID
                     patient_data[ds.PatientID]['patient_name'] = ds.PatientName
                     patient_data[ds.PatientID]['modality'] = str(ds.get('Modality', 'CT'))
@@ -169,7 +169,7 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
         return
 
     try:
-        ds = pydicom.dcmread(os.path.join(path, files[0]))
+        ds = pydicom.dcmread(os.path.join(path, files[0]), stop_before_pixels=True)
     except Exception as e:
         log_message(output_field, tr_log("log_dcm_read_patient_error", patient_folder, e))
         return
@@ -220,12 +220,23 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
                 except Exception as e:
                     log_message(output_field, tr_log("log_folders_merge_error", patient_folder, target_folder_name, e))
             else:
-                try:
-                    os.rename(path, new_path)
+                import time
+                success = False
+                last_error = None
+                for attempt in range(5):
+                    try:
+                        os.rename(path, new_path)
+                        success = True
+                        break
+                    except OSError as e:
+                        last_error = e
+                        time.sleep(0.2)
+                
+                if success:
                     safe_update_patient_ids(new_path, new_patient_id, output_field)
                     if id_changed:
                         log_message(output_field, tr_log("log_folder_renamed_success_with_id", patient_folder, target_folder_name, new_patient_id))
                     else:
                         log_message(output_field, tr_log("log_folder_renamed_success", patient_folder, target_folder_name))
-                except Exception as e:
-                    log_message(output_field, tr_log("log_folder_rename_error", patient_folder, e))
+                else:
+                    log_message(output_field, tr_log("log_folder_rename_error", patient_folder, last_error))
