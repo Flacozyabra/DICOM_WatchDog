@@ -25,10 +25,38 @@ def get_system_voices():
         ]
         output = subprocess.check_output(cmd, text=True, encoding="utf-8", creationflags=subprocess.CREATE_NO_WINDOW)
         voices = [line.strip() for line in output.splitlines() if line.strip()]
-        return voices
+        seen_names = set()
+        unique_voices = []
+        for voice in voices:
+            parts = voice.replace("Microsoft", "").replace("Desktop", "").split("-")[0].strip().split()
+            if not parts:
+                continue
+            base_name = parts[0].lower()
+            if base_name not in seen_names:
+                seen_names.add(base_name)
+                unique_voices.append(voice)
+        return unique_voices
     except Exception as e:
         print("Error getting system voices:", e)
         return []
+
+
+def find_matching_voice_index(combo, sound_name):
+    if not sound_name or sound_name == 'default':
+        return 0
+    idx = combo.findData(sound_name)
+    if idx >= 0:
+        return idx
+    parts = sound_name.replace("Microsoft", "").replace("Desktop", "").split("-")[0].strip().split()
+    if parts:
+        base_name = parts[0].lower()
+        for i in range(combo.count()):
+            data = combo.itemData(i)
+            if data and data != 'default':
+                d_parts = data.replace("Microsoft", "").replace("Desktop", "").split("-")[0].strip().split()
+                if d_parts and d_parts[0].lower() == base_name:
+                    return i
+    return 0
 
 
 def apply_dark_title_bar(widget):
@@ -659,11 +687,8 @@ class SettingsDialog(QDialog):
         for voice in self.system_voices:
             self.ct_sound_combo.addItem(voice, voice)
         current_ct_sound = self.config.get('ct_notification_sound', 'default')
-        idx_ct = self.ct_sound_combo.findData(current_ct_sound)
-        if idx_ct >= 0:
-            self.ct_sound_combo.setCurrentIndex(idx_ct)
-        else:
-            self.ct_sound_combo.setCurrentIndex(0)
+        idx_ct = find_matching_voice_index(self.ct_sound_combo, current_ct_sound)
+        self.ct_sound_combo.setCurrentIndex(idx_ct)
         self.ct_sound_combo.activated.connect(lambda: self.play_sound_preview(self.ct_sound_combo))
 
         # Разделитель
@@ -689,11 +714,8 @@ class SettingsDialog(QDialog):
         for voice in self.system_voices:
             self.pacs_sound_combo.addItem(voice, voice)
         current_pacs_sound = self.config.get('pacs_notification_sound', 'default')
-        idx_pacs = self.pacs_sound_combo.findData(current_pacs_sound)
-        if idx_pacs >= 0:
-            self.pacs_sound_combo.setCurrentIndex(idx_pacs)
-        else:
-            self.pacs_sound_combo.setCurrentIndex(0)
+        idx_pacs = find_matching_voice_index(self.pacs_sound_combo, current_pacs_sound)
+        self.pacs_sound_combo.setCurrentIndex(idx_pacs)
         self.pacs_sound_combo.activated.connect(lambda: self.play_sound_preview(self.pacs_sound_combo))
 
         notifications_layout.addLayout(notifications_form)

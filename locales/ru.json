@@ -13,20 +13,17 @@
   "lbl_from": "Период с:",
   "lbl_to": "по:",
   "lbl_server": "Сервер:",
-
   "placeholder_scanning": "Выполняется сканирование PACS сервера...",
   "placeholder_standby": "Ожидаю появления новых исследований на сервере",
   "placeholder_not_configured": "Сканирование сервера PACS не настроено",
   "placeholder_no_studies": "Исследования на сервере PACS не найдены",
   "placeholder_no_patients": "Пациенты не найдены",
   "placeholder_not_selected_ct": "Папка для сканирования не выбрана",
-
   "settings_title": "Настройки",
   "settings_tab_general": "Основные",
   "settings_tab_archive": "Архив",
   "settings_tab_ui": "Интерфейс",
   "settings_tab_pacs": "PACS",
-
   "settings_ct_dir": "Папка CT Images:",
   "settings_archive_dir": "Папка CT Archive:",
   "settings_client_dir": "Папка EXE Клиента:",
@@ -47,17 +44,14 @@
   "settings_pacs_ip": "IP PACS:",
   "settings_pacs_called_aet": "AET Remote:",
   "settings_pacs_calling_aet": "AET Local:",
-
   "settings_patient_font": "Размер шрифта пациентов:",
   "settings_patient_weight": "Толщина шрифта списков:",
   "settings_log_font": "Размер шрифта логов:",
-
   "placeholder_search_patient": "Введите имя пациента для поиска",
   "btn_search": "Поиск",
   "btn_move_to_archive": "Переместить в архив",
   "btn_restore_from_archive": "Восстановить из архива",
   "placeholder_no_studies_in_folder": "В этой папке нет исследований",
-
   "ctx_open_folder": "Открыть папку",
   "ctx_rename": "Переименовать",
   "ctx_delete_patient": "Удалить пациента",
@@ -65,7 +59,6 @@
   "ctx_delete_str": "Удалить лишние STR",
   "ctx_restore_from_archive": "Восстановить из архива",
   "ctx_delete_archive_patient": "Удалить из архива",
-
   "dlg_confirm_delete_title": "Подтверждение удаления",
   "dlg_confirm_delete_msg": "Вы действительно хотите безвозвратно удалить пациента\n\"{}\" ({}) с диска?",
   "dlg_error_delete_title": "Ошибка удаления",
@@ -75,7 +68,6 @@
   "dlg_confirm_delete_archive_msg": "Вы действительно хотите безвозвратно удалить архивного пациента\n\"{}\" ({}) с диска?",
   "dlg_error_ct_dir": "Неверно настроена рабочая папка CT Images.",
   "dlg_error_download_title": "Ошибка скачивания",
-
   "standby_mode": "Режим ожидания",
   "standby_mode_off": "Откл. режим ожидания",
   "check_updates_btn": "Проверить обновления",
@@ -84,10 +76,8 @@
   "update_open_url": "Открыть ссылку",
   "update_up_to_date": "Вы используете актуальную версию.",
   "update_checking": "Проверяю обновления...",
-
   "notif_new_ct_title": "Новые КТ исследования",
   "notif_new_ct_msg": "Новых исследований за сегодня: {}",
-
   "settings_browse": "Обзор...",
   "settings_open": "Открыть",
   "settings_settings_folder": "Папка настроек:",
@@ -112,11 +102,9 @@
   "settings_tab_notifications": "Уведомления",
   "settings_ct_sound_label": "Звук КТ-уведомлений:",
   "settings_pacs_sound_label": "Звук PACS-уведомлений:",
-  "settings_sound_default": "Стандартный (notification.wav)",
-
+  "settings_sound_default": "Стандартный",
   "lbl_archive_through": "через",
   "lbl_archive_days": "дн.",
-
   "dlg_ct_archive_same": "Папка CT Images и папка CT Archive не могут быть одной и той же папкой.",
   "dlg_archive_empty_path": "Включено автоархивирование, но не указан путь к папке архива.\nПожалуйста, укажите путь к архиву или отключите автоархивирование.",
   "dlg_aet_too_long": "AE Title не должен превышать 16 символов по стандарту DICOM.\n\nAET Remote: \"{}\" ({} симв.)\nAET Local: \"{}\" ({} симв.)\n\nПожалуйста, исправьте значения.",
@@ -146,7 +134,6 @@
   "settings_btn_rename": "Имя",
   "btn_save": "Сохранить",
   "btn_cancel": "Отмена",
-
   "ping_success": "Соединение успешно установлено!\nPACS сервер ответил на пинг и разрешил поиск (устройство зарегистрировано).",
   "ping_aet_local_too_long": "Ошибка: Локальный AE Title (AET Local) '{}' превышает 16 символов.",
   "ping_aet_remote_too_long": "Ошибка: Удалённый AE Title (AET Remote) '{}' превышает 16 символов.",
