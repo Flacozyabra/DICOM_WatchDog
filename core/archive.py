@@ -92,7 +92,8 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                     'body_part': cached_item['body_part'],
                     'folder_datetime': datetime.fromisoformat(cached_item['folder_datetime']),
                     'str': cached_item['str'],
-                    'slices': cached_item.get('slices', len(dcm_files))
+                    'slices': cached_item.get('slices', len(dcm_files)),
+                    'folder_name': item
                 }
                 
                 # Если Fix Switch включен, проверяем/удаляем лишние STR
@@ -148,7 +149,8 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                         'body_part': body_part_str,
                         'folder_datetime': folder_dt,
                         'str': str_count,
-                        'slices': len(dcm_files)
+                        'slices': len(dcm_files),
+                        'folder_name': item
                     }
                     
                     cache[root] = {
