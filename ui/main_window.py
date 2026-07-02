@@ -1049,10 +1049,13 @@ class MainWindow(QMainWindow):
                 color: #ffffff;
                 padding: 6px;
                 border: none;
-                border-right: 1px solid qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 transparent, stop:0.25 transparent, stop:0.3 #3d3d3d, stop:0.7 #3d3d3d, stop:0.75 transparent, stop:1 transparent);
+                border-left: 1px solid qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 transparent, stop:0.25 transparent, stop:0.3 #3d3d3d, stop:0.7 #3d3d3d, stop:0.75 transparent, stop:1 transparent);
                 font-size: 14px;
                 font-weight: normal;
                 font-family: 'Segoe UI';
+            }
+            QHeaderView::section:first {
+                border-left: none;
             }
             QHeaderView {
                 background-color: #1a1a1a;
@@ -2238,10 +2241,13 @@ class MainWindow(QMainWindow):
                     color: #ffffff;
                     padding: 6px;
                     border: none;
-                    border-right: 1px solid qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 transparent, stop:0.25 transparent, stop:0.3 #3d3d3d, stop:0.7 #3d3d3d, stop:0.75 transparent, stop:1 transparent);
+                    border-left: 1px solid qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 transparent, stop:0.25 transparent, stop:0.3 #3d3d3d, stop:0.7 #3d3d3d, stop:0.75 transparent, stop:1 transparent);
                     font-size: 14px;
                     font-weight: normal;
                     font-family: 'Segoe UI';
+                }
+                QHeaderView::section:first {
+                    border-left: none;
                 }
                 QHeaderView {
                     background-color: #1a1a1a;
