@@ -41,6 +41,19 @@ def get_system_voices():
         return []
 
 
+def format_voice_name(voice_raw):
+    name = voice_raw.replace("Desktop", "")
+    if "-" in name:
+        left, right = name.split("-", 1)
+        left = " ".join(left.split())
+        right_clean = right.replace("(", " ").replace(")", " ")
+        right_words = right_clean.strip().split()
+        lang = right_words[0] if right_words else ""
+        return f"{left} - {lang}"
+    else:
+        return " ".join(name.split())
+
+
 def find_matching_voice_index(combo, sound_name):
     if not sound_name or sound_name == 'default':
         return 0
@@ -716,7 +729,7 @@ class SettingsDialog(QDialog):
         # Заполняем ct_sound_combo
         self.ct_sound_combo.addItem("default", "default")
         for voice in self.system_voices:
-            self.ct_sound_combo.addItem(voice, voice)
+            self.ct_sound_combo.addItem(format_voice_name(voice), voice)
         current_ct_sound = self.config.get('ct_notification_sound', 'default')
         idx_ct = find_matching_voice_index(self.ct_sound_combo, current_ct_sound)
         self.ct_sound_combo.setCurrentIndex(idx_ct)
@@ -743,7 +756,7 @@ class SettingsDialog(QDialog):
         # Заполняем pacs_sound_combo
         self.pacs_sound_combo.addItem("default", "default")
         for voice in self.system_voices:
-            self.pacs_sound_combo.addItem(voice, voice)
+            self.pacs_sound_combo.addItem(format_voice_name(voice), voice)
         current_pacs_sound = self.config.get('pacs_notification_sound', 'default')
         idx_pacs = find_matching_voice_index(self.pacs_sound_combo, current_pacs_sound)
         self.pacs_sound_combo.setCurrentIndex(idx_pacs)
