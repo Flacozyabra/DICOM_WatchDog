@@ -2515,4 +2515,22 @@ class MainWindow(QMainWindow):
         self.images_table.set_placeholder_text(tr_ui("placeholder_no_studies_in_folder"))
         self.archive_table.set_placeholder_text(tr_ui("placeholder_no_studies_in_folder"))
 
+        # Подсказки (tooltips)
+        self.settings_btn1.setToolTip(tr_ui("tooltip_settings_btn"))
+        self.settings_btn2.setToolTip(tr_ui("tooltip_settings_btn"))
+        self.settings_btn3.setToolTip(tr_ui("tooltip_settings_btn"))
+        self.search_images_entry.setToolTip(tr_ui("tooltip_search_images_entry"))
+        self.search_images_btn.setToolTip(tr_ui("tooltip_search_images_btn"))
+        self.move_to_archive_btn.setToolTip(tr_ui("tooltip_move_to_archive"))
+        self.search_entry.setToolTip(tr_ui("tooltip_search_archive_entry"))
+        self.search_btn.setToolTip(tr_ui("tooltip_search_archive_btn"))
+        self.move_from_archive_btn.setToolTip(tr_ui("tooltip_restore_from_archive"))
+        self.pacs_auto_scan_cb.setToolTip(tr_ui("tooltip_pacs_auto_scan"))
+        self.pacs_today_btn.setToolTip(tr_ui("tooltip_pacs_today_btn"))
+        self.pacs_3days_btn.setToolTip(tr_ui("tooltip_pacs_3days_btn"))
+        self.pacs_date_from.setToolTip(tr_ui("tooltip_pacs_date_from"))
+        self.pacs_date_to.setToolTip(tr_ui("tooltip_pacs_date_to"))
+        self.pacs_server_combo.setToolTip(tr_ui("tooltip_pacs_server_combo"))
+        self.send_to_ct_btn.setToolTip(tr_ui("tooltip_send_to_ct"))
+
 
