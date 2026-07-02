@@ -13,6 +13,24 @@ from core.config_utils import get_config_path, get_app_data_dir, get_resource_pa
 from core.locale_utils import tr_ui, set_current_langs
 
 
+def get_system_voices():
+    import subprocess
+    import sys
+    if sys.platform != "win32":
+        return []
+    try:
+        cmd = [
+            "powershell", "-NoProfile", "-Command",
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $speech = New-Object -ComObject SAPI.SpVoice; foreach ($v in $speech.GetVoices()) { $v.GetDescription() }"
+        ]
+        output = subprocess.check_output(cmd, text=True, encoding="utf-8")
+        voices = [line.strip() for line in output.splitlines() if line.strip()]
+        return voices
+    except Exception as e:
+        print("Error getting system voices:", e)
+        return []
+
+
 def apply_dark_title_bar(widget):
     if sys.platform == "win32":
         import ctypes
@@ -199,6 +217,8 @@ class SettingsDialog(QDialog):
             'dy': 100,
             'log_font_size': 12,
             'notification_is': 'on',
+            'ct_notification_sound': 'default',
+            'pacs_notification_sound': 'default',
             'icon_path': '',
             'pacs_scan_time': 10000,
             'auto_update_is': 'off',
@@ -330,6 +350,9 @@ class SettingsDialog(QDialog):
             QMessageBox.critical(self, tr_ui("dlg_error_title"), f"Failed to save configuration: {e}")
 
     def init_ui(self):
+        # Получаем голоса
+        self.system_voices = get_system_voices()
+        
         # Главный горизонтальный макет окна
         main_layout = QHBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -373,31 +396,12 @@ class SettingsDialog(QDialog):
         self.lbl_settings_folder = QLabel()
         general_form.addRow(self.lbl_settings_folder, h_layout_app)
 
-        # Разделитель для КТ-папки
+        # Разделитель
         line_ct = QFrame()
         line_ct.setFrameShape(QFrame.Shape.HLine)
         line_ct.setFrameShadow(QFrame.Shadow.Sunken)
-        line_ct.setStyleSheet("background-color: #2d2d2d; margin-top: 5px; margin-bottom: 5px;")
+        line_ct.setStyleSheet("background-color: #2d2d2d; margin-top: 10px; margin-bottom: 10px;")
         general_form.addRow(line_ct)
-        
-        # Notifications
-        self.notify_cb = ToggleSwitch()
-        self.notify_cb.setChecked(self.config.get('notification_is', 'on').lower() == 'on')
-        self.lbl_notify = QLabel()
-        general_form.addRow(self.lbl_notify, self.notify_cb)
-
-        # PACS Notifications
-        self.pacs_notify_cb = ToggleSwitch()
-        self.pacs_notify_cb.setChecked(self.config.get('pacs_notification_is', 'off').lower() == 'on')
-        self.lbl_pacs_notify = QLabel()
-        general_form.addRow(self.lbl_pacs_notify, self.pacs_notify_cb)
-        
-        # Разделитель
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
-        line.setStyleSheet("background-color: #2d2d2d; margin-top: 10px; margin-bottom: 10px;")
-        general_form.addRow(line)
 
         # Автоудаление дубликатов структур
         self.cleanup_str_cb = ToggleSwitch()
@@ -722,6 +726,66 @@ class SettingsDialog(QDialog):
         pacs_layout.addStretch()
         self.stacked_widget.addWidget(pacs_widget)
 
+        # 5. Вкладка Notifications
+        notifications_widget = QWidget()
+        notifications_layout = QVBoxLayout(notifications_widget)
+        notifications_form = QFormLayout()
+
+        # КТ-уведомления
+        self.notify_cb = ToggleSwitch()
+        self.notify_cb.setChecked(self.config.get('notification_is', 'on').lower() == 'on')
+        self.lbl_notify = QLabel()
+        notifications_form.addRow(self.lbl_notify, self.notify_cb)
+
+        # Звук КТ-уведомлений
+        self.ct_sound_combo = QComboBox()
+        self.lbl_ct_sound = QLabel()
+        notifications_form.addRow(self.lbl_ct_sound, self.ct_sound_combo)
+
+        # Заполняем ct_sound_combo
+        self.ct_sound_combo.addItem("default", "default")
+        for voice in self.system_voices:
+            self.ct_sound_combo.addItem(voice, voice)
+        current_ct_sound = self.config.get('ct_notification_sound', 'default')
+        idx_ct = self.ct_sound_combo.findData(current_ct_sound)
+        if idx_ct >= 0:
+            self.ct_sound_combo.setCurrentIndex(idx_ct)
+        else:
+            self.ct_sound_combo.setCurrentIndex(0)
+
+        # Разделитель
+        line_notif = QFrame()
+        line_notif.setFrameShape(QFrame.Shape.HLine)
+        line_notif.setFrameShadow(QFrame.Shadow.Sunken)
+        line_notif.setStyleSheet("background-color: #2d2d2d; margin-top: 10px; margin-bottom: 10px;")
+        notifications_form.addRow(line_notif)
+
+        # PACS-уведомления
+        self.pacs_notify_cb = ToggleSwitch()
+        self.pacs_notify_cb.setChecked(self.config.get('pacs_notification_is', 'off').lower() == 'on')
+        self.lbl_pacs_notify = QLabel()
+        notifications_form.addRow(self.lbl_pacs_notify, self.pacs_notify_cb)
+
+        # Звук PACS-уведомлений
+        self.pacs_sound_combo = QComboBox()
+        self.lbl_pacs_sound = QLabel()
+        notifications_form.addRow(self.lbl_pacs_sound, self.pacs_sound_combo)
+
+        # Заполняем pacs_sound_combo
+        self.pacs_sound_combo.addItem("default", "default")
+        for voice in self.system_voices:
+            self.pacs_sound_combo.addItem(voice, voice)
+        current_pacs_sound = self.config.get('pacs_notification_sound', 'default')
+        idx_pacs = self.pacs_sound_combo.findData(current_pacs_sound)
+        if idx_pacs >= 0:
+            self.pacs_sound_combo.setCurrentIndex(idx_pacs)
+        else:
+            self.pacs_sound_combo.setCurrentIndex(0)
+
+        notifications_layout.addLayout(notifications_form)
+        notifications_layout.addStretch()
+        self.stacked_widget.addWidget(notifications_widget)
+
         # Инициализация списка серверов
         self.populate_server_combo()
         self.settings_server_combo.currentIndexChanged.connect(self.on_settings_server_changed)
@@ -869,11 +933,13 @@ class SettingsDialog(QDialog):
         self.patient_font_spin.valueChanged.connect(self.on_setting_changed)
         self.patient_weight_combo.currentTextChanged.connect(self.on_setting_changed)
         self.notify_cb.toggled.connect(self.on_setting_changed)
+        self.ct_sound_combo.currentIndexChanged.connect(self.on_setting_changed)
         self.highlighting_cb.toggled.connect(self.on_highlighting_toggled)
         self.highlight_new_cb.toggled.connect(self.on_setting_changed)
         self.highlight_today_cb.toggled.connect(self.on_setting_changed)
         self.highlight_no_str_cb.toggled.connect(self.on_setting_changed)
         self.pacs_notify_cb.toggled.connect(self.on_setting_changed)
+        self.pacs_sound_combo.currentIndexChanged.connect(self.on_setting_changed)
         self.check_updates_cb.toggled.connect(self.on_setting_changed)
         self.cleanup_str_cb.toggled.connect(self.on_setting_changed)
         self.fix_patient_id_cb.toggled.connect(self.on_setting_changed)
@@ -914,6 +980,8 @@ class SettingsDialog(QDialog):
         self.config['patient_font_size'] = self.patient_font_spin.value()
         self.config['patient_weight'] = self.patient_weight_combo.currentText()
         self.config['notification_is'] = 'on' if self.notify_cb.isChecked() else 'off'
+        self.config['ct_notification_sound'] = self.ct_sound_combo.currentData()
+        self.config['pacs_notification_sound'] = self.pacs_sound_combo.currentData()
         self.config['pacs_notification_is'] = 'on' if self.pacs_notify_cb.isChecked() else 'off'
         self.config['check_updates_at_startup'] = 'on' if self.check_updates_cb.isChecked() else 'off'
         self.config['auto_update_is'] = self.config.get('auto_update_is', 'off')
@@ -978,7 +1046,8 @@ class SettingsDialog(QDialog):
             tr_ui("settings_tab_general"),
             tr_ui("settings_tab_archive"),
             tr_ui("settings_tab_ui"),
-            tr_ui("settings_tab_pacs")
+            tr_ui("settings_tab_pacs"),
+            tr_ui("settings_tab_notifications")
         ])
         if current_row >= 0:
             self.sidebar.setCurrentRow(current_row)
@@ -996,7 +1065,11 @@ class SettingsDialog(QDialog):
         self.lbl_ct_folder.setText(tr_ui("settings_ct_images_folder"))
         self.lbl_settings_folder.setText(tr_ui("settings_settings_folder"))
         self.lbl_notify.setText(tr_ui("settings_notifications_label"))
+        self.lbl_ct_sound.setText(tr_ui("settings_ct_sound_label"))
         self.lbl_pacs_notify.setText(tr_ui("settings_pacs_notifications_label"))
+        self.lbl_pacs_sound.setText(tr_ui("settings_pacs_sound_label"))
+        self.ct_sound_combo.setItemText(0, tr_ui("settings_sound_default"))
+        self.pacs_sound_combo.setItemText(0, tr_ui("settings_sound_default"))
         self.lbl_cleanup_str.setText(tr_ui("settings_cleanup_str"))
         self.lbl_fix_id.setText(tr_ui("settings_fix_id_label"))
         self.lbl_id_prefixes.setText(tr_ui("settings_id_prefixes_label"))

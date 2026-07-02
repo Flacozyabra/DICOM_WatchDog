@@ -44,12 +44,48 @@ def _get_tray_icon(ico_path: str):
     return _tray_icon
 
 
-def show_notification(title: str, msg: str, durations: str, ico_path: str) -> None:
+def show_notification(title: str, msg: str, durations: str, ico_path: str, sound_setting: str = 'default') -> None:
     """Show a desktop notification.
 
     Uses winotify Toast on Windows 10+, falls back to QSystemTrayIcon
     balloon message on older Windows versions (7 / 8 / 8.1).
     """
+    # 1. Сначала воспроизводим звук/голос
+    if sound_setting == 'default':
+        from core.config_utils import get_resource_path
+        wav_path = get_resource_path("src/notification.wav")
+        if os.path.exists(wav_path) and sys.platform == "win32":
+            try:
+                import winsound
+                winsound.PlaySound(wav_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+            except Exception:
+                pass
+    elif sound_setting and sound_setting != 'default' and sys.platform == "win32":
+        # Озвучиваем имя
+        text_to_speak = title  # В заголовке у нас лежит Patient Name
+        ps_code = f"""
+$speech = New-Object -ComObject SAPI.SpVoice
+$voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq "{sound_setting}" }} | Select-Object -First 1
+if ($voice) {{
+    $speech.Voice = $voice
+}}
+$speech.Speak("{text_to_speak}")
+Remove-Item $MyInvocation.MyCommand.Path -Force
+"""
+        import tempfile
+        import subprocess
+        try:
+            fd, path = tempfile.mkstemp(suffix=".ps1", text=True)
+            with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
+                f.write(ps_code)
+            subprocess.Popen(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+        except Exception:
+            pass
+
+    # 2. Показываем всплывающее уведомление
     if _HAS_WINOTIFY:
         try:
             toast = Notification(
@@ -59,7 +95,13 @@ def show_notification(title: str, msg: str, durations: str, ico_path: str) -> No
                 duration=durations,
                 icon=rf'{ico_path}'
             )
-            toast.set_audio(winotify_audio.Default, loop=False)
+            # Если звук проигран нами (или это TTS), глушим стандартный звук Windows
+            from core.config_utils import get_resource_path
+            wav_exists = os.path.exists(get_resource_path("src/notification.wav"))
+            if sound_setting != 'default' or wav_exists:
+                toast.set_audio(winotify_audio.Silent, loop=False)
+            else:
+                toast.set_audio(winotify_audio.Default, loop=False)
             toast.show()
             return
         except Exception:

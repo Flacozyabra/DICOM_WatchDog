@@ -1316,7 +1316,8 @@ class MainWindow(QMainWindow):
                             str(data['patient_name']), 
                             'Новое КТ', 
                             'short', 
-                            icon_path
+                            icon_path,
+                            self.config.get('ct_notification_sound', 'default')
                         )
 
         self.images_cache = patient_dict
@@ -2083,7 +2084,8 @@ class MainWindow(QMainWindow):
                                 str(data['patient_name']),
                                 'Новое КТ (PACS)',
                                 'short',
-                                icon_blue_path
+                                icon_blue_path,
+                                self.config.get('pacs_notification_sound', 'default')
                             )
 
                 if new_patients:

@@ -109,6 +109,10 @@
   "settings_standby_interval": "Интервал автообновления в режиме ожидания:",
   "settings_notifications_label": "Уведомления:",
   "settings_pacs_notifications_label": "Уведомления PACS:",
+  "settings_tab_notifications": "Уведомления",
+  "settings_ct_sound_label": "Звук КТ-уведомлений:",
+  "settings_pacs_sound_label": "Звук PACS-уведомлений:",
+  "settings_sound_default": "Стандартный (notification.wav)",
 
   "lbl_archive_through": "через",
   "lbl_archive_days": "дн.",

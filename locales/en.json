@@ -109,6 +109,10 @@
   "settings_standby_interval": "Standby auto-refresh interval:",
   "settings_notifications_label": "Notifications:",
   "settings_pacs_notifications_label": "PACS notifications:",
+  "settings_tab_notifications": "Notifications",
+  "settings_ct_sound_label": "CT notification sound:",
+  "settings_pacs_sound_label": "PACS notification sound:",
+  "settings_sound_default": "Default (notification.wav)",
 
   "lbl_archive_through": "after",
   "lbl_archive_days": "days",
