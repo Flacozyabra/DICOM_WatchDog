@@ -638,7 +638,69 @@ class SettingsDialog(QDialog):
         ui_layout.addStretch()
         self.stacked_widget.addWidget(ui_widget)
         
-        # 4. Вкладка PACS
+        # 4. Вкладка Notifications
+        notifications_widget = QWidget()
+        notifications_layout = QVBoxLayout(notifications_widget)
+        notifications_form = QFormLayout()
+
+        # КТ-уведомления
+        self.notify_cb = ToggleSwitch()
+        self.notify_cb.setChecked(self.config.get('notification_is', 'on').lower() == 'on')
+        self.lbl_notify = QLabel()
+        notifications_form.addRow(self.lbl_notify, self.notify_cb)
+
+        # Звук КТ-уведомлений
+        self.ct_sound_combo = QComboBox()
+        self.lbl_ct_sound = QLabel()
+        notifications_form.addRow(self.lbl_ct_sound, self.ct_sound_combo)
+
+        # Заполняем ct_sound_combo
+        self.ct_sound_combo.addItem("default", "default")
+        for voice in self.system_voices:
+            self.ct_sound_combo.addItem(voice, voice)
+        current_ct_sound = self.config.get('ct_notification_sound', 'default')
+        idx_ct = self.ct_sound_combo.findData(current_ct_sound)
+        if idx_ct >= 0:
+            self.ct_sound_combo.setCurrentIndex(idx_ct)
+        else:
+            self.ct_sound_combo.setCurrentIndex(0)
+        self.ct_sound_combo.activated.connect(lambda: self.play_sound_preview(self.ct_sound_combo))
+
+        # Разделитель
+        line_notif = QFrame()
+        line_notif.setFrameShape(QFrame.Shape.HLine)
+        line_notif.setFrameShadow(QFrame.Shadow.Sunken)
+        line_notif.setStyleSheet("background-color: #2d2d2d; margin-top: 10px; margin-bottom: 10px;")
+        notifications_form.addRow(line_notif)
+
+        # PACS-уведомления
+        self.pacs_notify_cb = ToggleSwitch()
+        self.pacs_notify_cb.setChecked(self.config.get('pacs_notification_is', 'off').lower() == 'on')
+        self.lbl_pacs_notify = QLabel()
+        notifications_form.addRow(self.lbl_pacs_notify, self.pacs_notify_cb)
+
+        # Звук PACS-уведомлений
+        self.pacs_sound_combo = QComboBox()
+        self.lbl_pacs_sound = QLabel()
+        notifications_form.addRow(self.lbl_pacs_sound, self.pacs_sound_combo)
+
+        # Заполняем pacs_sound_combo
+        self.pacs_sound_combo.addItem("default", "default")
+        for voice in self.system_voices:
+            self.pacs_sound_combo.addItem(voice, voice)
+        current_pacs_sound = self.config.get('pacs_notification_sound', 'default')
+        idx_pacs = self.pacs_sound_combo.findData(current_pacs_sound)
+        if idx_pacs >= 0:
+            self.pacs_sound_combo.setCurrentIndex(idx_pacs)
+        else:
+            self.pacs_sound_combo.setCurrentIndex(0)
+        self.pacs_sound_combo.activated.connect(lambda: self.play_sound_preview(self.pacs_sound_combo))
+
+        notifications_layout.addLayout(notifications_form)
+        notifications_layout.addStretch()
+        self.stacked_widget.addWidget(notifications_widget)
+        
+        # 5. Вкладка PACS
         pacs_widget = QWidget()
         pacs_layout = QVBoxLayout(pacs_widget)
         pacs_layout.setSpacing(12)
@@ -725,66 +787,6 @@ class SettingsDialog(QDialog):
         
         pacs_layout.addStretch()
         self.stacked_widget.addWidget(pacs_widget)
-
-        # 5. Вкладка Notifications
-        notifications_widget = QWidget()
-        notifications_layout = QVBoxLayout(notifications_widget)
-        notifications_form = QFormLayout()
-
-        # КТ-уведомления
-        self.notify_cb = ToggleSwitch()
-        self.notify_cb.setChecked(self.config.get('notification_is', 'on').lower() == 'on')
-        self.lbl_notify = QLabel()
-        notifications_form.addRow(self.lbl_notify, self.notify_cb)
-
-        # Звук КТ-уведомлений
-        self.ct_sound_combo = QComboBox()
-        self.lbl_ct_sound = QLabel()
-        notifications_form.addRow(self.lbl_ct_sound, self.ct_sound_combo)
-
-        # Заполняем ct_sound_combo
-        self.ct_sound_combo.addItem("default", "default")
-        for voice in self.system_voices:
-            self.ct_sound_combo.addItem(voice, voice)
-        current_ct_sound = self.config.get('ct_notification_sound', 'default')
-        idx_ct = self.ct_sound_combo.findData(current_ct_sound)
-        if idx_ct >= 0:
-            self.ct_sound_combo.setCurrentIndex(idx_ct)
-        else:
-            self.ct_sound_combo.setCurrentIndex(0)
-
-        # Разделитель
-        line_notif = QFrame()
-        line_notif.setFrameShape(QFrame.Shape.HLine)
-        line_notif.setFrameShadow(QFrame.Shadow.Sunken)
-        line_notif.setStyleSheet("background-color: #2d2d2d; margin-top: 10px; margin-bottom: 10px;")
-        notifications_form.addRow(line_notif)
-
-        # PACS-уведомления
-        self.pacs_notify_cb = ToggleSwitch()
-        self.pacs_notify_cb.setChecked(self.config.get('pacs_notification_is', 'off').lower() == 'on')
-        self.lbl_pacs_notify = QLabel()
-        notifications_form.addRow(self.lbl_pacs_notify, self.pacs_notify_cb)
-
-        # Звук PACS-уведомлений
-        self.pacs_sound_combo = QComboBox()
-        self.lbl_pacs_sound = QLabel()
-        notifications_form.addRow(self.lbl_pacs_sound, self.pacs_sound_combo)
-
-        # Заполняем pacs_sound_combo
-        self.pacs_sound_combo.addItem("default", "default")
-        for voice in self.system_voices:
-            self.pacs_sound_combo.addItem(voice, voice)
-        current_pacs_sound = self.config.get('pacs_notification_sound', 'default')
-        idx_pacs = self.pacs_sound_combo.findData(current_pacs_sound)
-        if idx_pacs >= 0:
-            self.pacs_sound_combo.setCurrentIndex(idx_pacs)
-        else:
-            self.pacs_sound_combo.setCurrentIndex(0)
-
-        notifications_layout.addLayout(notifications_form)
-        notifications_layout.addStretch()
-        self.stacked_widget.addWidget(notifications_widget)
 
         # Инициализация списка серверов
         self.populate_server_combo()
@@ -1020,6 +1022,45 @@ class SettingsDialog(QDialog):
         if MainWindow.instance:
             MainWindow.instance.apply_settings_dynamic(self.config)
 
+    def play_sound_preview(self, combo):
+        sound_setting = combo.currentData()
+        if not sound_setting:
+            return
+            
+        if sound_setting == 'default':
+            from core.config_utils import get_resource_path
+            wav_path = get_resource_path("src/notification.wav")
+            if os.path.exists(wav_path) and sys.platform == "win32":
+                try:
+                    import winsound
+                    winsound.PlaySound(wav_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                except Exception:
+                    pass
+        elif sys.platform == "win32":
+            lang = self.config.get('interface_lang', 'en')
+            text_to_speak = "Проверка звука" if lang == "ru" else "Sound check"
+            ps_code = f"""
+$speech = New-Object -ComObject SAPI.SpVoice
+$voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq "{sound_setting}" }} | Select-Object -First 1
+if ($voice) {{
+    $speech.Voice = $voice
+}}
+$speech.Speak("{text_to_speak}")
+Remove-Item $MyInvocation.MyCommand.Path -Force
+"""
+            import tempfile
+            import subprocess
+            try:
+                fd, path = tempfile.mkstemp(suffix=".ps1", text=True)
+                with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
+                    f.write(ps_code)
+                subprocess.Popen(
+                    ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+            except Exception:
+                pass
+
     def on_interface_lang_changed(self, lang):
         self.config['interface_lang'] = lang
         set_current_langs(self.config.get('interface_lang', 'en'), self.config.get('log_lang', 'en'))
@@ -1046,8 +1087,8 @@ class SettingsDialog(QDialog):
             tr_ui("settings_tab_general"),
             tr_ui("settings_tab_archive"),
             tr_ui("settings_tab_ui"),
-            tr_ui("settings_tab_pacs"),
-            tr_ui("settings_tab_notifications")
+            tr_ui("settings_tab_notifications"),
+            tr_ui("settings_tab_pacs")
         ])
         if current_row >= 0:
             self.sidebar.setCurrentRow(current_row)
