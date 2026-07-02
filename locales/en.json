@@ -103,6 +103,8 @@
   "settings_ct_sound_label": "CT notification sound:",
   "settings_pacs_sound_label": "PACS notification sound:",
   "settings_sound_default": "Default",
+  "settings_btn_unlock_voices": "Unlock additional Windows voices (Pavel, Mark...)",
+  "msg_voices_unlock_initiated": "Administrator rights request sent. Confirm execution in the Windows UAC window that appears. After that, reopen settings to refresh the voice list.",
   "lbl_archive_through": "after",
   "lbl_archive_days": "days",
   "dlg_ct_archive_same": "CT Images folder and CT Archive folder cannot be the same folder.",

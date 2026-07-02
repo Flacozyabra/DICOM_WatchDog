@@ -103,6 +103,8 @@
   "settings_ct_sound_label": "Звук КТ-уведомлений:",
   "settings_pacs_sound_label": "Звук PACS-уведомлений:",
   "settings_sound_default": "Стандартный",
+  "settings_btn_unlock_voices": "Разблокировать дополнительные голоса Windows (Pavel, Mark...)",
+  "msg_voices_unlock_initiated": "Запрос прав администратора отправлен. Подтвердите выполнение в появившемся окне Windows UAC. После этого перезапустите настройки, чтобы обновился список голосов.",
   "lbl_archive_through": "через",
   "lbl_archive_days": "дн.",
   "dlg_ct_archive_same": "Папка CT Images и папка CT Archive не могут быть одной и той же папкой.",

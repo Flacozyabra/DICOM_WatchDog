@@ -59,6 +59,37 @@ def find_matching_voice_index(combo, sound_name):
     return 0
 
 
+def are_onecore_voices_locked():
+    import winreg
+    import sys
+    if sys.platform != "win32":
+        return False
+    try:
+        onecore_path = r"SOFTWARE\Microsoft\Speech_OneCore\Voices\Tokens"
+        onecore_key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, onecore_path)
+        onecore_count = winreg.QueryInfoKey(onecore_key)[0]
+        onecore_names = set()
+        for i in range(onecore_count):
+            onecore_names.add(winreg.EnumKey(onecore_key, i))
+        winreg.CloseKey(onecore_key)
+        
+        if not onecore_names:
+            return False
+            
+        sapi5_path = r"SOFTWARE\Microsoft\Speech\Voices\Tokens"
+        sapi5_key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, sapi5_path)
+        sapi5_count = winreg.QueryInfoKey(sapi5_key)[0]
+        sapi5_names = set()
+        for i in range(sapi5_count):
+            sapi5_names.add(winreg.EnumKey(sapi5_key, i))
+        winreg.CloseKey(sapi5_key)
+        
+        missing = onecore_names - sapi5_names
+        return len(missing) > 0
+    except Exception:
+        return False
+
+
 def apply_dark_title_bar(widget):
     if sys.platform == "win32":
         import ctypes
@@ -718,6 +749,16 @@ class SettingsDialog(QDialog):
         self.pacs_sound_combo.setCurrentIndex(idx_pacs)
         self.pacs_sound_combo.activated.connect(lambda: self.play_sound_preview(self.pacs_sound_combo))
 
+        # Разблокировка голосов Windows OneCore
+        self.btn_unlock_voices = QPushButton()
+        self.btn_unlock_voices.setFixedHeight(32)
+        self.btn_unlock_voices.clicked.connect(self.unlock_system_voices)
+        
+        if are_onecore_voices_locked():
+            notifications_form.addRow(self.btn_unlock_voices)
+        else:
+            self.btn_unlock_voices.setVisible(False)
+
         notifications_layout.addLayout(notifications_form)
         notifications_layout.addStretch()
         self.stacked_widget.addWidget(notifications_widget)
@@ -1083,6 +1124,54 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
             except Exception:
                 pass
 
+    def unlock_system_voices(self):
+        import subprocess
+        import sys
+        import os
+        import tempfile
+        from PyQt6.QtWidgets import QMessageBox
+        from core.locale_utils import tr_ui
+
+        ps_code = """
+$src = "HKLM:\\SOFTWARE\\Microsoft\\Speech_OneCore\\Voices\\Tokens"
+$dst64 = "HKLM:\\SOFTWARE\\Microsoft\\Speech\\Voices\\Tokens"
+$dst32 = "HKLM:\\SOFTWARE\\Wow6432Node\\Microsoft\\Speech\\Voices\\Tokens"
+
+function Copy-VoiceTokens($srcPath, $dstPath) {
+    if (Test-Path $srcPath) {
+        if (-not (Test-Path $dstPath)) {
+            New-Item -Path $dstPath -Force | Out-Null
+        }
+        Get-ChildItem $srcPath | ForEach-Object {
+            $name = $_.PSChildName
+            $dstToken = "$dstPath\\$name"
+            if (-not (Test-Path $dstToken)) {
+                Copy-Item -Path "$srcPath\\$name" -Destination $dstPath -Recurse -Force
+            }
+        }
+    }
+}
+
+Copy-VoiceTokens $src $dst64
+Copy-VoiceTokens $src $dst32
+"""
+        try:
+            fd, path = tempfile.mkstemp(suffix=".ps1", text=True)
+            with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
+                f.write(ps_code)
+            
+            cmd = f"Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"{path}\"'"
+            subprocess.run(["powershell", "-NoProfile", "-Command", cmd], creationflags=subprocess.CREATE_NO_WINDOW)
+            
+            QMessageBox.information(
+                self,
+                tr_ui("dlg_ping_success_title"),
+                tr_ui("msg_voices_unlock_initiated")
+            )
+            self.btn_unlock_voices.setVisible(False)
+        except Exception as e:
+            print("Error unlocking voices:", e)
+
     def on_interface_lang_changed(self, lang):
         self.config['interface_lang'] = lang
         set_current_langs(self.config.get('interface_lang', 'en'), self.config.get('log_lang', 'en'))
@@ -1133,6 +1222,7 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
         self.lbl_pacs_sound.setText(tr_ui("settings_pacs_sound_label"))
         self.ct_sound_combo.setItemText(0, tr_ui("settings_sound_default"))
         self.pacs_sound_combo.setItemText(0, tr_ui("settings_sound_default"))
+        self.btn_unlock_voices.setText(tr_ui("settings_btn_unlock_voices"))
         self.lbl_cleanup_str.setText(tr_ui("settings_cleanup_str"))
         self.lbl_fix_id.setText(tr_ui("settings_fix_id_label"))
         self.lbl_id_prefixes.setText(tr_ui("settings_id_prefixes_label"))
