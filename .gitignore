@@ -42,7 +42,7 @@ mimo.bat
 build/
 dist/
 *.spec
-src/app_icon.ico
+
 
 # Служебные файлы ИИ-помощника (.agent)
 .agent/
