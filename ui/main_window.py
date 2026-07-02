@@ -1043,7 +1043,22 @@ class MainWindow(QMainWindow):
         weight_str = self.config.get('patient_weight', 'Semibold')
         weight = weight_map.get(weight_str, "400")
         table_style = f"font-size: {font_size}px; font-weight: {weight}; font-family: 'Segoe UI';"
-        header_style = "font-size: 14px; font-weight: normal; font-family: 'Segoe UI';"
+        header_style = """
+            QHeaderView::section {
+                background-color: #1a1a1a;
+                color: #ffffff;
+                padding: 6px;
+                border: none;
+                border-right: 1px solid qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 transparent, stop:0.25 transparent, stop:0.3 #3d3d3d, stop:0.7 #3d3d3d, stop:0.75 transparent, stop:1 transparent);
+                font-size: 14px;
+                font-weight: normal;
+                font-family: 'Segoe UI';
+            }
+            QHeaderView {
+                background-color: #1a1a1a;
+                border: none;
+            }
+        """
         table.setStyleSheet(table_style)
         table.horizontalHeader().setStyleSheet(header_style)
         
@@ -2217,7 +2232,22 @@ class MainWindow(QMainWindow):
             weight_str = self.config.get('patient_weight', 'Semibold')
             weight = weight_map.get(weight_str, "400")
             table_style = f"font-size: {font_size}px; font-weight: {weight}; font-family: 'Segoe UI';"
-            header_style = "font-size: 14px; font-weight: normal; font-family: 'Segoe UI';"
+            header_style = """
+                QHeaderView::section {
+                    background-color: #1a1a1a;
+                    color: #ffffff;
+                    padding: 6px;
+                    border: none;
+                    border-right: 1px solid qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 transparent, stop:0.25 transparent, stop:0.3 #3d3d3d, stop:0.7 #3d3d3d, stop:0.75 transparent, stop:1 transparent);
+                    font-size: 14px;
+                    font-weight: normal;
+                    font-family: 'Segoe UI';
+                }
+                QHeaderView {
+                    background-color: #1a1a1a;
+                    border: none;
+                }
+            """
             for table in [self.images_table, self.archive_table, self.pacs_table]:
                 table.setStyleSheet(table_style)
                 table.horizontalHeader().setStyleSheet(header_style)
