@@ -195,7 +195,11 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
 
     # 3. Если включено переименование папки исследования (rename_folder)
     if rename_folder:
-        name_part = sanitize_folder_name(getattr(ds, "PatientName", ""))
+        raw_name = str(getattr(ds, "PatientName", ""))
+        clean_name = raw_name.replace('^', ' ').replace('_', ' ').strip()
+        import re
+        clean_name = re.sub(r'\s+', ' ', clean_name)
+        name_part = sanitize_folder_name(clean_name)
         if rename_mode == 'id':
             target_folder_name = str(new_patient_id)
         elif rename_mode == 'name':
