@@ -2,6 +2,100 @@ import sys
 import os
 import time
 
+# --- ШИМ ДЛЯ СОВМЕСТИМОСТИ PYQT6 -> PYQT5 ---
+USE_PYQT5 = os.environ.get('FORCE_PYQT5') == '1'
+if not USE_PYQT5:
+    try:
+        import PyQt6.QtCore
+    except ImportError:
+        USE_PYQT5 = True
+
+if USE_PYQT5:
+    try:
+        import PyQt5.QtCore
+        import PyQt5.QtGui
+        import PyQt5.QtWidgets
+
+        # Патчим оригинальные классы PyQt5 для трансляции вложенных перечислений PyQt6
+        for name in [
+            'AlignmentFlag', 'CheckState', 'ContextMenuPolicy', 'Corner',
+            'CursorShape', 'ItemDataRole', 'ItemFlag', 'KeyboardModifier',
+            'Orientation', 'ScrollBarPolicy', 'SortOrder', 'TextInteractionFlag',
+            'WindowModality'
+        ]:
+            if not hasattr(PyQt5.QtCore.Qt, name):
+                setattr(PyQt5.QtCore.Qt, name, PyQt5.QtCore.Qt)
+
+        for name in ['EditTrigger', 'SelectionBehavior', 'SelectionMode']:
+            if not hasattr(PyQt5.QtWidgets.QAbstractItemView, name):
+                setattr(PyQt5.QtWidgets.QAbstractItemView, name, PyQt5.QtWidgets.QAbstractItemView)
+
+        if not hasattr(PyQt5.QtGui.QFont, 'Weight'):
+            setattr(PyQt5.QtGui.QFont, 'Weight', PyQt5.QtGui.QFont)
+            
+        if not hasattr(PyQt5.QtWidgets.QHeaderView, 'ResizeMode'):
+            setattr(PyQt5.QtWidgets.QHeaderView, 'ResizeMode', PyQt5.QtWidgets.QHeaderView)
+            
+        if not hasattr(PyQt5.QtWidgets.QLineEdit, 'EchoMode'):
+            setattr(PyQt5.QtWidgets.QLineEdit, 'EchoMode', PyQt5.QtWidgets.QLineEdit)
+
+        for name in ['ButtonRole', 'Icon', 'StandardButton']:
+            if not hasattr(PyQt5.QtWidgets.QMessageBox, name):
+                setattr(PyQt5.QtWidgets.QMessageBox, name, PyQt5.QtWidgets.QMessageBox)
+
+        for name in ['ColorGroup', 'ColorRole']:
+            if not hasattr(PyQt5.QtGui.QPalette, name):
+                setattr(PyQt5.QtGui.QPalette, name, PyQt5.QtGui.QPalette)
+
+        if not hasattr(PyQt5.QtCore.QSettings, 'Format'):
+            setattr(PyQt5.QtCore.QSettings, 'Format', PyQt5.QtCore.QSettings)
+            
+        if not hasattr(PyQt5.QtWidgets.QSizePolicy, 'Policy'):
+            setattr(PyQt5.QtWidgets.QSizePolicy, 'Policy', PyQt5.QtWidgets.QSizePolicy)
+            
+        if not hasattr(PyQt5.QtGui.QTextCursor, 'MoveOperation'):
+            setattr(PyQt5.QtGui.QTextCursor, 'MoveOperation', PyQt5.QtGui.QTextCursor)
+
+        if not hasattr(PyQt5.QtWidgets.QFrame, 'Shape'):
+            setattr(PyQt5.QtWidgets.QFrame, 'Shape', PyQt5.QtWidgets.QFrame)
+            
+        if not hasattr(PyQt5.QtWidgets.QFrame, 'Shadow'):
+            setattr(PyQt5.QtWidgets.QFrame, 'Shadow', PyQt5.QtWidgets.QFrame)
+
+        # Перенаправляем QAction и QActionGroup, которые переехали в QtGui в PyQt6
+        PyQt5.QtGui.QAction = PyQt5.QtWidgets.QAction
+        if hasattr(PyQt5.QtWidgets, 'QActionGroup'):
+            PyQt5.QtGui.QActionGroup = PyQt5.QtWidgets.QActionGroup
+
+        # Патчим QMouseEvent для поддержки .position(), возвращающего QPointF как в PyQt6
+        PyQt5.QtGui.QMouseEvent.position = lambda self: self.localPos()
+
+        # Включаем поддержку High DPI масштабирования для PyQt5
+        PyQt5.QtCore.QCoreApplication.setAttribute(PyQt5.QtCore.Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
+        PyQt5.QtCore.QCoreApplication.setAttribute(PyQt5.QtCore.Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+        os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
+        os.environ["QT_SCALE_FACTOR_ROUNDING_POLICY"] = "PassThrough"
+
+        # Подменяем модули в sys.modules
+        sys.modules['PyQt6'] = sys.modules.get('PyQt5')
+        sys.modules['PyQt6.QtCore'] = PyQt5.QtCore
+        sys.modules['PyQt6.QtGui'] = PyQt5.QtGui
+        sys.modules['PyQt6.QtWidgets'] = PyQt5.QtWidgets
+    except ImportError as e_pyqt5:
+        if sys.platform == "win32":
+            import ctypes
+            error_msg = (
+                "Ошибка запуска приложения:\n\n"
+                "Не удалось загрузить компоненты PyQt6 или PyQt5. Обычно это связано с тем, что на компьютере не установлен пакет Microsoft Visual C++ Redistributable (MSVC++).\n\n"
+                "Пожалуйста, скачайте и установите распространяемый пакет Visual C++ (версии 2015-2022) с официального сайта Microsoft и запустите программу снова.\n\n"
+                f"Детали ошибки (PyQt6): Не удалось загрузить DLL\n"
+                f"Детали ошибки (PyQt5): {e_pyqt5}"
+            )
+            ctypes.windll.user32.MessageBoxW(0, error_msg, "Критическая ошибка - DICOM WatchDog", 0x10) # 0x10 = MB_ICONERROR
+        else:
+            print(f"Error: failed to load PyQt6/PyQt5. Details: {e_pyqt5}")
+        sys.exit(1)
+
 from PyQt6.QtWidgets import QApplication, QSplashScreen, QVBoxLayout, QLabel, QProgressBar
 from PyQt6.QtCore import Qt
 
