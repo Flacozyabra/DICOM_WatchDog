@@ -9,6 +9,38 @@ if sys.platform == "win32":
         _win_minor = sys.getwindowsversion().minor
         # Windows 10 is NT 10.0; Windows 7 is NT 6.1
         if _win_major >= 10:
+            import winotify
+            # Patch TEMPLATE to use modern ToastGeneric template and place the icon as a large side logo (appLogoOverride)
+            winotify.TEMPLATE = r"""
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
+[Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+$Template = @"
+<toast {launch} duration="{duration}">
+    <visual>
+        <binding template="ToastGeneric">
+            <image id="1" placement="appLogoOverride" src="{icon}" />
+            <text id="1"><![CDATA[{title}]]></text>
+            <text id="2"><![CDATA[{msg}]]></text>
+        </binding>
+    </visual>
+    <actions>
+        {actions}
+    </actions>
+    {audio}
+</toast>
+"@
+
+$SerializedXml = New-Object Windows.Data.Xml.Dom.XmlDocument
+$SerializedXml.LoadXml($Template)
+
+$Toast = [Windows.UI.Notifications.ToastNotification]::new($SerializedXml)
+$Toast.Tag = "{tag}"
+$Toast.Group = "{group}"
+
+$Notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("{app_id}")
+$Notifier.Show($Toast);
+"""
             from winotify import Notification, audio as winotify_audio
             _HAS_WINOTIFY = True
     except Exception:
