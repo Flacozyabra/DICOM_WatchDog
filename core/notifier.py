@@ -154,11 +154,11 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
                 )
                 # Если звук включен (play_sound=True), то тост должен быть беззвучным,
                 # так как кастомный звук (или TTS) воспроизводится самим приложением.
-                # Если звук выключен (play_sound=False), то тост воспроизводит стандартный системный звук.
+                # Если звук выключен (play_sound=False), то тост воспроизводит стандартный системный звук (тег audio отсутствует).
                 if play_sound:
                     toast.audio = '<audio silent="true" />'
                 else:
-                    toast.audio = '<audio src="ms-winsoundevent:Notification.Default" />'
+                    toast.audio = ''
                 toast.show()
                 return
             except Exception as e:
