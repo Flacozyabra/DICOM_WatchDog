@@ -144,7 +144,7 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
                 from core.config_utils import get_resource_path
                 wav_exists = os.path.exists(get_resource_path("src/notification.wav"))
                 if sound_setting != 'default' or wav_exists or not play_sound:
-                    toast.set_audio(winotify_audio.Silent, loop=False)
+                    toast.audio = '<audio silent="true" />'
                 else:
                     toast.set_audio(winotify_audio.Default, loop=False)
                 toast.show()
