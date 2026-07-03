@@ -289,10 +289,10 @@ class SettingsDialog(QDialog):
             'dy': 100,
             'log_font_size': 12,
             'notifications_enabled': 'False',
-            'ct_notification_toast_enabled': 'True',
+            'ct_notification_toast_enabled': 'False',
             'ct_notification_sound_enabled': 'False',
             'ct_notification_sound': 'default',
-            'pacs_notification_toast_enabled': 'True',
+            'pacs_notification_toast_enabled': 'False',
             'pacs_notification_sound_enabled': 'False',
             'pacs_notification_sound': 'default',
             'icon_path': '',
@@ -863,11 +863,39 @@ class SettingsDialog(QDialog):
             # Вызываем ручное сохранение, так как сигналы под-свичей были заблокированы
             self.on_setting_changed()
 
+        def on_ct_toast_toggled(checked):
+            if checked:
+                self.ct_sound_cb.blockSignals(True)
+                self.ct_sound_cb.setChecked(False)
+                self.ct_sound_cb.blockSignals(False)
+            update_notification_states()
+
+        def on_ct_sound_toggled(checked):
+            if checked:
+                self.ct_toast_cb.blockSignals(True)
+                self.ct_toast_cb.setChecked(False)
+                self.ct_toast_cb.blockSignals(False)
+            update_notification_states()
+
+        def on_pacs_toast_toggled(checked):
+            if checked:
+                self.pacs_sound_cb.blockSignals(True)
+                self.pacs_sound_cb.setChecked(False)
+                self.pacs_sound_cb.blockSignals(False)
+            update_notification_states()
+
+        def on_pacs_sound_toggled(checked):
+            if checked:
+                self.pacs_toast_cb.blockSignals(True)
+                self.pacs_toast_cb.setChecked(False)
+                self.pacs_toast_cb.blockSignals(False)
+            update_notification_states()
+
         self.notifications_enabled_cb.toggled.connect(on_master_toggled)
-        self.ct_toast_cb.toggled.connect(update_notification_states)
-        self.ct_sound_cb.toggled.connect(update_notification_states)
-        self.pacs_toast_cb.toggled.connect(update_notification_states)
-        self.pacs_sound_cb.toggled.connect(update_notification_states)
+        self.ct_toast_cb.toggled.connect(on_ct_toast_toggled)
+        self.ct_sound_cb.toggled.connect(on_ct_sound_toggled)
+        self.pacs_toast_cb.toggled.connect(on_pacs_toast_toggled)
+        self.pacs_sound_cb.toggled.connect(on_pacs_sound_toggled)
         
         # Начальная инициализация
         update_notification_states()
