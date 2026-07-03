@@ -22,7 +22,7 @@ from core.logger import log_message
 from core.pacs import pacs_dict_create, download_patient_from_pacs
 from core.config_utils import get_resource_path, VERSION
 from core.locale_utils import tr_ui, tr_log, set_current_langs
-from ui.settings_dialog import SettingsDialog
+from ui.settings_dialog import SettingsDialog, apply_dark_title_bar
 from ui.toggle_switch import ToggleSwitch
 from ui.centered_date_edit import CenteredDateEdit
 from themes.theme_manager import load_theme
@@ -1480,7 +1480,6 @@ class MainWindow(QMainWindow):
 
     def rename_tab_dialog(self, index):
         from PyQt6.QtWidgets import QInputDialog
-        from ui.settings_dialog import apply_dark_title_bar
         
         current_name = self.tab_widget.tabText(index)
         
@@ -1544,13 +1543,14 @@ class MainWindow(QMainWindow):
             log_message(self.output_field, tr_log("log_path_not_exist", path))
             return
 
-        reply = QMessageBox.question(
-            self,
-            tr_ui("dlg_confirm_delete_title"),
-            tr_ui("dlg_confirm_delete_msg", patient_name, patient_id),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
+        _dlg = QMessageBox(self)
+        _dlg.setIcon(QMessageBox.Icon.Question)
+        _dlg.setWindowTitle(tr_ui("dlg_confirm_delete_title"))
+        _dlg.setText(tr_ui("dlg_confirm_delete_msg", patient_name, patient_id))
+        _dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        _dlg.setDefaultButton(QMessageBox.StandardButton.No)
+        apply_dark_title_bar(_dlg)
+        reply = _dlg.exec()
         
         if reply == QMessageBox.StandardButton.Yes:
             try:
@@ -1558,7 +1558,12 @@ class MainWindow(QMainWindow):
                 log_message(self.output_field, tr_log("log_patient_deleted", patient_name, patient_id))
                 self.show_patient_list()
             except Exception as e:
-                QMessageBox.critical(self, tr_ui("dlg_error_delete_title"), tr_ui("dlg_error_delete_msg", e))
+                _err = QMessageBox(self)
+                _err.setIcon(QMessageBox.Icon.Critical)
+                _err.setWindowTitle(tr_ui("dlg_error_delete_title"))
+                _err.setText(tr_ui("dlg_error_delete_msg", e))
+                apply_dark_title_bar(_err)
+                _err.exec()
                 patient_name_str = f" [{patient_name}]" if patient_name else ""
                 log_message(self.output_field, tr_log("log_failed_delete_patient", patient_id, patient_name_str, e))
 
@@ -1583,7 +1588,12 @@ class MainWindow(QMainWindow):
             log_message(self.output_field, tr_log("log_patient_archived", patient_id, name_str))
             self.show_patient_list()
         except Exception as e:
-            QMessageBox.critical(self, tr_ui("dlg_error_archive_title"), tr_ui("dlg_error_archive_msg", e))
+            _err = QMessageBox(self)
+            _err.setIcon(QMessageBox.Icon.Critical)
+            _err.setWindowTitle(tr_ui("dlg_error_archive_title"))
+            _err.setText(tr_ui("dlg_error_archive_msg", e))
+            apply_dark_title_bar(_err)
+            _err.exec()
 
     def clean_str_action(self, patient_id):
         folder_name = self.images_cache[patient_id].get('folder_name', patient_id) if (self.images_cache and patient_id in self.images_cache) else patient_id
@@ -1801,13 +1811,14 @@ class MainWindow(QMainWindow):
             log_message(self.output_field, tr_log("log_path_not_exist", path))
             return
 
-        reply = QMessageBox.question(
-            self,
-            tr_ui("dlg_confirm_delete_title"),
-            tr_ui("dlg_confirm_delete_archive_msg", patient_name, patient_id),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
+        _dlg = QMessageBox(self)
+        _dlg.setIcon(QMessageBox.Icon.Question)
+        _dlg.setWindowTitle(tr_ui("dlg_confirm_delete_title"))
+        _dlg.setText(tr_ui("dlg_confirm_delete_archive_msg", patient_name, patient_id))
+        _dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        _dlg.setDefaultButton(QMessageBox.StandardButton.No)
+        apply_dark_title_bar(_dlg)
+        reply = _dlg.exec()
         
         if reply == QMessageBox.StandardButton.Yes:
             try:
@@ -1817,7 +1828,12 @@ class MainWindow(QMainWindow):
                 self.archive_cache = None
                 self.fill_archive_list()
             except Exception as e:
-                QMessageBox.critical(self, tr_ui("dlg_error_delete_title"), tr_ui("dlg_error_delete_msg", e))
+                _err = QMessageBox(self)
+                _err.setIcon(QMessageBox.Icon.Critical)
+                _err.setWindowTitle(tr_ui("dlg_error_delete_title"))
+                _err.setText(tr_ui("dlg_error_delete_msg", e))
+                apply_dark_title_bar(_err)
+                _err.exec()
 
     def move_from_archive_cmd(self):
         selected_ranges = self.archive_table.selectedRanges()
@@ -2292,7 +2308,12 @@ class MainWindow(QMainWindow):
         
         ct_images_dir = self.config.get('ct_images_dir', '')
         if not ct_images_dir or not os.path.exists(ct_images_dir):
-            QMessageBox.warning(self, "Ошибка", "Неверно настроена рабочая папка CT Images.")
+            _warn = QMessageBox(self)
+            _warn.setIcon(QMessageBox.Icon.Warning)
+            _warn.setWindowTitle("Ошибка")
+            _warn.setText("Неверно настроена рабочая папка CT Images.")
+            apply_dark_title_bar(_warn)
+            _warn.exec()
             return
             
         self.send_to_ct_btn.setEnabled(False)
@@ -2338,31 +2359,7 @@ class MainWindow(QMainWindow):
             msg_box.setWindowTitle("Ошибка скачивания")
             msg_box.setText(msg)
             
-            # Применение темного заголовка
-            if sys.platform == "win32":
-                import ctypes
-                try:
-                    hwnd = int(msg_box.winId())
-                    ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                        hwnd, 20, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
-                    )
-                except Exception:
-                    try:
-                        ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                            hwnd, 19, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
-                        )
-                    except Exception:
-                        pass
-                try:
-                    hwnd = int(msg_box.winId())
-                    ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                        hwnd, 35, ctypes.byref(ctypes.c_int(0x00242424)), ctypes.sizeof(ctypes.c_int)
-                    )
-                    ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                        hwnd, 36, ctypes.byref(ctypes.c_int(0x00ffffff)), ctypes.sizeof(ctypes.c_int)
-                    )
-                except Exception:
-                    pass
+            apply_dark_title_bar(msg_box)
             msg_box.exec()
 
     def save_current_config(self):
@@ -2449,7 +2446,6 @@ class MainWindow(QMainWindow):
             cb = QCheckBox("Больше не проверять при запуске")
             msg.setCheckBox(cb)
             
-            from ui.settings_dialog import apply_dark_title_bar
             apply_dark_title_bar(msg)
             
             if msg.exec() == QMessageBox.StandardButton.Yes:
