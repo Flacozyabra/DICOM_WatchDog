@@ -324,4 +324,15 @@ QComboBox QAbstractItemView {
     color: #ffffff;
 }
 
+/* Стили для неактивных элементов (:disabled) */
+QComboBox:disabled {
+    background-color: #121212;
+    color: #555555;
+    border: 1px solid #252525;
+}
+
+QLabel:disabled {
+    color: #555555;
+}
+
 

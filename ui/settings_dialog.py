@@ -289,16 +289,16 @@ class SettingsDialog(QDialog):
             'dy': 100,
             'log_font_size': 12,
             'notifications_enabled': 'False',
-            'notifications_sound_enabled': 'True',
-            'notifications_toast_enabled': 'True',
-            'notification_is': 'on',
+            'ct_notification_toast_enabled': 'True',
+            'ct_notification_sound_enabled': 'False',
             'ct_notification_sound': 'default',
+            'pacs_notification_toast_enabled': 'True',
+            'pacs_notification_sound_enabled': 'False',
             'pacs_notification_sound': 'default',
             'icon_path': '',
             'pacs_scan_time': 10000,
             'auto_update_is': 'off',
             'check_updates_at_startup': 'on',
-            'pacs_notification_is': 'off',
             'patient_font_size': 16,
             'patient_weight': 'Semibold',
             'archive_enabled': 'False',
@@ -718,35 +718,37 @@ class SettingsDialog(QDialog):
         notifications_layout = QVBoxLayout(notifications_widget)
         notifications_form = QFormLayout()
 
-        # Глобальные свитчи оповещений
+        # Глобальный мастер-свич "Оповещения"
         self.notifications_enabled_cb = ToggleSwitch()
         self.notifications_enabled_cb.setChecked(self.config.get('notifications_enabled', 'False').lower() == 'true')
         self.lbl_notifications_enabled = QLabel()
         notifications_form.addRow(self.lbl_notifications_enabled, self.notifications_enabled_cb)
 
-        self.notifications_toast_enabled_cb = ToggleSwitch()
-        self.notifications_toast_enabled_cb.setChecked(self.config.get('notifications_toast_enabled', 'True').lower() == 'true')
-        self.lbl_notifications_toast_enabled = QLabel()
-        notifications_form.addRow(self.lbl_notifications_toast_enabled, self.notifications_toast_enabled_cb)
-
-        self.notifications_sound_enabled_cb = ToggleSwitch()
-        self.notifications_sound_enabled_cb.setChecked(self.config.get('notifications_sound_enabled', 'True').lower() == 'true')
-        self.lbl_notifications_sound_enabled = QLabel()
-        notifications_form.addRow(self.lbl_notifications_sound_enabled, self.notifications_sound_enabled_cb)
-
+        # Разделитель после мастер-свича
         line_master = QFrame()
         line_master.setFrameShape(QFrame.Shape.HLine)
         line_master.setFrameShadow(QFrame.Shadow.Sunken)
         line_master.setStyleSheet("background-color: #2d2d2d; margin-top: 10px; margin-bottom: 10px;")
         notifications_form.addRow(line_master)
 
-        # КТ-уведомления
-        self.notify_cb = ToggleSwitch()
-        self.notify_cb.setChecked(self.config.get('notification_is', 'on').lower() == 'on')
-        self.lbl_notify = QLabel()
-        notifications_form.addRow(self.lbl_notify, self.notify_cb)
+        # РАЗДЕЛ: КТ-уведомления
+        self.lbl_ct_section = QLabel()
+        self.lbl_ct_section.setStyleSheet("font-weight: bold; font-size: 14px; color: #1f538d; margin-top: 5px; margin-bottom: 5px;")
+        notifications_form.addRow(self.lbl_ct_section)
 
-        # Звук КТ-уведомлений
+        # КТ Оповещения Windows
+        self.ct_toast_cb = ToggleSwitch()
+        self.ct_toast_cb.setChecked(self.config.get('ct_notification_toast_enabled', 'True').lower() == 'true')
+        self.lbl_ct_toast = QLabel()
+        notifications_form.addRow(self.lbl_ct_toast, self.ct_toast_cb)
+
+        # КТ Звуковые оповещения
+        self.ct_sound_cb = ToggleSwitch()
+        self.ct_sound_cb.setChecked(self.config.get('ct_notification_sound_enabled', 'False').lower() == 'true')
+        self.lbl_ct_sound_enabled = QLabel()
+        notifications_form.addRow(self.lbl_ct_sound_enabled, self.ct_sound_cb)
+
+        # Селектор звука КТ
         self.ct_sound_combo = QComboBox()
         self.lbl_ct_sound = QLabel()
         notifications_form.addRow(self.lbl_ct_sound, self.ct_sound_combo)
@@ -760,20 +762,31 @@ class SettingsDialog(QDialog):
         self.ct_sound_combo.setCurrentIndex(idx_ct)
         self.ct_sound_combo.activated.connect(lambda: self.play_sound_preview(self.ct_sound_combo))
 
-        # Разделитель
+        # Разделитель после КТ
         line_notif = QFrame()
         line_notif.setFrameShape(QFrame.Shape.HLine)
         line_notif.setFrameShadow(QFrame.Shadow.Sunken)
         line_notif.setStyleSheet("background-color: #2d2d2d; margin-top: 10px; margin-bottom: 10px;")
         notifications_form.addRow(line_notif)
 
-        # PACS-уведомления
-        self.pacs_notify_cb = ToggleSwitch()
-        self.pacs_notify_cb.setChecked(self.config.get('pacs_notification_is', 'off').lower() == 'on')
-        self.lbl_pacs_notify = QLabel()
-        notifications_form.addRow(self.lbl_pacs_notify, self.pacs_notify_cb)
+        # РАЗДЕЛ: PACS-уведомления
+        self.lbl_pacs_section = QLabel()
+        self.lbl_pacs_section.setStyleSheet("font-weight: bold; font-size: 14px; color: #1f538d; margin-top: 5px; margin-bottom: 5px;")
+        notifications_form.addRow(self.lbl_pacs_section)
 
-        # Звук PACS-уведомлений
+        # PACS Оповещения Windows
+        self.pacs_toast_cb = ToggleSwitch()
+        self.pacs_toast_cb.setChecked(self.config.get('pacs_notification_toast_enabled', 'True').lower() == 'true')
+        self.lbl_pacs_toast = QLabel()
+        notifications_form.addRow(self.lbl_pacs_toast, self.pacs_toast_cb)
+
+        # PACS Звуковые оповещения
+        self.pacs_sound_cb = ToggleSwitch()
+        self.pacs_sound_cb.setChecked(self.config.get('pacs_notification_sound_enabled', 'False').lower() == 'true')
+        self.lbl_pacs_sound_enabled = QLabel()
+        notifications_form.addRow(self.lbl_pacs_sound_enabled, self.pacs_sound_cb)
+
+        # Селектор звука PACS
         self.pacs_sound_combo = QComboBox()
         self.lbl_pacs_sound = QLabel()
         notifications_form.addRow(self.lbl_pacs_sound, self.pacs_sound_combo)
@@ -797,16 +810,66 @@ class SettingsDialog(QDialog):
         else:
             self.btn_unlock_voices.setVisible(False)
 
+        # Интерактивная логика связывания переключателей
         def update_notification_states():
             is_master_on = self.notifications_enabled_cb.isChecked()
-            self.notifications_toast_enabled_cb.setEnabled(is_master_on)
-            self.notifications_sound_enabled_cb.setEnabled(is_master_on)
-            self.notify_cb.setEnabled(is_master_on)
-            self.ct_sound_combo.setEnabled(is_master_on)
-            self.pacs_notify_cb.setEnabled(is_master_on)
-            self.pacs_sound_combo.setEnabled(is_master_on)
+            
+            # Активируем/деактивируем под-свичи на основе мастер-свича
+            self.ct_toast_cb.setEnabled(is_master_on)
+            self.ct_sound_cb.setEnabled(is_master_on)
+            self.pacs_toast_cb.setEnabled(is_master_on)
+            self.pacs_sound_cb.setEnabled(is_master_on)
+            
+            # Активируем выбор звука только если включены соответствующие звуковые уведомления
+            self.ct_sound_combo.setEnabled(is_master_on and self.ct_sound_cb.isChecked())
+            self.pacs_sound_combo.setEnabled(is_master_on and self.pacs_sound_cb.isChecked())
+            
+            # Внешне отражаем неактивность (лейблы)
+            self.lbl_ct_toast.setEnabled(is_master_on)
+            self.lbl_ct_sound_enabled.setEnabled(is_master_on)
+            self.lbl_ct_sound.setEnabled(is_master_on and self.ct_sound_cb.isChecked())
+            self.lbl_pacs_toast.setEnabled(is_master_on)
+            self.lbl_pacs_sound_enabled.setEnabled(is_master_on)
+            self.lbl_pacs_sound.setEnabled(is_master_on and self.pacs_sound_cb.isChecked())
 
-        self.notifications_enabled_cb.toggled.connect(update_notification_states)
+        def on_master_toggled(checked):
+            # Блокируем сигналы, чтобы не дергать настройки при массовом изменении
+            self.ct_toast_cb.blockSignals(True)
+            self.ct_sound_cb.blockSignals(True)
+            self.pacs_toast_cb.blockSignals(True)
+            self.pacs_sound_cb.blockSignals(True)
+            
+            if checked:
+                # Включаем ТОЛЬКО Windows-уведомления
+                self.ct_toast_cb.setChecked(True)
+                self.pacs_toast_cb.setChecked(True)
+                self.ct_sound_cb.setChecked(False)
+                self.pacs_sound_cb.setChecked(False)
+            else:
+                # Выключаем вообще все уведомления
+                self.ct_toast_cb.setChecked(False)
+                self.pacs_toast_cb.setChecked(False)
+                self.ct_sound_cb.setChecked(False)
+                self.pacs_sound_cb.setChecked(False)
+                
+            self.ct_toast_cb.blockSignals(False)
+            self.ct_sound_cb.blockSignals(False)
+            self.pacs_toast_cb.blockSignals(False)
+            self.pacs_sound_cb.blockSignals(False)
+            
+            # Обновляем состояния активности
+            update_notification_states()
+            
+            # Вызываем ручное сохранение, так как сигналы под-свичей были заблокированы
+            self.on_setting_changed()
+
+        self.notifications_enabled_cb.toggled.connect(on_master_toggled)
+        self.ct_toast_cb.toggled.connect(update_notification_states)
+        self.ct_sound_cb.toggled.connect(update_notification_states)
+        self.pacs_toast_cb.toggled.connect(update_notification_states)
+        self.pacs_sound_cb.toggled.connect(update_notification_states)
+        
+        # Начальная инициализация
         update_notification_states()
 
         notifications_layout.addLayout(notifications_form)
@@ -1047,13 +1110,16 @@ class SettingsDialog(QDialog):
         self.font_size_spin.valueChanged.connect(self.on_setting_changed)
         self.patient_font_spin.valueChanged.connect(self.on_setting_changed)
         self.patient_weight_combo.currentTextChanged.connect(self.on_setting_changed)
-        self.notify_cb.toggled.connect(self.on_setting_changed)
+        self.notifications_enabled_cb.toggled.connect(self.on_setting_changed)
+        self.ct_toast_cb.toggled.connect(self.on_setting_changed)
+        self.ct_sound_cb.toggled.connect(self.on_setting_changed)
         self.ct_sound_combo.currentIndexChanged.connect(self.on_setting_changed)
         self.highlighting_cb.toggled.connect(self.on_highlighting_toggled)
         self.highlight_new_cb.toggled.connect(self.on_setting_changed)
         self.highlight_today_cb.toggled.connect(self.on_setting_changed)
         self.highlight_no_str_cb.toggled.connect(self.on_setting_changed)
-        self.pacs_notify_cb.toggled.connect(self.on_setting_changed)
+        self.pacs_toast_cb.toggled.connect(self.on_setting_changed)
+        self.pacs_sound_cb.toggled.connect(self.on_setting_changed)
         self.pacs_sound_combo.currentIndexChanged.connect(self.on_setting_changed)
         self.check_updates_cb.toggled.connect(self.on_setting_changed)
         self.cleanup_str_cb.toggled.connect(self.on_setting_changed)
@@ -1095,12 +1161,12 @@ class SettingsDialog(QDialog):
         self.config['patient_font_size'] = self.patient_font_spin.value()
         self.config['patient_weight'] = self.patient_weight_combo.currentText()
         self.config['notifications_enabled'] = 'True' if self.notifications_enabled_cb.isChecked() else 'False'
-        self.config['notifications_toast_enabled'] = 'True' if self.notifications_toast_enabled_cb.isChecked() else 'False'
-        self.config['notifications_sound_enabled'] = 'True' if self.notifications_sound_enabled_cb.isChecked() else 'False'
-        self.config['notification_is'] = 'on' if self.notify_cb.isChecked() else 'off'
+        self.config['ct_notification_toast_enabled'] = 'True' if self.ct_toast_cb.isChecked() else 'False'
+        self.config['ct_notification_sound_enabled'] = 'True' if self.ct_sound_cb.isChecked() else 'False'
         self.config['ct_notification_sound'] = self.ct_sound_combo.currentData()
+        self.config['pacs_notification_toast_enabled'] = 'True' if self.pacs_toast_cb.isChecked() else 'False'
+        self.config['pacs_notification_sound_enabled'] = 'True' if self.pacs_sound_cb.isChecked() else 'False'
         self.config['pacs_notification_sound'] = self.pacs_sound_combo.currentData()
-        self.config['pacs_notification_is'] = 'on' if self.pacs_notify_cb.isChecked() else 'off'
         self.config['check_updates_at_startup'] = 'on' if self.check_updates_cb.isChecked() else 'off'
         self.config['auto_update_is'] = self.config.get('auto_update_is', 'off')
         self.config['cleanup_structures_enabled'] = 'True' if self.cleanup_str_cb.isChecked() else 'False'
@@ -1270,11 +1336,13 @@ Copy-VoiceTokens $src $dst32
         self.lbl_ct_folder.setText(tr_ui("settings_ct_images_folder"))
         self.lbl_settings_folder.setText(tr_ui("settings_settings_folder"))
         self.lbl_notifications_enabled.setText(tr_ui("settings_notifications_enabled"))
-        self.lbl_notifications_toast_enabled.setText(tr_ui("settings_notifications_toast_enabled"))
-        self.lbl_notifications_sound_enabled.setText(tr_ui("settings_notifications_sound_enabled"))
-        self.lbl_notify.setText(tr_ui("settings_notifications_label"))
+        self.lbl_ct_section.setText(tr_ui("settings_ct_section_title"))
+        self.lbl_ct_toast.setText(tr_ui("settings_notifications_toast_enabled"))
+        self.lbl_ct_sound_enabled.setText(tr_ui("settings_notifications_sound_enabled"))
         self.lbl_ct_sound.setText(tr_ui("settings_ct_sound_label"))
-        self.lbl_pacs_notify.setText(tr_ui("settings_pacs_notifications_label"))
+        self.lbl_pacs_section.setText(tr_ui("settings_pacs_section_title"))
+        self.lbl_pacs_toast.setText(tr_ui("settings_notifications_toast_enabled"))
+        self.lbl_pacs_sound_enabled.setText(tr_ui("settings_notifications_sound_enabled"))
         self.lbl_pacs_sound.setText(tr_ui("settings_pacs_sound_label"))
         self.ct_sound_combo.setItemText(0, tr_ui("settings_sound_default"))
         self.pacs_sound_combo.setItemText(0, tr_ui("settings_sound_default"))
@@ -1360,8 +1428,9 @@ Copy-VoiceTokens $src $dst32
         self.rename_server_btn.setToolTip(tr_ui("tooltip_settings_rename_server"))
         self.ping_btn.setToolTip(tr_ui("tooltip_settings_ping_server"))
         
-        self.notify_cb.setToolTip(tr_ui("tooltip_switch_notify"))
-        self.pacs_notify_cb.setToolTip(tr_ui("tooltip_switch_pacs_notify"))
+        self.notifications_enabled_cb.setToolTip(tr_ui("tooltip_switch_notify"))
+        self.ct_toast_cb.setToolTip(tr_ui("tooltip_switch_notify"))
+        self.pacs_toast_cb.setToolTip(tr_ui("tooltip_switch_pacs_notify"))
         self.cleanup_str_cb.setToolTip(tr_ui("tooltip_switch_cleanup_str"))
         self.fix_patient_id_cb.setToolTip(tr_ui("tooltip_switch_fix_id"))
         self.rename_study_folder_cb.setToolTip(tr_ui("tooltip_switch_rename_folder"))

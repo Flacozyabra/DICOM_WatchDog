@@ -1280,8 +1280,9 @@ class MainWindow(QMainWindow):
             if id_item:
                 existing_ids.add(id_item.text())
 
-        notification_on = self.config.get('notification_is', 'on').upper() == 'ON'
-        
+        master_enabled = self.config.get('notifications_enabled', 'False').lower() == 'true'
+        ct_toast_on = self.config.get('ct_notification_toast_enabled', 'True').lower() == 'true'
+        ct_sound_on = self.config.get('ct_notification_sound_enabled', 'False').lower() == 'true'
         # Определение абсолютного пути к иконке в папке src
         icon_path = self.config.get('icon_path', '')
         custom_icon_found = False
@@ -1311,18 +1312,15 @@ class MainWindow(QMainWindow):
         for patient_id, data in patient_dict.items():
             if 'patient_name' in data and 'study_datetime' in data and 'folder_datetime' in data and 'str' in data:
                 if not self.is_first_scan and patient_id not in existing_ids and patient_id not in self.restored_patient_ids:
-                    master_enabled = self.config.get('notifications_enabled', 'False').lower() == 'true'
-                    if master_enabled and notification_on:
-                        show_toast = self.config.get('notifications_toast_enabled', 'True').lower() == 'true'
-                        play_sound = self.config.get('notifications_sound_enabled', 'True').lower() == 'true'
+                    if master_enabled and (ct_toast_on or ct_sound_on):
                         show_notification(
                             str(data['patient_name']), 
                             'Новое КТ', 
                             'short', 
                             icon_path,
                             self.config.get('ct_notification_sound', 'default'),
-                            show_toast=show_toast,
-                            play_sound=play_sound
+                            show_toast=ct_toast_on,
+                            play_sound=ct_sound_on
                         )
 
         self.images_cache = patient_dict
@@ -2048,7 +2046,9 @@ class MainWindow(QMainWindow):
                 log_message(self.output_field, tr_log("log_connected_pacs"), replace_suffix=tr_log("log_connecting_pacs"))
             
             # Фоновое уведомление о новых КТ в PACS
-            pacs_notify_on = self.config.get('pacs_notification_is', 'off').lower() == 'on'
+            master_enabled = self.config.get('notifications_enabled', 'False').lower() == 'true'
+            pacs_toast_on = self.config.get('pacs_notification_toast_enabled', 'True').lower() == 'true'
+            pacs_sound_on = self.config.get('pacs_notification_sound_enabled', 'False').lower() == 'true'
             auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
             
             # Определение абсолютного пути к синей иконке
@@ -2076,18 +2076,15 @@ class MainWindow(QMainWindow):
                 for patient_id, data in pacs_dict.items():
                     if patient_id not in self.known_pacs_patient_ids:
                         new_patients[patient_id] = data
-                        master_enabled = self.config.get('notifications_enabled', 'False').lower() == 'true'
-                        if master_enabled and pacs_notify_on:
-                            show_toast = self.config.get('notifications_toast_enabled', 'True').lower() == 'true'
-                            play_sound = self.config.get('notifications_sound_enabled', 'True').lower() == 'true'
+                        if master_enabled and (pacs_toast_on or pacs_sound_on):
                             show_notification(
                                 str(data['patient_name']),
                                 'Новое КТ (PACS)',
                                 'short',
                                 icon_blue_path,
                                 self.config.get('pacs_notification_sound', 'default'),
-                                show_toast=show_toast,
-                                play_sound=play_sound
+                                show_toast=pacs_toast_on,
+                                play_sound=pacs_sound_on
                             )
 
                 if new_patients:
