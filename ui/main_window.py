@@ -1283,30 +1283,10 @@ class MainWindow(QMainWindow):
         master_enabled = str(self.config.get('notifications_enabled', 'False')).lower() == 'true'
         ct_toast_on = str(self.config.get('ct_notification_toast_enabled', 'True')).lower() == 'true'
         ct_sound_on = str(self.config.get('ct_notification_sound_enabled', 'False')).lower() == 'true'
-        # Определение абсолютного пути к иконке в папке src
-        icon_path = self.config.get('icon_path', '')
-        custom_icon_found = False
-        if icon_path:
-            if os.path.isfile(icon_path) and os.path.exists(icon_path):
-                icon_path = os.path.abspath(icon_path)
-                custom_icon_found = True
-            elif os.path.isdir(icon_path):
-                potential_icon = os.path.abspath(os.path.join(icon_path, "src", "folder_notification.png"))
-                if os.path.exists(potential_icon):
-                    icon_path = potential_icon
-                    custom_icon_found = True
-                else:
-                    potential_root_icon = os.path.abspath(os.path.join(icon_path, "folder_notification.png"))
-                    if os.path.exists(potential_root_icon):
-                        icon_path = potential_root_icon
-                        custom_icon_found = True
-                        
-        if not custom_icon_found:
-            potential_icon = get_resource_path("src/folder_notification.png")
-            if os.path.exists(potential_icon):
-                icon_path = potential_icon
-            else:
-                icon_path = ""
+        from core.config_utils import get_app_data_dir
+        icon_path = os.path.join(get_app_data_dir(), "folder_notification.png")
+        if not os.path.exists(icon_path):
+            icon_path = get_resource_path("src/folder_notification.png")
 
         # Проверяем на появление новых файлов до фильтрации
         for patient_id, data in patient_dict.items():
@@ -2051,11 +2031,10 @@ class MainWindow(QMainWindow):
             pacs_sound_on = str(self.config.get('pacs_notification_sound_enabled', 'False')).lower() == 'true'
             auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
             
-            # Определение абсолютного пути к синей иконке
-            icon_blue_path = ""
-            potential_icon = get_resource_path("src/pacs_notification.png")
-            if os.path.exists(potential_icon):
-                icon_blue_path = potential_icon
+            from core.config_utils import get_app_data_dir
+            icon_blue_path = os.path.join(get_app_data_dir(), "pacs_notification.png")
+            if not os.path.exists(icon_blue_path):
+                icon_blue_path = get_resource_path("src/pacs_notification.png")
 
             if auto_update_on:
                 if self.is_first_pacs_scan:

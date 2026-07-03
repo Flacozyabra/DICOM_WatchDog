@@ -17,6 +17,13 @@ def get_app_data_dir():
     os.makedirs(app_data_path, exist_ok=True)
     return app_data_path
 
+def get_resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except AttributeError:
+        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    return os.path.normpath(os.path.join(base_path, relative_path))
+
 def migrate_files():
     app_data_dir = get_app_data_dir()
     
@@ -37,6 +44,17 @@ def migrate_files():
             except Exception as e:
                 print(f"Failed to migrate {filename}: {e}")
 
+    # Copy notification icons to persistent AppData so Windows Toast service can access them
+    try:
+        for icon_name in ["folder_notification.png", "pacs_notification.png"]:
+            src_icon = get_resource_path(os.path.join("src", icon_name))
+            dst_icon = os.path.join(app_data_dir, icon_name)
+            if os.path.exists(src_icon):
+                if not os.path.exists(dst_icon) or os.path.getsize(src_icon) != os.path.getsize(dst_icon):
+                    shutil.copy2(src_icon, dst_icon)
+    except Exception:
+        pass
+
 # Execute migration on module import
 migrate_files()
 
@@ -49,12 +67,7 @@ def get_cache_path():
 def get_log_path():
     return os.path.join(get_app_data_dir(), "pacs_error.log")
 
-def get_resource_path(relative_path):
-    try:
-        base_path = sys._MEIPASS
-    except AttributeError:
-        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    return os.path.normpath(os.path.join(base_path, relative_path))
+
 
 def check_github_updates():
     """
