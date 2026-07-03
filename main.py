@@ -98,9 +98,9 @@ def main():
             winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, "DICOM WatchDog")
             
             from core.config_utils import get_app_data_dir
-            icon_path = os.path.abspath(os.path.join(get_app_data_dir(), "folder_notification.png"))
+            icon_path = os.path.abspath(os.path.join(get_app_data_dir(), "splashscreen_logo.png"))
             if not os.path.exists(icon_path):
-                icon_path = os.path.abspath(get_resource_path("src/folder_notification.png"))
+                icon_path = os.path.abspath(get_resource_path("src/splashscreen_logo.png"))
             if os.path.exists(icon_path):
                 winreg.SetValueEx(key, "IconUri", 0, winreg.REG_SZ, icon_path)
             winreg.CloseKey(key)

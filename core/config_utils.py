@@ -46,7 +46,7 @@ def migrate_files():
 
     # Copy notification icons to persistent AppData so Windows Toast service can access them
     try:
-        for icon_name in ["folder_notification.png", "pacs_notification.png"]:
+        for icon_name in ["folder_notification.png", "pacs_notification.png", "splashscreen_logo.png"]:
             src_icon = get_resource_path(os.path.join("src", icon_name))
             dst_icon = os.path.join(app_data_dir, icon_name)
             if os.path.exists(src_icon):

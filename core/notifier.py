@@ -98,8 +98,14 @@ def show_notification(title: str, msg: str, durations: str, ico_path: str, sound
                 try:
                     import winsound
                     winsound.PlaySound(wav_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
-                except Exception:
-                    pass
+                except Exception as e:
+                    try:
+                        from core.config_utils import get_log_path
+                        import datetime
+                        with open(get_log_path(), "a", encoding="utf-8") as f:
+                            f.write(f"[{datetime.datetime.now()}] Winsound error playing {wav_path}: {e}\n")
+                    except Exception:
+                        pass
         elif sound_setting and sound_setting != 'default' and sys.platform == "win32":
             # Озвучиваем имя
             text_to_speak = title  # В заголовке у нас лежит Patient Name
@@ -122,8 +128,14 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
                     ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
                     creationflags=subprocess.CREATE_NO_WINDOW
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                try:
+                    from core.config_utils import get_log_path
+                    import datetime
+                    with open(get_log_path(), "a", encoding="utf-8") as f:
+                        f.write(f"[{datetime.datetime.now()}] TTS subprocess error: {e}\n")
+                except Exception:
+                    pass
 
     # 2. Показываем всплывающее уведомление
     if show_toast:
@@ -140,10 +152,10 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
                     duration=durations,
                     icon=toast_icon
                 )
-                # Если звук проигран нами (или это TTS), глушим стандартный звук Windows
-                from core.config_utils import get_resource_path
-                wav_exists = os.path.exists(get_resource_path("src/notification.wav"))
-                if sound_setting != 'default' or wav_exists or not play_sound:
+                # Если звук включен (play_sound=True), то тост должен быть беззвучным,
+                # так как кастомный звук (или TTS) воспроизводится самим приложением.
+                # Если звук выключен (play_sound=False), то тост воспроизводит стандартный системный звук.
+                if play_sound:
                     toast.audio = '<audio silent="true" />'
                 else:
                     toast.set_audio(winotify_audio.Default, loop=False)
