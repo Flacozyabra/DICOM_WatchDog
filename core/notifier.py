@@ -158,7 +158,7 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
                 if play_sound:
                     toast.audio = '<audio silent="true" />'
                 else:
-                    toast.set_audio(winotify_audio.Default, loop=False)
+                    toast.audio = '<audio src="ms-winsoundevent:Notification.Default" />'
                 toast.show()
                 return
             except Exception as e:
