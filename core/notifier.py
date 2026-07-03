@@ -45,6 +45,38 @@ $Notifier.Show($Toast);
 # Fallback tray icon instance (lazy-created, reused across calls)
 _tray_icon = None
 
+# Guard: register App ID only once per process
+_app_id_registered = False
+
+
+def _ensure_app_id_registered() -> None:
+    """Register 'DICOM WatchDog' AUMID in HKCU registry so Windows allows Toast notifications.
+
+    Safe to call multiple times — runs only once per process lifetime.
+    """
+    global _app_id_registered
+    if _app_id_registered or sys.platform != "win32":
+        return
+    try:
+        import winreg
+        key_path = r"Software\Classes\AppUserModelId\DICOM WatchDog"
+        key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path)
+        winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, "DICOM WatchDog")
+        # Try to attach an icon if available
+        try:
+            from core.config_utils import get_resource_path, get_app_data_dir
+            icon_path = os.path.abspath(os.path.join(get_app_data_dir(), "splashscreen_logo.png"))
+            if not os.path.exists(icon_path):
+                icon_path = os.path.abspath(get_resource_path("src/splashscreen_logo.png"))
+            if os.path.exists(icon_path):
+                winreg.SetValueEx(key, "IconUri", 0, winreg.REG_SZ, icon_path)
+        except Exception:
+            pass
+        winreg.CloseKey(key)
+        _app_id_registered = True
+    except Exception:
+        pass
+
 
 def _get_tray_icon(ico_path: str):
     """Return a cached QSystemTrayIcon instance for legacy balloon notifications."""
@@ -137,6 +169,7 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
     if show_toast:
         if _HAS_WINOTIFY:
             try:
+                _ensure_app_id_registered()
                 toast_icon = ico_path
                 if toast_icon and os.path.exists(toast_icon):
                     toast_icon = "file:///" + os.path.abspath(toast_icon).replace("\\", "/")
