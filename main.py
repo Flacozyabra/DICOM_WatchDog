@@ -89,9 +89,24 @@ def main():
     
     # Set AppUserModelID so Windows taskbar correctly groups windows under the custom icon
     if sys.platform == "win32":
+        try:
+            import winreg
+            from core.config_utils import get_resource_path
+            # Register AppUserModelID in HKCU registry for correct Windows Toasts behavior
+            key_path = r"Software\Classes\AppUserModelId\DICOM WatchDog"
+            key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path)
+            winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, "DICOM WatchDog")
+            
+            icon_path = os.path.abspath(get_resource_path("src/app_icon.ico"))
+            if os.path.exists(icon_path):
+                winreg.SetValueEx(key, "IconUri", 0, winreg.REG_SZ, icon_path)
+            winreg.CloseKey(key)
+        except Exception:
+            pass
+
         import ctypes
         try:
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("dicom.watchdog.app.v1")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("DICOM WatchDog")
         except Exception:
             pass
 

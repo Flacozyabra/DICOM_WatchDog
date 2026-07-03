@@ -1280,9 +1280,9 @@ class MainWindow(QMainWindow):
             if id_item:
                 existing_ids.add(id_item.text())
 
-        master_enabled = self.config.get('notifications_enabled', 'False').lower() == 'true'
-        ct_toast_on = self.config.get('ct_notification_toast_enabled', 'True').lower() == 'true'
-        ct_sound_on = self.config.get('ct_notification_sound_enabled', 'False').lower() == 'true'
+        master_enabled = str(self.config.get('notifications_enabled', 'False')).lower() == 'true'
+        ct_toast_on = str(self.config.get('ct_notification_toast_enabled', 'True')).lower() == 'true'
+        ct_sound_on = str(self.config.get('ct_notification_sound_enabled', 'False')).lower() == 'true'
         # Определение абсолютного пути к иконке в папке src
         icon_path = self.config.get('icon_path', '')
         custom_icon_found = False
@@ -2046,9 +2046,9 @@ class MainWindow(QMainWindow):
                 log_message(self.output_field, tr_log("log_connected_pacs"), replace_suffix=tr_log("log_connecting_pacs"))
             
             # Фоновое уведомление о новых КТ в PACS
-            master_enabled = self.config.get('notifications_enabled', 'False').lower() == 'true'
-            pacs_toast_on = self.config.get('pacs_notification_toast_enabled', 'True').lower() == 'true'
-            pacs_sound_on = self.config.get('pacs_notification_sound_enabled', 'False').lower() == 'true'
+            master_enabled = str(self.config.get('notifications_enabled', 'False')).lower() == 'true'
+            pacs_toast_on = str(self.config.get('pacs_notification_toast_enabled', 'True')).lower() == 'true'
+            pacs_sound_on = str(self.config.get('pacs_notification_sound_enabled', 'False')).lower() == 'true'
             auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
             
             # Определение абсолютного пути к синей иконке

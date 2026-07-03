@@ -50,6 +50,13 @@ def show_notification(title: str, msg: str, durations: str, ico_path: str, sound
     Uses winotify Toast on Windows 10+, falls back to QSystemTrayIcon
     balloon message on older Windows versions (7 / 8 / 8.1).
     """
+    try:
+        from core.config_utils import get_log_path
+        import datetime
+        with open(get_log_path(), "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.datetime.now()}] show_notification called: title={title}, msg={msg}, show_toast={show_toast}, play_sound={play_sound}, ico_path={ico_path}\n")
+    except Exception:
+        pass
     # 1. Сначала воспроизводим звук/голос
     if play_sound:
         if sound_setting == 'default':
@@ -106,8 +113,14 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
                     toast.set_audio(winotify_audio.Default, loop=False)
                 toast.show()
                 return
-            except Exception:
-                pass  # Fall through to QSystemTrayIcon fallback
+            except Exception as e:
+                try:
+                    from core.config_utils import get_log_path
+                    import datetime
+                    with open(get_log_path(), "a", encoding="utf-8") as f:
+                        f.write(f"[{datetime.datetime.now()}] Winotify error: {e}\n")
+                except Exception:
+                    pass
 
         # Legacy fallback: balloon notification via Qt system tray
         try:
