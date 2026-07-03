@@ -19,9 +19,9 @@ $Template = @"
 <toast {launch} duration="{duration}">
     <visual>
         <binding template="ToastGeneric">
-            <image id="1" placement="appLogoOverride" src="{icon}" />
-            <text id="1"><![CDATA[{title}]]></text>
-            <text id="2"><![CDATA[{msg}]]></text>
+            <text><![CDATA[{title}]]></text>
+            <text><![CDATA[{msg}]]></text>
+            <image placement="appLogoOverride" src="{icon}" />
         </binding>
     </visual>
     <actions>
