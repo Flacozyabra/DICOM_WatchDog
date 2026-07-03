@@ -288,6 +288,9 @@ class SettingsDialog(QDialog):
             'dx': 350,
             'dy': 100,
             'log_font_size': 12,
+            'notifications_enabled': 'False',
+            'notifications_sound_enabled': 'True',
+            'notifications_toast_enabled': 'True',
             'notification_is': 'on',
             'ct_notification_sound': 'default',
             'pacs_notification_sound': 'default',
@@ -715,6 +718,28 @@ class SettingsDialog(QDialog):
         notifications_layout = QVBoxLayout(notifications_widget)
         notifications_form = QFormLayout()
 
+        # Глобальные свитчи оповещений
+        self.notifications_enabled_cb = ToggleSwitch()
+        self.notifications_enabled_cb.setChecked(self.config.get('notifications_enabled', 'False').lower() == 'true')
+        self.lbl_notifications_enabled = QLabel()
+        notifications_form.addRow(self.lbl_notifications_enabled, self.notifications_enabled_cb)
+
+        self.notifications_toast_enabled_cb = ToggleSwitch()
+        self.notifications_toast_enabled_cb.setChecked(self.config.get('notifications_toast_enabled', 'True').lower() == 'true')
+        self.lbl_notifications_toast_enabled = QLabel()
+        notifications_form.addRow(self.lbl_notifications_toast_enabled, self.notifications_toast_enabled_cb)
+
+        self.notifications_sound_enabled_cb = ToggleSwitch()
+        self.notifications_sound_enabled_cb.setChecked(self.config.get('notifications_sound_enabled', 'True').lower() == 'true')
+        self.lbl_notifications_sound_enabled = QLabel()
+        notifications_form.addRow(self.lbl_notifications_sound_enabled, self.notifications_sound_enabled_cb)
+
+        line_master = QFrame()
+        line_master.setFrameShape(QFrame.Shape.HLine)
+        line_master.setFrameShadow(QFrame.Shadow.Sunken)
+        line_master.setStyleSheet("background-color: #2d2d2d; margin-top: 10px; margin-bottom: 10px;")
+        notifications_form.addRow(line_master)
+
         # КТ-уведомления
         self.notify_cb = ToggleSwitch()
         self.notify_cb.setChecked(self.config.get('notification_is', 'on').lower() == 'on')
@@ -771,6 +796,18 @@ class SettingsDialog(QDialog):
             notifications_form.addRow(self.btn_unlock_voices)
         else:
             self.btn_unlock_voices.setVisible(False)
+
+        def update_notification_states():
+            is_master_on = self.notifications_enabled_cb.isChecked()
+            self.notifications_toast_enabled_cb.setEnabled(is_master_on)
+            self.notifications_sound_enabled_cb.setEnabled(is_master_on)
+            self.notify_cb.setEnabled(is_master_on)
+            self.ct_sound_combo.setEnabled(is_master_on)
+            self.pacs_notify_cb.setEnabled(is_master_on)
+            self.pacs_sound_combo.setEnabled(is_master_on)
+
+        self.notifications_enabled_cb.toggled.connect(update_notification_states)
+        update_notification_states()
 
         notifications_layout.addLayout(notifications_form)
         notifications_layout.addStretch()
@@ -1057,6 +1094,9 @@ class SettingsDialog(QDialog):
         self.config['log_font_size'] = self.font_size_spin.value()
         self.config['patient_font_size'] = self.patient_font_spin.value()
         self.config['patient_weight'] = self.patient_weight_combo.currentText()
+        self.config['notifications_enabled'] = 'True' if self.notifications_enabled_cb.isChecked() else 'False'
+        self.config['notifications_toast_enabled'] = 'True' if self.notifications_toast_enabled_cb.isChecked() else 'False'
+        self.config['notifications_sound_enabled'] = 'True' if self.notifications_sound_enabled_cb.isChecked() else 'False'
         self.config['notification_is'] = 'on' if self.notify_cb.isChecked() else 'off'
         self.config['ct_notification_sound'] = self.ct_sound_combo.currentData()
         self.config['pacs_notification_sound'] = self.pacs_sound_combo.currentData()
@@ -1229,6 +1269,9 @@ Copy-VoiceTokens $src $dst32
         # Labels in Form Layouts:
         self.lbl_ct_folder.setText(tr_ui("settings_ct_images_folder"))
         self.lbl_settings_folder.setText(tr_ui("settings_settings_folder"))
+        self.lbl_notifications_enabled.setText(tr_ui("settings_notifications_enabled"))
+        self.lbl_notifications_toast_enabled.setText(tr_ui("settings_notifications_toast_enabled"))
+        self.lbl_notifications_sound_enabled.setText(tr_ui("settings_notifications_sound_enabled"))
         self.lbl_notify.setText(tr_ui("settings_notifications_label"))
         self.lbl_ct_sound.setText(tr_ui("settings_ct_sound_label"))
         self.lbl_pacs_notify.setText(tr_ui("settings_pacs_notifications_label"))

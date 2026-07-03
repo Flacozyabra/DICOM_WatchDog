@@ -44,26 +44,27 @@ def _get_tray_icon(ico_path: str):
     return _tray_icon
 
 
-def show_notification(title: str, msg: str, durations: str, ico_path: str, sound_setting: str = 'default') -> None:
+def show_notification(title: str, msg: str, durations: str, ico_path: str, sound_setting: str = 'default', show_toast: bool = True, play_sound: bool = True) -> None:
     """Show a desktop notification.
 
     Uses winotify Toast on Windows 10+, falls back to QSystemTrayIcon
     balloon message on older Windows versions (7 / 8 / 8.1).
     """
     # 1. Сначала воспроизводим звук/голос
-    if sound_setting == 'default':
-        from core.config_utils import get_resource_path
-        wav_path = get_resource_path("src/notification.wav")
-        if os.path.exists(wav_path) and sys.platform == "win32":
-            try:
-                import winsound
-                winsound.PlaySound(wav_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
-            except Exception:
-                pass
-    elif sound_setting and sound_setting != 'default' and sys.platform == "win32":
-        # Озвучиваем имя
-        text_to_speak = title  # В заголовке у нас лежит Patient Name
-        ps_code = f"""
+    if play_sound:
+        if sound_setting == 'default':
+            from core.config_utils import get_resource_path
+            wav_path = get_resource_path("src/notification.wav")
+            if os.path.exists(wav_path) and sys.platform == "win32":
+                try:
+                    import winsound
+                    winsound.PlaySound(wav_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                except Exception:
+                    pass
+        elif sound_setting and sound_setting != 'default' and sys.platform == "win32":
+            # Озвучиваем имя
+            text_to_speak = title  # В заголовке у нас лежит Patient Name
+            ps_code = f"""
 $speech = New-Object -ComObject SAPI.SpVoice
 $voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq "{sound_setting}" }} | Select-Object -First 1
 if ($voice) {{
@@ -72,53 +73,54 @@ if ($voice) {{
 $speech.Speak("{text_to_speak}")
 Remove-Item $MyInvocation.MyCommand.Path -Force
 """
-        import tempfile
-        import subprocess
-        try:
-            fd, path = tempfile.mkstemp(suffix=".ps1", text=True)
-            with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
-                f.write(ps_code)
-            subprocess.Popen(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
-        except Exception:
-            pass
+            import tempfile
+            import subprocess
+            try:
+                fd, path = tempfile.mkstemp(suffix=".ps1", text=True)
+                with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
+                    f.write(ps_code)
+                subprocess.Popen(
+                    ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+            except Exception:
+                pass
 
     # 2. Показываем всплывающее уведомление
-    if _HAS_WINOTIFY:
-        try:
-            toast = Notification(
-                app_id='DICOM WatchDog',
-                title=title,
-                msg=msg,
-                duration=durations,
-                icon=rf'{ico_path}'
-            )
-            # Если звук проигран нами (или это TTS), глушим стандартный звук Windows
-            from core.config_utils import get_resource_path
-            wav_exists = os.path.exists(get_resource_path("src/notification.wav"))
-            if sound_setting != 'default' or wav_exists:
-                toast.set_audio(winotify_audio.Silent, loop=False)
-            else:
-                toast.set_audio(winotify_audio.Default, loop=False)
-            toast.show()
-            return
-        except Exception:
-            pass  # Fall through to QSystemTrayIcon fallback
+    if show_toast:
+        if _HAS_WINOTIFY:
+            try:
+                toast = Notification(
+                    app_id='DICOM WatchDog',
+                    title=title,
+                    msg=msg,
+                    duration=durations,
+                    icon=rf'{ico_path}'
+                )
+                # Если звук проигран нами (или это TTS), глушим стандартный звук Windows
+                from core.config_utils import get_resource_path
+                wav_exists = os.path.exists(get_resource_path("src/notification.wav"))
+                if sound_setting != 'default' or wav_exists or not play_sound:
+                    toast.set_audio(winotify_audio.Silent, loop=False)
+                else:
+                    toast.set_audio(winotify_audio.Default, loop=False)
+                toast.show()
+                return
+            except Exception:
+                pass  # Fall through to QSystemTrayIcon fallback
 
-    # Legacy fallback: balloon notification via Qt system tray
-    try:
-        tray = _get_tray_icon(ico_path)
-        if tray is None:
-            return
+        # Legacy fallback: balloon notification via Qt system tray
         try:
-            from PyQt6.QtWidgets import QSystemTrayIcon
-            msg_icon = QSystemTrayIcon.MessageIcon.Information
-        except ImportError:
-            from PyQt5.QtWidgets import QSystemTrayIcon  # type: ignore[no-redef]
-            msg_icon = QSystemTrayIcon.Information  # type: ignore[attr-defined]
-        duration_ms = 3000 if durations == 'short' else 7000
-        tray.showMessage(title, msg, msg_icon, duration_ms)
-    except Exception:
-        pass  # Silent fail — notifications are non-critical
+            tray = _get_tray_icon(ico_path)
+            if tray is None:
+                return
+            try:
+                from PyQt6.QtWidgets import QSystemTrayIcon
+                msg_icon = QSystemTrayIcon.MessageIcon.Information
+            except ImportError:
+                from PyQt5.QtWidgets import QSystemTrayIcon  # type: ignore[no-redef]
+                msg_icon = QSystemTrayIcon.Information  # type: ignore[attr-defined]
+            duration_ms = 3000 if durations == 'short' else 7000
+            tray.showMessage(title, msg, msg_icon, duration_ms)
+        except Exception:
+            pass  # Silent fail — notifications are non-critical

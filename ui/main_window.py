@@ -1311,13 +1311,18 @@ class MainWindow(QMainWindow):
         for patient_id, data in patient_dict.items():
             if 'patient_name' in data and 'study_datetime' in data and 'folder_datetime' in data and 'str' in data:
                 if not self.is_first_scan and patient_id not in existing_ids and patient_id not in self.restored_patient_ids:
-                    if notification_on:
+                    master_enabled = self.config.get('notifications_enabled', 'False').lower() == 'true'
+                    if master_enabled and notification_on:
+                        show_toast = self.config.get('notifications_toast_enabled', 'True').lower() == 'true'
+                        play_sound = self.config.get('notifications_sound_enabled', 'True').lower() == 'true'
                         show_notification(
                             str(data['patient_name']), 
                             'Новое КТ', 
                             'short', 
                             icon_path,
-                            self.config.get('ct_notification_sound', 'default')
+                            self.config.get('ct_notification_sound', 'default'),
+                            show_toast=show_toast,
+                            play_sound=play_sound
                         )
 
         self.images_cache = patient_dict
@@ -2071,13 +2076,18 @@ class MainWindow(QMainWindow):
                 for patient_id, data in pacs_dict.items():
                     if patient_id not in self.known_pacs_patient_ids:
                         new_patients[patient_id] = data
-                        if pacs_notify_on:
+                        master_enabled = self.config.get('notifications_enabled', 'False').lower() == 'true'
+                        if master_enabled and pacs_notify_on:
+                            show_toast = self.config.get('notifications_toast_enabled', 'True').lower() == 'true'
+                            play_sound = self.config.get('notifications_sound_enabled', 'True').lower() == 'true'
                             show_notification(
                                 str(data['patient_name']),
                                 'Новое КТ (PACS)',
                                 'short',
                                 icon_blue_path,
-                                self.config.get('pacs_notification_sound', 'default')
+                                self.config.get('pacs_notification_sound', 'default'),
+                                show_toast=show_toast,
+                                play_sound=play_sound
                             )
 
                 if new_patients:
