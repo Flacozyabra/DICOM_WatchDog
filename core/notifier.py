@@ -24,10 +24,6 @@ $Template = @"
             <image placement="appLogoOverride" src="{icon}" />
         </binding>
     </visual>
-    <actions>
-        {actions}
-    </actions>
-    {audio}
 </toast>
 "@
 
@@ -152,13 +148,9 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
                     duration=durations,
                     icon=toast_icon
                 )
-                # Если звук включен (play_sound=True), то тост должен быть беззвучным,
-                # так как кастомный звук (или TTS) воспроизводится самим приложением.
-                # Если звук выключен (play_sound=False), то тост воспроизводит стандартный системный звук (тег audio отсутствует).
-                if play_sound:
-                    toast.audio = '<audio silent="true" />'
-                else:
-                    toast.audio = ''
+                # Всегда используем пустой тег аудио, так как '<audio silent="true" />'
+                # ломает показ тостов на некоторых системах Windows 10/11.
+                toast.audio = ''
                 toast.show()
                 return
             except Exception as e:
