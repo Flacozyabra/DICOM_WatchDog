@@ -50,3 +50,6 @@ dist/
 
 # Сгенерированные ресурсы
 src/splashscreen_compiled.png
+
+# Отладочные/scratch-скрипты
+scratch/
