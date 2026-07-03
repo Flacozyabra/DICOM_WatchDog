@@ -129,12 +129,16 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
     if show_toast:
         if _HAS_WINOTIFY:
             try:
+                toast_icon = ico_path
+                if toast_icon and os.path.exists(toast_icon):
+                    toast_icon = "file:///" + os.path.abspath(toast_icon).replace("\\", "/")
+
                 toast = Notification(
                     app_id='DICOM WatchDog',
                     title=title,
                     msg=msg,
                     duration=durations,
-                    icon=rf'{ico_path}'
+                    icon=toast_icon
                 )
                 # Если звук проигран нами (или это TTS), глушим стандартный звук Windows
                 from core.config_utils import get_resource_path
