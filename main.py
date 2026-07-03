@@ -1,115 +1,13 @@
 import sys
+import os
 import time
 
-import os
+from PyQt6.QtWidgets import QApplication, QSplashScreen, QVBoxLayout, QLabel, QProgressBar
+from PyQt6.QtCore import Qt
+
 from core.locale_utils import tr_ui, tr_log
 
-# --- ШИМ ДЛЯ СОВМЕСТИМОСТИ PYQT6 -> PYQT5 ---
-USE_PYQT5 = os.environ.get('FORCE_PYQT5') == '1'
-if not USE_PYQT5:
-    try:
-        import PyQt6.QtCore
-    except ImportError:
-        USE_PYQT5 = True
-
-if USE_PYQT5:
-    try:
-        import PyQt5.QtCore
-        import PyQt5.QtGui
-        import PyQt5.QtWidgets
-
-        # Патчим оригинальные классы PyQt5 для трансляции вложенных перечислений PyQt6
-        for name in [
-            'AlignmentFlag', 'CheckState', 'ContextMenuPolicy', 'Corner',
-            'CursorShape', 'ItemDataRole', 'ItemFlag', 'KeyboardModifier',
-            'Orientation', 'ScrollBarPolicy', 'SortOrder', 'TextInteractionFlag',
-            'WindowModality'
-        ]:
-            if not hasattr(PyQt5.QtCore.Qt, name):
-                setattr(PyQt5.QtCore.Qt, name, PyQt5.QtCore.Qt)
-
-        for name in ['EditTrigger', 'SelectionBehavior', 'SelectionMode']:
-            if not hasattr(PyQt5.QtWidgets.QAbstractItemView, name):
-                setattr(PyQt5.QtWidgets.QAbstractItemView, name, PyQt5.QtWidgets.QAbstractItemView)
-
-        if not hasattr(PyQt5.QtGui.QFont, 'Weight'):
-            setattr(PyQt5.QtGui.QFont, 'Weight', PyQt5.QtGui.QFont)
-            
-        if not hasattr(PyQt5.QtWidgets.QHeaderView, 'ResizeMode'):
-            setattr(PyQt5.QtWidgets.QHeaderView, 'ResizeMode', PyQt5.QtWidgets.QHeaderView)
-            
-        if not hasattr(PyQt5.QtWidgets.QLineEdit, 'EchoMode'):
-            setattr(PyQt5.QtWidgets.QLineEdit, 'EchoMode', PyQt5.QtWidgets.QLineEdit)
-
-        for name in ['ButtonRole', 'Icon', 'StandardButton']:
-            if not hasattr(PyQt5.QtWidgets.QMessageBox, name):
-                setattr(PyQt5.QtWidgets.QMessageBox, name, PyQt5.QtWidgets.QMessageBox)
-
-        for name in ['ColorGroup', 'ColorRole']:
-            if not hasattr(PyQt5.QtGui.QPalette, name):
-                setattr(PyQt5.QtGui.QPalette, name, PyQt5.QtGui.QPalette)
-
-        if not hasattr(PyQt5.QtCore.QSettings, 'Format'):
-            setattr(PyQt5.QtCore.QSettings, 'Format', PyQt5.QtCore.QSettings)
-            
-        if not hasattr(PyQt5.QtWidgets.QSizePolicy, 'Policy'):
-            setattr(PyQt5.QtWidgets.QSizePolicy, 'Policy', PyQt5.QtWidgets.QSizePolicy)
-            
-        if not hasattr(PyQt5.QtGui.QTextCursor, 'MoveOperation'):
-            setattr(PyQt5.QtGui.QTextCursor, 'MoveOperation', PyQt5.QtGui.QTextCursor)
-
-        if not hasattr(PyQt5.QtWidgets.QFrame, 'Shape'):
-            setattr(PyQt5.QtWidgets.QFrame, 'Shape', PyQt5.QtWidgets.QFrame)
-            
-        if not hasattr(PyQt5.QtWidgets.QFrame, 'Shadow'):
-            setattr(PyQt5.QtWidgets.QFrame, 'Shadow', PyQt5.QtWidgets.QFrame)
-
-        # Перенаправляем QAction и QActionGroup, которые переехали в QtGui в PyQt6
-        PyQt5.QtGui.QAction = PyQt5.QtWidgets.QAction
-        if hasattr(PyQt5.QtWidgets, 'QActionGroup'):
-            PyQt5.QtGui.QActionGroup = PyQt5.QtWidgets.QActionGroup
-
-        # Патчим QMouseEvent для поддержки .position(), возвращающего QPointF как в PyQt6
-        PyQt5.QtGui.QMouseEvent.position = lambda self: self.localPos()
-
-        # Включаем поддержку High DPI масштабирования для PyQt5
-        PyQt5.QtCore.QCoreApplication.setAttribute(PyQt5.QtCore.Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
-        PyQt5.QtCore.QCoreApplication.setAttribute(PyQt5.QtCore.Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
-        os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-        os.environ["QT_SCALE_FACTOR_ROUNDING_POLICY"] = "PassThrough"
-
-        # Подменяем модули в sys.modules
-        sys.modules['PyQt6'] = sys.modules.get('PyQt5')
-        sys.modules['PyQt6.QtCore'] = PyQt5.QtCore
-        sys.modules['PyQt6.QtGui'] = PyQt5.QtGui
-        sys.modules['PyQt6.QtWidgets'] = PyQt5.QtWidgets
-    except ImportError as e_pyqt5:
-        if sys.platform == "win32":
-            import ctypes
-            error_msg = (
-                tr_ui("main_err_startup") + ":\n\n" +
-                tr_ui("main_err_missing_qt") + "\n\n" +
-                tr_ui("main_err_details_qt6") + "\n" +
-                tr_ui("main_err_details_qt5", str(e_pyqt5))
-            )
-            ctypes.windll.user32.MessageBoxW(0, error_msg, tr_ui("main_critical_error_title"), 0x10) # 0x10 = MB_ICONERROR
-        else:
-            print(f"Error: failed to load PyQt6/PyQt5. Details: {e_pyqt5}")
-        sys.exit(1)
-
-try:
-    from PyQt6.QtCore import Qt, QThread, pyqtSignal
-    from PyQt6.QtWidgets import QApplication, QSplashScreen, QProgressBar, QVBoxLayout, QLabel
-except ImportError as e:
-    if sys.platform == "win32":
-        import ctypes
-        ctypes.windll.user32.MessageBoxW(0, tr_ui("main_err_import_msg", str(e)), tr_ui("main_err_import_title"), 0x10)
-    else:
-        print(f"Critical import error: {e}")
-    sys.exit(1)
-
 MainWindow = None
-_worker = None
 
 
 def exception_hook(exctype, value, traceback_obj):
@@ -125,49 +23,6 @@ def exception_hook(exctype, value, traceback_obj):
 
 
 sys.excepthook = exception_hook
-
-
-class ImportWorker(QThread):
-    progress = pyqtSignal(int, str)
-    finished_import = pyqtSignal()
-
-    def run(self):
-        try:
-            import sys
-            self.progress.emit(10, tr_ui("main_progress_base"))
-            time.sleep(0.1)
-            
-            self.progress.emit(30, tr_ui("main_progress_dicom"))
-            if 'pydicom' not in sys.modules:
-                import pydicom
-            time.sleep(0.1)
-            
-            self.progress.emit(50, tr_ui("main_progress_pacs"))
-            if 'pynetdicom' not in sys.modules:
-                import pynetdicom
-            time.sleep(0.1)
-            
-            self.progress.emit(70, tr_ui("main_progress_image"))
-            if 'numpy' not in sys.modules:
-                import numpy
-            time.sleep(0.1)
-            
-            self.progress.emit(90, tr_ui("main_progress_ui"))
-            if 'ui.main_window' not in sys.modules:
-                import ui.main_window
-            time.sleep(0.1)
-            
-            self.progress.emit(100, tr_ui("main_progress_launch"))
-            time.sleep(0.1)
-            self.finished_import.emit()
-        except Exception as e:
-            import traceback
-            try:
-                with open("crash_report.log", "w", encoding="utf-8") as f:
-                    traceback.print_exc(file=f)
-            except Exception:
-                pass
-            raise e
 
 
 class LoadingSplash(QSplashScreen):
@@ -230,7 +85,7 @@ class LoadingSplash(QSplashScreen):
 
 
 def main():
-    global MainWindow, _worker
+    global MainWindow
     
     # Set AppUserModelID so Windows taskbar correctly groups windows under the custom icon
     if sys.platform == "win32":
@@ -249,16 +104,8 @@ def main():
     
     splash = LoadingSplash()
     splash.show()
-    QApplication.processEvents()
-    
-    # Pre-import heavy modules in the main GUI thread to prevent deadlocks 
-    # (e.g. OpenBLAS thread pool init hang) inside QThread
-    try:
-        import numpy
-        import pydicom
-        import pynetdicom
-    except Exception:
-        pass
+    splash.set_progress(10, tr_ui("main_progress_base"))
+    time.sleep(0.05)
     
     # Close PyInstaller bootloader splash screen if it was shown
     try:
@@ -266,21 +113,34 @@ def main():
         pyi_splash.close()
     except ImportError:
         pass
+
+    # Шаг 1: pydicom
+    splash.set_progress(30, tr_ui("main_progress_dicom"))
+    import pydicom
+    time.sleep(0.05)
     
-    _worker = ImportWorker()
-    _worker.progress.connect(splash.set_progress)
+    # Шаг 2: pynetdicom
+    splash.set_progress(50, tr_ui("main_progress_pacs"))
+    import pynetdicom
+    time.sleep(0.05)
     
-    def on_finished():
-        global MainWindow
-        from ui.main_window import MainWindow as MW
-        MainWindow = MW
-        
-        window = MainWindow()
-        window.show()
-        splash.finish(window)
-        
-    _worker.finished_import.connect(on_finished)
-    _worker.start()
+    # Шаг 3: numpy
+    splash.set_progress(70, tr_ui("main_progress_image"))
+    import numpy
+    time.sleep(0.05)
+    
+    # Шаг 4: ui.main_window
+    splash.set_progress(90, tr_ui("main_progress_ui"))
+    from ui.main_window import MainWindow as MW
+    MainWindow = MW
+    time.sleep(0.05)
+    
+    splash.set_progress(100, tr_ui("main_progress_launch"))
+    time.sleep(0.05)
+    
+    window = MainWindow()
+    window.show()
+    splash.finish(window)
     
     sys.exit(app.exec())
 
