@@ -155,39 +155,50 @@ class ImportWorker(QThread):
 class LoadingSplash(QSplashScreen):
     def __init__(self):
         from PyQt6.QtGui import QPixmap, QColor
-        pixmap = QPixmap(500, 200)
+        from PyQt6.QtWidgets import QVBoxLayout, QLabel, QProgressBar
+        from PyQt6.QtCore import Qt
+        from core.config_utils import get_resource_path
+        import os
+        
+        pixmap = QPixmap(450, 500)
         pixmap.fill(QColor("#202020"))
+        
         super().__init__(pixmap)
         
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(15)
+        layout.setContentsMargins(40, 20, 40, 30)
+        layout.setSpacing(10)
+        
+        self.logo_label = QLabel()
+        logo_path = get_resource_path("src/splashscreen_logo.png")
+        if os.path.exists(logo_path):
+            logo_pix = QPixmap(logo_path)
+            logo_pix = logo_pix.scaled(350, 350, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            self.logo_label.setPixmap(logo_pix)
+        self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.logo_label)
+        
         layout.addStretch(1)
         
-        self.title_label = QLabel("DICOM WatchDog")
-        self.title_label.setStyleSheet("color: #ffffff; font-size: 24px; font-weight: bold; font-family: 'Segoe UI';")
-        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.title_label)
-        
         self.status_label = QLabel(tr_ui("main_status_init"))
-        self.status_label.setStyleSheet("color: #aaaaaa; font-size: 13px; font-family: 'Segoe UI';")
+        self.status_label.setStyleSheet("color: #aaaaaa; font-size: 12px; font-family: 'Segoe UI';")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.status_label)
         
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        self.progress_bar.setFixedHeight(10)
+        self.progress_bar.setFixedHeight(6)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setStyleSheet("""
             QProgressBar {
                 border: 1px solid #3d3d3d;
-                border-radius: 5px;
+                border-radius: 3px;
                 background-color: #0f0f0f;
             }
             QProgressBar::chunk {
                 background-color: #1f538d;
-                border-radius: 4px;
+                border-radius: 2px;
             }
         """)
         layout.addWidget(self.progress_bar)

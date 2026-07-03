@@ -83,6 +83,35 @@ def generate_ico_icon():
         print(f"[WARNING] Ошибка генерации иконки: {e}. Сборка продолжится со стандартной иконкой.")
         return False
 
+def generate_splash_with_bg():
+    print_banner("2.1. Генерация сплэш-скрина со сплошным фоном")
+    png_path = Path("src") / "splashscreen_logo.png"
+    compiled_path = Path("src") / "splashscreen_compiled.png"
+    
+    if not png_path.exists():
+        print(f"[WARNING] Файл {png_path} не найден! Будет использован стандартный.")
+        return False
+        
+    try:
+        from PIL import Image
+        print(f"[INFO] Создаем сплэш-скрин со сплошным фоном #202020...")
+        img = Image.open(png_path).convert("RGBA")
+        
+        target_size = (450, 500)
+        logo_size = (350, 350)
+        img_resized = img.resize(logo_size, Image.Resampling.LANCZOS)
+        
+        # Создаем фоновое изображение цвета #202020 (RGB: 32, 32, 32)
+        bg = Image.new("RGBA", target_size, (32, 32, 32, 255))
+        bg.paste(img_resized, (50, 30), img_resized)
+        
+        bg.convert("RGB").save(compiled_path, "PNG")
+        print(f"[OK] Сплэш-скрин {compiled_path} успешно сгенерирован.")
+        return True
+    except Exception as e:
+        print(f"[WARNING] Ошибка генерации сплэш-скрина: {e}. Будет использован оригинал.")
+        return False
+
 def build_executable(has_icon):
     print_banner("3. Запуск компиляции через PyInstaller")
     
@@ -104,7 +133,7 @@ def build_executable(has_icon):
         "--add-data=themes;themes",
         "--add-data=locales;locales",
         "--name=DICOM_WatchDog_v1.4.0_PyQt5",
-        "--splash=src/splashscreen_logo.png",
+        "--splash=src/splashscreen_compiled.png",
     ]
     
     if has_icon:
@@ -123,7 +152,7 @@ def build_executable(has_icon):
         args.append("--hidden-import=pydicom")
         args.append("--hidden-import=pynetdicom")
 
-    # Исключаем PyQt6, чтобы сборщик не подтянул его в бандл PyQt5
+    # Исключаем PyQt6, чтобы минимизировать размер и предотвратить конфликты
     excludes = [
         "PyQt6", "PyQt6.QtCore", "PyQt6.QtGui", "PyQt6.QtWidgets"
     ]
@@ -141,6 +170,7 @@ def main():
         os.chdir(Path(__file__).parent.resolve())
         check_and_install_dependencies()
         has_icon = generate_ico_icon()
+        generate_splash_with_bg()
         build_executable(has_icon)
         print_banner("СБОРКА PYQT5 УСПЕШНО ВЫПОЛНЕНА! EXE ФАЙЛ В ПАПКЕ dist/")
     except Exception as e:

@@ -47,3 +47,6 @@ dist/
 # Служебные файлы ИИ-помощника (.agent)
 .agent/
 .agent/docs/
+
+# Сгенерированные ресурсы
+src/splashscreen_compiled.png
