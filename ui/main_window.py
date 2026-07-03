@@ -1365,15 +1365,7 @@ class MainWindow(QMainWindow):
             pid, d = item
             folder_dt = d['folder_datetime']
             patient_name = str(d.get('patient_name', '')).lower()
-            
-            now = datetime.now()
-            if (now - folder_dt).total_seconds() / 3600 < 1:
-                group = 0  # Зеленые (моложе 1 часа)
-            elif folder_dt.date() == now.date():
-                group = 1  # Синие (созданы сегодня)
-            else:
-                group = 2  # Белые (все остальные)
-            return (group, patient_name)
+            return (-folder_dt.timestamp(), patient_name)
 
         sorted_patients = sorted(valid_patients.items(), key=get_ct_sort_key)
 
