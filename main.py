@@ -132,24 +132,42 @@ class ImportWorker(QThread):
     finished_import = pyqtSignal()
 
     def run(self):
-        self.progress.emit(10, tr_ui("main_progress_base"))
-        time.sleep(0.1)
-        
-        self.progress.emit(30, tr_ui("main_progress_dicom"))
-        import pydicom
-        
-        self.progress.emit(50, tr_ui("main_progress_pacs"))
-        import pynetdicom
-        
-        self.progress.emit(70, tr_ui("main_progress_image"))
-        import numpy
-        
-        self.progress.emit(90, tr_ui("main_progress_ui"))
-        import ui.main_window
-        
-        self.progress.emit(100, tr_ui("main_progress_launch"))
-        time.sleep(0.1)
-        self.finished_import.emit()
+        try:
+            import sys
+            self.progress.emit(10, tr_ui("main_progress_base"))
+            time.sleep(0.1)
+            
+            self.progress.emit(30, tr_ui("main_progress_dicom"))
+            if 'pydicom' not in sys.modules:
+                import pydicom
+            time.sleep(0.1)
+            
+            self.progress.emit(50, tr_ui("main_progress_pacs"))
+            if 'pynetdicom' not in sys.modules:
+                import pynetdicom
+            time.sleep(0.1)
+            
+            self.progress.emit(70, tr_ui("main_progress_image"))
+            if 'numpy' not in sys.modules:
+                import numpy
+            time.sleep(0.1)
+            
+            self.progress.emit(90, tr_ui("main_progress_ui"))
+            if 'ui.main_window' not in sys.modules:
+                import ui.main_window
+            time.sleep(0.1)
+            
+            self.progress.emit(100, tr_ui("main_progress_launch"))
+            time.sleep(0.1)
+            self.finished_import.emit()
+        except Exception as e:
+            import traceback
+            try:
+                with open("crash_report.log", "w", encoding="utf-8") as f:
+                    traceback.print_exc(file=f)
+            except Exception:
+                pass
+            raise e
 
 
 class LoadingSplash(QSplashScreen):
@@ -231,6 +249,16 @@ def main():
     
     splash = LoadingSplash()
     splash.show()
+    QApplication.processEvents()
+    
+    # Pre-import heavy modules in the main GUI thread to prevent deadlocks 
+    # (e.g. OpenBLAS thread pool init hang) inside QThread
+    try:
+        import numpy
+        import pydicom
+        import pynetdicom
+    except Exception:
+        pass
     
     # Close PyInstaller bootloader splash screen if it was shown
     try:
