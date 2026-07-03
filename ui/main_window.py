@@ -2258,7 +2258,7 @@ class MainWindow(QMainWindow):
             # Сброс и перезапуск таймеров
             self.restart_timers()
             
-            log_message(self.output_field, "Настройки сохранены и применены")
+            log_message(self.output_field, tr_log("log_settings_saved"))
             
             new_ct_dir = self.config.get('ct_images_dir', '')
             new_archive_dir = self.config.get('archive_dir', '')
@@ -2318,7 +2318,7 @@ class MainWindow(QMainWindow):
             
         self.send_to_ct_btn.setEnabled(False)
         self.send_to_ct_btn.setText("Sending...")
-        log_message(self.output_field, f"Запуск скачивания исследования {patient_id} [{patient_name}] из PACS...")
+        log_message(self.output_field, tr_log("log_pacs_download_started", patient_id, patient_name))
         
         pacs_ip = self.config.get('pacs_ip', '127.0.0.1')
         pacs_port = int(self.config.get('pacs_port', 11112))
@@ -2376,9 +2376,9 @@ class MainWindow(QMainWindow):
             try:
                 os.startfile(path)
             except Exception as e:
-                log_message(self.output_field, f"Не удалось открыть папку {folder_name}: {e}")
+                log_message(self.output_field, tr_log("log_failed_open_folder", folder_name, e))
         else:
-            log_message(self.output_field, f"Папка {path} не существует")
+            log_message(self.output_field, tr_log("log_path_not_exist", path))
 
     def on_images_double_clicked(self, row, column):
         patient_id = self.images_table.item(row, 0).text()
@@ -2395,7 +2395,7 @@ class MainWindow(QMainWindow):
         patient_dir = os.path.join(self.config.get(dir_key, ''), folder_name)
         
         if not os.path.exists(patient_dir):
-            log_message(self.output_field, f"Путь {patient_dir} не существует")
+            log_message(self.output_field, tr_log("log_path_not_exist", patient_dir))
             return
             
         try:
@@ -2405,14 +2405,14 @@ class MainWindow(QMainWindow):
                     files.append(os.path.join(root, filename))
                     
             if not files:
-                log_message(self.output_field, f"Папка {patient_id} пуста")
+                log_message(self.output_field, tr_log("log_patient_folder_empty", patient_id))
                 return
                 
             self.viewer_panel.load_series(files)
             self.viewer_panel.apply_theme()
             self.stacked_widget.setCurrentIndex(1)
         except Exception as e:
-            log_message(self.output_field, f"Ошибка при открытии вьюера для {patient_id}: {e}")
+            log_message(self.output_field, tr_log("log_failed_open_viewer", patient_id, e))
 
     def close_viewer(self):
         self.stacked_widget.setCurrentIndex(0)
