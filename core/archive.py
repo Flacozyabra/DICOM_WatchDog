@@ -84,7 +84,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
             cached_item = cache.get(root)
             if cached_item and cached_item.get('mtime') == mtime:
                 p_id = cached_item['patient_id']
-                patient_data[p_id] = {
+                patient_data[item] = {
                     'patient_id': p_id,
                     'patient_name': cached_item['patient_name'],
                     'modality': cached_item.get('modality', 'CT'),
@@ -103,7 +103,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                     if deleted > 0:
                         try:
                             str_count = len([f for f in os.listdir(root) if f.startswith('STR')])
-                            patient_data[p_id]['str'] = str_count
+                            patient_data[item]['str'] = str_count
                             cached_item['str'] = str_count
                             cached_item['mtime'] = os.path.getmtime(root)
                         except Exception:
@@ -141,7 +141,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                         except Exception:
                             pass
                     
-                    patient_data[p_id] = {
+                    patient_data[item] = {
                         'patient_id': p_id,
                         'patient_name': p_name,
                         'modality': p_modality,

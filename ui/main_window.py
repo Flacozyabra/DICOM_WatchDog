@@ -1234,7 +1234,7 @@ class MainWindow(QMainWindow):
             row = selected_ranges[0].topRow()
             id_item = self.images_table.item(row, 0)
             if id_item:
-                self.selected_images_patient_id = id_item.text()
+                self.selected_images_patient_id = id_item.data(Qt.ItemDataRole.UserRole)
 
         cleanup_str_val = self.config.get('cleanup_structures_enabled', 'False')
         fix_id_val = self.config.get('fix_patient_id_enabled', 'False')
@@ -1278,7 +1278,7 @@ class MainWindow(QMainWindow):
         for r in range(self.images_table.rowCount()):
             id_item = self.images_table.item(r, 0)
             if id_item:
-                existing_ids.add(id_item.text())
+                existing_ids.add(id_item.data(Qt.ItemDataRole.UserRole))
 
         master_enabled = str(self.config.get('notifications_enabled', 'False')).lower() == 'true'
         ct_toast_on = str(self.config.get('ct_notification_toast_enabled', 'True')).lower() == 'true'
@@ -1324,7 +1324,7 @@ class MainWindow(QMainWindow):
             row = selected_ranges[0].topRow()
             id_item = self.images_table.item(row, 0)
             if id_item:
-                self.selected_images_patient_id = id_item.text()
+                self.selected_images_patient_id = id_item.data(Qt.ItemDataRole.UserRole)
 
         self.images_table.setRowCount(0)
         search_text = self.search_images_entry.text().lower()
@@ -1364,7 +1364,8 @@ class MainWindow(QMainWindow):
         for patient_id, data in sorted_patients:
             self.images_table.insertRow(row_idx)
             
-            id_item = QTableWidgetItem(str(patient_id))
+            id_item = QTableWidgetItem(str(data.get('patient_id', patient_id)))
+            id_item.setData(Qt.ItemDataRole.UserRole, patient_id)
             name_item = QTableWidgetItem(str(data['patient_name']))
             modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
             slices_item = QTableWidgetItem(str(data.get('slices', 0)))
@@ -1421,7 +1422,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'selected_images_patient_id') and self.selected_images_patient_id:
             for r in range(self.images_table.rowCount()):
                 id_item = self.images_table.item(r, 0)
-                if id_item and id_item.text() == self.selected_images_patient_id:
+                if id_item and id_item.data(Qt.ItemDataRole.UserRole) == self.selected_images_patient_id:
                     self.images_table.selectRow(r)
                     break
 
@@ -1437,7 +1438,8 @@ class MainWindow(QMainWindow):
             self.update_images_table_ui()
 
     def open_current_folder_cmd(self, row, column):
-        patient_id = self.images_table.item(row, 0).text()
+        id_item = self.images_table.item(row, 0)
+        patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
         path = os.path.join(self.config.get('ct_images_dir', ''), patient_id)
         if os.path.exists(path):
             try:
@@ -1512,7 +1514,8 @@ class MainWindow(QMainWindow):
             return
             
         row = index.row()
-        patient_id = self.images_table.item(row, 0).text()
+        id_item = self.images_table.item(row, 0)
+        patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
         patient_name = self.images_table.item(row, 1).text()
         
         menu = QMenu(self)
@@ -1621,7 +1624,8 @@ class MainWindow(QMainWindow):
             return
             
         row = selected_ranges[0].topRow()
-        patient_id = self.images_table.item(row, 0).text()
+        id_item = self.images_table.item(row, 0)
+        patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
         patient_name = self.images_table.item(row, 1).text()
         self.archive_patient_action(patient_id, patient_name)
 
@@ -1654,7 +1658,7 @@ class MainWindow(QMainWindow):
             row = selected_ranges[0].topRow()
             id_item = self.archive_table.item(row, 0)
             if id_item:
-                self.selected_archive_patient_id = id_item.text()
+                self.selected_archive_patient_id = id_item.data(Qt.ItemDataRole.UserRole)
 
         cleanup_str_val = self.config.get('cleanup_structures_enabled', 'False')
         self.archive_worker = ArchiveScanWorker(archive_dir, cleanup_str_val)
@@ -1713,7 +1717,8 @@ class MainWindow(QMainWindow):
         for patient_id, data in sorted_items:
             self.archive_table.insertRow(row_idx)
             
-            id_item = QTableWidgetItem(str(patient_id))
+            id_item = QTableWidgetItem(str(data.get('patient_id', patient_id)))
+            id_item.setData(Qt.ItemDataRole.UserRole, patient_id)
             name_item = QTableWidgetItem(str(data['patient_name']))
             modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
             slices_item = QTableWidgetItem(str(data.get('slices', 0)))
@@ -1769,7 +1774,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'selected_archive_patient_id') and self.selected_archive_patient_id:
             for r in range(self.archive_table.rowCount()):
                 id_item = self.archive_table.item(r, 0)
-                if id_item and id_item.text() == self.selected_archive_patient_id:
+                if id_item and id_item.data(Qt.ItemDataRole.UserRole) == self.selected_archive_patient_id:
                     self.archive_table.selectRow(r)
                     break
 
@@ -1784,7 +1789,8 @@ class MainWindow(QMainWindow):
             return
             
         row = index.row()
-        patient_id = self.archive_table.item(row, 0).text()
+        id_item = self.archive_table.item(row, 0)
+        patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
         patient_name = self.archive_table.item(row, 1).text()
         
         menu = QMenu(self)
@@ -1841,7 +1847,8 @@ class MainWindow(QMainWindow):
             return
             
         row = selected_ranges[0].topRow()
-        patient_id = self.archive_table.item(row, 0).text()
+        id_item = self.archive_table.item(row, 0)
+        patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
         patient_name = self.archive_table.item(row, 1).text()
         
         archive_dir = self.config.get('archive_dir', '')
@@ -2381,11 +2388,13 @@ class MainWindow(QMainWindow):
             log_message(self.output_field, tr_log("log_path_not_exist", path))
 
     def on_images_double_clicked(self, row, column):
-        patient_id = self.images_table.item(row, 0).text()
+        id_item = self.images_table.item(row, 0)
+        patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
         self.open_viewer(patient_id, is_archive=False)
 
     def on_archive_double_clicked(self, row, column):
-        patient_id = self.archive_table.item(row, 0).text()
+        id_item = self.archive_table.item(row, 0)
+        patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
         self.open_viewer(patient_id, is_archive=True)
 
     def open_viewer(self, patient_id, is_archive=False):

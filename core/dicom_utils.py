@@ -67,15 +67,16 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
             if file.endswith('.dcm'):
                 try:
                     ds = pydicom.dcmread(os.path.join(root, file), stop_before_pixels=True)
-                    patient_data[ds.PatientID]['patient_id'] = ds.PatientID
-                    patient_data[ds.PatientID]['patient_name'] = ds.PatientName
-                    patient_data[ds.PatientID]['modality'] = str(ds.get('Modality', 'CT'))
-                    patient_data[ds.PatientID]['folder_name'] = os.path.basename(root)
+                    folder_name = os.path.basename(root)
+                    patient_data[folder_name]['patient_id'] = ds.PatientID
+                    patient_data[folder_name]['patient_name'] = ds.PatientName
+                    patient_data[folder_name]['modality'] = str(ds.get('Modality', 'CT'))
+                    patient_data[folder_name]['folder_name'] = folder_name
 
                     # учитываем два варианта записи времени исследования (с мкс и без)
                     date_time_string = ds.StudyDate + ds.StudyTime
                     format_string = '%Y%m%d%H%M%S' if '.' not in ds.StudyTime else '%Y%m%d%H%M%S.%f'
-                    patient_data[ds.PatientID]['study_datetime'] = datetime.strptime(date_time_string, format_string)
+                    patient_data[folder_name]['study_datetime'] = datetime.strptime(date_time_string, format_string)
 
                     # область сканирования (BodyPartExamined / StudyDescription / SeriesDescription)
                     body_part = ds.get('BodyPartExamined', '')
@@ -87,23 +88,23 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
                     body_part_str = str(body_part).strip()
                     if not body_part_str:
                         body_part_str = "Unknown"
-                    patient_data[ds.PatientID]['body_part'] = body_part_str
+                    patient_data[folder_name]['body_part'] = body_part_str
 
                     # время создания папки
-                    patient_data[ds.PatientID]['folder_datetime'] = datetime.fromtimestamp(os.path.getctime(root))
+                    patient_data[folder_name]['folder_datetime'] = datetime.fromtimestamp(os.path.getctime(root))
                     # считаем количество срезов (файлов .dcm)
                     dcm_count = len([f for f in files if f.lower().endswith('.dcm')])
-                    patient_data[ds.PatientID]['slices'] = dcm_count
+                    patient_data[folder_name]['slices'] = dcm_count
                     # считаем количество файлов начинающихся с STR в папке пациента
-                    files = [f for f in os.listdir(root) if f.startswith('STR')]
-                    str_count = len(files)
-                    patient_data[ds.PatientID]['str'] = str_count
+                    str_files = [f for f in os.listdir(root) if f.startswith('STR')]
+                    str_count = len(str_files)
+                    patient_data[folder_name]['str'] = str_count
 
                     if is_cleanup_on and str_count > 1:
                         delete_redundant_str(root, output_field)
                         # Пересчитываем количество файлов STR
-                        files = [f for f in os.listdir(root) if f.startswith('STR')]
-                        patient_data[ds.PatientID]['str'] = len(files)
+                        str_files = [f for f in os.listdir(root) if f.startswith('STR')]
+                        patient_data[folder_name]['str'] = len(str_files)
 
                 except Exception as e:
                     log_message(output_field, tr_log("log_dcm_read_error", os.path.join(root, file), e))
@@ -212,18 +213,78 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
             target_folder_name = patient_folder
 
         if patient_folder != target_folder_name and target_folder_name:
+            # Пытаемся получить дату исследования
+            try:
+                date_time_string = ds.StudyDate + ds.StudyTime
+                format_string = '%Y%m%d%H%M%S' if '.' not in ds.StudyTime else '%Y%m%d%H%M%S.%f'
+                study_dt = datetime.strptime(date_time_string, format_string)
+                study_date_str = study_dt.strftime('%d.%m.%y - %H-%M')
+            except Exception:
+                study_date_str = "unknown_date"
+
             new_path = os.path.join(os.path.dirname(path), target_folder_name)
             id_changed = (new_patient_id != raw_patient_id)
+
             if os.path.exists(new_path):
-                try:
-                    safe_merge_folders(path, new_path, new_patient_id)
-                    if id_changed:
-                        log_message(output_field, tr_log("log_files_merged_success_with_id", target_folder_name, new_patient_id, patient_folder))
+                # Если целевая папка (без даты) уже существует, мы переименовываем ее, добавляя ее дату исследования.
+                files_exist = [f for f in os.listdir(new_path) if f.endswith('.dcm')]
+                if files_exist:
+                    try:
+                        ds_exist = pydicom.dcmread(os.path.join(new_path, files_exist[0]), stop_before_pixels=True)
+                        date_time_string_exist = ds_exist.StudyDate + ds_exist.StudyTime
+                        format_string_exist = '%Y%m%d%H%M%S' if '.' not in ds_exist.StudyTime else '%Y%m%d%H%M%S.%f'
+                        study_dt_exist = datetime.strptime(date_time_string_exist, format_string_exist)
+                        study_date_str_exist = study_dt_exist.strftime('%d.%m.%y - %H-%M')
+                    except Exception:
+                        study_date_str_exist = "unknown_date"
+                    
+                    target_folder_name_exist = f"{target_folder_name} [{study_date_str_exist}]"
+                    new_path_exist = os.path.join(os.path.dirname(path), target_folder_name_exist)
+                    
+                    if new_path != new_path_exist and not os.path.exists(new_path_exist):
+                        try:
+                            os.rename(new_path, new_path_exist)
+                            log_message(output_field, tr_log("log_folder_renamed_success", os.path.basename(new_path), target_folder_name_exist))
+                        except Exception as e:
+                            log_message(output_field, f"Error renaming existing folder {new_path} to {target_folder_name_exist}: {e}")
+
+                # Теперь вычисляем имя для текущей папки с добавлением даты
+                target_folder_name_current = f"{target_folder_name} [{study_date_str}]"
+                new_path_current = os.path.join(os.path.dirname(path), target_folder_name_current)
+
+                # Если папка с такой же датой уже существует, делаем слияние (дубликаты исследования)
+                if os.path.exists(new_path_current):
+                    try:
+                        safe_merge_folders(path, new_path_current, new_patient_id)
+                        if id_changed:
+                            log_message(output_field, tr_log("log_files_merged_success_with_id", os.path.basename(new_path_current), new_patient_id, patient_folder))
+                        else:
+                            log_message(output_field, tr_log("log_files_merged_success", os.path.basename(new_path_current), patient_folder))
+                    except Exception as e:
+                        log_message(output_field, tr_log("log_folders_merge_error", patient_folder, os.path.basename(new_path_current), e))
+                else:
+                    import time
+                    success = False
+                    last_error = None
+                    for attempt in range(5):
+                        try:
+                            os.rename(path, new_path_current)
+                            success = True
+                            break
+                        except OSError as e:
+                            last_error = e
+                            time.sleep(0.2)
+                    
+                    if success:
+                        safe_update_patient_ids(new_path_current, new_patient_id, output_field)
+                        if id_changed:
+                            log_message(output_field, tr_log("log_folder_renamed_success_with_id", patient_folder, target_folder_name_current, new_patient_id))
+                        else:
+                            log_message(output_field, tr_log("log_folder_renamed_success", patient_folder, target_folder_name_current))
                     else:
-                        log_message(output_field, tr_log("log_files_merged_success", target_folder_name, patient_folder))
-                except Exception as e:
-                    log_message(output_field, tr_log("log_folders_merge_error", patient_folder, target_folder_name, e))
+                        log_message(output_field, tr_log("log_folder_rename_error", patient_folder, last_error))
             else:
+                # Если целевой папки нет, переименовываем в нее обычным образом
                 import time
                 success = False
                 last_error = None
