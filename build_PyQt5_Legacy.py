@@ -91,16 +91,16 @@ def generate_ico_icon():
 def build_executable(has_icon):
     print_banner("3. Compiling via PyInstaller")
 
-    pyinstaller_bin = Path(sys.executable).parent / "pyinstaller.exe"
-    if not pyinstaller_bin.exists():
-        pyinstaller_bin = "pyinstaller"
-        print("[WARNING] pyinstaller.exe not found beside current python. Falling back to PATH.")
-    else:
-        pyinstaller_bin = str(pyinstaller_bin)
-        print(f"[INFO] Found PyInstaller: {pyinstaller_bin}")
+    # Clean build directory before building to avoid PyInstaller caching issues
+    build_dir = Path("build")
+    if build_dir.exists():
+        print(f"[INFO] Removing old build directory: {build_dir}")
+        shutil.rmtree(build_dir, ignore_errors=True)
 
     args = [
-        str(pyinstaller_bin),
+        sys.executable,
+        "-m",
+        "PyInstaller",
         "--noconfirm",
         "--onefile",
         "--windowed",

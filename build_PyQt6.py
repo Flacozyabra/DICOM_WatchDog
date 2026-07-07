@@ -106,17 +106,17 @@ def generate_splash_with_bg():
 def build_executable(has_icon):
     print_banner("3. Запуск компиляции через PyInstaller")
     
-    pyinstaller_bin = Path("venv") / "Scripts" / "pyinstaller.exe"
-    if not pyinstaller_bin.exists():
-        pyinstaller_bin = "pyinstaller"
-        print("[WARNING] venv/Scripts/pyinstaller.exe не найден! Будет использован глобальный pyinstaller.")
-    else:
-        pyinstaller_bin = str(pyinstaller_bin)
-        print(f"[INFO] Обнаружен PyInstaller в venv: {pyinstaller_bin}")
+    # Очистка папки build перед сборкой для избежания конфликтов кэша PyInstaller
+    build_dir = Path("build")
+    if build_dir.exists():
+        print(f"[INFO] Удаление старой папки сборки: {build_dir}")
+        shutil.rmtree(build_dir, ignore_errors=True)
         
-    # Базовые аргументы
+    # Базовые аргументы (запускаем PyInstaller как модуль python)
     args = [
-        pyinstaller_bin,
+        sys.executable,
+        "-m",
+        "PyInstaller",
         "--noconfirm",
         "--onefile",
         "--windowed",  # без консоли
