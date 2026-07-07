@@ -49,13 +49,30 @@ class FileDownloadWorker(QThread):
 def get_build_type():
     if not hasattr(sys, "frozen"):
         return "source"
+    
+    # 1. Если Python 3.8 — это сборка Legacy под Windows 7
+    if sys.version_info.major == 3 and sys.version_info.minor == 8:
+        return "legacy"
+        
+    # 2. Если Python 3.11+ — проверяем реальный модуль QApplication
+    try:
+        from PyQt6.QtWidgets import QApplication
+        module_name = QApplication.__module__
+        if "PyQt5" in module_name:
+            return "pyqt5"
+        else:
+            return "pyqt6"
+    except Exception:
+        pass
+
+    # Резервный вариант по имени файла, если модули не определились
     exe_name = os.path.basename(sys.executable).lower()
     if "legacy" in exe_name:
         return "legacy"
     elif "pyqt5" in exe_name:
         return "pyqt5"
-    else:
-        return "pyqt6"
+    
+    return "pyqt6"
 
 def find_matching_asset(assets, build_type):
     for name, url in assets.items():
