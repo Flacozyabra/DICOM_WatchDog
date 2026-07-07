@@ -72,7 +72,7 @@ def get_log_path():
 def check_github_updates():
     """
     Checks GitHub releases for the latest version.
-    Returns (latest_tag_name, html_url) if successful, or (None, None).
+    Returns (latest_tag_name, html_url, assets_dict) if successful, or (None, None, None).
     """
     url = "https://api.github.com/repos/Flacozyabra/DICOM_WatchDog/releases/latest"
     req = urllib.request.Request(url, headers={'User-Agent': 'DICOM_WatchDog'})
@@ -81,10 +81,18 @@ def check_github_updates():
             data = json.loads(response.read().decode())
             tag_name = data.get('tag_name', '')
             html_url = data.get('html_url', 'https://github.com/Flacozyabra/DICOM_WatchDog/releases')
-            return tag_name, html_url
+            
+            assets_dict = {}
+            for asset in data.get('assets', []):
+                name = asset.get('name', '')
+                download_url = asset.get('browser_download_url', '')
+                if name and download_url:
+                    assets_dict[name] = download_url
+                    
+            return tag_name, html_url, assets_dict
     except Exception as e:
         print(f"Error checking for updates: {e}")
-        return None, None
+        return None, None, None
 
 def is_newer_version(current_version, latest_version):
     if not latest_version:

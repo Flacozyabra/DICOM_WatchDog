@@ -150,12 +150,12 @@ class PacsPingWorker(QThread):
 
 
 class UpdateCheckWorker(QThread):
-    finished = pyqtSignal(str, str)
+    finished = pyqtSignal(str, str, object)
 
     def run(self):
         from core.config_utils import check_github_updates
-        tag, url = check_github_updates()
-        self.finished.emit(tag or "", url or "")
+        tag, url, assets = check_github_updates()
+        self.finished.emit(tag or "", url or "", assets or {})
 
 
 class LanguageSwitch(QFrame):
@@ -1515,24 +1515,14 @@ Copy-VoiceTokens $src $dst32
         self.manual_update_worker.finished.connect(self.on_manual_update_checked)
         self.manual_update_worker.start()
 
-    def on_manual_update_checked(self, latest_version, html_url):
+    def on_manual_update_checked(self, latest_version, html_url, assets):
         self.btn_check_updates.setEnabled(True)
         self.btn_check_updates.setText(tr_ui("settings_check_updates_btn"))
         
         from core.config_utils import VERSION, is_newer_version
         if latest_version and is_newer_version(VERSION, latest_version):
-            msg = QMessageBox(self)
-            msg.setIcon(QMessageBox.Icon.Information)
-            msg.setWindowTitle(tr_ui("dlg_update_available_title"))
-            msg.setText(tr_ui("dlg_update_available_msg", latest_version))
-            msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            msg.setDefaultButton(QMessageBox.StandardButton.Yes)
-            apply_dark_title_bar(msg)
-            
-            if msg.exec() == QMessageBox.StandardButton.Yes:
-                from PyQt6.QtGui import QDesktopServices
-                from PyQt6.QtCore import QUrl
-                QDesktopServices.openUrl(QUrl(html_url))
+            from ui.updater import run_auto_update
+            run_auto_update(self, latest_version, assets)
         else:
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Information)

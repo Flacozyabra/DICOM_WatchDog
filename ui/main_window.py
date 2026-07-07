@@ -2441,13 +2441,13 @@ class MainWindow(QMainWindow):
             self.startup_update_worker.finished.connect(self.on_startup_update_checked)
             self.startup_update_worker.start()
 
-    def on_startup_update_checked(self, latest_version, html_url):
+    def on_startup_update_checked(self, latest_version, html_url, assets):
         from core.config_utils import is_newer_version
         if latest_version and is_newer_version(VERSION, latest_version):
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Information)
             msg.setWindowTitle("Доступно обновление")
-            msg.setText(f"Доступна новая версия: {latest_version}.\n\nХотите перейти на страницу скачивания?")
+            msg.setText(f"Доступна новая версия: {latest_version}.\n\nХотите запустить автоматическое обновление?")
             msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             msg.setDefaultButton(QMessageBox.StandardButton.Yes)
             
@@ -2458,9 +2458,8 @@ class MainWindow(QMainWindow):
             apply_dark_title_bar(msg)
             
             if msg.exec() == QMessageBox.StandardButton.Yes:
-                from PyQt6.QtGui import QDesktopServices
-                from PyQt6.QtCore import QUrl
-                QDesktopServices.openUrl(QUrl(html_url))
+                from ui.updater import run_auto_update
+                run_auto_update(self, latest_version, assets)
                 
             if cb.isChecked():
                 self.config['check_updates_at_startup'] = 'off'
