@@ -120,6 +120,7 @@ def build_executable(has_icon):
         "--noconfirm",
         "--onefile",
         "--windowed",  # без консоли
+        "--collect-all=numpy",
         "--add-data=src;src",
         "--add-data=themes;themes",
         "--add-data=locales;locales",
