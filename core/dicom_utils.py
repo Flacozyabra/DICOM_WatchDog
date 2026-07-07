@@ -127,6 +127,8 @@ def sanitize_folder_name(name):
     return sanitized.strip()
 
 def safe_merge_folders(src, dest, new_id):
+    if os.path.abspath(src) == os.path.abspath(dest):
+        return
     for dirpath, dirnames, filenames in os.walk(src):
         for filename in filenames:
             src_file = os.path.join(dirpath, filename)
@@ -212,16 +214,18 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
         else:
             target_folder_name = patient_folder
 
-        if patient_folder != target_folder_name and target_folder_name:
-            # Пытаемся получить дату исследования
-            try:
-                date_time_string = ds.StudyDate + ds.StudyTime
-                format_string = '%Y%m%d%H%M%S' if '.' not in ds.StudyTime else '%Y%m%d%H%M%S.%f'
-                study_dt = datetime.strptime(date_time_string, format_string)
-                study_date_str = study_dt.strftime('%d.%m.%y - %H-%M')
-            except Exception:
-                study_date_str = "unknown_date"
+        # Пытаемся получить дату исследования
+        try:
+            date_time_string = ds.StudyDate + ds.StudyTime
+            format_string = '%Y%m%d%H%M%S' if '.' not in ds.StudyTime else '%Y%m%d%H%M%S.%f'
+            study_dt = datetime.strptime(date_time_string, format_string)
+            study_date_str = study_dt.strftime('%d.%m.%y - %H-%M')
+        except Exception:
+            study_date_str = "unknown_date"
 
+        target_folder_name_with_date = f"{target_folder_name} [{study_date_str}]"
+
+        if patient_folder not in [target_folder_name, target_folder_name_with_date] and target_folder_name:
             new_path = os.path.join(os.path.dirname(path), target_folder_name)
             id_changed = (new_patient_id != raw_patient_id)
 
