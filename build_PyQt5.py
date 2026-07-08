@@ -132,7 +132,7 @@ def build_executable(has_icon):
         "--add-data=src;src",
         "--add-data=themes;themes",
         "--add-data=locales;locales",
-        "--name=DICOM_WatchDog_v1.4.1_PyQt5",
+        "--name=DICOM_WatchDog_v1.4.2_PyQt5",
         "--splash=src/splashscreen_compiled.png",
     ]
     
