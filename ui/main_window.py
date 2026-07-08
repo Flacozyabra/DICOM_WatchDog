@@ -518,6 +518,14 @@ class MainWindow(QMainWindow):
         # Проверка обновлений при запуске
         self.check_for_updates_on_startup()
 
+    def get_folder_desc(self, folder_name, patient_name):
+        if not patient_name:
+            return folder_name
+        clean_patient = patient_name.replace('^', ' ').strip().lower()
+        if clean_patient in folder_name.lower():
+            return folder_name
+        return f"{folder_name} [{patient_name}]"
+
     def load_config(self):
         # Быстрый способ получить актуальные настройки из config.txt
         dialog = SettingsDialog(self)
@@ -1558,7 +1566,8 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             try:
                 shutil.rmtree(path)
-                log_message(self.output_field, tr_log("log_patient_deleted", patient_name, patient_id))
+                folder_desc = self.get_folder_desc(patient_id, patient_name)
+                log_message(self.output_field, tr_log("log_patient_deleted", folder_desc))
                 self.show_patient_list()
             except Exception as e:
                 _err = QMessageBox(self)
@@ -1567,8 +1576,8 @@ class MainWindow(QMainWindow):
                 _err.setText(tr_ui("dlg_error_delete_msg", e))
                 apply_dark_title_bar(_err)
                 _err.exec()
-                patient_name_str = f" [{patient_name}]" if patient_name else ""
-                log_message(self.output_field, tr_log("log_failed_delete_patient", patient_id, patient_name_str, e))
+                folder_desc = self.get_folder_desc(patient_id, patient_name)
+                log_message(self.output_field, tr_log("log_failed_delete_patient", folder_desc, e))
 
     def archive_patient_action(self, patient_id, patient_name=None):
         folder_name = self.images_cache[patient_id].get('folder_name', patient_id) if (self.images_cache and patient_id in self.images_cache) else patient_id
@@ -1587,8 +1596,8 @@ class MainWindow(QMainWindow):
             if os.path.exists(dest_path):
                 shutil.rmtree(dest_path)
             shutil.move(path, archive_dir)
-            name_str = f" [{patient_name}]" if patient_name else ""
-            log_message(self.output_field, tr_log("log_patient_archived", patient_id, name_str))
+            folder_desc = self.get_folder_desc(patient_id, patient_name)
+            log_message(self.output_field, tr_log("log_patient_archived", folder_desc))
             self.show_patient_list()
         except Exception as e:
             _err = QMessageBox(self)
@@ -1606,8 +1615,8 @@ class MainWindow(QMainWindow):
             patient_name = ""
             if self.images_cache and patient_id in self.images_cache:
                 patient_name = self.images_cache[patient_id].get('patient_name', '')
-            name_str = f" [{patient_name}]" if patient_name else ""
-            log_message(self.output_field, tr_log("log_cleaned_str_files", deleted, patient_id, name_str))
+            folder_desc = self.get_folder_desc(patient_id, patient_name)
+            log_message(self.output_field, tr_log("log_cleaned_str_files", deleted, folder_desc))
             self.show_patient_list()
 
     def on_images_selection_changed(self):
@@ -1829,7 +1838,8 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             try:
                 shutil.rmtree(path)
-                log_message(self.output_field, tr_log("log_patient_deleted", patient_name, patient_id))
+                folder_desc = self.get_folder_desc(patient_id, patient_name)
+                log_message(self.output_field, tr_log("log_patient_deleted", folder_desc))
                 # Reset cache to force list refresh
                 self.archive_cache = None
                 self.fill_archive_list()
@@ -1868,13 +1878,15 @@ class MainWindow(QMainWindow):
             shutil.copytree(path, dest_path)
             shutil.rmtree(path)
             
-            log_message(self.output_field, tr_log("log_patient_restored_from_archive", patient_id, patient_name))
+            folder_desc = self.get_folder_desc(patient_id, patient_name)
+            log_message(self.output_field, tr_log("log_patient_restored_from_archive", folder_desc))
             self.archive_cache = None
             self.fill_archive_list(silent=True)
             self.restored_patient_ids.add(patient_id)
             self.show_patient_list()
         except Exception as e:
-            log_message(self.output_field, tr_log("log_failed_restore_patient", patient_id, patient_name, e))
+            folder_desc = self.get_folder_desc(patient_id, patient_name)
+            log_message(self.output_field, tr_log("log_failed_restore_patient", folder_desc, e))
 
     def search_patient_archive(self):
         search_text = self.search_entry.text().lower()
