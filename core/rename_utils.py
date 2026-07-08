@@ -200,7 +200,34 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
                 return
 
             # Если это другая папка, то работаем по стандартной схеме переноса/слияния
-            # 1. Сначала делаем целевую папку иерархической, если в ее корне еще есть файлы
+            # Проверим, лежит ли существующее исследование в корне parent_path (плоская структура)
+            dcm_in_root = [f for f in os.listdir(parent_path) if f.lower().endswith('.dcm')]
+            if dcm_in_root:
+                # Читаем дату существующего в корне исследования
+                try:
+                    first_file = os.path.join(parent_path, dcm_in_root[0])
+                    ds_exist = pydicom.dcmread(first_file, stop_before_pixels=True)
+                    date_time_string_exist = ds_exist.StudyDate + ds_exist.StudyTime
+                    format_string_exist = '%Y%m%d%H%M%S' if '.' not in ds_exist.StudyTime else '%Y%m%d%H%M%S.%f'
+                    study_dt_exist = datetime.strptime(date_time_string_exist, format_string_exist)
+                    study_date_str_exist = study_dt_exist.strftime('%d.%m.%y - %H-%M')
+                except Exception:
+                    study_date_str_exist = "unknown_date"
+
+                if study_date_str == study_date_str_exist:
+                    # Это дубликат того же исследования. Просто сливаем файлы в корень parent_path
+                    try:
+                        safe_merge_folders(path, parent_path, new_patient_id)
+                        if id_changed:
+                            log_message(output_field, tr_log("log_files_merged_success_with_id", os.path.basename(parent_path), new_patient_id, patient_folder))
+                        else:
+                            log_message(output_field, tr_log("log_files_merged_success", os.path.basename(parent_path), patient_folder))
+                    except Exception as e:
+                        log_message(output_field, tr_log("log_folders_merge_error", patient_folder, os.path.basename(parent_path), e))
+                    return
+
+            # Если это другое исследование (даты не совпали) или папка уже иерархическая (dcm_in_root пуст):
+            # 1. Сначала делаем целевую папку иерархической, если в ее корне еще лежат файлы первого исследования
             if not make_folder_hierarchical(parent_path, output_field):
                 # Если произошла блокировка файлов первого исследования, выходим
                 return
@@ -209,7 +236,7 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
             new_study_subdir = os.path.join(parent_path, f"[{study_date_str}]")
             
             if os.path.exists(new_study_subdir):
-                # Такое же исследование уже существует (дубликат), выполняем слияние
+                # Такое же исследование уже существует (дубликат во вложенной папке), выполняем слияние
                 try:
                     safe_merge_folders(path, new_study_subdir, new_patient_id)
                     if id_changed:
