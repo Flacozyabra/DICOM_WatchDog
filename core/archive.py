@@ -8,6 +8,7 @@ from collections import defaultdict
 from core.logger import log_message
 from core.config_utils import get_cache_path
 from core.locale_utils import tr_log
+from core.dicom_utils import is_structure_file
 
 
 def load_cache():
@@ -94,7 +95,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                         deleted = delete_redundant_str(root, output_field)
                         if deleted > 0:
                             try:
-                                str_count = len([f for f in os.listdir(root) if f.startswith('STR')])
+                                str_count = len([f for f in os.listdir(root) if is_structure_file(os.path.join(root, f))])
                                 patient_data[rel_path]['str'] = str_count
                                 cached_item['str'] = str_count
                                 cached_item['mtime'] = os.path.getmtime(root)
@@ -122,14 +123,14 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                         
                         folder_dt = datetime.fromtimestamp(os.path.getctime(root))
                         
-                        str_files = [f for f in os.listdir(root) if f.startswith('STR')]
+                        str_files = [f for f in os.listdir(root) if is_structure_file(os.path.join(root, f))]
                         str_count = len(str_files)
                         
                         if is_cleanup_on and str_count > 1:
                             from core.dicom_utils import delete_redundant_str
                             delete_redundant_str(root, output_field)
                             try:
-                                str_count = len([f for f in os.listdir(root) if f.startswith('STR')])
+                                str_count = len([f for f in os.listdir(root) if is_structure_file(os.path.join(root, f))])
                             except Exception:
                                 pass
                         

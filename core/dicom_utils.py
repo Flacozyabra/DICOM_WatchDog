@@ -7,15 +7,43 @@ import pydicom
 from core.logger import log_message
 from core.locale_utils import tr_log
 
+def is_structure_file(file_path):
+    """
+    Определяет, является ли файл файлом структур (RTSTRUCT).
+    Поддерживает расширение .str, префиксы STR, RS, RTSTRUCT, 
+    а также проверку Modality в DICOM-файлах небольшого размера.
+    """
+    if not os.path.exists(file_path):
+        return False
+    filename = os.path.basename(file_path).upper()
+    if filename.endswith('.STR'):
+        return True
+    if filename.startswith('STR') or filename.startswith('RS') or filename.startswith('RTSTRUCT'):
+        return True
+    if file_path.lower().endswith('.dcm'):
+        try:
+            # Файлы RTSTRUCT обычно не имеют пиксельных данных и весят мало (< 250 КБ)
+            if os.path.getsize(file_path) < 250 * 1024 or filename.startswith('RT'):
+                ds = pydicom.dcmread(file_path, stop_before_pixels=True)
+                if ds.get('Modality') == 'RTSTRUCT':
+                    return True
+        except Exception:
+            pass
+    return False
 
 def delete_redundant_str(patient_dir, output_field=None):
     """
-    Deletes all files starting with 'STR' in the patient directory except the latest one.
+    Удаляет все файлы структур (RTSTRUCT) в папке пациента, кроме самого свежего.
     """
     if not os.path.exists(patient_dir):
         return 0
         
-    files = [f for f in os.listdir(patient_dir) if f.startswith('STR')]
+    try:
+        all_files = os.listdir(patient_dir)
+    except Exception:
+        return 0
+
+    files = [f for f in all_files if is_structure_file(os.path.join(patient_dir, f))]
     if len(files) <= 1:
         return 0
         
@@ -36,7 +64,6 @@ def delete_redundant_str(patient_dir, output_field=None):
                 log_message(output_field, tr_log("log_str_delete_error", file, e))
                 
     return deleted_count
-
 
 def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, progress_callback=None):
     patient_data = defaultdict(dict)
@@ -95,22 +122,21 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
                     # считаем количество срезов (файлов .dcm)
                     dcm_count = len([f for f in files if f.lower().endswith('.dcm')])
                     patient_data[rel_path]['slices'] = dcm_count
-                    # считаем количество файлов начинающихся с STR в папке пациента
-                    str_files = [f for f in os.listdir(root) if f.startswith('STR')]
+                    # считаем количество файлов структур
+                    str_files = [f for f in os.listdir(root) if is_structure_file(os.path.join(root, f))]
                     str_count = len(str_files)
                     patient_data[rel_path]['str'] = str_count
 
                     if is_cleanup_on and str_count > 1:
                         delete_redundant_str(root, output_field)
-                        # Пересчитываем количество файлов STR
-                        str_files = [f for f in os.listdir(root) if f.startswith('STR')]
+                        # Пересчитываем количество файлов структур
+                        str_files = [f for f in os.listdir(root) if is_structure_file(os.path.join(root, f))]
                         patient_data[rel_path]['str'] = len(str_files)
 
                 except Exception as e:
                     log_message(output_field, tr_log("log_dcm_read_error", os.path.join(root, file), e))
 
     return patient_data
-
 
 # Re-export process_patient_folder for backward compatibility
 from core.rename_utils import process_patient_folder

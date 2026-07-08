@@ -6,6 +6,7 @@ import pydicom
 
 from core.logger import log_message
 from core.locale_utils import tr_log
+from core.dicom_utils import is_structure_file
 
 def remove_non_digits(input_string):
     result = ''
@@ -30,7 +31,7 @@ def safe_merge_folders(src, dest, new_id):
             os.makedirs(dest_dir, exist_ok=True)
             dest_file = os.path.join(dest_dir, filename)
             
-            if filename.lower().endswith('.dcm') or filename.startswith('STR'):
+            if filename.lower().endswith('.dcm') or is_structure_file(src_file):
                 try:
                     ds_file = pydicom.dcmread(src_file)
                     ds_file.PatientID = new_id
@@ -44,7 +45,7 @@ def safe_merge_folders(src, dest, new_id):
 def safe_update_patient_ids(folder_path, new_id, output_field=None):
     for dirpath, dirnames, filenames in os.walk(folder_path):
         for filename in filenames:
-            if filename.lower().endswith('.dcm') or filename.startswith('STR'):
+            if filename.lower().endswith('.dcm') or is_structure_file(os.path.join(dirpath, filename)):
                 src_file = os.path.join(dirpath, filename)
                 try:
                     ds_file = pydicom.dcmread(src_file)
