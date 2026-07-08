@@ -192,7 +192,20 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
 
         else:
             # Папка пациента уже существует.
-            # 1. Сначала делаем ее иерархической, если в ее корне есть файлы
+            # Если текущая папка и есть целевая папка пациента
+            if os.path.abspath(path) == os.path.abspath(parent_path):
+                # Просто структурируем файлы внутри нее (переносим файлы из корня в подпапку с датой)
+                if make_folder_hierarchical(parent_path, output_field):
+                    new_study_subdir = os.path.join(parent_path, f"[{study_date_str}]")
+                    safe_update_patient_ids(new_study_subdir, new_patient_id, output_field)
+                    if id_changed:
+                        log_message(output_field, tr_log("log_folder_renamed_success_with_id", patient_folder, f"{target_folder_name}/[{study_date_str}]", new_patient_id))
+                    else:
+                        log_message(output_field, tr_log("log_folder_renamed_success", patient_folder, f"{target_folder_name}/[{study_date_str}]"))
+                return
+
+            # Если это другая папка, то работаем по стандартной схеме переноса/слияния
+            # 1. Сначала делаем целевую папку иерархической, если в ее корне еще есть файлы
             if not make_folder_hierarchical(parent_path, output_field):
                 # Если произошла блокировка файлов первого исследования, выходим
                 return
