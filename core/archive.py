@@ -48,126 +48,118 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
     if not os.path.exists(archive_dir):
         return patient_data
 
-    # Сканируем папки первого уровня в archive_dir
+    # Pre-count top-level directories for accurate progress reporting
     try:
-        items = os.listdir(archive_dir)
-    except Exception as e:
-        if output_field:
-            log_message(output_field, tr_log("log_archive_access_error", e))
-        return patient_data
-
-    total_items = len(items)
+        top_dirs = [d for d in os.listdir(archive_dir) if os.path.isdir(os.path.join(archive_dir, d))]
+        total_dirs = len(top_dirs)
+    except Exception:
+        total_dirs = 0
     processed = 0
 
-    for item in items:
-        root = os.path.join(archive_dir, item)
-        processed += 1
-        if progress_callback and total_items > 0:
-            progress_callback(processed, total_items)
-        if not os.path.isdir(root):
-            continue
-            
-        # Ищем DICOM файлы в этой папке
-        try:
-            files = os.listdir(root)
-        except Exception:
-            continue
-            
-        dcm_files = [f for f in files if f.endswith('.dcm')]
-        if dcm_files:
-            scanned_paths.add(root)
-            try:
-                mtime = os.path.getmtime(root)
-            except Exception:
-                mtime = 0.0
-            
-            cached_item = cache.get(root)
-            if cached_item and cached_item.get('mtime') == mtime:
-                p_id = cached_item['patient_id']
-                patient_data[item] = {
-                    'patient_id': p_id,
-                    'patient_name': cached_item['patient_name'],
-                    'modality': cached_item.get('modality', 'CT'),
-                    'study_datetime': datetime.fromisoformat(cached_item['study_datetime']),
-                    'body_part': cached_item['body_part'],
-                    'folder_datetime': datetime.fromisoformat(cached_item['folder_datetime']),
-                    'str': cached_item['str'],
-                    'slices': cached_item.get('slices', len(dcm_files)),
-                    'folder_name': item
-                }
-                
-                # Если Fix Switch включен, проверяем/удаляем лишние STR
-                if is_cleanup_on and cached_item['str'] > 1:
-                    from core.dicom_utils import delete_redundant_str
-                    deleted = delete_redundant_str(root, output_field)
-                    if deleted > 0:
-                        try:
-                            str_count = len([f for f in os.listdir(root) if f.startswith('STR')])
-                            patient_data[item]['str'] = str_count
-                            cached_item['str'] = str_count
-                            cached_item['mtime'] = os.path.getmtime(root)
-                        except Exception:
-                            pass
-            else:
-                file = dcm_files[0]
-                file_path = os.path.join(root, file)
+    for root, dirs, files in os.walk(archive_dir):
+        # Track progress at the top level only
+        if os.path.dirname(root) == archive_dir or root == archive_dir:
+            processed += 1
+            if progress_callback and total_dirs > 0:
+                progress_callback(processed, total_dirs)
+
+        if files:
+            dcm_files = [f for f in files if f.endswith('.dcm')]
+            if dcm_files:
+                scanned_paths.add(root)
+                rel_path = os.path.relpath(root, archive_dir).replace('\\', '/')
                 try:
-                    ds = pydicom.dcmread(file_path)
-                    p_id = ds.PatientID
-                    p_name = str(ds.PatientName)
-                    p_modality = str(ds.get('Modality', 'CT'))
+                    mtime = os.path.getmtime(root)
+                except Exception:
+                    mtime = 0.0
+                
+                cached_item = cache.get(root)
+                if cached_item and cached_item.get('mtime') == mtime:
+                    p_id = cached_item['patient_id']
+                    patient_data[rel_path] = {
+                        'patient_id': p_id,
+                        'patient_name': cached_item['patient_name'],
+                        'modality': cached_item.get('modality', 'CT'),
+                        'study_datetime': datetime.fromisoformat(cached_item['study_datetime']),
+                        'body_part': cached_item['body_part'],
+                        'folder_datetime': datetime.fromisoformat(cached_item['folder_datetime']),
+                        'str': cached_item['str'],
+                        'slices': cached_item.get('slices', len(dcm_files)),
+                        'folder_name': rel_path
+                    }
                     
-                    date_time_string = ds.StudyDate + ds.StudyTime
-                    format_string = '%Y%m%d%H%M%S' if '.' not in ds.StudyTime else '%Y%m%d%H%M%S.%f'
-                    study_dt = datetime.strptime(date_time_string, format_string)
-                    
-                    body_part = ds.get('BodyPartExamined', '')
-                    if not body_part:
-                        body_part = ds.get('StudyDescription', '')
-                    if not body_part:
-                        body_part = ds.get('SeriesDescription', '')
-                    body_part_str = str(body_part).strip() or "Unknown"
-                    
-                    folder_dt = datetime.fromtimestamp(os.path.getctime(root))
-                    
-                    str_files = [f for f in os.listdir(root) if f.startswith('STR')]
-                    str_count = len(str_files)
-                    
-                    if is_cleanup_on and str_count > 1:
+                    # Если Fix Switch включен, проверяем/удаляем лишние STR
+                    if is_cleanup_on and cached_item['str'] > 1:
                         from core.dicom_utils import delete_redundant_str
-                        delete_redundant_str(root, output_field)
-                        try:
-                            str_count = len([f for f in os.listdir(root) if f.startswith('STR')])
-                        except Exception:
-                            pass
-                    
-                    patient_data[item] = {
-                        'patient_id': p_id,
-                        'patient_name': p_name,
-                        'modality': p_modality,
-                        'study_datetime': study_dt,
-                        'body_part': body_part_str,
-                        'folder_datetime': folder_dt,
-                        'str': str_count,
-                        'slices': len(dcm_files),
-                        'folder_name': item
-                    }
-                    
-                    cache[root] = {
-                        'mtime': os.path.getmtime(root),
-                        'patient_id': p_id,
-                        'patient_name': p_name,
-                        'modality': p_modality,
-                        'study_datetime': study_dt.isoformat(),
-                        'body_part': body_part_str,
-                        'folder_datetime': folder_dt.isoformat(),
-                        'str': str_count,
-                        'slices': len(dcm_files)
-                    }
-                except Exception as e:
-                    if output_field:
-                        log_message(output_field, tr_log("log_dcm_read_error", file_path, e))
+                        deleted = delete_redundant_str(root, output_field)
+                        if deleted > 0:
+                            try:
+                                str_count = len([f for f in os.listdir(root) if f.startswith('STR')])
+                                patient_data[rel_path]['str'] = str_count
+                                cached_item['str'] = str_count
+                                cached_item['mtime'] = os.path.getmtime(root)
+                            except Exception:
+                                pass
+                else:
+                    file = dcm_files[0]
+                    file_path = os.path.join(root, file)
+                    try:
+                        ds = pydicom.dcmread(file_path)
+                        p_id = ds.PatientID
+                        p_name = str(ds.PatientName)
+                        p_modality = str(ds.get('Modality', 'CT'))
                         
+                        date_time_string = ds.StudyDate + ds.StudyTime
+                        format_string = '%Y%m%d%H%M%S' if '.' not in ds.StudyTime else '%Y%m%d%H%M%S.%f'
+                        study_dt = datetime.strptime(date_time_string, format_string)
+                        
+                        body_part = ds.get('BodyPartExamined', '')
+                        if not body_part:
+                            body_part = ds.get('StudyDescription', '')
+                        if not body_part:
+                            body_part = ds.get('SeriesDescription', '')
+                        body_part_str = str(body_part).strip() or "Unknown"
+                        
+                        folder_dt = datetime.fromtimestamp(os.path.getctime(root))
+                        
+                        str_files = [f for f in os.listdir(root) if f.startswith('STR')]
+                        str_count = len(str_files)
+                        
+                        if is_cleanup_on and str_count > 1:
+                            from core.dicom_utils import delete_redundant_str
+                            delete_redundant_str(root, output_field)
+                            try:
+                                str_count = len([f for f in os.listdir(root) if f.startswith('STR')])
+                            except Exception:
+                                pass
+                        
+                        patient_data[rel_path] = {
+                            'patient_id': p_id,
+                            'patient_name': p_name,
+                            'modality': p_modality,
+                            'study_datetime': study_dt,
+                            'body_part': body_part_str,
+                            'folder_datetime': folder_dt,
+                            'str': str_count,
+                            'slices': len(dcm_files),
+                            'folder_name': rel_path
+                        }
+                        
+                        cache[root] = {
+                            'mtime': os.path.getmtime(root),
+                            'patient_id': p_id,
+                            'patient_name': p_name,
+                            'modality': p_modality,
+                            'study_datetime': study_dt.isoformat(),
+                            'body_part': body_part_str,
+                            'folder_datetime': folder_dt.isoformat(),
+                            'str': str_count,
+                            'slices': len(dcm_files)
+                        }
+                    except Exception as e:
+                        if output_field:
+                            log_message(output_field, tr_log("log_dcm_read_error", file_path, e))
+                            
     # Удаляем из кэша папки, которых больше нет
     cleaned_cache = {path: data for path, data in cache.items() if path in scanned_paths}
     save_cache(cleaned_cache)

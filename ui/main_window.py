@@ -1352,76 +1352,183 @@ class MainWindow(QMainWindow):
                 
             valid_patients[patient_id] = data
 
-        def get_ct_sort_key(item):
-            pid, d = item
-            folder_dt = d['folder_datetime']
-            patient_name = str(d.get('patient_name', '')).lower()
+        # Группируем исследования по (patient_name, patient_id)
+        from collections import defaultdict
+        grouped_patients = defaultdict(list)
+        for key, data in valid_patients.items():
+            p_name = str(data.get('patient_name', 'Unknown'))
+            p_id = str(data.get('patient_id', 'Unknown'))
+            grouped_patients[(p_name, p_id)].append((key, data))
+
+        # Сортируем исследования внутри каждого пациента по study_datetime (по убыванию)
+        for p_info in grouped_patients:
+            grouped_patients[p_info].sort(key=lambda x: x[1]['study_datetime'], reverse=True)
+
+        # Сортируем пациентов по дате их самого свежего исследования
+        def get_patient_sort_key(item):
+            p_info, studies = item
+            latest_study = studies[0][1]
+            folder_dt = latest_study['folder_datetime']
+            patient_name = str(p_info[0]).lower()
             return (-folder_dt.timestamp(), patient_name)
 
-        sorted_patients = sorted(valid_patients.items(), key=get_ct_sort_key)
+        sorted_grouped_patients = sorted(grouped_patients.items(), key=get_patient_sort_key)
 
         # Заполняем таблицу
         row_idx = 0
-        total_items = len(sorted_patients)
+        total_items = 0
+        for p_info, studies in sorted_grouped_patients:
+            if len(studies) == 1:
+                total_items += 1
+            else:
+                total_items += 1 + len(studies)
+
         progress_dialog = None
         if total_items > 100:
             from ui.loading_dialog import LoadingProgressDialog
             progress_dialog = LoadingProgressDialog(self, title="Заполнение таблицы КТ")
             progress_dialog.show()
 
-        for patient_id, data in sorted_patients:
-            self.images_table.insertRow(row_idx)
-            
-            id_item = QTableWidgetItem(str(data.get('patient_id', patient_id)))
-            id_item.setData(Qt.ItemDataRole.UserRole, patient_id)
-            name_item = QTableWidgetItem(str(data['patient_name']))
-            modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
-            slices_item = QTableWidgetItem(str(data.get('slices', 0)))
-            area_item = QTableWidgetItem(str(data.get('body_part', '')))
-            study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
-            folder_item = QTableWidgetItem(data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
-            str_item = QTableWidgetItem(str(data['str']))
-            
-            id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            modality_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            folder_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            str_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            
-            color = QColor("#ffffff")
-            highlighting_enabled = self.config.get('highlighting_enabled', 'False').lower() == 'true'
-            if highlighting_enabled:
-                folder_dt = data['folder_datetime']
-                highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
-                highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
-                highlight_no_str = self.config.get('highlight_no_str_enabled', 'False').lower() == 'true'
-                
-                if highlight_new and (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
-                    color = QColor("lime")
-                elif highlight_today and folder_dt.date() == datetime.now().date():
-                    color = QColor("mediumturquoise")
-                    
-                if highlight_no_str and (data['str'] == 0 or data['str'] > 1):
-                    color = QColor("crimson")
-                
-            for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
-                item.setForeground(color)
-                
-            self.images_table.setItem(row_idx, 0, id_item)
-            self.images_table.setItem(row_idx, 1, name_item)
-            self.images_table.setItem(row_idx, 2, modality_item)
-            self.images_table.setItem(row_idx, 3, slices_item)
-            self.images_table.setItem(row_idx, 4, area_item)
-            self.images_table.setItem(row_idx, 5, study_item)
-            self.images_table.setItem(row_idx, 6, folder_item)
-            self.images_table.setItem(row_idx, 7, str_item)
-            
-            row_idx += 1
-            if progress_dialog:
-                progress_dialog.set_progress(row_idx, total_items)
+        for p_info, studies in sorted_grouped_patients:
+            p_name, p_id_val = p_info
+
+            if len(studies) == 1:
+                patient_key, data = studies[0]
+                self.images_table.insertRow(row_idx)
+
+                id_item = QTableWidgetItem(str(data.get('patient_id', p_id_val)))
+                id_item.setData(Qt.ItemDataRole.UserRole, patient_key)
+                name_item = QTableWidgetItem(str(data['patient_name']))
+                modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
+                slices_item = QTableWidgetItem(str(data.get('slices', 0)))
+                area_item = QTableWidgetItem(str(data.get('body_part', '')))
+                study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
+                folder_item = QTableWidgetItem(data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
+                str_item = QTableWidgetItem(str(data['str']))
+
+                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter)
+                    if item in [modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                color = QColor("#ffffff")
+                highlighting_enabled = self.config.get('highlighting_enabled', 'False').lower() == 'true'
+                if highlighting_enabled:
+                    folder_dt = data['folder_datetime']
+                    highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
+                    highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
+                    highlight_no_str = self.config.get('highlight_no_str_enabled', 'False').lower() == 'true'
+
+                    if highlight_new and (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
+                        color = QColor("lime")
+                    elif highlight_today and folder_dt.date() == datetime.now().date():
+                        color = QColor("mediumturquoise")
+
+                    if highlight_no_str and (data['str'] == 0 or data['str'] > 1):
+                        color = QColor("crimson")
+
+                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                    item.setForeground(color)
+
+                self.images_table.setItem(row_idx, 0, id_item)
+                self.images_table.setItem(row_idx, 1, name_item)
+                self.images_table.setItem(row_idx, 2, modality_item)
+                self.images_table.setItem(row_idx, 3, slices_item)
+                self.images_table.setItem(row_idx, 4, area_item)
+                self.images_table.setItem(row_idx, 5, study_item)
+                self.images_table.setItem(row_idx, 6, folder_item)
+                self.images_table.setItem(row_idx, 7, str_item)
+
+                row_idx += 1
+                if progress_dialog:
+                    progress_dialog.set_progress(row_idx, total_items)
+            else:
+                # Родительская строка
+                self.images_table.insertRow(row_idx)
+
+                # Родительская строка содержит имя и ID, остальные ячейки пустые
+                id_item = QTableWidgetItem(p_id_val)
+                # Сохраняем в UserRole родительскую папку
+                parent_key = os.path.dirname(studies[0][0])
+                id_item.setData(Qt.ItemDataRole.UserRole, parent_key)
+
+                name_item = QTableWidgetItem(p_name)
+                modality_item = QTableWidgetItem("")
+                slices_item = QTableWidgetItem("")
+                area_item = QTableWidgetItem("")
+                study_item = QTableWidgetItem("")
+                folder_item = QTableWidgetItem("")
+                str_item = QTableWidgetItem("")
+
+                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter)
+                    if item in [modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    item.setForeground(QColor("#ffffff"))
+
+                self.images_table.setItem(row_idx, 0, id_item)
+                self.images_table.setItem(row_idx, 1, name_item)
+                self.images_table.setItem(row_idx, 2, modality_item)
+                self.images_table.setItem(row_idx, 3, slices_item)
+                self.images_table.setItem(row_idx, 4, area_item)
+                self.images_table.setItem(row_idx, 5, study_item)
+                self.images_table.setItem(row_idx, 6, folder_item)
+                self.images_table.setItem(row_idx, 7, str_item)
+
+                row_idx += 1
+                if progress_dialog:
+                    progress_dialog.set_progress(row_idx, total_items)
+
+                # Дочерние строки
+                for patient_key, data in studies:
+                    self.images_table.insertRow(row_idx)
+
+                    id_child = QTableWidgetItem("")
+                    id_child.setData(Qt.ItemDataRole.UserRole, patient_key)
+                    name_child = QTableWidgetItem("  ↳")
+                    modality_child = QTableWidgetItem(str(data.get('modality', 'CT')))
+                    slices_child = QTableWidgetItem(str(data.get('slices', 0)))
+                    area_child = QTableWidgetItem(str(data.get('body_part', '')))
+                    study_child = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
+                    folder_child = QTableWidgetItem(data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
+                    str_child = QTableWidgetItem(str(data['str']))
+
+                    for item in [id_child, name_child, modality_child, slices_child, area_child, study_child, folder_child, str_child]:
+                        item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter)
+                        if item in [modality_child, slices_child, area_child, study_child, folder_child, str_child]:
+                            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                    color = QColor("#ffffff")
+                    highlighting_enabled = self.config.get('highlighting_enabled', 'False').lower() == 'true'
+                    if highlighting_enabled:
+                        folder_dt = data['folder_datetime']
+                        highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
+                        highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
+                        highlight_no_str = self.config.get('highlight_no_str_enabled', 'False').lower() == 'true'
+
+                        if highlight_new and (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
+                            color = QColor("lime")
+                        elif highlight_today and folder_dt.date() == datetime.now().date():
+                            color = QColor("mediumturquoise")
+
+                        if highlight_no_str and (data['str'] == 0 or data['str'] > 1):
+                            color = QColor("crimson")
+
+                    for item in [id_child, name_child, modality_child, slices_child, area_child, study_child, folder_child, str_child]:
+                        item.setForeground(color)
+
+                    self.images_table.setItem(row_idx, 0, id_child)
+                    self.images_table.setItem(row_idx, 1, name_child)
+                    self.images_table.setItem(row_idx, 2, modality_child)
+                    self.images_table.setItem(row_idx, 3, slices_child)
+                    self.images_table.setItem(row_idx, 4, area_child)
+                    self.images_table.setItem(row_idx, 5, study_child)
+                    self.images_table.setItem(row_idx, 6, folder_child)
+                    self.images_table.setItem(row_idx, 7, str_child)
+
+                    row_idx += 1
+                    if progress_dialog:
+                        progress_dialog.set_progress(row_idx, total_items)
 
         if progress_dialog:
             progress_dialog.close()
@@ -1592,10 +1699,14 @@ class MainWindow(QMainWindow):
             os.makedirs(archive_dir)
 
         dest_path = os.path.join(archive_dir, folder_name)
+        dest_parent = os.path.dirname(dest_path)
+        if dest_parent:
+            os.makedirs(dest_parent, exist_ok=True)
+
         try:
             if os.path.exists(dest_path):
                 shutil.rmtree(dest_path)
-            shutil.move(path, archive_dir)
+            shutil.move(path, dest_path)
             folder_desc = self.get_folder_desc(patient_id, patient_name)
             log_message(self.output_field, tr_log("log_patient_archived", folder_desc))
             self.show_patient_list()
@@ -1692,94 +1803,228 @@ class MainWindow(QMainWindow):
         if not silent:
             log_message(self.output_field, tr_log("log_archive_loaded"), replace_suffix=tr_log("log_loading_archive"))
         self.archive_cache = archive_dict
-        
-        search_text = self.search_entry.text().lower()
-        if search_text:
-            self.search_patient_archive()
+        self.update_archive_table_ui()
+
+    def update_archive_table_ui(self):
+        if not hasattr(self, 'archive_cache') or self.archive_cache is None:
             return
 
         self.archive_table.setUpdatesEnabled(False)
         self.archive_table.blockSignals(True)
+
+        # Запоминаем выделенного пациента
+        self.selected_archive_patient_id = None
+        selected_ranges = self.archive_table.selectedRanges()
+        if selected_ranges:
+            row = selected_ranges[0].topRow()
+            id_item = self.archive_table.item(row, 0)
+            if id_item:
+                self.selected_archive_patient_id = id_item.data(Qt.ItemDataRole.UserRole)
+
         self.archive_table.setRowCount(0)
+        search_text = self.search_entry.text().lower()
         slice_limit = self.config.get('archive_slice', 0)
 
+        # Фильтруем пациентов с корректными DICOM данными и по имени
         valid_items = {}
-        for k, v in archive_dict.items():
-            if 'patient_name' in v and 'study_datetime' in v and 'folder_datetime' in v and 'str' in v:
-                valid_items[k] = v
-            else:
-                log_message(self.output_field, tr_log("log_skipped_archive_patient", k))
+        for patient_id, data in self.archive_cache.items():
+            if 'patient_name' not in data or 'study_datetime' not in data or 'folder_datetime' not in data or 'str' not in data:
+                log_message(self.output_field, tr_log("log_skipped_archive_patient", patient_id))
+                continue
+            
+            patient_name = str(data.get('patient_name', '')).lower()
+            if search_text:
+                words = patient_name.replace('^', ' ').split()
+                if not (words and words[0].startswith(search_text)):
+                    continue
+                
+            valid_items[patient_id] = data
 
-        row_idx = 0
+        # Сортируем и применяем лимит
+        sorted_raw = sorted(valid_items.items(), key=lambda x: x[1]['folder_datetime'], reverse=True)
         if slice_limit > 0:
-            sorted_items = sorted(valid_items.items(), key=lambda x: x[1]['folder_datetime'], reverse=True)[:slice_limit]
-        else:
-            sorted_items = sorted(valid_items.items(), key=lambda x: x[1]['folder_datetime'], reverse=True)
-        
-        total_items = len(sorted_items)
+            sorted_raw = sorted_raw[:slice_limit]
+
+        # Группируем по (patient_name, patient_id)
+        from collections import defaultdict
+        grouped_patients = defaultdict(list)
+        for key, data in sorted_raw:
+            p_name = str(data.get('patient_name', 'Unknown'))
+            p_id = str(data.get('patient_id', 'Unknown'))
+            grouped_patients[(p_name, p_id)].append((key, data))
+
+        # Сортируем исследования внутри каждого пациента по study_datetime (по убыванию)
+        for p_info in grouped_patients:
+            grouped_patients[p_info].sort(key=lambda x: x[1]['study_datetime'], reverse=True)
+
+        # Сортируем пациентов по дате их самого свежего исследования
+        def get_patient_sort_key(item):
+            p_info, studies = item
+            latest_study = studies[0][1]
+            folder_dt = latest_study['folder_datetime']
+            patient_name = str(p_info[0]).lower()
+            return (-folder_dt.timestamp(), patient_name)
+
+        sorted_grouped_patients = sorted(grouped_patients.items(), key=get_patient_sort_key)
+
+        # Заполняем таблицу
+        row_idx = 0
+        total_items = 0
+        for p_info, studies in sorted_grouped_patients:
+            if len(studies) == 1:
+                total_items += 1
+            else:
+                total_items += 1 + len(studies)
+
         progress_dialog = None
         if total_items > 100:
             from ui.loading_dialog import LoadingProgressDialog
-            progress_dialog = LoadingProgressDialog(self, title="Заполнение таблицы архива")
+            progress_dialog = LoadingProgressDialog(self, title="Заполнение таблицы Архива")
             progress_dialog.show()
 
-        for patient_id, data in sorted_items:
-            self.archive_table.insertRow(row_idx)
-            
-            id_item = QTableWidgetItem(str(data.get('patient_id', patient_id)))
-            id_item.setData(Qt.ItemDataRole.UserRole, patient_id)
-            name_item = QTableWidgetItem(str(data['patient_name']))
-            modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
-            slices_item = QTableWidgetItem(str(data.get('slices', 0)))
-            area_item = QTableWidgetItem(str(data.get('body_part', '')))
-            study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
-            folder_item = QTableWidgetItem(data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
-            str_item = QTableWidgetItem(str(data['str']))
-            
-            id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            modality_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            folder_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            str_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            
-            color = QColor("#ffffff")
-            highlighting_enabled = self.config.get('highlighting_enabled', 'False').lower() == 'true'
-            if highlighting_enabled:
-                folder_dt = data['folder_datetime']
-                highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
-                highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
-                highlight_no_str = self.config.get('highlight_no_str_enabled', 'False').lower() == 'true'
-                
-                if highlight_new and (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
-                    color = QColor("lime")
-                elif highlight_today and folder_dt.date() == datetime.now().date():
-                    color = QColor("mediumturquoise")
-                    
-                if highlight_no_str and (data['str'] == 0 or data['str'] > 1):
-                    color = QColor("crimson")
-                
-            for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
-                item.setForeground(color)
-                
-            self.archive_table.setItem(row_idx, 0, id_item)
-            self.archive_table.setItem(row_idx, 1, name_item)
-            self.archive_table.setItem(row_idx, 2, modality_item)
-            self.archive_table.setItem(row_idx, 3, slices_item)
-            self.archive_table.setItem(row_idx, 4, area_item)
-            self.archive_table.setItem(row_idx, 5, study_item)
-            self.archive_table.setItem(row_idx, 6, folder_item)
-            self.archive_table.setItem(row_idx, 7, str_item)
-            
-            row_idx += 1
-            if progress_dialog:
-                progress_dialog.set_progress(row_idx, total_items)
+        for p_info, studies in sorted_grouped_patients:
+            p_name, p_id_val = p_info
+
+            if len(studies) == 1:
+                patient_key, data = studies[0]
+                self.archive_table.insertRow(row_idx)
+
+                id_item = QTableWidgetItem(str(data.get('patient_id', p_id_val)))
+                id_item.setData(Qt.ItemDataRole.UserRole, patient_key)
+                name_item = QTableWidgetItem(str(data['patient_name']))
+                modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
+                slices_item = QTableWidgetItem(str(data.get('slices', 0)))
+                area_item = QTableWidgetItem(str(data.get('body_part', '')))
+                study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
+                folder_item = QTableWidgetItem(data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
+                str_item = QTableWidgetItem(str(data['str']))
+
+                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter)
+                    if item in [modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                color = QColor("#ffffff")
+                highlighting_enabled = self.config.get('highlighting_enabled', 'False').lower() == 'true'
+                if highlighting_enabled:
+                    folder_dt = data['folder_datetime']
+                    highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
+                    highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
+                    highlight_no_str = self.config.get('highlight_no_str_enabled', 'False').lower() == 'true'
+
+                    if highlight_new and (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
+                        color = QColor("lime")
+                    elif highlight_today and folder_dt.date() == datetime.now().date():
+                        color = QColor("mediumturquoise")
+
+                    if highlight_no_str and (data['str'] == 0 or data['str'] > 1):
+                        color = QColor("crimson")
+
+                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                    item.setForeground(color)
+
+                self.archive_table.setItem(row_idx, 0, id_item)
+                self.archive_table.setItem(row_idx, 1, name_item)
+                self.archive_table.setItem(row_idx, 2, modality_item)
+                self.archive_table.setItem(row_idx, 3, slices_item)
+                self.archive_table.setItem(row_idx, 4, area_item)
+                self.archive_table.setItem(row_idx, 5, study_item)
+                self.archive_table.setItem(row_idx, 6, folder_item)
+                self.archive_table.setItem(row_idx, 7, str_item)
+
+                row_idx += 1
+                if progress_dialog:
+                    progress_dialog.set_progress(row_idx, total_items)
+            else:
+                # Родительская строка
+                self.archive_table.insertRow(row_idx)
+
+                id_item = QTableWidgetItem(p_id_val)
+                parent_key = os.path.dirname(studies[0][0])
+                id_item.setData(Qt.ItemDataRole.UserRole, parent_key)
+
+                name_item = QTableWidgetItem(p_name)
+                modality_item = QTableWidgetItem("")
+                slices_item = QTableWidgetItem("")
+                area_item = QTableWidgetItem("")
+                study_item = QTableWidgetItem("")
+                folder_item = QTableWidgetItem("")
+                str_item = QTableWidgetItem("")
+
+                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter)
+                    if item in [modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    item.setForeground(QColor("#ffffff"))
+
+                self.archive_table.setItem(row_idx, 0, id_item)
+                self.archive_table.setItem(row_idx, 1, name_item)
+                self.archive_table.setItem(row_idx, 2, modality_item)
+                self.archive_table.setItem(row_idx, 3, slices_item)
+                self.archive_table.setItem(row_idx, 4, area_item)
+                self.archive_table.setItem(row_idx, 5, study_item)
+                self.archive_table.setItem(row_idx, 6, folder_item)
+                self.archive_table.setItem(row_idx, 7, str_item)
+
+                row_idx += 1
+                if progress_dialog:
+                    progress_dialog.set_progress(row_idx, total_items)
+
+                # Дочерние строки
+                for patient_key, data in studies:
+                    self.archive_table.insertRow(row_idx)
+
+                    id_child = QTableWidgetItem("")
+                    id_child.setData(Qt.ItemDataRole.UserRole, patient_key)
+                    name_child = QTableWidgetItem("  ↳")
+                    modality_child = QTableWidgetItem(str(data.get('modality', 'CT')))
+                    slices_child = QTableWidgetItem(str(data.get('slices', 0)))
+                    area_child = QTableWidgetItem(str(data.get('body_part', '')))
+                    study_child = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
+                    folder_child = QTableWidgetItem(data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
+                    str_child = QTableWidgetItem(str(data['str']))
+
+                    for item in [id_child, name_child, modality_child, slices_child, area_child, study_child, folder_child, str_child]:
+                        item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter)
+                        if item in [modality_child, slices_child, area_child, study_child, folder_child, str_child]:
+                            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                    color = QColor("#ffffff")
+                    highlighting_enabled = self.config.get('highlighting_enabled', 'False').lower() == 'true'
+                    if highlighting_enabled:
+                        folder_dt = data['folder_datetime']
+                        highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
+                        highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
+                        highlight_no_str = self.config.get('highlight_no_str_enabled', 'False').lower() == 'true'
+
+                        if highlight_new and (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
+                            color = QColor("lime")
+                        elif highlight_today and folder_dt.date() == datetime.now().date():
+                            color = QColor("mediumturquoise")
+
+                        if highlight_no_str and (data['str'] == 0 or data['str'] > 1):
+                            color = QColor("crimson")
+
+                    for item in [id_child, name_child, modality_child, slices_child, area_child, study_child, folder_child, str_child]:
+                        item.setForeground(color)
+
+                    self.archive_table.setItem(row_idx, 0, id_child)
+                    self.archive_table.setItem(row_idx, 1, name_child)
+                    self.archive_table.setItem(row_idx, 2, modality_child)
+                    self.archive_table.setItem(row_idx, 3, slices_child)
+                    self.archive_table.setItem(row_idx, 4, area_child)
+                    self.archive_table.setItem(row_idx, 5, study_child)
+                    self.archive_table.setItem(row_idx, 6, folder_child)
+                    self.archive_table.setItem(row_idx, 7, str_child)
+
+                    row_idx += 1
+                    if progress_dialog:
+                        progress_dialog.set_progress(row_idx, total_items)
 
         if progress_dialog:
             progress_dialog.close()
 
+        # Восстанавливаем выделение
         if hasattr(self, 'selected_archive_patient_id') and self.selected_archive_patient_id:
             for r in range(self.archive_table.rowCount()):
                 id_item = self.archive_table.item(r, 0)
@@ -1791,6 +2036,12 @@ class MainWindow(QMainWindow):
         self.archive_table.update_placeholder_visibility()
         self.archive_table.blockSignals(False)
         self.archive_table.setUpdatesEnabled(True)
+
+    def search_patient_archive(self):
+        if not hasattr(self, 'archive_cache') or self.archive_cache is None:
+            self.fill_archive_list()
+            return
+        self.update_archive_table_ui()
 
     def show_archive_context_menu(self, pos):
         index = self.archive_table.indexAt(pos)
@@ -1875,6 +2126,10 @@ class MainWindow(QMainWindow):
             if os.path.exists(dest_path):
                 shutil.rmtree(dest_path)
                 
+            dest_parent = os.path.dirname(dest_path)
+            if dest_parent:
+                os.makedirs(dest_parent, exist_ok=True)
+
             shutil.copytree(path, dest_path)
             shutil.rmtree(path)
             
@@ -1887,97 +2142,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             folder_desc = self.get_folder_desc(patient_id, patient_name)
             log_message(self.output_field, tr_log("log_failed_restore_patient", folder_desc, e))
-
-    def search_patient_archive(self):
-        search_text = self.search_entry.text().lower()
-        
-        if not hasattr(self, 'archive_cache') or self.archive_cache is None:
-            self.fill_archive_list()
-            return
-
-        self.archive_table.setUpdatesEnabled(False)
-        self.archive_table.blockSignals(True)
-        self.archive_table.setRowCount(0)
-        
-        valid_items = {}
-        for patient_id, data in self.archive_cache.items():
-            if 'patient_name' not in data or 'study_datetime' not in data or 'folder_datetime' not in data or 'str' not in data:
-                continue
-                
-            name_lower = str(data['patient_name']).lower()
-            words = name_lower.replace('^', ' ').split()
-            if not search_text or (words and words[0].startswith(search_text)):
-                valid_items[patient_id] = data
-
-        sorted_items = sorted(valid_items.items(), key=lambda x: x[1]['folder_datetime'], reverse=True)
-
-        row_idx = 0
-        total_items = len(sorted_items)
-        progress_dialog = None
-        if total_items > 100:
-            from ui.loading_dialog import LoadingProgressDialog
-            progress_dialog = LoadingProgressDialog(self, title="Заполнение таблицы Архива")
-            progress_dialog.show()
-
-        for patient_id, data in sorted_items:
-            self.archive_table.insertRow(row_idx)
-            
-            id_item = QTableWidgetItem(str(patient_id))
-            name_item = QTableWidgetItem(str(data['patient_name']))
-            modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
-            slices_item = QTableWidgetItem(str(data.get('slices', 0)))
-            area_item = QTableWidgetItem(str(data.get('body_part', '')))
-            study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
-            folder_item = QTableWidgetItem(data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
-            str_item = QTableWidgetItem(str(data['str']))
-            
-            id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            modality_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            folder_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            str_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            
-            color = QColor("#ffffff")
-            highlighting_enabled = self.config.get('highlighting_enabled', 'False').lower() == 'true'
-            if highlighting_enabled:
-                folder_dt = data['folder_datetime']
-                highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
-                highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
-                highlight_no_str = self.config.get('highlight_no_str_enabled', 'False').lower() == 'true'
-                
-                if highlight_new and (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
-                    color = QColor("lime")
-                elif highlight_today and folder_dt.date() == datetime.now().date():
-                    color = QColor("mediumturquoise")
-                    
-                if highlight_no_str and (data['str'] == 0 or data['str'] > 1):
-                    color = QColor("crimson")
-                
-            for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
-                item.setForeground(color)
-                
-            self.archive_table.setItem(row_idx, 0, id_item)
-            self.archive_table.setItem(row_idx, 1, name_item)
-            self.archive_table.setItem(row_idx, 2, modality_item)
-            self.archive_table.setItem(row_idx, 3, slices_item)
-            self.archive_table.setItem(row_idx, 4, area_item)
-            self.archive_table.setItem(row_idx, 5, study_item)
-            self.archive_table.setItem(row_idx, 6, folder_item)
-            self.archive_table.setItem(row_idx, 7, str_item)
-            
-            if progress_dialog:
-                progress_dialog.set_progress(row_idx + 1, total_items)
-            row_idx += 1
-
-        if progress_dialog:
-            progress_dialog.close()
-
-        self.archive_table.update_placeholder_visibility()
-        self.archive_table.blockSignals(False)
-        self.archive_table.setUpdatesEnabled(True)
 
     # ================= ЛОГИКА ТАБЛИЦЫ PACS =================
 

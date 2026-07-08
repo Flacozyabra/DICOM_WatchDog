@@ -67,16 +67,16 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
             if file.endswith('.dcm'):
                 try:
                     ds = pydicom.dcmread(os.path.join(root, file), stop_before_pixels=True)
-                    folder_name = os.path.basename(root)
-                    patient_data[folder_name]['patient_id'] = ds.PatientID
-                    patient_data[folder_name]['patient_name'] = ds.PatientName
-                    patient_data[folder_name]['modality'] = str(ds.get('Modality', 'CT'))
-                    patient_data[folder_name]['folder_name'] = folder_name
+                    rel_path = os.path.relpath(root, ct_images_dir).replace('\\', '/')
+                    patient_data[rel_path]['patient_id'] = ds.PatientID
+                    patient_data[rel_path]['patient_name'] = ds.PatientName
+                    patient_data[rel_path]['modality'] = str(ds.get('Modality', 'CT'))
+                    patient_data[rel_path]['folder_name'] = rel_path
 
                     # учитываем два варианта записи времени исследования (с мкс и без)
                     date_time_string = ds.StudyDate + ds.StudyTime
                     format_string = '%Y%m%d%H%M%S' if '.' not in ds.StudyTime else '%Y%m%d%H%M%S.%f'
-                    patient_data[folder_name]['study_datetime'] = datetime.strptime(date_time_string, format_string)
+                    patient_data[rel_path]['study_datetime'] = datetime.strptime(date_time_string, format_string)
 
                     # область сканирования (BodyPartExamined / StudyDescription / SeriesDescription)
                     body_part = ds.get('BodyPartExamined', '')
@@ -88,23 +88,23 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
                     body_part_str = str(body_part).strip()
                     if not body_part_str:
                         body_part_str = "Unknown"
-                    patient_data[folder_name]['body_part'] = body_part_str
+                    patient_data[rel_path]['body_part'] = body_part_str
 
                     # время создания папки
-                    patient_data[folder_name]['folder_datetime'] = datetime.fromtimestamp(os.path.getctime(root))
+                    patient_data[rel_path]['folder_datetime'] = datetime.fromtimestamp(os.path.getctime(root))
                     # считаем количество срезов (файлов .dcm)
                     dcm_count = len([f for f in files if f.lower().endswith('.dcm')])
-                    patient_data[folder_name]['slices'] = dcm_count
+                    patient_data[rel_path]['slices'] = dcm_count
                     # считаем количество файлов начинающихся с STR в папке пациента
                     str_files = [f for f in os.listdir(root) if f.startswith('STR')]
                     str_count = len(str_files)
-                    patient_data[folder_name]['str'] = str_count
+                    patient_data[rel_path]['str'] = str_count
 
                     if is_cleanup_on and str_count > 1:
                         delete_redundant_str(root, output_field)
                         # Пересчитываем количество файлов STR
                         str_files = [f for f in os.listdir(root) if f.startswith('STR')]
-                        patient_data[folder_name]['str'] = len(str_files)
+                        patient_data[rel_path]['str'] = len(str_files)
 
                 except Exception as e:
                     log_message(output_field, tr_log("log_dcm_read_error", os.path.join(root, file), e))

@@ -58,5 +58,6 @@
   "log_folders_merge_error": "Error merging folders {} -> {}: {}",
   "log_folder_renamed_success": "Renamed: {} -> {}",
   "log_folder_renamed_success_with_id": "Renamed: {} -> {} (new PatientID: {})",
-  "log_folder_rename_error": "Error renaming {}: {}"
+  "log_folder_rename_error": "Error renaming {}: {}",
+  "log_failed_make_hierarchical": "Failed to structure files for patient {}: a file is locked by another process: {}"
 }

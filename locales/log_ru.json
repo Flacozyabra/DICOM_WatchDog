@@ -58,5 +58,6 @@
   "log_folders_merge_error": "Ошибка при слиянии папок {} -> {}: {}",
   "log_folder_renamed_success": "Переименовано: {} -> {}",
   "log_folder_renamed_success_with_id": "Переименовано: {} -> {} (новый PatientID: {})",
-  "log_folder_rename_error": "Ошибка переименования {}: {}"
+  "log_folder_rename_error": "Ошибка переименования {}: {}",
+  "log_failed_make_hierarchical": "Не удалось структурировать файлы пациента {}: некоторый файл заблокирован другим процессом: {}"
 }
