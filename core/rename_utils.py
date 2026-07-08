@@ -20,7 +20,7 @@ def sanitize_folder_name(name):
     return sanitized.strip()
 
 def safe_merge_folders(src, dest, new_id):
-    if os.path.abspath(src) == os.path.abspath(dest):
+    if os.path.normcase(os.path.abspath(src)) == os.path.normcase(os.path.abspath(dest)):
         return
     for dirpath, dirnames, filenames in os.walk(src):
         for filename in filenames:
@@ -192,16 +192,11 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
 
         else:
             # Папка пациента уже существует.
-            # Если текущая папка и есть целевая папка пациента
-            if os.path.abspath(path) == os.path.abspath(parent_path):
-                # Просто структурируем файлы внутри нее (переносим файлы из корня в подпапку с датой)
-                if make_folder_hierarchical(parent_path, output_field):
-                    new_study_subdir = os.path.join(parent_path, f"[{study_date_str}]")
-                    safe_update_patient_ids(new_study_subdir, new_patient_id, output_field)
-                    if id_changed:
-                        log_message(output_field, tr_log("log_folder_renamed_success_with_id", patient_folder, f"{target_folder_name}/[{study_date_str}]", new_patient_id))
-                    else:
-                        log_message(output_field, tr_log("log_folder_renamed_success", patient_folder, f"{target_folder_name}/[{study_date_str}]"))
+            # Если текущая папка и есть целевая папка пациента (сравнение регистронезависимо)
+            if os.path.normcase(os.path.abspath(path)) == os.path.normcase(os.path.abspath(parent_path)):
+                # Одиночное исследование в своей целевой папке. Оставляем его плоским.
+                # Обновляем ID, если это необходимо
+                safe_update_patient_ids(path, new_patient_id, output_field)
                 return
 
             # Если это другая папка, то работаем по стандартной схеме переноса/слияния
