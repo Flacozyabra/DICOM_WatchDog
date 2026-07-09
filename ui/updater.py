@@ -7,6 +7,8 @@ from core.config_utils import get_app_data_dir
 from core.locale_utils import get_current_langs
 from ui.settings_dialog import apply_dark_title_bar
 
+_active_workers = set()
+
 def tr(ru_text, en_text):
     lang, _ = get_current_langs()
     return ru_text if lang == 'ru' else en_text
@@ -152,10 +154,12 @@ def run_auto_update(parent, latest_version, assets):
     progress_dialog.show()
 
     worker = FileDownloadWorker(download_url, temp_exe_path)
+    _active_workers.add(worker)
     worker.progress.connect(progress_dialog.setValue)
     
     def on_finished(path):
         progress_dialog.close()
+        _active_workers.discard(worker)
         if not path or not os.path.exists(path):
             return
             
@@ -204,14 +208,19 @@ start "" "{current_exe_path}"
             )
 
     def on_error(err_msg):
+        _active_workers.discard(worker)
         QMessageBox.critical(
             parent,
             tr("Ошибка скачивания", "Download Error"),
             tr(f"Произошла ошибка при загрузке обновления:\n{err_msg}", f"An error occurred while downloading the update:\n{err_msg}")
         )
 
+    def on_cancel():
+        worker.terminate()
+        _active_workers.discard(worker)
+
     worker.finished.connect(on_finished)
     worker.error.connect(on_error)
-    progress_dialog.canceled.connect(worker.terminate)
+    progress_dialog.canceled.connect(on_cancel)
     
     worker.start()
