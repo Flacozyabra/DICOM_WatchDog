@@ -808,6 +808,30 @@ class DicomViewerPanel(QWidget):
 
         top_layout.addStretch()
 
+        # Выпадающий список для выбора набора структур
+        self.cb_structures = QComboBox(self)
+        self.cb_structures.setFixedWidth(220)
+        self.cb_structures.setStyleSheet("""
+            QComboBox {
+                background-color: #2A2A2A;
+                border: 1px solid #374151;
+                border-radius: 4px;
+                color: #FFFFFF;
+                padding: 0px 8px;
+                font-size: 12px;
+                min-height: 28px;
+                max-height: 28px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1A1A1A;
+                border: 1px solid #374151;
+                color: #FFFFFF;
+                selection-background-color: #3B82F6;
+            }
+        """)
+        self.cb_structures.hide()
+        top_layout.addWidget(self.cb_structures)
+
         # Выпадающий список пресетов HU
         self.cb_presets = QComboBox(self)
         self.cb_presets.setFixedWidth(200)
@@ -917,6 +941,7 @@ class DicomViewerPanel(QWidget):
         layout.addWidget(self.slider)
 
         self.retranslate_ui()
+        self.cb_structures.currentIndexChanged.connect(self.on_structure_file_changed)
         self.cb_presets.currentIndexChanged.connect(self.apply_preset)
         self.update_buttons_style()
 
@@ -1009,6 +1034,34 @@ class DicomViewerPanel(QWidget):
             self.viewer.enabled_structures.discard(name)
         self.viewer.update()
 
+    def on_structure_file_changed(self, index: int) -> None:
+        self.viewer.structures.clear()
+        self.viewer.enabled_structures.clear()
+        
+        self.list_structures.blockSignals(True)
+        self.list_structures.clear()
+        
+        if index >= 0:
+            sf_path = self.cb_structures.itemData(index)
+            if sf_path and os.path.exists(sf_path):
+                parsed = load_rtstruct(sf_path)
+                for num, data in parsed.items():
+                    self.viewer.structures[num] = data
+                    self.viewer.enabled_structures.add(data["name"])
+                    
+                # Заполнение списка структур в UI
+                for num, data in self.viewer.structures.items():
+                    item = QListWidgetItem(data["name"])
+                    item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                    item.setCheckState(Qt.CheckState.Checked)
+                    
+                    color = data["color"]
+                    item.setForeground(QBrush(color))
+                    self.list_structures.addItem(item)
+                    
+        self.list_structures.blockSignals(False)
+        self.viewer.update()
+
     def setup_hu_panel(self) -> None:
         self.hu_panel = QFrame(self)
         self.hu_panel.setFixedWidth(70)
@@ -1066,6 +1119,14 @@ class DicomViewerPanel(QWidget):
         self.cb_presets.addItem("Мозг", "brain")
         self.cb_presets.blockSignals(False)
 
+        self.cb_structures.blockSignals(True)
+        if not getattr(self, "struct_files", []):
+            self.cb_structures.clear()
+            self.cb_structures.addItem("Нет структур", None)
+        else:
+            self.cb_structures.setItemText(0, "Без структур")
+        self.cb_structures.blockSignals(False)
+
         self.btn_ruler.setToolTip("Линейка")
         self.btn_hu.setToolTip("Настройка окна HU")
         self.btn_osd.setToolTip("Показать/скрыть надписи")
@@ -1078,7 +1139,7 @@ class DicomViewerPanel(QWidget):
         
         self.lbl_info.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {palette['TEXT_LIGHT']};")
         
-        self.cb_presets.setStyleSheet(f"""
+        style_combo = f"""
             QComboBox {{
                 background-color: {palette['PANEL_BG']};
                 border: 1px solid {palette['BORDER_COLOR_ALT']};
@@ -1093,7 +1154,9 @@ class DicomViewerPanel(QWidget):
                 selection-color: #FFFFFF;
                 outline: none;
             }}
-        """)
+        """
+        self.cb_presets.setStyleSheet(style_combo)
+        self.cb_structures.setStyleSheet(style_combo)
         
         self.hu_panel.setStyleSheet(f"""
             QFrame {{
@@ -1279,44 +1342,53 @@ class DicomViewerPanel(QWidget):
         self.cb_presets.setCurrentIndex(0)
         self.cb_presets.blockSignals(False)
 
-        # 1. Поиск и парсинг RTSTRUCT
-        self.list_structures.blockSignals(True)
-        self.list_structures.clear()
+        # 1. Поиск RTSTRUCT
+        self.cb_structures.blockSignals(True)
+        self.cb_structures.clear()
         
+        self.struct_files = []
         if files:
             series_dir = os.path.dirname(files[0])
-            str_files = []
             if os.path.exists(series_dir):
                 for f in os.listdir(series_dir):
                     f_path = os.path.join(series_dir, f)
                     if os.path.isfile(f_path):
                         if f.upper().startswith("STR"):
-                            str_files.append(f_path)
+                            self.struct_files.append(f_path)
                         elif f.lower().endswith(".dcm"):
                             try:
                                 ds_meta = safe_dcmread(f_path, stop_before_pixels=True)
                                 if getattr(ds_meta, "Modality", "") == "RTSTRUCT":
-                                    str_files.append(f_path)
+                                    self.struct_files.append(f_path)
                             except Exception:
                                 pass
-            
-            for str_file in str_files:
-                parsed = load_rtstruct(str_file)
-                for num, data in parsed.items():
-                    self.viewer.structures[num] = data
-                    self.viewer.enabled_structures.add(data["name"])
 
-        # Заполнение списка структур в UI
-        for num, data in self.viewer.structures.items():
-            item = QListWidgetItem(data["name"])
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked)
+        if self.struct_files:
+            # Сортируем по имени
+            self.struct_files.sort(key=lambda x: os.path.basename(x))
             
-            color = data["color"]
-            item.setForeground(QBrush(color))
-            self.list_structures.addItem(item)
+            # Добавляем опцию "Без структур"
+            self.cb_structures.addItem("Без структур", None)
+            for sf in self.struct_files:
+                self.cb_structures.addItem(os.path.basename(sf), sf)
+                
+            # По умолчанию выбираем самый свежий файл по времени изменения
+            latest_file = max(self.struct_files, key=lambda x: os.path.getmtime(x))
+            latest_idx = self.struct_files.index(latest_file) + 1
             
-        self.list_structures.blockSignals(False)
+            self.cb_structures.setCurrentIndex(latest_idx)
+            self.cb_structures.setEnabled(True)
+            self.cb_structures.show()
+        else:
+            self.cb_structures.addItem("Нет структур", None)
+            self.cb_structures.setCurrentIndex(0)
+            self.cb_structures.setEnabled(False)
+            self.cb_structures.hide()
+            
+        self.cb_structures.blockSignals(False)
+
+        # Инициализируем выбранную структуру
+        self.on_structure_file_changed(self.cb_structures.currentIndex())
         self.viewer.show_structures_globally = self.cb_show_structures.isChecked()
 
         # 2. Поиск КТ срезов
