@@ -21,13 +21,41 @@ from core.config_utils import get_resource_path
 from core.locale_utils import tr_ui, tr_log
 
 
+def safe_dcmread(filepath, *args, **kwargs):
+    """
+    Безопасно считывает DICOM-файл с помощью pydicom.dcmread.
+    При возникновении ошибки ValueError с текстом 'already uncompressed'
+    пытается исправить TransferSyntaxUID и перечитать файл.
+    """
+    try:
+        return pydicom.dcmread(filepath, *args, **kwargs)
+    except ValueError as e:
+        if "already uncompressed" in str(e).lower():
+            try:
+                ds_meta = pydicom.dcmread(filepath, stop_before_pixels=True)
+                ds_meta.file_meta.TransferSyntaxUID = pydicom.uid.ImplicitVRLittleEndian
+                if isinstance(filepath, (str, os.PathLike)):
+                    ds = pydicom.dcmread(filepath, *args, **kwargs)
+                    ds.file_meta.TransferSyntaxUID = pydicom.uid.ImplicitVRLittleEndian
+                    return ds
+                else:
+                    if hasattr(filepath, 'seek'):
+                        filepath.seek(0)
+                    ds = pydicom.dcmread(filepath, *args, **kwargs)
+                    ds.file_meta.TransferSyntaxUID = pydicom.uid.ImplicitVRLittleEndian
+                    return ds
+            except Exception:
+                raise e
+        raise e
+
+
 def load_rtstruct(filepath):
     """
     Парсит файл RTSTRUCT и возвращает словарь со структурами и их контурами.
     """
     structures = {}
     try:
-        ds = pydicom.dcmread(filepath)
+        ds = safe_dcmread(filepath)
         if ds.Modality != "RTSTRUCT":
             return structures
             
@@ -1266,7 +1294,7 @@ class DicomViewerPanel(QWidget):
                             str_files.append(f_path)
                         elif f.lower().endswith(".dcm"):
                             try:
-                                ds_meta = pydicom.dcmread(f_path, stop_before_pixels=True)
+                                ds_meta = safe_dcmread(f_path, stop_before_pixels=True)
                                 if getattr(ds_meta, "Modality", "") == "RTSTRUCT":
                                     str_files.append(f_path)
                             except Exception:
@@ -1300,14 +1328,31 @@ class DicomViewerPanel(QWidget):
                 continue
                 
             try:
-                ds = pydicom.dcmread(f, stop_before_pixels=True)
+                ds = safe_dcmread(f, stop_before_pixels=True)
                 # Игнорируем некорректные модальности
                 if getattr(ds, "Modality", "CT") in ("RTSTRUCT", "RTPLAN", "RTDOSE"):
                     continue
+                # Фильтруем служебные файлы без изображений (Rows/Columns обязательны для картинок)
+                if "Rows" not in ds or "Columns" not in ds:
+                    continue
+
+                num_frames = int(ds.get("NumberOfFrames", 1))
                 ipp = getattr(ds, "ImagePositionPatient", None)
                 z_coord = float(ipp[2]) if ipp and len(ipp) >= 3 else 0.0
+                
+                thickness = float(ds.get("SliceThickness", 0.0))
+                if thickness == 0.0:
+                    thickness = float(ds.get("SpacingBetweenSlices", 1.0))
+                
                 instance_number = int(getattr(ds, "InstanceNumber", 0))
-                slices.append((f, z_coord, instance_number))
+                
+                if num_frames > 1:
+                    for frame_idx in range(num_frames):
+                        # Для многокадровых файлов виртуальная Z-координата кадра
+                        frame_z = z_coord + frame_idx * thickness
+                        slices.append((f, frame_z, instance_number, frame_idx))
+                else:
+                    slices.append((f, z_coord, instance_number, 0))
             except Exception:
                 pass
 
@@ -1317,8 +1362,9 @@ class DicomViewerPanel(QWidget):
             self.is_loading = False
             return
 
-        slices.sort(key=lambda x: (x[1], x[2]))
-        self.sorted_files = [x[0] for x in slices]
+        # Сортируем срезы по Z-координате, InstanceNumber и индексу кадра
+        slices.sort(key=lambda x: (x[1], x[2], x[3]))
+        self.sorted_files = [(x[0], x[3]) for x in slices]
 
         self.slider.setRange(0, len(self.sorted_files) - 1)
         self.is_loading = False
@@ -1326,7 +1372,7 @@ class DicomViewerPanel(QWidget):
         self.set_current_slice(0)
 
     def read_truncated_dicom(self, filepath: str):
-        ds_meta = pydicom.dcmread(filepath, stop_before_pixels=True)
+        ds_meta = safe_dcmread(filepath, stop_before_pixels=True)
         transfer_syntax = ds_meta.file_meta.TransferSyntaxUID
         
         with open(filepath, "rb") as f:
@@ -1351,7 +1397,7 @@ class DicomViewerPanel(QWidget):
                 file_bytes.extend(b"\x00" * (expected_pixels * 2))
                 
         bio = io.BytesIO(file_bytes)
-        ds = pydicom.dcmread(bio)
+        ds = safe_dcmread(bio)
         
         try:
             _ = ds.pixel_array
@@ -1383,14 +1429,16 @@ class DicomViewerPanel(QWidget):
         self.current_index = index
         self.slider.setValue(index)
 
-        filepath = self.sorted_files[index]
+        filepath, frame_idx = self.sorted_files[index]
         try:
             try:
-                ds = pydicom.dcmread(filepath)
+                ds = safe_dcmread(filepath)
                 if not hasattr(ds, "pixel_array") or len(ds) == 0:
                     raise ValueError("Empty dataset or missing pixel array")
             except Exception:
                 ds = self.read_truncated_dicom(filepath)
+
+            ds.current_frame_idx = frame_idx
 
             if self.current_index == 0:
                 self.default_wc = 40.0
@@ -1428,7 +1476,7 @@ class DicomViewerPanel(QWidget):
                 raise ValueError("Failed to decode pixel array to pixmap")
                 
         except Exception as e:
-            print(f"[Viewer] Skipping corrupted file {filepath}: {str(e)}")
+            print(f"[Viewer] Skipping corrupted file {filepath} (frame {frame_idx}): {str(e)}")
             self.sorted_files.pop(index)
             if not self.sorted_files:
                 self.lbl_info.setText("Нет доступных изображений в серии.")
@@ -1482,9 +1530,10 @@ class DicomViewerPanel(QWidget):
 
         if self.current_index < 0 or self.current_index >= len(self.sorted_files):
             return
-        filepath = self.sorted_files[self.current_index]
+        filepath, frame_idx = self.sorted_files[self.current_index]
         try:
-            ds = pydicom.dcmread(filepath)
+            ds = safe_dcmread(filepath)
+            ds.current_frame_idx = frame_idx
             pixmap = self.dicom_to_pixmap(ds, self.window_width, self.window_center)
             if pixmap:
                 self.viewer.set_dicom_image(pixmap, ds)
@@ -1524,10 +1573,42 @@ class DicomViewerPanel(QWidget):
 
             try:
                 ds.decompress()
-            except Exception:
-                pass
+            except Exception as e:
+                if "already uncompressed" in str(e).lower():
+                    ds.file_meta.TransferSyntaxUID = pydicom.uid.ImplicitVRLittleEndian
 
-            arr = ds.pixel_array.astype(float)
+            pixel_array = ds.pixel_array
+            frame_idx = getattr(ds, "current_frame_idx", 0)
+
+            # Определяем размерность массива и извлекаем нужный кадр
+            if pixel_array.ndim == 3:
+                # Если третья ось имеет размер 3 или 4, это RGB/RGBA изображение (один кадр)
+                if pixel_array.shape[2] in (3, 4):
+                    if pixel_array.shape[2] == 3:
+                        arr = (0.299 * pixel_array[..., 0] + 
+                               0.587 * pixel_array[..., 1] + 
+                               0.114 * pixel_array[..., 2]).astype(float)
+                    else:
+                        arr = (0.299 * pixel_array[..., 0] + 
+                               0.587 * pixel_array[..., 1] + 
+                               0.114 * pixel_array[..., 2]).astype(float)
+                else:
+                    # Иначе это многокадровое монохромное изображение (Frames, Rows, Columns)
+                    f_idx = min(max(0, frame_idx), pixel_array.shape[0] - 1)
+                    arr = pixel_array[f_idx].astype(float)
+            elif pixel_array.ndim == 4:
+                # Многокадровое цветное изображение (Frames, Rows, Columns, Channels)
+                f_idx = min(max(0, frame_idx), pixel_array.shape[0] - 1)
+                frame_data = pixel_array[f_idx]
+                if frame_data.shape[2] in (3, 4):
+                    arr = (0.299 * frame_data[..., 0] + 
+                           0.587 * frame_data[..., 1] + 
+                           0.114 * frame_data[..., 2]).astype(float)
+                else:
+                    arr = frame_data.astype(float)
+            else:
+                arr = pixel_array.astype(float)
+
             slope = float(getattr(ds, "RescaleSlope", 1.0))
             intercept = float(getattr(ds, "RescaleIntercept", 0.0))
             arr = arr * slope + intercept
