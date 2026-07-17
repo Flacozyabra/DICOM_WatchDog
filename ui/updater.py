@@ -99,9 +99,12 @@ def get_build_type():
     
     return "pyqt6"
 
-def find_matching_asset(assets, build_type):
+def find_matching_asset(assets, build_type, latest_version):
+    version_str = f"v{latest_version}"
     for name, url in assets.items():
         name_lower = name.lower()
+        if version_str not in name_lower:
+            continue
         if build_type == "legacy":
             if "legacy" in name_lower:
                 return name, url
@@ -130,7 +133,7 @@ def run_auto_update(parent, latest_version, assets):
         msg.exec()
         return
 
-    asset_name, download_url = find_matching_asset(assets, build_type)
+    asset_name, download_url = find_matching_asset(assets, build_type, latest_version)
     if not download_url:
         msg = QMessageBox(parent)
         msg.setIcon(QMessageBox.Icon.Warning)
