@@ -43,6 +43,7 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
     ds.StudyDescription = ''
     ds.NumberOfStudyRelatedInstances = ''
     ds.ModalitiesInStudy = ''
+    ds.StudyInstanceUID = ''
 
     # Associate with the peer AE
     assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet)
@@ -75,19 +76,23 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
                         body_part_str = "Unknown"
                     pacs_data[patient_id]['body_part'] = body_part_str
 
-                    # Преобразование времени
-                    format_string = '%H%M%S' if '.' not in pacs_data[patient_id]['study_time'] else '%H%M%S.%f'
-                    time_obj = datetime.strptime(pacs_data[patient_id]['study_time'], format_string)
-                    time_formatted = time_obj.strftime('%H:%M')
-                    # Преобразование даты
-                    date_obj = datetime.strptime(pacs_data[patient_id]['study_date'], '%Y%m%d')
-                    date_formatted = date_obj.strftime('%d.%m.%y')
-                    # Комбинирование времени и даты
-                    date_time = f"{date_formatted} - {time_formatted}"
+                    try:
+                        # Преобразование времени
+                        format_string = '%H%M%S' if '.' not in pacs_data[patient_id]['study_time'] else '%H%M%S.%f'
+                        time_obj = datetime.strptime(pacs_data[patient_id]['study_time'], format_string)
+                        time_formatted = time_obj.strftime('%H:%M')
+                        # Преобразование даты
+                        date_obj = datetime.strptime(pacs_data[patient_id]['study_date'], '%Y%m%d')
+                        date_formatted = date_obj.strftime('%d.%m.%y')
+                        # Комбинирование времени и даты
+                        date_time = f"{date_formatted} - {time_formatted}"
 
-                    # Создание объекта datetime, представляющего дату и время
-                    study_datetime_obj = date_obj + timedelta(hours=time_obj.hour, minutes=time_obj.minute,
-                                                           seconds=time_obj.second, microseconds=time_obj.microsecond)
+                        # Создание объекта datetime, представляющего дату и время
+                        study_datetime_obj = date_obj + timedelta(hours=time_obj.hour, minutes=time_obj.minute,
+                                                               seconds=time_obj.second, microseconds=time_obj.microsecond)
+                    except Exception:
+                        study_datetime_obj = datetime.now()
+                        date_time = study_datetime_obj.strftime('%d.%m.%y - %H:%M')
 
                     pacs_data[patient_id]['study_datetime_obj'] = study_datetime_obj
                     pacs_data[patient_id]['study_datetime_str'] = date_time

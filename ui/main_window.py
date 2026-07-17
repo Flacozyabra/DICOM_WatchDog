@@ -659,11 +659,10 @@ class MainWindow(QMainWindow):
         # Наблюдатель файлов в реальном времени работает всегда
         self.update_watcher_path()
             
-        # Таймер PACS работает, если активна вкладка PACS и включено автообновление, либо включены фоновые уведомления PACS
+        # Таймер PACS работает, если включено автообновление (Standby mode) или включены фоновые уведомления PACS
         pacs_notify_on = self.config.get('pacs_notification_is', 'off').lower() == 'on'
-        is_pacs_tab_active = (self.tab_widget.currentIndex() == 2)
         pacs_auto_scan_on = self.config.get('auto_update_is', 'off').lower() == 'on'
-        if (is_pacs_tab_active and pacs_auto_scan_on) or pacs_notify_on:
+        if pacs_auto_scan_on or pacs_notify_on:
             self.pacs_timer.start(self.config.get('pacs_scan_time', 10000))
 
     def update_pacs_controls_state(self):
@@ -1198,18 +1197,18 @@ class MainWindow(QMainWindow):
             return
             
         pacs_notify_on = self.config.get('pacs_notification_is', 'off').lower() == 'on'
+        pacs_auto_scan_on = self.config.get('auto_update_is', 'off').lower() == 'on'
         if index == 0:  # CT images
-            if not pacs_notify_on:
+            if not pacs_notify_on and not pacs_auto_scan_on:
                 self.pacs_timer.stop()
             self.show_patient_list()
         elif index == 1:  # CT archive
-            if not pacs_notify_on:
+            if not pacs_notify_on and not pacs_auto_scan_on:
                 self.pacs_timer.stop()
             self.fill_archive_list()
         elif index == 2:  # PACS
             self.fill_pacs_list()
             # Запускаем таймер PACS только если включено автообновление или фоновые уведомления
-            pacs_auto_scan_on = self.config.get('auto_update_is', 'off').lower() == 'on'
             if pacs_auto_scan_on or pacs_notify_on:
                 self.pacs_timer.start(self.config.get('pacs_scan_time', 10000))
 
@@ -2182,6 +2181,15 @@ class MainWindow(QMainWindow):
         pacs_port = int(self.config.get('pacs_port', 11112))
         called_aet = self.config.get('pacs_called_aet', 'ANY-SCP')
         calling_aet = self.config.get('pacs_calling_aet', 'ECHOSCU')
+
+        auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
+        if auto_update_on and hasattr(self, 'pacs_date_from') and hasattr(self, 'pacs_date_to'):
+            self.pacs_date_from.blockSignals(True)
+            self.pacs_date_to.blockSignals(True)
+            self.pacs_date_from.setDate(QDate.currentDate())
+            self.pacs_date_to.setDate(QDate.currentDate())
+            self.pacs_date_from.blockSignals(False)
+            self.pacs_date_to.blockSignals(False)
 
         study_date = None
         if hasattr(self, 'pacs_date_from') and hasattr(self, 'pacs_date_to'):
