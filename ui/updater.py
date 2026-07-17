@@ -14,7 +14,8 @@ def tr(ru_text, en_text):
     return ru_text if lang == 'ru' else en_text
 
 class FileDownloadWorker(QThread):
-    progress = pyqtSignal(int)
+    # Сигнал передает: (процент, скорость_строка, скачано_байт, всего_байт)
+    progress = pyqtSignal(int, str, int, int)
     finished = pyqtSignal(str)
     error = pyqtSignal(str)
 
@@ -25,11 +26,17 @@ class FileDownloadWorker(QThread):
 
     def run(self):
         try:
+            import time
             req = urllib.request.Request(self.url, headers={'User-Agent': 'DICOM_WatchDog-Updater'})
             with urllib.request.urlopen(req, timeout=15) as response:
                 total_size = int(response.info().get('Content-Length', 0))
                 bytes_downloaded = 0
                 block_size = 1024 * 8
+                
+                start_time = time.time()
+                last_time = start_time
+                last_bytes = 0
+                speed_str = tr("вычисляется...", "calculating...")
                 
                 with open(self.dest_path, 'wb') as f:
                     while True:
@@ -38,11 +45,27 @@ class FileDownloadWorker(QThread):
                             break
                         bytes_downloaded += len(buffer)
                         f.write(buffer)
-                        if total_size > 0:
-                            percent = int((bytes_downloaded / total_size) * 100)
-                            self.progress.emit(percent)
+                        
+                        current_time = time.time()
+                        if current_time - last_time >= 0.5:
+                            duration = current_time - last_time
+                            bytes_diff = bytes_downloaded - last_bytes
+                            speed_bytes_sec = bytes_diff / duration if duration > 0 else 0
                             
-            self.progress.emit(100)
+                            if speed_bytes_sec < 1024:
+                                speed_str = f"{speed_bytes_sec:.1f} B/s"
+                            elif speed_bytes_sec < 1024 * 1024:
+                                speed_str = f"{speed_bytes_sec / 1024:.1f} KB/s"
+                            else:
+                                speed_str = f"{speed_bytes_sec / (1024 * 1024):.1f} MB/s"
+                            
+                            last_time = current_time
+                            last_bytes = bytes_downloaded
+                            
+                        percent = int((bytes_downloaded / total_size) * 100) if total_size > 0 else 0
+                        self.progress.emit(percent, speed_str, bytes_downloaded, total_size)
+                            
+            self.progress.emit(100, speed_str, bytes_downloaded, total_size)
             self.finished.emit(self.dest_path)
         except Exception as e:
             self.error.emit(str(e))
@@ -149,13 +172,73 @@ def run_auto_update(parent, latest_version, assets):
         0, 100, parent
     )
     progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+    progress_dialog.setWindowTitle(tr("Обновление программы", "Software Update"))
     apply_dark_title_bar(progress_dialog)
+    
+    # Применение красивого темного стиля
+    progress_dialog.setStyleSheet("""
+        QProgressDialog {
+            background-color: #202020;
+        }
+        QLabel {
+            color: #ffffff;
+            font-size: 13px;
+            font-family: 'Segoe UI';
+            margin-bottom: 5px;
+        }
+        QProgressBar {
+            border: 1px solid #3d3d3d;
+            border-radius: 6px;
+            background-color: #0f0f0f;
+            text-align: center;
+            color: #ffffff;
+            font-weight: bold;
+            height: 20px;
+        }
+        QProgressBar::chunk {
+            background-color: #1f538d;
+            border-radius: 5px;
+        }
+        QPushButton {
+            background-color: #2d2d2d;
+            color: #ffffff;
+            border: 1px solid #3d3d3d;
+            border-radius: 4px;
+            padding: 5px 15px;
+            font-family: 'Segoe UI';
+            min-width: 80px;
+        }
+        QPushButton:hover {
+            background-color: #3d3d3d;
+        }
+        QPushButton:pressed {
+            background-color: #1f538d;
+        }
+    """)
+    
     progress_dialog.setValue(0)
     progress_dialog.show()
 
     worker = FileDownloadWorker(download_url, temp_exe_path)
     _active_workers.add(worker)
-    worker.progress.connect(progress_dialog.setValue)
+    
+    def on_progress(percent, speed, downloaded, total):
+        progress_dialog.setValue(percent)
+        downloaded_mb = downloaded / (1024 * 1024)
+        if total > 0:
+            total_mb = total / (1024 * 1024)
+            label_text = tr(
+                f"Скачивание обновления...\nЗагружено: {downloaded_mb:.1f} МБ из {total_mb:.1f} МБ ({percent}%)\nСкорость: {speed}",
+                f"Downloading update...\nDownloaded: {downloaded_mb:.1f} MB of {total_mb:.1f} MB ({percent}%)\nSpeed: {speed}"
+            )
+        else:
+            label_text = tr(
+                f"Скачивание обновления...\nЗагружено: {downloaded_mb:.1f} МБ\nСкорость: {speed}",
+                f"Downloading update...\nDownloaded: {downloaded_mb:.1f} MB\nSpeed: {speed}"
+            )
+        progress_dialog.setLabelText(label_text)
+
+    worker.progress.connect(on_progress)
     
     def on_finished(path):
         progress_dialog.close()

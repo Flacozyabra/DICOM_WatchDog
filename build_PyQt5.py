@@ -121,6 +121,8 @@ def build_executable(has_icon):
         print(f"[INFO] Удаление старой папки сборки: {build_dir}")
         shutil.rmtree(build_dir, ignore_errors=True)
         
+    from core.config_utils import VERSION
+
     # Базовые аргументы (запускаем PyInstaller как модуль python)
     args = [
         sys.executable,
@@ -132,9 +134,22 @@ def build_executable(has_icon):
         "--add-data=src;src",
         "--add-data=themes;themes",
         "--add-data=locales;locales",
-        "--name=DICOM_WatchDog_v1.4.2_PyQt5",
+        f"--name=DICOM_WatchDog_v{VERSION}_PyQt5",
         "--splash=src/splashscreen_compiled.png",
     ]
+
+    # Явный поиск и добавление vcruntime140.dll для предотвращения ошибок на GitHub Actions
+    vcruntime_path = Path(sys.base_prefix) / "vcruntime140.dll"
+    if not vcruntime_path.exists():
+        system32_path = Path(os.environ.get("SystemRoot", "C:\\Windows")) / "System32" / "vcruntime140.dll"
+        if system32_path.exists():
+            vcruntime_path = system32_path
+
+    if vcruntime_path.exists():
+        args.append(f"--add-data={vcruntime_path};.")
+        print(f"[INFO] Явно добавлена библиотека рантайма: {vcruntime_path}")
+    else:
+        print("[WARNING] vcruntime140.dll не найдена! Сборка может быть неработоспособной.")
     
     if has_icon:
         args.append("--icon=src/app_icon.ico")
