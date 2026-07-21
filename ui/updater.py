@@ -260,44 +260,64 @@ def run_auto_update(parent, latest_version, assets):
             return
             
         current_exe_path = sys.executable
-        updater_bat_path = os.path.join(temp_dir, "updater.bat")
-        current_pid = os.getpid()
+        dest_dir = os.path.dirname(current_exe_path)
+        old_exe_path = os.path.join(dest_dir, "_old_DICOM_WatchDog.exe")
         
-        bat_content = f"""@echo off
-taskkill /f /pid {current_pid} > nul 2>&1
-
-set retry=0
-:wait_loop
-set /a retry+=1
-copy /y "{temp_exe_path}" "{current_exe_path}" > nul 2>&1
-if errorlevel 1 (
-    if %retry% lss 15 (
-        timeout /t 1 /nobreak > nul
-        goto wait_loop
-    )
-    echo ERROR: Failed to replace application file.
-    echo Please try running the update manually or as Administrator.
-    pause
-    exit
-)
-
-del "{temp_exe_path}" > nul 2>&1
-start "" "{current_exe_path}"
-(goto) 2>nul & del "%~f0"
-"""
         try:
-            # Записываем в системной кодировке по умолчанию (ANSI/cp1251), чтобы cmd.exe без ошибок понимал русские буквы в путях
-            with open(updater_bat_path, "w") as f:
-                f.write(bat_content)
-                
-            os.startfile(updater_bat_path)
-            QApplication.quit()
+            if os.path.exists(old_exe_path):
+                os.remove(old_exe_path)
+        except Exception:
+            pass
+            
+        try:
+            # Переименовываем работающий exe (это разрешено в Windows)
+            os.rename(current_exe_path, old_exe_path)
         except Exception as e:
             QMessageBox.critical(
                 parent,
                 tr("Ошибка обновления", "Update Error"),
-                tr(f"Не удалось создать скрипт обновления:\n{e}", f"Failed to create update script:\n{e}")
+                tr(f"Не удалось подготовить файл к обновлению (ошибка переименования):\n{e}", f"Failed to prepare file for update (rename error):\n{e}")
             )
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+            return
+            
+        try:
+            # Перемещаем скачанный файл на место оригинального exe
+            shutil.move(path, current_exe_path)
+        except Exception as e:
+            # В случае неудачи возвращаем старый файл на место
+            try:
+                os.rename(old_exe_path, current_exe_path)
+            except Exception:
+                pass
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+            QMessageBox.critical(
+                parent,
+                tr("Ошибка обновления", "Update Error"),
+                tr(f"Не удалось применить новую версию:\n{e}", f"Failed to apply the new version:\n{e}")
+            )
+            return
+            
+        try:
+            import subprocess
+            subprocess.Popen([current_exe_path])
+            QApplication.quit()
+        except Exception as e:
+            QMessageBox.critical(
+                parent,
+                tr("Ошибка запуска", "Launch Error"),
+                tr(
+                    f"Обновление успешно применилось, но не удалось автоматически перезапустить программу:\n{e}\nПожалуйста, запустите её вручную.",
+                    f"Update applied successfully, but failed to restart the application automatically:\n{e}\nPlease launch it manually."
+                )
+            )
+            QApplication.quit()
 
     def on_error(err_msg):
         _active_workers.discard(worker)

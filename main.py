@@ -181,6 +181,15 @@ class LoadingSplash(QSplashScreen):
 def main():
     global MainWindow
     
+    # Очистка старых версий файлов после автообновления
+    try:
+        current_exe = sys.executable
+        old_exe = os.path.join(os.path.dirname(current_exe), "_old_DICOM_WatchDog.exe")
+        if os.path.exists(old_exe):
+            os.remove(old_exe)
+    except Exception:
+        pass
+    
     # Set AppUserModelID so Windows taskbar correctly groups windows under the custom icon
     if sys.platform == "win32":
         try:
