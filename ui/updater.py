@@ -25,51 +25,60 @@ class FileDownloadWorker(QThread):
         self.dest_path = dest_path
 
     def run(self):
-        try:
-            import time
-            req = urllib.request.Request(self.url, headers={'User-Agent': 'DICOM_WatchDog-Updater'})
-            with urllib.request.urlopen(req, timeout=15) as response:
-                total_size = int(response.info().get('Content-Length', 0))
-                bytes_downloaded = 0
-                block_size = 1024 * 8
-                
-                start_time = time.time()
-                last_time = start_time
-                last_bytes = 0
-                speed_str = tr("вычисляется...", "calculating...")
-                
-                with open(self.dest_path, 'wb') as f:
-                    while True:
-                        buffer = response.read(block_size)
-                        if not buffer:
-                            break
-                        bytes_downloaded += len(buffer)
-                        f.write(buffer)
-                        
-                        current_time = time.time()
-                        if current_time - last_time >= 0.5:
-                            duration = current_time - last_time
-                            bytes_diff = bytes_downloaded - last_bytes
-                            speed_bytes_sec = bytes_diff / duration if duration > 0 else 0
+        import time
+        max_retries = 3
+        retry_delay = 2
+        
+        for attempt in range(max_retries):
+            try:
+                req = urllib.request.Request(self.url, headers={'User-Agent': 'DICOM_WatchDog-Updater'})
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    total_size = int(response.info().get('Content-Length', 0))
+                    bytes_downloaded = 0
+                    block_size = 1024 * 8
+                    
+                    start_time = time.time()
+                    last_time = start_time
+                    last_bytes = 0
+                    speed_str = tr("вычисляется...", "calculating...")
+                    
+                    with open(self.dest_path, 'wb') as f:
+                        while True:
+                            buffer = response.read(block_size)
+                            if not buffer:
+                                break
+                            bytes_downloaded += len(buffer)
+                            f.write(buffer)
                             
-                            if speed_bytes_sec < 1024:
-                                speed_str = f"{speed_bytes_sec:.1f} B/s"
-                            elif speed_bytes_sec < 1024 * 1024:
-                                speed_str = f"{speed_bytes_sec / 1024:.1f} KB/s"
-                            else:
-                                speed_str = f"{speed_bytes_sec / (1024 * 1024):.1f} MB/s"
-                            
-                            last_time = current_time
-                            last_bytes = bytes_downloaded
-                            
-                        percent = int((bytes_downloaded / total_size) * 100) if total_size > 0 else 0
-                        self.progress.emit(percent, speed_str, bytes_downloaded, total_size)
-                            
-            self.progress.emit(100, speed_str, bytes_downloaded, total_size)
-            self.finished.emit(self.dest_path)
-        except Exception as e:
-            self.error.emit(str(e))
-            self.finished.emit("")
+                            current_time = time.time()
+                            if current_time - last_time >= 0.5:
+                                duration = current_time - last_time
+                                bytes_diff = bytes_downloaded - last_bytes
+                                speed_bytes_sec = bytes_diff / duration if duration > 0 else 0
+                                
+                                if speed_bytes_sec < 1024:
+                                    speed_str = f"{speed_bytes_sec:.1f} B/s"
+                                elif speed_bytes_sec < 1024 * 1024:
+                                    speed_str = f"{speed_bytes_sec / 1024:.1f} KB/s"
+                                else:
+                                    speed_str = f"{speed_bytes_sec / (1024 * 1024):.1f} MB/s"
+                                
+                                last_time = current_time
+                                last_bytes = bytes_downloaded
+                                
+                            percent = int((bytes_downloaded / total_size) * 100) if total_size > 0 else 0
+                            self.progress.emit(percent, speed_str, bytes_downloaded, total_size)
+                                
+                self.progress.emit(100, speed_str, bytes_downloaded, total_size)
+                self.finished.emit(self.dest_path)
+                return
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    self.error.emit(str(e))
+                    self.finished.emit("")
 
 def get_build_type():
     if not hasattr(sys, "frozen"):
