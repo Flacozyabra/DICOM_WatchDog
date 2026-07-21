@@ -1,6 +1,7 @@
 import os
 import sys
 import urllib.request
+import shutil
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtWidgets import QProgressDialog, QMessageBox, QApplication
 from core.config_utils import get_app_data_dir
