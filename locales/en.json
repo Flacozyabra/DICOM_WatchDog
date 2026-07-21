@@ -122,6 +122,8 @@
   "dlg_update_available_msg": "New version available: {}.\n\nWould you like to open the download page?",
   "dlg_update_current_title": "Update",
   "dlg_update_current_msg": "You are using the latest version of the application.",
+  "dlg_update_error_title": "Update Check Error",
+  "dlg_update_error_msg": "Failed to check for updates. The GitHub API rate limit may have been exceeded, or there is no internet connection.",
   "dlg_add_server_title": "New server",
   "dlg_add_server_label": "Enter PACS server name:",
   "dlg_server_exists": "A server with this name already exists.",

@@ -1519,8 +1519,17 @@ Copy-VoiceTokens $src $dst32
         self.btn_check_updates.setEnabled(True)
         self.btn_check_updates.setText(tr_ui("settings_check_updates_btn"))
         
+        if not latest_version:
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle(tr_ui("dlg_update_error_title"))
+            msg.setText(tr_ui("dlg_update_error_msg"))
+            apply_dark_title_bar(msg)
+            msg.exec()
+            return
+            
         from core.config_utils import VERSION, is_newer_version
-        if latest_version and is_newer_version(VERSION, latest_version):
+        if is_newer_version(VERSION, latest_version):
             from ui.updater import run_auto_update
             run_auto_update(self, latest_version, assets)
         else:
