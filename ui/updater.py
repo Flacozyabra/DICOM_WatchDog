@@ -14,6 +14,14 @@ def tr(ru_text, en_text):
     lang, _ = get_current_langs()
     return ru_text if lang == 'ru' else en_text
 
+def show_update_error(parent, title, text, icon=QMessageBox.Icon.Critical):
+    msg = QMessageBox(parent)
+    msg.setIcon(icon)
+    msg.setWindowTitle(title)
+    msg.setText(text)
+    apply_dark_title_bar(msg)
+    msg.exec()
+
 class FileDownloadWorker(QThread):
     # Сигнал передает: (процент, скорость_строка, скачано_байт, всего_байт)
     progress = pyqtSignal(int, str, int, int)
@@ -274,7 +282,7 @@ def run_auto_update(parent, latest_version, assets):
             # Переименовываем работающий exe (это разрешено в Windows)
             os.rename(current_exe_path, old_exe_path)
         except Exception as e:
-            QMessageBox.critical(
+            show_update_error(
                 parent,
                 tr("Ошибка обновления", "Update Error"),
                 tr(f"Не удалось подготовить файл к обновлению (ошибка переименования):\n{e}", f"Failed to prepare file for update (rename error):\n{e}")
@@ -298,7 +306,7 @@ def run_auto_update(parent, latest_version, assets):
                 os.remove(path)
             except Exception:
                 pass
-            QMessageBox.critical(
+            show_update_error(
                 parent,
                 tr("Ошибка обновления", "Update Error"),
                 tr(f"Не удалось применить новую версию:\n{e}", f"Failed to apply the new version:\n{e}")
@@ -310,7 +318,7 @@ def run_auto_update(parent, latest_version, assets):
             subprocess.Popen([current_exe_path])
             QApplication.quit()
         except Exception as e:
-            QMessageBox.critical(
+            show_update_error(
                 parent,
                 tr("Ошибка запуска", "Launch Error"),
                 tr(
@@ -322,10 +330,11 @@ def run_auto_update(parent, latest_version, assets):
 
     def on_error(err_msg):
         _active_workers.discard(worker)
-        QMessageBox.critical(
+        show_update_error(
             parent,
             tr("Ошибка скачивания", "Download Error"),
-            tr(f"Произошла ошибка при загрузке обновления:\n{err_msg}", f"An error occurred while downloading the update:\n{err_msg}")
+            tr(f"Произошла ошибка при загрузке обновления:\n{err_msg}", f"An error occurred while downloading the update:\n{err_msg}"),
+            icon=QMessageBox.Icon.Critical
         )
 
     def on_cancel():
