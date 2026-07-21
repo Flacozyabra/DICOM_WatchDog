@@ -100,7 +100,8 @@ def get_build_type():
     return "pyqt6"
 
 def find_matching_asset(assets, build_type, latest_version):
-    version_str = f"v{latest_version}"
+    clean_version = latest_version.lower().lstrip('v')
+    version_str = f"v{clean_version}"
     for name, url in assets.items():
         name_lower = name.lower()
         if version_str not in name_lower:
