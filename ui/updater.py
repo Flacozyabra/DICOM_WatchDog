@@ -316,7 +316,10 @@ def run_auto_update(parent, latest_version, assets):
             
         try:
             import subprocess
-            subprocess.Popen([current_exe_path])
+            env = os.environ.copy()
+            if "_MEIPASS" in env:
+                del env["_MEIPASS"]
+            subprocess.Popen([current_exe_path], env=env)
             QApplication.quit()
         except Exception as e:
             show_update_error(
