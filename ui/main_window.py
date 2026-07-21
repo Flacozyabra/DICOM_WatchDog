@@ -4,13 +4,13 @@ import shutil
 from datetime import datetime
 
 from PyQt6.QtCore import Qt, QTimer, QSize, QThread, pyqtSignal, QObject, QDate, QPoint
-from PyQt6.QtGui import QColor, QAction, QIcon, QFont, QPainter, QPen, QBrush, QPolygon
+from PyQt6.QtGui import QColor, QAction, QIcon, QFont, QPainter, QPen, QBrush, QPolygon, QPalette, QLinearGradient
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, 
                              QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, 
                              QPlainTextEdit, QPushButton, QMessageBox, 
                              QHeaderView, QMenu, QAbstractItemView, QLineEdit, QLabel,
                              QDialog, QFileDialog, QDateEdit, QStackedWidget, QSplitter,
-                             QSplitterHandle, QComboBox)
+                             QSplitterHandle, QComboBox, QStyledItemDelegate, QStyleOptionViewItem)
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -274,6 +274,98 @@ class ArchiveScanWorker(QThread):
         self.finished.emit(d, collector.messages)
 
 
+def tr(ru_text, en_text):
+    from core.locale_utils import get_current_langs
+    lang, _ = get_current_langs()
+    return ru_text if lang == 'ru' else en_text
+
+
+class BackgroundFileWorker(QThread):
+    finished = pyqtSignal(str, str, object)  # patient_id, op_type, result
+    error = pyqtSignal(str, str, str, str)    # patient_id, op_type, err_msg, err_title
+
+    def __init__(self, patient_id, op_type, func, *args):
+        super().__init__()
+        self.patient_id = patient_id
+        self.op_type = op_type
+        self.func = func
+        self.args = args
+
+    def run(self):
+        try:
+            res = self.func(*self.args)
+            self.finished.emit(self.patient_id, self.op_type, res)
+        except Exception as e:
+            err_title = tr_ui("dlg_error_archive_title") if self.op_type == "archive" else tr_ui("dlg_error_delete_title")
+            self.error.emit(self.patient_id, self.op_type, str(e), err_title)
+
+
+class TaskProgressDelegate(QStyledItemDelegate):
+    def __init__(self, parent, active_ops, anim_phase):
+        super().__init__(parent)
+        self.main_window = parent
+        self.active_ops = active_ops
+        self.anim_phase = anim_phase
+
+    def paint(self, painter, option, index):
+        id_index = index.sibling(index.row(), 0)
+        patient_id = id_index.data(Qt.ItemDataRole.UserRole)
+
+        if patient_id in self.active_ops:
+            op_data = self.active_ops[patient_id]
+            op_type = op_data.get('op')
+
+            painter.save()
+
+            # Базовые цвета градиента для разных операций (активный / фоновый)
+            color_map = {
+                'archive': (QColor(40, 30, 15, 200), QColor(80, 50, 20, 200)),
+                'delete': (QColor(50, 15, 15, 200), QColor(90, 25, 25, 200)),
+                'restore': (QColor(15, 40, 50, 200), QColor(25, 70, 90, 200)),
+                'clean_str': (QColor(35, 15, 50, 200), QColor(60, 25, 90, 200))
+            }
+            c1, c2 = color_map.get(op_type, (QColor(30, 30, 30, 200), QColor(50, 50, 50, 200)))
+
+            rect = option.rect
+            gradient = QLinearGradient(rect.left(), rect.top(), rect.right(), rect.bottom())
+
+            phase = self.anim_phase[0]
+            stop1 = phase % 1.0
+            stop2 = (phase + 0.33) % 1.0
+            stop3 = (phase + 0.66) % 1.0
+
+            stops = sorted([(stop1, c1), (stop2, c2), (stop3, c1)], key=lambda x: x[0])
+            
+            # Обеспечиваем плавность на границах
+            gradient.setColorAt(0.0, stops[0][1])
+            for stop, color in stops:
+                gradient.setColorAt(stop, color)
+            gradient.setColorAt(1.0, stops[-1][1])
+
+            painter.fillRect(rect, QBrush(gradient))
+            painter.restore()
+
+            new_option = QStyleOptionViewItem(option)
+            new_option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, QColor("#ffffff"))
+            new_option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
+
+            # Добавляем текстовый суффикс
+            if index.column() in (0, 1):
+                suffix_map = {
+                    'archive': tr(" [Архивация...]", " [Archiving...]"),
+                    'delete': tr(" [Удаление...]", " [Deleting...]"),
+                    'restore': tr(" [Восстановление...]", " [Restoring...]"),
+                    'clean_str': tr(" [Очистка STR...]", " [Cleaning STR...]")
+                }
+                suffix = suffix_map.get(op_type, tr(" [Выполнение...]", " [Processing...]"))
+                orig_text = index.data(Qt.ItemDataRole.DisplayRole)
+                new_option.text = str(orig_text) + suffix
+
+            super().paint(painter, new_option, index)
+        else:
+            super().paint(painter, option, index)
+
+
 class PacsDownloadWorker(QThread):
     finished = pyqtSignal(bool, str)
     progress = pyqtSignal(int, int)
@@ -509,6 +601,19 @@ class MainWindow(QMainWindow):
         self.init_ui()
         self.apply_theme()
         
+        # Инициализация фоновых операций и анимаций
+        self.active_file_operations = {}
+        self.animation_phase = [0.0]
+        
+        self.animation_timer = QTimer(self)
+        self.animation_timer.setInterval(100)
+        self.animation_timer.timeout.connect(self.update_animation_phase)
+        self.animation_timer.start()
+
+        self.table_delegate = TaskProgressDelegate(self, self.active_file_operations, self.animation_phase)
+        self.images_table.setItemDelegate(self.table_delegate)
+        self.archive_table.setItemDelegate(self.table_delegate)
+        
         # Запуск таймеров и мониторинга
         self.restart_timers()
         
@@ -517,6 +622,69 @@ class MainWindow(QMainWindow):
         
         # Проверка обновлений при запуске
         self.check_for_updates_on_startup()
+
+    def update_animation_phase(self):
+        if self.active_file_operations:
+            self.animation_phase[0] += 0.05
+            if self.animation_phase[0] >= 1.0:
+                self.animation_phase[0] = 0.0
+            self.images_table.viewport().update()
+            self.archive_table.viewport().update()
+
+    def on_background_action_finished(self, patient_id, op_type, result):
+        if patient_id in self.active_file_operations:
+            del self.active_file_operations[patient_id]
+            
+        op_key = f"worker_{patient_id}"
+        if hasattr(self, op_key):
+            delattr(self, op_key)
+            
+        self.images_table.viewport().update()
+        self.archive_table.viewport().update()
+            
+        if op_type == 'archive':
+            log_message(self.output_field, tr_log("log_patient_archived", result))
+            self.show_patient_list()
+        elif op_type == 'delete':
+            log_message(self.output_field, tr_log("log_patient_deleted", result))
+            self.show_patient_list()
+            self.archive_cache = None
+            self.fill_archive_list(silent=True)
+        elif op_type == 'clean_str':
+            deleted, folder_desc = result
+            log_message(self.output_field, tr_log("log_cleaned_str_files", deleted, folder_desc))
+            self.show_patient_list()
+        elif op_type == 'restore':
+            log_message(self.output_field, tr_log("log_patient_restored_from_archive", result))
+            self.archive_cache = None
+            self.fill_archive_list(silent=True)
+            self.restored_patient_ids.add(patient_id)
+            self.show_patient_list()
+
+    def on_background_action_error(self, patient_id, op_type, err_msg, err_title):
+        if patient_id in self.active_file_operations:
+            del self.active_file_operations[patient_id]
+            
+        op_key = f"worker_{patient_id}"
+        if hasattr(self, op_key):
+            delattr(self, op_key)
+            
+        self.images_table.viewport().update()
+        self.archive_table.viewport().update()
+        
+        _err = QMessageBox(self)
+        _err.setIcon(QMessageBox.Icon.Critical)
+        _err.setWindowTitle(err_title)
+        _err.setText(tr_ui("dlg_error_archive_msg", err_msg) if op_type == 'archive' else tr_ui("dlg_error_delete_msg", err_msg))
+        apply_dark_title_bar(_err)
+        _err.exec()
+        
+        if op_type == 'archive':
+            log_message(self.output_field, tr_log("log_failed_archive_patient", patient_id, err_msg))
+        elif op_type == 'delete':
+            log_message(self.output_field, tr_log("log_failed_delete_patient", patient_id, err_msg))
+        elif op_type == 'restore':
+            log_message(self.output_field, tr_log("log_failed_restore_patient", patient_id, err_msg))
 
     def get_folder_desc(self, folder_name, patient_name):
         if not patient_name:
@@ -1632,6 +1800,9 @@ class MainWindow(QMainWindow):
         patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
         patient_name = self.images_table.item(row, 1).text()
         
+        if patient_id in self.active_file_operations:
+            return
+            
         menu = QMenu(self)
         
         open_folder_action = QAction(tr_ui("ctx_open_folder"), self)
@@ -1654,6 +1825,9 @@ class MainWindow(QMainWindow):
         menu.exec(self.images_table.viewport().mapToGlobal(pos))
 
     def delete_patient_action(self, patient_id, patient_name):
+        if patient_id in self.active_file_operations:
+            return
+            
         folder_name = self.images_cache[patient_id].get('folder_name', patient_id) if (self.images_cache and patient_id in self.images_cache) else patient_id
         path = os.path.join(self.config.get('ct_images_dir', ''), folder_name)
         if not os.path.exists(path):
@@ -1670,22 +1844,24 @@ class MainWindow(QMainWindow):
         reply = _dlg.exec()
         
         if reply == QMessageBox.StandardButton.Yes:
-            try:
+            self.active_file_operations[patient_id] = {'op': 'delete'}
+            self.images_table.viewport().update()
+            
+            def run_delete():
                 shutil.rmtree(path)
-                folder_desc = self.get_folder_desc(patient_id, patient_name)
-                log_message(self.output_field, tr_log("log_patient_deleted", folder_desc))
-                self.show_patient_list()
-            except Exception as e:
-                _err = QMessageBox(self)
-                _err.setIcon(QMessageBox.Icon.Critical)
-                _err.setWindowTitle(tr_ui("dlg_error_delete_title"))
-                _err.setText(tr_ui("dlg_error_delete_msg", e))
-                apply_dark_title_bar(_err)
-                _err.exec()
-                folder_desc = self.get_folder_desc(patient_id, patient_name)
-                log_message(self.output_field, tr_log("log_failed_delete_patient", folder_desc, e))
+                return self.get_folder_desc(patient_id, patient_name)
+                
+            worker = BackgroundFileWorker(patient_id, 'delete', run_delete)
+            worker.finished.connect(self.on_background_action_finished)
+            worker.error.connect(self.on_background_action_error)
+            op_key = f"worker_{patient_id}"
+            setattr(self, op_key, worker)
+            worker.start()
 
     def archive_patient_action(self, patient_id, patient_name=None):
+        if patient_id in self.active_file_operations:
+            return
+            
         folder_name = self.images_cache[patient_id].get('folder_name', patient_id) if (self.images_cache and patient_id in self.images_cache) else patient_id
         path = os.path.join(self.config.get('ct_images_dir', ''), folder_name)
         archive_dir = self.config.get('archive_dir', '')
@@ -1695,39 +1871,53 @@ class MainWindow(QMainWindow):
             return
             
         if not os.path.exists(archive_dir):
-            os.makedirs(archive_dir)
+            os.makedirs(archive_dir, exist_ok=True)
 
         dest_path = os.path.join(archive_dir, folder_name)
         dest_parent = os.path.dirname(dest_path)
         if dest_parent:
             os.makedirs(dest_parent, exist_ok=True)
 
-        try:
+        self.active_file_operations[patient_id] = {'op': 'archive'}
+        self.images_table.viewport().update()
+        
+        def run_archive():
             if os.path.exists(dest_path):
                 shutil.rmtree(dest_path)
             shutil.move(path, dest_path)
-            folder_desc = self.get_folder_desc(patient_id, patient_name)
-            log_message(self.output_field, tr_log("log_patient_archived", folder_desc))
-            self.show_patient_list()
-        except Exception as e:
-            _err = QMessageBox(self)
-            _err.setIcon(QMessageBox.Icon.Critical)
-            _err.setWindowTitle(tr_ui("dlg_error_archive_title"))
-            _err.setText(tr_ui("dlg_error_archive_msg", e))
-            apply_dark_title_bar(_err)
-            _err.exec()
+            return self.get_folder_desc(patient_id, patient_name)
+            
+        worker = BackgroundFileWorker(patient_id, 'archive', run_archive)
+        worker.finished.connect(self.on_background_action_finished)
+        worker.error.connect(self.on_background_action_error)
+        op_key = f"worker_{patient_id}"
+        setattr(self, op_key, worker)
+        worker.start()
 
     def clean_str_action(self, patient_id):
+        if patient_id in self.active_file_operations:
+            return
+            
         folder_name = self.images_cache[patient_id].get('folder_name', patient_id) if (self.images_cache and patient_id in self.images_cache) else patient_id
         path = os.path.join(self.config.get('ct_images_dir', ''), folder_name)
         if os.path.exists(path):
-            deleted = delete_redundant_str(path, self.output_field)
-            patient_name = ""
-            if self.images_cache and patient_id in self.images_cache:
-                patient_name = self.images_cache[patient_id].get('patient_name', '')
-            folder_desc = self.get_folder_desc(patient_id, patient_name)
-            log_message(self.output_field, tr_log("log_cleaned_str_files", deleted, folder_desc))
-            self.show_patient_list()
+            self.active_file_operations[patient_id] = {'op': 'clean_str'}
+            self.images_table.viewport().update()
+            
+            def run_clean():
+                deleted = delete_redundant_str(path, None)
+                patient_name = ""
+                if self.images_cache and patient_id in self.images_cache:
+                    patient_name = self.images_cache[patient_id].get('patient_name', '')
+                folder_desc = self.get_folder_desc(patient_id, patient_name)
+                return deleted, folder_desc
+                
+            worker = BackgroundFileWorker(patient_id, 'clean_str', run_clean)
+            worker.finished.connect(self.on_background_action_finished)
+            worker.error.connect(self.on_background_action_error)
+            op_key = f"worker_{patient_id}"
+            setattr(self, op_key, worker)
+            worker.start()
 
     def on_images_selection_changed(self):
         has_selection = len(self.images_table.selectedRanges()) > 0
@@ -2052,6 +2242,9 @@ class MainWindow(QMainWindow):
         patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
         patient_name = self.archive_table.item(row, 1).text()
         
+        if patient_id in self.active_file_operations:
+            return
+            
         menu = QMenu(self)
         
         open_folder_action = QAction(tr_ui("ctx_open_folder"), self)
@@ -2070,6 +2263,9 @@ class MainWindow(QMainWindow):
         menu.exec(self.archive_table.viewport().mapToGlobal(pos))
 
     def delete_archive_patient_action(self, patient_id, patient_name):
+        if patient_id in self.active_file_operations:
+            return
+            
         folder_name = self.archive_cache[patient_id].get('folder_name', patient_id) if (self.archive_cache and patient_id in self.archive_cache) else patient_id
         path = os.path.join(self.config.get('archive_dir', ''), folder_name)
         if not os.path.exists(path):
@@ -2086,20 +2282,19 @@ class MainWindow(QMainWindow):
         reply = _dlg.exec()
         
         if reply == QMessageBox.StandardButton.Yes:
-            try:
+            self.active_file_operations[patient_id] = {'op': 'delete'}
+            self.archive_table.viewport().update()
+            
+            def run_delete():
                 shutil.rmtree(path)
-                folder_desc = self.get_folder_desc(patient_id, patient_name)
-                log_message(self.output_field, tr_log("log_patient_deleted", folder_desc))
-                # Reset cache to force list refresh
-                self.archive_cache = None
-                self.fill_archive_list()
-            except Exception as e:
-                _err = QMessageBox(self)
-                _err.setIcon(QMessageBox.Icon.Critical)
-                _err.setWindowTitle(tr_ui("dlg_error_delete_title"))
-                _err.setText(tr_ui("dlg_error_delete_msg", e))
-                apply_dark_title_bar(_err)
-                _err.exec()
+                return self.get_folder_desc(patient_id, patient_name)
+                
+            worker = BackgroundFileWorker(patient_id, 'delete', run_delete)
+            worker.finished.connect(self.on_background_action_finished)
+            worker.error.connect(self.on_background_action_error)
+            op_key = f"worker_{patient_id}"
+            setattr(self, op_key, worker)
+            worker.start()
 
     def move_from_archive_cmd(self):
         selected_ranges = self.archive_table.selectedRanges()
@@ -2111,6 +2306,9 @@ class MainWindow(QMainWindow):
         patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
         patient_name = self.archive_table.item(row, 1).text()
         
+        if patient_id in self.active_file_operations:
+            return
+            
         archive_dir = self.config.get('archive_dir', '')
         ct_images_dir = self.config.get('ct_images_dir', '')
         
@@ -2121,26 +2319,26 @@ class MainWindow(QMainWindow):
             return
             
         dest_path = os.path.join(ct_images_dir, folder_name)
-        try:
+        dest_parent = os.path.dirname(dest_path)
+        if dest_parent:
+            os.makedirs(dest_parent, exist_ok=True)
+            
+        self.active_file_operations[patient_id] = {'op': 'restore'}
+        self.archive_table.viewport().update()
+        
+        def run_restore():
             if os.path.exists(dest_path):
                 shutil.rmtree(dest_path)
-                
-            dest_parent = os.path.dirname(dest_path)
-            if dest_parent:
-                os.makedirs(dest_parent, exist_ok=True)
-
             shutil.copytree(path, dest_path)
             shutil.rmtree(path)
+            return self.get_folder_desc(patient_id, patient_name)
             
-            folder_desc = self.get_folder_desc(patient_id, patient_name)
-            log_message(self.output_field, tr_log("log_patient_restored_from_archive", folder_desc))
-            self.archive_cache = None
-            self.fill_archive_list(silent=True)
-            self.restored_patient_ids.add(patient_id)
-            self.show_patient_list()
-        except Exception as e:
-            folder_desc = self.get_folder_desc(patient_id, patient_name)
-            log_message(self.output_field, tr_log("log_failed_restore_patient", folder_desc, e))
+        worker = BackgroundFileWorker(patient_id, 'restore', run_restore)
+        worker.finished.connect(self.on_background_action_finished)
+        worker.error.connect(self.on_background_action_error)
+        op_key = f"worker_{patient_id}"
+        setattr(self, op_key, worker)
+        worker.start()
 
     # ================= ЛОГИКА ТАБЛИЦЫ PACS =================
 
