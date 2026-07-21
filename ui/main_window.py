@@ -293,6 +293,8 @@ class BackgroundFileWorker(QThread):
 
     def run(self):
         try:
+            import time
+            time.sleep(3)  # Временная задержка для тестирования анимации
             res = self.func(*self.args)
             self.finished.emit(self.patient_id, self.op_type, res)
         except Exception as e:
@@ -326,8 +328,25 @@ class TaskProgressDelegate(QStyledItemDelegate):
             }
             c1, c2 = color_map.get(op_type, (QColor(30, 30, 30, 200), QColor(50, 50, 50, 200)))
 
+            table_widget = option.widget
             rect = option.rect
-            gradient = QLinearGradient(rect.left(), rect.top(), rect.right(), rect.bottom())
+            
+            # Вычисляем геометрические границы всей строки для плавного общего градиента
+            row_left = rect.left()
+            row_right = rect.right()
+            if table_widget:
+                total_width = 0
+                for col in range(table_widget.columnCount()):
+                    total_width += table_widget.columnWidth(col)
+                
+                cell_left_offset = 0
+                for col in range(index.column()):
+                    cell_left_offset += table_widget.columnWidth(col)
+                
+                row_left = rect.left() - cell_left_offset
+                row_right = row_left + total_width
+
+            gradient = QLinearGradient(row_left, rect.top(), row_right, rect.top())
 
             phase = self.anim_phase[0]
             stop1 = phase % 1.0
