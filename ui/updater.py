@@ -250,41 +250,72 @@ def run_auto_update(parent, latest_version, assets):
             return
             
         current_exe_path = sys.executable
-        updater_bat_path = os.path.join(temp_dir, "updater.bat")
+        updater_ps1_path = os.path.join(temp_dir, "updater.ps1")
+        current_pid = os.getpid()
         
-        bat_content = f"""@echo off
-chcp 65001 > nul
-echo ========================================================
-echo  DICOM WatchDog Update -> {latest_version}
-echo ========================================================
-echo {tr("Ожидание завершения работы программы...", "Waiting for the application to exit...")}
-timeout /t 2 /nobreak > nul
+        temp_exe_esc = temp_exe_path.replace("'", "''")
+        current_exe_esc = current_exe_path.replace("'", "''")
+        
+        ps_content = f"""# PowerShell Updater Script for DICOM WatchDog
+Start-Sleep -Milliseconds 500
 
-echo {tr("Замена файлов...", "Replacing files...")}
-copy /y "{temp_exe_path}" "{current_exe_path}"
-if errorlevel 1 (
-    echo.
-    echo {tr("ОШИБКА: Не удалось заменить файл.", "ERROR: Failed to replace the file.")} {os.path.basename(current_exe_path)}.
-    echo {tr("Возможно, программа не закрылась или требуется запуск от имени Администратора.", "Perhaps the application is still running or Administrator privileges are required.")}
-    echo.
-    pause
-    exit
-)
+# Завершаем старый процесс
+Stop-Process -Id {current_pid} -Force -ErrorAction SilentlyContinue
 
-echo {tr("Очистка временных файлов...", "Cleaning up temporary files...")}
-del "{temp_exe_path}"
+$temp_path = '{temp_exe_esc}'
+$dest_path = '{current_exe_esc}'
 
-echo {tr("Запуск новой версии...", "Launching the new version...")}
-start "" "{current_exe_path}"
+$success = $false
+for ($i = 1; $i -le 15; $i++) {{
+    try {{
+        Copy-Item -Path $temp_path -Destination $dest_path -Force -ErrorAction Stop
+        $success = $true
+        break
+    }} catch {{
+        Start-Sleep -Seconds 1
+    }}
+}}
 
-:: Самоудаление батника
-(goto) 2>nul & del "%~f0"
+if ($success) {{
+    Remove-Item -Path $temp_path -Force -ErrorAction SilentlyContinue
+    Start-Process -FilePath $dest_path
+}} else {{
+    Add-Type -AssemblyName System.Windows.Forms
+    [System.Windows.Forms.MessageBox]::Show(
+        "Не удалось обновить файл программы. Возможно, файл заблокирован другим процессом или требуются права Администратора.",
+        "Ошибка обновления",
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Error
+    )
+}}
+
+# Самоудаление скрипта
+Remove-Item -Path $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
 """
         try:
-            with open(updater_bat_path, "w", encoding="utf-8") as f:
-                f.write(bat_content)
+            with open(updater_ps1_path, "w", encoding="utf-8") as f:
+                f.write(ps_content)
                 
-            os.startfile(updater_bat_path)
+            import subprocess
+            cmd = [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy", "Bypass",
+                "-WindowStyle", "Hidden",
+                "-File", updater_ps1_path
+            ]
+            
+            startupinfo = None
+            if sys.platform == "win32":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = 0  # SW_HIDE
+                
+            subprocess.Popen(
+                cmd,
+                startupinfo=startupinfo,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            )
             QApplication.quit()
         except Exception as e:
             QMessageBox.critical(
