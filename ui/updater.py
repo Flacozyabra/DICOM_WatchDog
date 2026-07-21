@@ -185,8 +185,9 @@ def run_auto_update(parent, latest_version, assets):
         return
 
     # Начинаем скачивание
-    temp_dir = get_app_data_dir()
-    temp_exe_path = os.path.join(temp_dir, "update_new.exe")
+    current_exe_path = sys.executable
+    dest_dir = os.path.dirname(current_exe_path)
+    temp_exe_path = os.path.join(dest_dir, "update_new.tmp")
     
     progress_dialog = QProgressDialog(
         tr("Скачивание обновления...", "Downloading update..."),
