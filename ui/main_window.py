@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget,
                              QPlainTextEdit, QPushButton, QMessageBox, 
                              QHeaderView, QMenu, QAbstractItemView, QLineEdit, QLabel,
                              QDialog, QFileDialog, QDateEdit, QStackedWidget, QSplitter,
-                             QSplitterHandle, QComboBox, QStyledItemDelegate, QStyleOptionViewItem)
+                             QSplitterHandle, QComboBox, QStyledItemDelegate, QStyleOptionViewItem, QStyle)
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -365,6 +365,8 @@ class TaskProgressDelegate(QStyledItemDelegate):
             painter.restore()
 
             new_option = QStyleOptionViewItem(option)
+            if new_option.state & QStyle.StateFlag.State_Selected:
+                new_option.state &= ~QStyle.StateFlag.State_Selected
             new_option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, QColor("#ffffff"))
             new_option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
 
