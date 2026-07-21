@@ -260,72 +260,37 @@ def run_auto_update(parent, latest_version, assets):
             return
             
         current_exe_path = sys.executable
-        updater_ps1_path = os.path.join(temp_dir, "updater.ps1")
+        updater_bat_path = os.path.join(temp_dir, "updater.bat")
         current_pid = os.getpid()
         
-        temp_exe_esc = temp_exe_path.replace("'", "''")
-        current_exe_esc = current_exe_path.replace("'", "''")
-        
-        ps_content = f"""# PowerShell Updater Script for DICOM WatchDog
-Start-Sleep -Milliseconds 500
+        bat_content = f"""@echo off
+taskkill /f /pid {current_pid} > nul 2>&1
 
-# Завершаем старый процесс
-Stop-Process -Id {current_pid} -Force -ErrorAction SilentlyContinue
-
-$temp_path = '{temp_exe_esc}'
-$dest_path = '{current_exe_esc}'
-
-$success = $false
-for ($i = 1; $i -le 15; $i++) {{
-    try {{
-        Copy-Item -Path $temp_path -Destination $dest_path -Force -ErrorAction Stop
-        $success = $true
-        break
-    }} catch {{
-        Start-Sleep -Seconds 1
-    }}
-}}
-
-if ($success) {{
-    Remove-Item -Path $temp_path -Force -ErrorAction SilentlyContinue
-    Start-Process -FilePath $dest_path
-}} else {{
-    Add-Type -AssemblyName System.Windows.Forms
-    [System.Windows.Forms.MessageBox]::Show(
-        "Не удалось обновить файл программы. Возможно, файл заблокирован другим процессом или требуются права Администратора.",
-        "Ошибка обновления",
-        [System.Windows.Forms.MessageBoxButtons]::OK,
-        [System.Windows.Forms.MessageBoxIcon]::Error
+set retry=0
+:wait_loop
+set /a retry+=1
+copy /y "{temp_exe_path}" "{current_exe_path}" > nul 2>&1
+if errorlevel 1 (
+    if %retry% lss 15 (
+        timeout /t 1 /nobreak > nul
+        goto wait_loop
     )
-}}
+    echo ERROR: Failed to replace application file.
+    echo Please try running the update manually or as Administrator.
+    pause
+    exit
+)
 
-# Самоудаление скрипта
-Remove-Item -Path $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
+del "{temp_exe_path}" > nul 2>&1
+start "" "{current_exe_path}"
+(goto) 2>nul & del "%~f0"
 """
         try:
-            with open(updater_ps1_path, "w", encoding="utf-8") as f:
-                f.write(ps_content)
+            # Записываем в системной кодировке по умолчанию (ANSI/cp1251), чтобы cmd.exe без ошибок понимал русские буквы в путях
+            with open(updater_bat_path, "w") as f:
+                f.write(bat_content)
                 
-            import subprocess
-            cmd = [
-                "powershell.exe",
-                "-NoProfile",
-                "-ExecutionPolicy", "Bypass",
-                "-WindowStyle", "Hidden",
-                "-File", updater_ps1_path
-            ]
-            
-            startupinfo = None
-            if sys.platform == "win32":
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = 0  # SW_HIDE
-                
-            subprocess.Popen(
-                cmd,
-                startupinfo=startupinfo,
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-            )
+            os.startfile(updater_bat_path)
             QApplication.quit()
         except Exception as e:
             QMessageBox.critical(

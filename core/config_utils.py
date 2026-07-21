@@ -4,7 +4,7 @@ import shutil
 import json
 import urllib.request
 
-VERSION = "1.4.7"
+VERSION = "1.4.8"
 
 def get_app_data_dir():
     app_name = "DICOM_WatchDog"
