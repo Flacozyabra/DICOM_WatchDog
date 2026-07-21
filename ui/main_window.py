@@ -293,8 +293,6 @@ class BackgroundFileWorker(QThread):
 
     def run(self):
         try:
-            import time
-            time.sleep(3)  # Временная задержка для тестирования анимации
             res = self.func(*self.args)
             self.finished.emit(self.patient_id, self.op_type, res)
         except Exception as e:
