@@ -1,7 +1,7 @@
 import os
 import sys
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from PyQt6.QtCore import Qt, QTimer, QSize, QThread, pyqtSignal, QObject, QDate, QPoint
 from PyQt6.QtGui import QColor, QAction, QIcon, QFont, QPainter, QPen, QBrush, QPolygon, QPalette, QLinearGradient
@@ -2466,7 +2466,6 @@ class MainWindow(QMainWindow):
                 icon_blue_path = get_resource_path("src/pacs_notification.png")
 
             if auto_update_on:
-                from datetime import datetime, timedelta
                 one_hour_ago = datetime.now() - timedelta(hours=1)
                 recent_pacs_dict = {}
                 for patient_id, data in pacs_dict.items():
