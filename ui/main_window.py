@@ -811,7 +811,7 @@ class MainWindow(QMainWindow):
             
         try:
             self.watcher_handler = WatchdogHandler()
-            self.watcher_handler.changed.connect(self.trigger_debounce)
+            self.watcher_handler.changed.connect(self.trigger_debounce, Qt.ConnectionType.QueuedConnection)
             
             self.watcher_observer = Observer()
             self.watcher_observer.schedule(self.watcher_handler, ct_dir, recursive=True)
@@ -847,7 +847,10 @@ class MainWindow(QMainWindow):
         self.update_watcher_path()
             
         # Таймер PACS работает, если включено автообновление (Standby mode) или включены фоновые уведомления PACS
-        pacs_notify_on = self.config.get('pacs_notification_is', 'off').lower() == 'on'
+        master_notif = str(self.config.get('notifications_enabled', 'False')).lower() == 'true'
+        pacs_toast = str(self.config.get('pacs_notification_toast_enabled', 'True')).lower() == 'true'
+        pacs_sound = str(self.config.get('pacs_notification_sound_enabled', 'False')).lower() == 'true'
+        pacs_notify_on = master_notif and (pacs_toast or pacs_sound)
         pacs_auto_scan_on = self.config.get('auto_update_is', 'off').lower() == 'on'
         if pacs_auto_scan_on or pacs_notify_on:
             self.pacs_timer.start(self.config.get('pacs_scan_time', 10000))
@@ -1384,7 +1387,10 @@ class MainWindow(QMainWindow):
         if not hasattr(self, 'archive_table') or not hasattr(self, 'pacs_table') or not hasattr(self, 'images_table'):
             return
             
-        pacs_notify_on = self.config.get('pacs_notification_is', 'off').lower() == 'on'
+        master_notif = str(self.config.get('notifications_enabled', 'False')).lower() == 'true'
+        pacs_toast = str(self.config.get('pacs_notification_toast_enabled', 'True')).lower() == 'true'
+        pacs_sound = str(self.config.get('pacs_notification_sound_enabled', 'False')).lower() == 'true'
+        pacs_notify_on = master_notif and (pacs_toast or pacs_sound)
         pacs_auto_scan_on = self.config.get('auto_update_is', 'off').lower() == 'on'
         if index == 0:  # CT images
             if not pacs_notify_on and not pacs_auto_scan_on:
