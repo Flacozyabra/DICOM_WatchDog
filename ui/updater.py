@@ -209,14 +209,10 @@ def get_build_type():
     return "pyqt6"
 
 
-def find_matching_asset(assets, build_type, latest_version):
-    """Находит подходящий ассет для загрузки по типу сборки и номеру версии."""
-    clean_version = latest_version.lower().lstrip('v')
-    version_str = f"v{clean_version}"
+def find_matching_asset(assets, build_type, latest_version=""):
+    """Находит подходящий ассет для загрузки по типу сборки."""
     for name, url in assets.items():
         name_lower = name.lower()
-        if version_str not in name_lower:
-            continue
         if build_type == "legacy":
             if "legacy" in name_lower:
                 return name, url
@@ -224,7 +220,7 @@ def find_matching_asset(assets, build_type, latest_version):
             if "pyqt5" in name_lower and "legacy" not in name_lower:
                 return name, url
         elif build_type == "pyqt6":
-            if "pyqt6" in name_lower:
+            if "pyqt6" in name_lower or ("dicom_watchdog" in name_lower and "pyqt5" not in name_lower and "legacy" not in name_lower):
                 return name, url
     return None, None
 

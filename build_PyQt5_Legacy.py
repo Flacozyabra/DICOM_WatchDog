@@ -109,7 +109,7 @@ def build_executable(has_icon):
         "--add-data=src;src",
         "--add-data=themes;themes",
         "--add-data=locales;locales",
-        f"--name=DICOM_WatchDog_v{VERSION}_PyQt5_Legacy",
+        "--name=DICOM_WatchDog_PyQt5_Legacy",
     ]
 
     # Явный поиск и добавление vcruntime140.dll для предотвращения ошибок на GitHub Actions
