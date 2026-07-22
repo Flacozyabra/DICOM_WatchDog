@@ -123,9 +123,16 @@ def show_notification(title: str, msg: str, durations: str, ico_path: str, sound
         pass
     # 1. Сначала воспроизводим звук/голос
     if play_sound:
-        if sound_setting == 'default':
+        sound_map = {
+            'default': "src/notification.wav",
+            'sound_chime': "src/notification_chime.wav",
+            'sound_ping': "src/notification_ping.wav",
+            'sound_pop': "src/notification_pop.wav",
+            'sound_soft': "src/notification_soft.wav",
+        }
+        if sound_setting in sound_map:
             from core.config_utils import get_resource_path
-            wav_path = get_resource_path("src/notification.wav")
+            wav_path = get_resource_path(sound_map[sound_setting])
             if os.path.exists(wav_path) and sys.platform == "win32":
                 try:
                     import winsound

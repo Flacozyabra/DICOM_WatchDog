@@ -748,12 +748,7 @@ class SettingsDialog(QDialog):
         notifications_form.addRow(self.lbl_ct_sound, self.ct_sound_combo)
 
         # Заполняем ct_sound_combo
-        self.ct_sound_combo.addItem("default", "default")
-        for voice in self.system_voices:
-            self.ct_sound_combo.addItem(format_voice_name(voice), voice)
-        current_ct_sound = self.config.get('ct_notification_sound', 'default')
-        idx_ct = find_matching_voice_index(self.ct_sound_combo, current_ct_sound)
-        self.ct_sound_combo.setCurrentIndex(idx_ct)
+        self._populate_sound_combo(self.ct_sound_combo, self.config.get('ct_notification_sound', 'default'))
         self.ct_sound_combo.activated.connect(lambda: self.play_sound_preview(self.ct_sound_combo))
 
         # Разделитель после КТ
@@ -786,12 +781,7 @@ class SettingsDialog(QDialog):
         notifications_form.addRow(self.lbl_pacs_sound, self.pacs_sound_combo)
 
         # Заполняем pacs_sound_combo
-        self.pacs_sound_combo.addItem("default", "default")
-        for voice in self.system_voices:
-            self.pacs_sound_combo.addItem(format_voice_name(voice), voice)
-        current_pacs_sound = self.config.get('pacs_notification_sound', 'default')
-        idx_pacs = find_matching_voice_index(self.pacs_sound_combo, current_pacs_sound)
-        self.pacs_sound_combo.setCurrentIndex(idx_pacs)
+        self._populate_sound_combo(self.pacs_sound_combo, self.config.get('pacs_notification_sound', 'default'))
         self.pacs_sound_combo.activated.connect(lambda: self.play_sound_preview(self.pacs_sound_combo))
 
         # Разблокировка голосов Windows OneCore
@@ -1226,14 +1216,34 @@ class SettingsDialog(QDialog):
         if MainWindow.instance:
             MainWindow.instance.apply_settings_dynamic(self.config)
 
+    def _populate_sound_combo(self, combo, current_val):
+        from core.locale_utils import tr_ui
+        combo.clear()
+        combo.addItem(tr_ui("settings_sound_default"), "default")
+        combo.addItem(tr_ui("settings_sound_chime"), "sound_chime")
+        combo.addItem(tr_ui("settings_sound_ping"), "sound_ping")
+        combo.addItem(tr_ui("settings_sound_pop"), "sound_pop")
+        combo.addItem(tr_ui("settings_sound_soft"), "sound_soft")
+        for voice in self.system_voices:
+            combo.addItem(format_voice_name(voice), voice)
+        idx = find_matching_voice_index(combo, current_val)
+        combo.setCurrentIndex(idx if idx >= 0 else 0)
+
     def play_sound_preview(self, combo):
         sound_setting = combo.currentData()
         if not sound_setting:
             return
-            
-        if sound_setting == 'default':
+
+        sound_map = {
+            'default': "src/notification.wav",
+            'sound_chime': "src/notification_chime.wav",
+            'sound_ping': "src/notification_ping.wav",
+            'sound_pop': "src/notification_pop.wav",
+            'sound_soft': "src/notification_soft.wav",
+        }
+        if sound_setting in sound_map:
             from core.config_utils import get_resource_path
-            wav_path = get_resource_path("src/notification.wav")
+            wav_path = get_resource_path(sound_map[sound_setting])
             if os.path.exists(wav_path) and sys.platform == "win32":
                 try:
                     import winsound
