@@ -57,7 +57,7 @@ def check_and_install_dependencies():
         install_package("PyQt5")
 
     # Install remaining runtime dependencies (winotify excluded — not needed on Win 7)
-    runtime_deps = ["watchdog", "pydicom", "pynetdicom", "numpy"]
+    runtime_deps = ["watchdog<4.0", "pydicom<3.0", "pynetdicom<2.1", "numpy<2.0"]
     for dep in runtime_deps:
         try:
             __import__(dep)

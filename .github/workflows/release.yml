@@ -70,7 +70,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install pydicom pynetdicom watchdog PyQt5 pillow pyinstaller numpy
+          pip install "numpy<2.0" "watchdog<4.0" "pydicom<3.0" "pynetdicom<2.1" "PyQt5" "pillow<10.3" "pyinstaller<6.0"
 
       - name: Build PyQt5 Legacy executable
         shell: bash
