@@ -2,7 +2,7 @@
 
 [English](#english) | [Русский](#русский)
 
-<details>
+<details open>
   <summary>📷 View Screenshot / Посмотреть скриншот</summary>
 
   ![DICOM WatchDog Screenshot](src/screenshot.jpg)
