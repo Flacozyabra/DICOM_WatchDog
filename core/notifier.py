@@ -180,7 +180,20 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
     if show_toast:
         try:
             from ui.toast_notification import show_qt_toast
-            show_qt_toast(title, msg, durations, ico_path)
+            from core.config_utils import load_config
+            cfg = load_config()
+
+            dur_str = str(cfg.get('toast_duration', '5')).lower()
+            if dur_str == 'manual':
+                duration_ms = 0
+            else:
+                try:
+                    duration_ms = int(dur_str) * 1000
+                except ValueError:
+                    duration_ms = 5000
+
+            position = cfg.get('toast_position', 'bottom_right')
+            show_qt_toast(title, msg, durations, ico_path, duration_ms=duration_ms, position=position)
             return
         except Exception as e:
             try:

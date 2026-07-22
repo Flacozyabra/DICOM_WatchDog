@@ -38,11 +38,13 @@ class ToastNotification(QWidget):
         title: str,
         message: str,
         icon_path: str = "",
-        duration_ms: int = 4000,
+        duration_ms: int = 5000,
+        position: str = "bottom_right",
         parent: Optional[QWidget] = None
     ):
         super().__init__(parent)
         self.duration_ms = duration_ms
+        self.position = position
         self._is_closing = False
 
         # Set window flags for frameless floating popup
@@ -169,7 +171,8 @@ class ToastNotification(QWidget):
         self.fade_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.fade_anim.start()
 
-        self.timer.start(self.duration_ms)
+        if self.duration_ms > 0:
+            self.timer.start(self.duration_ms)
 
     def close_toast(self):
         if self._is_closing:
@@ -203,28 +206,43 @@ class ToastNotification(QWidget):
 
         geom = screen.availableGeometry()
 
-        base_x = geom.right() - cls.TOAST_WIDTH - cls.MARGIN
-        base_y = geom.bottom() - cls.TOAST_HEIGHT - cls.MARGIN
-
         for idx, toast in enumerate(reversed(_active_toasts)):
-            target_y = base_y - idx * (cls.TOAST_HEIGHT + cls.SPACING)
-            toast.move(base_x, target_y)
+            pos = getattr(toast, 'position', 'bottom_right')
+            if pos == 'bottom_left':
+                target_x = geom.left() + cls.MARGIN
+                target_y = geom.bottom() - cls.TOAST_HEIGHT - cls.MARGIN - idx * (cls.TOAST_HEIGHT + cls.SPACING)
+            elif pos == 'top_right':
+                target_x = geom.right() - cls.TOAST_WIDTH - cls.MARGIN
+                target_y = geom.top() + cls.MARGIN + idx * (cls.TOAST_HEIGHT + cls.SPACING)
+            elif pos == 'top_left':
+                target_x = geom.left() + cls.MARGIN
+                target_y = geom.top() + cls.MARGIN + idx * (cls.TOAST_HEIGHT + cls.SPACING)
+            else:  # bottom_right
+                target_x = geom.right() - cls.TOAST_WIDTH - cls.MARGIN
+                target_y = geom.bottom() - cls.TOAST_HEIGHT - cls.MARGIN - idx * (cls.TOAST_HEIGHT + cls.SPACING)
+            toast.move(target_x, target_y)
 
 
-def show_qt_toast(title: str, msg: str, durations: str, ico_path: str) -> None:
+def show_qt_toast(
+    title: str,
+    msg: str,
+    durations: str,
+    ico_path: str,
+    duration_ms: int = 5000,
+    position: str = "bottom_right"
+) -> None:
     """Helper to instantiate and show a ToastNotification on the main Qt thread."""
     app = QApplication.instance()
     if app is None:
         return
-
-    duration_ms = 4000 if durations == 'short' else 8000
 
     def _create():
         toast = ToastNotification(
             title=title,
             message=msg,
             icon_path=ico_path,
-            duration_ms=duration_ms
+            duration_ms=duration_ms,
+            position=position
         )
         toast.show_toast()
 

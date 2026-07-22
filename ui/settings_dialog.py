@@ -718,6 +718,16 @@ class SettingsDialog(QDialog):
         self.lbl_notifications_enabled = QLabel()
         notifications_form.addRow(self.lbl_notifications_enabled, self.notifications_enabled_cb)
 
+        # Длительность показа всплывающих уведомлений
+        self.toast_duration_combo = QComboBox()
+        self.lbl_toast_duration = QLabel()
+        notifications_form.addRow(self.lbl_toast_duration, self.toast_duration_combo)
+
+        # Расположение всплывающих уведомлений на экране
+        self.toast_position_combo = QComboBox()
+        self.lbl_toast_position = QLabel()
+        notifications_form.addRow(self.lbl_toast_position, self.toast_position_combo)
+
         # Разделитель после мастер-свича
         line_master = QFrame()
         line_master.setFrameShape(QFrame.Shape.HLine)
@@ -803,6 +813,10 @@ class SettingsDialog(QDialog):
             self.ct_sound_cb.setEnabled(is_master_on)
             self.pacs_toast_cb.setEnabled(is_master_on)
             self.pacs_sound_cb.setEnabled(is_master_on)
+            self.toast_duration_combo.setEnabled(is_master_on)
+            self.toast_position_combo.setEnabled(is_master_on)
+            self.lbl_toast_duration.setEnabled(is_master_on)
+            self.lbl_toast_position.setEnabled(is_master_on)
             
             # Активируем выбор звука только если включены соответствующие звуковые уведомления
             self.ct_sound_combo.setEnabled(is_master_on and self.ct_sound_cb.isChecked())
@@ -1087,6 +1101,8 @@ class SettingsDialog(QDialog):
         self.patient_font_spin.valueChanged.connect(self.on_setting_changed)
         self.patient_weight_combo.currentTextChanged.connect(self.on_setting_changed)
         self.notifications_enabled_cb.toggled.connect(self.on_setting_changed)
+        self.toast_duration_combo.currentIndexChanged.connect(self.on_setting_changed)
+        self.toast_position_combo.currentIndexChanged.connect(self.on_setting_changed)
         self.ct_toast_cb.toggled.connect(self.on_setting_changed)
         self.ct_sound_cb.toggled.connect(self.on_setting_changed)
         self.ct_sound_combo.currentIndexChanged.connect(self.on_setting_changed)
@@ -1137,6 +1153,8 @@ class SettingsDialog(QDialog):
         self.config['patient_font_size'] = self.patient_font_spin.value()
         self.config['patient_weight'] = self.patient_weight_combo.currentText()
         self.config['notifications_enabled'] = 'True' if self.notifications_enabled_cb.isChecked() else 'False'
+        self.config['toast_duration'] = self.toast_duration_combo.currentData()
+        self.config['toast_position'] = self.toast_position_combo.currentData()
         self.config['ct_notification_toast_enabled'] = 'True' if self.ct_toast_cb.isChecked() else 'False'
         self.config['ct_notification_sound_enabled'] = 'True' if self.ct_sound_cb.isChecked() else 'False'
         self.config['ct_notification_sound'] = self.ct_sound_combo.currentData()
@@ -1332,6 +1350,38 @@ Copy-VoiceTokens $src $dst32
         self.lbl_ct_folder.setText(tr_ui("settings_ct_images_folder"))
         self.lbl_settings_folder.setText(tr_ui("settings_settings_folder"))
         self.lbl_notifications_enabled.setText(tr_ui("settings_notifications_enabled"))
+        self.lbl_toast_duration.setText(tr_ui("settings_toast_duration_label"))
+        self.lbl_toast_position.setText(tr_ui("settings_toast_position_label"))
+
+        # Populate toast_duration_combo items
+        self.toast_duration_combo.blockSignals(True)
+        cur_dur = self.toast_duration_combo.currentData()
+        if not cur_dur:
+            cur_dur = str(self.config.get('toast_duration', '5'))
+        self.toast_duration_combo.clear()
+        self.toast_duration_combo.addItem(tr_ui("settings_toast_dur_3s"), "3")
+        self.toast_duration_combo.addItem(tr_ui("settings_toast_dur_5s"), "5")
+        self.toast_duration_combo.addItem(tr_ui("settings_toast_dur_8s"), "8")
+        self.toast_duration_combo.addItem(tr_ui("settings_toast_dur_15s"), "15")
+        self.toast_duration_combo.addItem(tr_ui("settings_toast_dur_manual"), "manual")
+        idx_dur = self.toast_duration_combo.findData(cur_dur)
+        self.toast_duration_combo.setCurrentIndex(idx_dur if idx_dur >= 0 else 1)
+        self.toast_duration_combo.blockSignals(False)
+
+        # Populate toast_position_combo items
+        self.toast_position_combo.blockSignals(True)
+        cur_pos = self.toast_position_combo.currentData()
+        if not cur_pos:
+            cur_pos = str(self.config.get('toast_position', 'bottom_right'))
+        self.toast_position_combo.clear()
+        self.toast_position_combo.addItem(tr_ui("settings_toast_pos_bottom_right"), "bottom_right")
+        self.toast_position_combo.addItem(tr_ui("settings_toast_pos_bottom_left"), "bottom_left")
+        self.toast_position_combo.addItem(tr_ui("settings_toast_pos_top_right"), "top_right")
+        self.toast_position_combo.addItem(tr_ui("settings_toast_pos_top_left"), "top_left")
+        idx_pos = self.toast_position_combo.findData(cur_pos)
+        self.toast_position_combo.setCurrentIndex(idx_pos if idx_pos >= 0 else 0)
+        self.toast_position_combo.blockSignals(False)
+
         self.lbl_ct_section.setText(tr_ui("settings_ct_section_title"))
         self.lbl_ct_toast.setText(tr_ui("settings_notifications_toast_enabled"))
         self.lbl_ct_sound_enabled.setText(tr_ui("settings_notifications_sound_enabled"))
