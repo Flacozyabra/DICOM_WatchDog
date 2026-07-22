@@ -2466,20 +2466,20 @@ class MainWindow(QMainWindow):
                 icon_blue_path = get_resource_path("src/pacs_notification.png")
 
             if auto_update_on:
-                one_hour_ago = datetime.now() - timedelta(hours=1)
-                recent_pacs_dict = {}
+                today_date = datetime.now().date()
+                today_pacs_dict = {}
                 for patient_id, data in pacs_dict.items():
                     s_dt = data.get('study_datetime_obj')
-                    if s_dt and s_dt >= one_hour_ago:
-                        recent_pacs_dict[patient_id] = data
+                    if s_dt and s_dt.date() == today_date:
+                        today_pacs_dict[patient_id] = data
 
                 if self.is_first_pacs_scan:
                     self.is_first_pacs_scan = False
-                    self.known_pacs_patient_ids = set(recent_pacs_dict.keys())
-                    display_dict = recent_pacs_dict
+                    self.known_pacs_patient_ids = set(today_pacs_dict.keys())
+                    display_dict = today_pacs_dict
                 else:
                     new_patients = {}
-                    for patient_id, data in recent_pacs_dict.items():
+                    for patient_id, data in today_pacs_dict.items():
                         if patient_id not in self.known_pacs_patient_ids:
                             new_patients[patient_id] = data
                             show_notification(
@@ -2495,7 +2495,7 @@ class MainWindow(QMainWindow):
                     if new_patients:
                         self.known_pacs_patient_ids.update(new_patients.keys())
 
-                    display_dict = recent_pacs_dict
+                    display_dict = today_pacs_dict
             else:
                 if self.is_first_pacs_scan:
                     self.is_first_pacs_scan = False
@@ -2503,7 +2503,7 @@ class MainWindow(QMainWindow):
                 display_dict = pacs_dict
 
             data_changed = (display_dict != self.previous_pacs_data)
-            if data_changed:
+            if data_changed and (auto_update_on or not silent):
                 self.pacs_table.setUpdatesEnabled(False)
                 self.pacs_table.blockSignals(True)
 
@@ -2540,12 +2540,12 @@ class MainWindow(QMainWindow):
                     if highlighting_enabled:
                         highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
                         highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
-                        d_time = datetime.strptime(data['study_datetime_str'], "%d.%m.%y - %H:%M")
-                        
-                        if highlight_new and (datetime.now() - d_time).total_seconds() / 3600 < 1:
-                            color = QColor("lime")
-                        elif highlight_today and d_time.date() == datetime.now().date():
-                            color = QColor("mediumturquoise")
+                        d_time = data.get('study_datetime_obj')
+                        if d_time:
+                            if highlight_new and (datetime.now() - d_time).total_seconds() / 3600 < 1:
+                                color = QColor("lime")
+                            elif highlight_today and d_time.date() == datetime.now().date():
+                                color = QColor("mediumturquoise")
                         
                     for item in [id_item, name_item, modality_item, slices_item, area_item, study_item]:
                         item.setForeground(color)
