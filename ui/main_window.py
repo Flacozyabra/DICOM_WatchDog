@@ -890,9 +890,9 @@ class MainWindow(QMainWindow):
         self.previous_pacs_data = {}
         
         if is_checked:
-            self.pacs_table.set_placeholder_text("Ожидаю появления новых исследований на сервере")
+            self.pacs_table.set_placeholder_text(tr_ui("placeholder_standby"))
         else:
-            self.pacs_table.set_placeholder_text("Сканирование сервера PACS не настроено")
+            self.pacs_table.set_placeholder_text(tr_ui("placeholder_not_configured"))
 
         self.pacs_table.setRowCount(0)
         self.pacs_table.update_placeholder_visibility()
@@ -1153,6 +1153,7 @@ class MainWindow(QMainWindow):
         
         self.pacs_auto_scan_cb = ToggleSwitch(tr_ui("pacs_standby_mode"))
         self.pacs_auto_scan_cb.setChecked(self.config.get('auto_update_is', 'off').lower() == 'on')
+        self.pacs_auto_scan_cb.setToolTip(tr_ui("tooltip_pacs_auto_scan"))
         self.pacs_auto_scan_cb.stateChanged.connect(self.on_pacs_auto_scan_changed)
         
         self.send_to_ct_btn = QPushButton(tr_ui("btn_send_to_ct"))
@@ -2461,40 +2462,37 @@ class MainWindow(QMainWindow):
                 icon_blue_path = get_resource_path("src/pacs_notification.png")
 
             if auto_update_on:
+                from datetime import datetime, timedelta
+                one_hour_ago = datetime.now() - timedelta(hours=1)
+                recent_pacs_dict = {}
+                for patient_id, data in pacs_dict.items():
+                    s_dt = data.get('study_datetime_obj')
+                    if s_dt and s_dt >= one_hour_ago:
+                        recent_pacs_dict[patient_id] = data
+
                 if self.is_first_pacs_scan:
                     self.is_first_pacs_scan = False
-                    self.known_pacs_patient_ids = set(pacs_dict.keys())
-                    self.standby_new_patients = {}
-                    self.previous_pacs_data = {}
-                    
-                    self.pacs_table.setUpdatesEnabled(False)
-                    self.pacs_table.blockSignals(True)
-                    self.pacs_table.setRowCount(0)
-                    self.pacs_table.update_placeholder_visibility()
-                    self.pacs_table.blockSignals(False)
-                    self.pacs_table.setUpdatesEnabled(True)
-                    return
-
-                new_patients = {}
-                for patient_id, data in pacs_dict.items():
-                    if patient_id not in self.known_pacs_patient_ids:
-                        new_patients[patient_id] = data
-                        if master_enabled and (pacs_toast_on or pacs_sound_on):
+                    self.known_pacs_patient_ids = set(recent_pacs_dict.keys())
+                    display_dict = recent_pacs_dict
+                else:
+                    new_patients = {}
+                    for patient_id, data in recent_pacs_dict.items():
+                        if patient_id not in self.known_pacs_patient_ids:
+                            new_patients[patient_id] = data
                             show_notification(
                                 str(data['patient_name']),
                                 'Новое КТ (PACS)',
                                 'short',
                                 icon_blue_path,
                                 self.config.get('pacs_notification_sound', 'default'),
-                                show_toast=pacs_toast_on,
+                                show_toast=True,
                                 play_sound=pacs_sound_on
                             )
 
-                if new_patients:
-                    self.standby_new_patients.update(new_patients)
-                    self.known_pacs_patient_ids.update(new_patients.keys())
+                    if new_patients:
+                        self.known_pacs_patient_ids.update(new_patients.keys())
 
-                display_dict = self.standby_new_patients
+                    display_dict = recent_pacs_dict
             else:
                 if self.is_first_pacs_scan:
                     self.is_first_pacs_scan = False
