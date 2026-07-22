@@ -3,8 +3,12 @@ import sys
 import json
 import urllib.request
 import shutil
-from PyQt6.QtCore import QThread, pyqtSignal, Qt
-from PyQt6.QtWidgets import QProgressDialog, QMessageBox, QApplication
+try:
+    from PyQt6.QtCore import QThread, pyqtSignal, Qt
+    from PyQt6.QtWidgets import QProgressDialog, QMessageBox, QApplication
+except ImportError:
+    from PyQt5.QtCore import QThread, pyqtSignal, Qt
+    from PyQt5.QtWidgets import QProgressDialog, QMessageBox, QApplication
 
 DEFAULT_REPO = "Flacozyabra/DICOM_WatchDog"
 _active_workers = set()

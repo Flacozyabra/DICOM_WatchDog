@@ -14,6 +14,17 @@ from pathlib import Path
 # Принудительно заставляем приложение и сборщик использовать PyQt5
 os.environ["FORCE_PYQT5"] = "1"
 
+try:
+    import PyQt5.QtCore
+    import PyQt5.QtGui
+    import PyQt5.QtWidgets
+    sys.modules['PyQt6'] = sys.modules.get('PyQt5')
+    sys.modules['PyQt6.QtCore'] = PyQt5.QtCore
+    sys.modules['PyQt6.QtGui'] = PyQt5.QtGui
+    sys.modules['PyQt6.QtWidgets'] = PyQt5.QtWidgets
+except Exception:
+    pass
+
 def print_banner(text):
     print("\n" + "=" * 80)
     print(f" {text}")
