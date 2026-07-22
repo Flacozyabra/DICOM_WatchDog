@@ -1,29 +1,121 @@
 import os
 import sys
+import json
 import urllib.request
 import shutil
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtWidgets import QProgressDialog, QMessageBox, QApplication
-from core.config_utils import get_app_data_dir
-from core.locale_utils import get_current_langs
-from ui.settings_dialog import apply_dark_title_bar
 
+DEFAULT_REPO = "Flacozyabra/DICOM_WatchDog"
 _active_workers = set()
 
+
 def tr(ru_text, en_text):
-    lang, _ = get_current_langs()
-    return ru_text if lang == 'ru' else en_text
+    """Локализация сообщений с безопасным фолбэком."""
+    try:
+        from core.locale_utils import get_current_langs
+        lang, _ = get_current_langs()
+        return ru_text if lang == 'ru' else en_text
+    except Exception:
+        return ru_text
+
+
+def apply_dark_title_bar_safe(widget):
+    """Применяет темную полосу заголовка окна с фолбэком."""
+    try:
+        from ui.settings_dialog import apply_dark_title_bar
+        apply_dark_title_bar(widget)
+    except Exception:
+        pass
+
+
+def cleanup_old_exe():
+    """
+    Очищает остаточные бинарники вида _old_*.exe, оставшиеся после бесшовного обновления.
+    Вызывается при старте приложения.
+    """
+    try:
+        current_exe_path = sys.executable
+        dest_dir = os.path.dirname(current_exe_path)
+        for filename in os.listdir(dest_dir):
+            if filename.startswith("_old_") and filename.endswith(".exe"):
+                old_path = os.path.join(dest_dir, filename)
+                try:
+                    os.remove(old_path)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
+def check_github_updates(repo_name=DEFAULT_REPO):
+    """
+    Проверяет репозиторий GitHub на наличие последнего стабильного релиза.
+    Возвращает (latest_tag_name, html_url, assets_dict) или (None, None, None).
+    """
+    url = f"https://api.github.com/repos/{repo_name}/releases/latest"
+    req = urllib.request.Request(url, headers={'User-Agent': 'PyQt-App-Updater'})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            tag_name = data.get('tag_name', '')
+            html_url = data.get('html_url', f'https://github.com/{repo_name}/releases')
+            
+            assets_dict = {}
+            for asset in data.get('assets', []):
+                name = asset.get('name', '')
+                download_url = asset.get('browser_download_url', '')
+                if name and download_url:
+                    assets_dict[name] = download_url
+                    
+            return tag_name, html_url, assets_dict
+    except Exception as e:
+        print(f"Error checking for updates: {e}")
+        return None, None, None
+
+
+def is_newer_version(current_version, latest_version):
+    """Сравнивает две строки версий (например '1.4.3' и '1.4.4')."""
+    if not latest_version:
+        return False
+    curr = current_version.lower().lstrip('v')
+    late = latest_version.lower().lstrip('v')
+    try:
+        curr_parts = [int(p) for p in curr.split('.')]
+        late_parts = [int(p) for p in late.split('.')]
+        max_len = max(len(curr_parts), len(late_parts))
+        curr_parts += [0] * (max_len - len(curr_parts))
+        late_parts += [0] * (max_len - len(late_parts))
+        return late_parts > curr_parts
+    except ValueError:
+        return late > curr
+
+
+class UpdateCheckWorker(QThread):
+    """Фоновый поток для проверки обновлений на GitHub."""
+    finished = pyqtSignal(str, str, object)
+
+    def __init__(self, repo_name=DEFAULT_REPO, parent=None):
+        super().__init__(parent)
+        self.repo_name = repo_name
+
+    def run(self):
+        tag, url, assets = check_github_updates(self.repo_name)
+        self.finished.emit(tag or "", url or "", assets or {})
+
 
 def show_update_error(parent, title, text, icon=QMessageBox.Icon.Critical):
+    """Показывает стилизованное диалоговое окно ошибки."""
     msg = QMessageBox(parent)
     msg.setIcon(icon)
     msg.setWindowTitle(title)
     msg.setText(text)
-    apply_dark_title_bar(msg)
+    apply_dark_title_bar_safe(msg)
     msg.exec()
 
+
 class FileDownloadWorker(QThread):
-    # Сигнал передает: (процент, скорость_строка, скачано_байт, всего_байт)
+    """Фоновый поток для скачивания файла обновления с отслеживанием прогресса и повторными попытками."""
     progress = pyqtSignal(int, str, int, int)
     finished = pyqtSignal(str)
     error = pyqtSignal(str)
@@ -40,7 +132,7 @@ class FileDownloadWorker(QThread):
         
         for attempt in range(max_retries):
             try:
-                req = urllib.request.Request(self.url, headers={'User-Agent': 'DICOM_WatchDog-Updater'})
+                req = urllib.request.Request(self.url, headers={'User-Agent': 'PyQt-App-Updater'})
                 with urllib.request.urlopen(req, timeout=30) as response:
                     total_size = int(response.info().get('Content-Length', 0))
                     bytes_downloaded = 0
@@ -89,15 +181,15 @@ class FileDownloadWorker(QThread):
                     self.error.emit(str(e))
                     self.finished.emit("")
 
+
 def get_build_type():
+    """Определяет тип текущей скомпилированной сборки (legacy, pyqt5, pyqt6, source)."""
     if not hasattr(sys, "frozen"):
         return "source"
     
-    # 1. Если Python 3.8 — это сборка Legacy под Windows 7
     if sys.version_info.major == 3 and sys.version_info.minor == 8:
         return "legacy"
         
-    # 2. Если Python 3.11+ — проверяем реальный модуль QApplication
     try:
         from PyQt6.QtWidgets import QApplication
         module_name = QApplication.__module__
@@ -108,7 +200,6 @@ def get_build_type():
     except Exception:
         pass
 
-    # Резервный вариант по имени файла, если модули не определились
     exe_name = os.path.basename(sys.executable).lower()
     if "legacy" in exe_name:
         return "legacy"
@@ -117,7 +208,9 @@ def get_build_type():
     
     return "pyqt6"
 
+
 def find_matching_asset(assets, build_type, latest_version):
+    """Находит подходящий ассет для загрузки по типу сборки и номеру версии."""
     clean_version = latest_version.lower().lstrip('v')
     version_str = f"v{clean_version}"
     for name, url in assets.items():
@@ -135,7 +228,9 @@ def find_matching_asset(assets, build_type, latest_version):
                 return name, url
     return None, None
 
+
 def run_auto_update(parent, latest_version, assets):
+    """Выполняет процесс скачивания и бесшовной подмены бинарника на лету."""
     build_type = get_build_type()
     
     if build_type == "source":
@@ -148,7 +243,7 @@ def run_auto_update(parent, latest_version, assets):
                 f"A new version is available: {latest_version}.\n\nYou are running the application from source. Please update the repository manually (e.g., via git pull)."
             )
         )
-        apply_dark_title_bar(msg)
+        apply_dark_title_bar_safe(msg)
         msg.exec()
         return
 
@@ -163,7 +258,7 @@ def run_auto_update(parent, latest_version, assets):
                 f"Version {latest_version} is available, but no matching build file ({build_type}) was found in the release assets.\n\nPlease update the program manually on GitHub."
             )
         )
-        apply_dark_title_bar(msg)
+        apply_dark_title_bar_safe(msg)
         msg.exec()
         return
 
@@ -179,7 +274,7 @@ def run_auto_update(parent, latest_version, assets):
     )
     msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
     msg.setDefaultButton(QMessageBox.StandardButton.Yes)
-    apply_dark_title_bar(msg)
+    apply_dark_title_bar_safe(msg)
     
     if msg.exec() != QMessageBox.StandardButton.Yes:
         return
@@ -196,9 +291,8 @@ def run_auto_update(parent, latest_version, assets):
     )
     progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
     progress_dialog.setWindowTitle(tr("Обновление программы", "Software Update"))
-    apply_dark_title_bar(progress_dialog)
+    apply_dark_title_bar_safe(progress_dialog)
     
-    # Применение красивого темного стиля
     progress_dialog.setStyleSheet("""
         QProgressDialog {
             background-color: #202020;
@@ -271,7 +365,8 @@ def run_auto_update(parent, latest_version, assets):
             
         current_exe_path = sys.executable
         dest_dir = os.path.dirname(current_exe_path)
-        old_exe_path = os.path.join(dest_dir, "_old_DICOM_WatchDog.exe")
+        exe_basename = os.path.basename(current_exe_path)
+        old_exe_path = os.path.join(dest_dir, f"_old_{exe_basename}")
         
         try:
             if os.path.exists(old_exe_path):

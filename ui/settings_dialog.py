@@ -149,13 +149,7 @@ class PacsPingWorker(QThread):
         self.finished.emit(success, msg)
 
 
-class UpdateCheckWorker(QThread):
-    finished = pyqtSignal(str, str, object)
-
-    def run(self):
-        from core.config_utils import check_github_updates
-        tag, url, assets = check_github_updates()
-        self.finished.emit(tag or "", url or "", assets or {})
+from ui.updater import UpdateCheckWorker
 
 
 class LanguageSwitch(QFrame):
@@ -1528,7 +1522,8 @@ Copy-VoiceTokens $src $dst32
             msg.exec()
             return
             
-        from core.config_utils import VERSION, is_newer_version
+        from core.config_utils import VERSION
+        from ui.updater import is_newer_version
         if is_newer_version(VERSION, latest_version):
             from ui.updater import run_auto_update
             run_auto_update(self, latest_version, assets)

@@ -4,7 +4,9 @@ import shutil
 import json
 import urllib.request
 
-VERSION = "1.4.15"
+VERSION = "1.4.3"
+
+from ui.updater import check_github_updates, is_newer_version
 
 def get_app_data_dir():
     app_name = "DICOM_WatchDog"
@@ -67,44 +69,3 @@ def get_cache_path():
 def get_log_path():
     return os.path.join(get_app_data_dir(), "pacs_error.log")
 
-
-
-def check_github_updates():
-    """
-    Checks GitHub releases for the latest version.
-    Returns (latest_tag_name, html_url, assets_dict) if successful, or (None, None, None).
-    """
-    url = "https://api.github.com/repos/Flacozyabra/DICOM_WatchDog/releases/latest"
-    req = urllib.request.Request(url, headers={'User-Agent': 'DICOM_WatchDog'})
-    try:
-        with urllib.request.urlopen(req, timeout=5) as response:
-            data = json.loads(response.read().decode())
-            tag_name = data.get('tag_name', '')
-            html_url = data.get('html_url', 'https://github.com/Flacozyabra/DICOM_WatchDog/releases')
-            
-            assets_dict = {}
-            for asset in data.get('assets', []):
-                name = asset.get('name', '')
-                download_url = asset.get('browser_download_url', '')
-                if name and download_url:
-                    assets_dict[name] = download_url
-                    
-            return tag_name, html_url, assets_dict
-    except Exception as e:
-        print(f"Error checking for updates: {e}")
-        return None, None, None
-
-def is_newer_version(current_version, latest_version):
-    if not latest_version:
-        return False
-    curr = current_version.lower().lstrip('v')
-    late = latest_version.lower().lstrip('v')
-    try:
-        curr_parts = [int(p) for p in curr.split('.')]
-        late_parts = [int(p) for p in late.split('.')]
-        max_len = max(len(curr_parts), len(late_parts))
-        curr_parts += [0] * (max_len - len(curr_parts))
-        late_parts += [0] * (max_len - len(late_parts))
-        return late_parts > curr_parts
-    except ValueError:
-        return late > curr

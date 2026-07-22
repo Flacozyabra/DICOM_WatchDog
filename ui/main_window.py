@@ -2837,13 +2837,13 @@ class MainWindow(QMainWindow):
 
     def check_for_updates_on_startup(self):
         if self.config.get('check_updates_at_startup', 'on').lower() == 'on':
-            from ui.settings_dialog import UpdateCheckWorker
+            from ui.updater import UpdateCheckWorker
             self.startup_update_worker = UpdateCheckWorker()
             self.startup_update_worker.finished.connect(self.on_startup_update_checked)
             self.startup_update_worker.start()
 
     def on_startup_update_checked(self, latest_version, html_url, assets):
-        from core.config_utils import is_newer_version
+        from ui.updater import is_newer_version
         if latest_version and is_newer_version(VERSION, latest_version):
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Information)
