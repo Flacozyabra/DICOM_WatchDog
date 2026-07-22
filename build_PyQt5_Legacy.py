@@ -156,8 +156,7 @@ def build_executable(has_icon):
         args.append("--hidden-import=pynetdicom")
 
     # Exclude PyQt6 — this is a PyQt5-only build
-    for m in ["PyQt6", "PyQt6.QtCore", "PyQt6.QtGui", "PyQt6.QtWidgets",
-              "winotify"]:
+    for m in ["PyQt6", "PyQt6.QtCore", "PyQt6.QtGui", "PyQt6.QtWidgets"]:
         args.append(f"--exclude-module={m}")
 
     args.append("main.py")

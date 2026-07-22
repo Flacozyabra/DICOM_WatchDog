@@ -2,5 +2,4 @@ PyQt6
 watchdog
 pydicom
 pynetdicom
-winotify
 numpy
