@@ -155,6 +155,8 @@ def build_executable(has_icon):
         args.append("--hidden-import=pydicom")
         args.append("--hidden-import=pynetdicom")
 
+    args.append("--hidden-import=unicodedata")
+
     # Exclude PyQt6 — this is a PyQt5-only build
     for m in ["PyQt6", "PyQt6.QtCore", "PyQt6.QtGui", "PyQt6.QtWidgets"]:
         args.append(f"--exclude-module={m}")

@@ -158,6 +158,8 @@ def build_executable(has_icon):
         args.append("--hidden-import=pydicom")
         args.append("--hidden-import=pynetdicom")
 
+    args.append("--hidden-import=unicodedata")
+
     # Исключаем PyQt5, чтобы минимизировать размер и предотвратить конфликты
     excludes = [
         "PyQt5", "PyQt5.QtCore", "PyQt5.QtGui", "PyQt5.QtWidgets"

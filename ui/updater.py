@@ -414,7 +414,17 @@ def run_auto_update(parent, latest_version, assets):
             env = os.environ.copy()
             if "_MEIPASS" in env:
                 del env["_MEIPASS"]
-            subprocess.Popen([current_exe_path], env=env)
+            
+            if sys.platform == "win32":
+                # Запускаем новый exe с паузой 1.5 сек, чтобы старый процесс полностью завершился и очистил _MEIxxxx
+                restart_cmd = f'ping 127.0.0.1 -n 2 > nul & start "" "{current_exe_path}"'
+                subprocess.Popen(
+                    ["cmd.exe", "/c", restart_cmd],
+                    env=env,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+            else:
+                subprocess.Popen([current_exe_path], env=env)
             QApplication.quit()
         except Exception as e:
             show_update_error(
