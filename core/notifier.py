@@ -43,14 +43,16 @@ def show_notification(
     ico_path: str,
     sound_setting: str = 'default',
     show_toast: bool = True,
-    play_sound: bool = True
+    play_sound: bool = True,
+    duration_setting: str = None,
+    position_setting: str = None
 ) -> None:
     """Show a desktop notification using native Qt ToastNotification."""
     try:
         from core.config_utils import get_log_path
         import datetime
         with open(get_log_path(), "a", encoding="utf-8") as f:
-            f.write(f"[{datetime.datetime.now()}] show_notification called: title={title}, msg={msg}, sound_setting={sound_setting}, show_toast={show_toast}, play_sound={play_sound}, ico_path={ico_path}\n")
+            f.write(f"[{datetime.datetime.now()}] show_notification called: title={title}, msg={msg}, sound_setting={sound_setting}, show_toast={show_toast}, play_sound={play_sound}, duration_setting={duration_setting}, position_setting={position_setting}, ico_path={ico_path}\n")
     except Exception:
         pass
 
@@ -105,7 +107,8 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
             from core.config_utils import load_config
             cfg = load_config()
 
-            dur_str = str(cfg.get('toast_duration', '5')).lower()
+            dur_val = duration_setting if duration_setting is not None else cfg.get('toast_duration', '5')
+            dur_str = str(dur_val).lower()
             if dur_str == 'manual':
                 duration_ms = 0
             else:
@@ -114,7 +117,7 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
                 except ValueError:
                     duration_ms = 5000
 
-            position = cfg.get('toast_position', 'bottom_right')
+            position = position_setting if position_setting is not None else cfg.get('toast_position', 'bottom_right')
             show_qt_toast(title, msg, durations, ico_path, duration_ms=duration_ms, position=position)
         except Exception as e:
             try:

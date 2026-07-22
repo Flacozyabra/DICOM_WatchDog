@@ -1501,7 +1501,9 @@ class MainWindow(QMainWindow):
                             icon_path,
                             self.config.get('ct_notification_sound', 'default'),
                             show_toast=ct_toast_on,
-                            play_sound=ct_sound_on
+                            play_sound=ct_sound_on,
+                            duration_setting=self.config.get('ct_toast_duration', self.config.get('toast_duration', '5')),
+                            position_setting=self.config.get('ct_toast_position', self.config.get('toast_position', 'bottom_right'))
                         )
 
         self.images_cache = patient_dict
@@ -2496,7 +2498,9 @@ class MainWindow(QMainWindow):
                                     icon_blue_path,
                                     self.config.get('pacs_notification_sound', 'default'),
                                     show_toast=pacs_toast_on,
-                                    play_sound=pacs_sound_on
+                                    play_sound=pacs_sound_on,
+                                    duration_setting=self.config.get('pacs_toast_duration', self.config.get('toast_duration', '5')),
+                                    position_setting=self.config.get('pacs_toast_position', self.config.get('toast_position', 'bottom_right'))
                                 )
 
                     if new_patients:
