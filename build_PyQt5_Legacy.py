@@ -56,14 +56,18 @@ def check_and_install_dependencies():
     except ImportError:
         install_package("PyQt5")
 
-    # Install remaining runtime dependencies (winotify excluded — not needed on Win 7)
-    runtime_deps = ["watchdog<4.0", "pydicom<3.0", "pynetdicom<2.1", "numpy<2.0"]
-    for dep in runtime_deps:
+    runtime_deps = [
+        ("watchdog", "watchdog<4.0"),
+        ("pydicom", "pydicom<3.0"),
+        ("pynetdicom", "pynetdicom<2.1"),
+        ("numpy", "numpy<2.0")
+    ]
+    for mod_name, pkg_spec in runtime_deps:
         try:
-            __import__(dep)
-            print(f"[OK] {dep} already installed.")
+            __import__(mod_name)
+            print(f"[OK] {mod_name} already installed.")
         except ImportError:
-            install_package(dep)
+            install_package(pkg_spec)
 
 
 def generate_ico_icon():
