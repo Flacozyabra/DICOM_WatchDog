@@ -57,10 +57,10 @@ def check_and_install_dependencies():
         install_package("PyQt5")
 
     runtime_deps = [
-        ("watchdog", "watchdog<4.0"),
-        ("pydicom", "pydicom<3.0"),
-        ("pynetdicom", "pynetdicom<2.1"),
-        ("numpy", "numpy<2.0")
+        ("watchdog", "watchdog"),
+        ("pydicom", "pydicom"),
+        ("pynetdicom", "pynetdicom"),
+        ("numpy", "numpy")
     ]
     for mod_name, pkg_spec in runtime_deps:
         try:

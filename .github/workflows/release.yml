@@ -51,7 +51,7 @@ jobs:
   # ── Job 2: Legacy build (Python 3.8) — PyQt5 for Windows 7 ─────────────────
   build-legacy:
     name: Build Legacy (Python 3.8 / Windows 7)
-    runs-on: windows-latest
+    runs-on: windows-2019
     env:
       PYTHONIOENCODING: utf-8
       PYTHONUTF8: "1"
@@ -70,7 +70,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install "numpy<2.0" "watchdog<4.0" "pydicom<3.0" "pynetdicom<2.1" "PyQt5" "pillow<10.3" "pyinstaller<6.0"
+          pip install pydicom pynetdicom watchdog PyQt5 pillow pyinstaller numpy
 
       - name: Build PyQt5 Legacy executable
         shell: bash
