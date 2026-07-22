@@ -171,6 +171,19 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
 
     # 2. Показываем всплывающее уведомление
     if show_toast:
+        try:
+            from ui.toast_notification import show_qt_toast
+            show_qt_toast(title, msg, durations, ico_path)
+            return
+        except Exception as e:
+            try:
+                from core.config_utils import get_log_path
+                import datetime
+                with open(get_log_path(), "a", encoding="utf-8") as f:
+                    f.write(f"[{datetime.datetime.now()}] Custom Qt Toast error: {e}\n")
+            except Exception:
+                pass
+
         if _HAS_WINOTIFY:
             try:
                 _ensure_app_id_registered()
@@ -188,14 +201,8 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
                 toast.audio = '<audio silent="true" />'
                 toast.show()
                 return
-            except Exception as e:
-                try:
-                    from core.config_utils import get_log_path
-                    import datetime
-                    with open(get_log_path(), "a", encoding="utf-8") as f:
-                        f.write(f"[{datetime.datetime.now()}] Winotify error: {e}\n")
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
         # Legacy fallback: balloon notification via Qt system tray
         try:
