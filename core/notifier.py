@@ -10,33 +10,6 @@ if sys.platform == "win32":
         # Windows 10 is NT 10.0; Windows 7 is NT 6.1
         if _win_major >= 10:
             import winotify
-            # Patch TEMPLATE to use modern ToastGeneric template and place the icon as a large side logo (appLogoOverride)
-            winotify.TEMPLATE = r"""
-[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
-[Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
-[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
-$Template = @"
-<toast {launch} duration="{duration}">
-    <visual>
-        <binding template="ToastGeneric">
-            <text><![CDATA[{title}]]></text>
-            <text><![CDATA[{msg}]]></text>
-            <image placement="appLogoOverride" src="{icon}" />
-        </binding>
-    </visual>
-</toast>
-"@
-
-$SerializedXml = New-Object Windows.Data.Xml.Dom.XmlDocument
-$SerializedXml.LoadXml($Template)
-
-$Toast = [Windows.UI.Notifications.ToastNotification]::new($SerializedXml)
-$Toast.Tag = "{tag}"
-$Toast.Group = "{group}"
-
-$Notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("{app_id}")
-$Notifier.Show($Toast);
-"""
             from winotify import Notification, audio as winotify_audio
             _HAS_WINOTIFY = True
     except Exception:
@@ -170,9 +143,7 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
         if _HAS_WINOTIFY:
             try:
                 _ensure_app_id_registered()
-                toast_icon = ico_path
-                if toast_icon and os.path.exists(toast_icon):
-                    toast_icon = "file:///" + os.path.abspath(toast_icon).replace("\\", "/")
+                toast_icon = os.path.abspath(ico_path) if ico_path and os.path.exists(ico_path) else ""
 
                 toast = Notification(
                     app_id='DICOM WatchDog',
@@ -181,9 +152,8 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
                     duration=durations,
                     icon=toast_icon
                 )
-                # Всегда используем пустой тег аудио, так как '<audio silent="true" />'
-                # ломает показ тостов на некоторых системах Windows 10/11.
-                toast.audio = ''
+                if not play_sound or sound_setting != 'default':
+                    toast.set_audio(winotify_audio.Silent, loop=False)
                 toast.show()
                 return
             except Exception as e:
