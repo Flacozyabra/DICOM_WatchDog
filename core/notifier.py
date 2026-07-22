@@ -1,6 +1,40 @@
 import sys
 import os
 
+_active_sound_effects = []
+
+
+def _play_wav(wav_path: str) -> None:
+    if not wav_path or not os.path.exists(wav_path):
+        return
+    try:
+        from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtCore import QUrl
+        try:
+            from PyQt6.QtMultimedia import QSoundEffect
+        except ImportError:
+            from PyQt5.QtMultimedia import QSoundEffect  # type: ignore
+
+        app = QApplication.instance()
+        if app is not None:
+            effect = QSoundEffect()
+            effect.setSource(QUrl.fromLocalFile(os.path.abspath(wav_path)))
+            effect.setVolume(1.0)
+            global _active_sound_effects
+            _active_sound_effects.append(effect)
+            effect.playingChanged.connect(lambda: _active_sound_effects.remove(effect) if not effect.isPlaying() and effect in _active_sound_effects else None)
+            effect.play()
+            return
+    except Exception:
+        pass
+
+    if sys.platform == "win32":
+        try:
+            import winsound
+            winsound.PlaySound(os.path.abspath(wav_path), winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+        except Exception:
+            pass
+
 
 def show_notification(
     title: str,
@@ -16,7 +50,7 @@ def show_notification(
         from core.config_utils import get_log_path
         import datetime
         with open(get_log_path(), "a", encoding="utf-8") as f:
-            f.write(f"[{datetime.datetime.now()}] show_notification called: title={title}, msg={msg}, show_toast={show_toast}, play_sound={play_sound}, ico_path={ico_path}\n")
+            f.write(f"[{datetime.datetime.now()}] show_notification called: title={title}, msg={msg}, sound_setting={sound_setting}, show_toast={show_toast}, play_sound={play_sound}, ico_path={ico_path}\n")
     except Exception:
         pass
 
@@ -32,18 +66,7 @@ def show_notification(
         if sound_setting in sound_map:
             from core.config_utils import get_resource_path
             wav_path = get_resource_path(sound_map[sound_setting])
-            if os.path.exists(wav_path) and sys.platform == "win32":
-                try:
-                    import winsound
-                    winsound.PlaySound(wav_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
-                except Exception as e:
-                    try:
-                        from core.config_utils import get_log_path
-                        import datetime
-                        with open(get_log_path(), "a", encoding="utf-8") as f:
-                            f.write(f"[{datetime.datetime.now()}] Winsound error playing {wav_path}: {e}\n")
-                    except Exception:
-                        pass
+            _play_wav(wav_path)
         elif sound_setting and sound_setting != 'default' and sys.platform == "win32":
             # Озвучиваем имя через SAPI TTS
             text_to_speak = title

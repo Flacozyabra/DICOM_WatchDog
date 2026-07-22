@@ -1225,13 +1225,9 @@ class SettingsDialog(QDialog):
         }
         if sound_setting in sound_map:
             from core.config_utils import get_resource_path
+            from core.notifier import _play_wav
             wav_path = get_resource_path(sound_map[sound_setting])
-            if os.path.exists(wav_path) and sys.platform == "win32":
-                try:
-                    import winsound
-                    winsound.PlaySound(wav_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
-                except Exception:
-                    pass
+            _play_wav(wav_path)
         elif sys.platform == "win32":
             lang = self.config.get('interface_lang', 'en')
             text_to_speak = "Проверка звука" if lang == "ru" else "Sound check"
