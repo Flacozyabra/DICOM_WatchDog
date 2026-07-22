@@ -97,9 +97,13 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
                     pacs_data[patient_id]['study_datetime_obj'] = study_datetime_obj
                     pacs_data[patient_id]['study_datetime_str'] = date_time
             
-            if assoc.is_aborted:
+            if assoc.is_aborted or assoc.is_rejected:
+                con = False
                 log_message(output_field, tr_log("log_pacs_cfind_aborted", calling_aet))
+            else:
+                con = True
         except Exception as e:
+            con = False
             log_message(output_field, tr_log("log_pacs_cfind_error", e))
         finally:
             assoc.release()
@@ -311,9 +315,13 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
                     total_val = completed_val + remaining_val + failed_val
                     if total_val > 0:
                         progress_callback(completed_val, total_val)
+        is_aborted_or_rejected = getattr(assoc, 'is_aborted', False) or getattr(assoc, 'is_rejected', False)
         assoc.release()
         
-        if status_list and (status_list[-1] == 0x0000 or status_list[-1] == 0xB000):
+        if is_aborted_or_rejected:
+            success = False
+            msg = tr_log("log_pacs_download_aborted", calling_aet)
+        elif status_list and (status_list[-1] == 0x0000 or status_list[-1] == 0xB000):
             success = True
             msg = tr_log("log_pacs_download_success", patient_id)
         elif status_list and (0x0000 in status_list or 0xB000 in status_list):

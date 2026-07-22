@@ -16,6 +16,7 @@
   "placeholder_scanning": "Выполняется сканирование PACS сервера...",
   "placeholder_standby": "Ожидаю новых исследований за последний час...",
   "placeholder_not_configured": "Сканирование сервера PACS не настроено",
+  "placeholder_pacs_access_denied": "Ошибка доступа к PACS: проверьте регистрацию AET и IP на сервере",
   "placeholder_no_studies": "Исследования на сервере PACS не найдены",
   "placeholder_no_patients": "Пациенты не найдены",
   "placeholder_not_selected_ct": "Папка для сканирования не выбрана",

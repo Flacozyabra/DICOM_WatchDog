@@ -36,6 +36,7 @@
   "log_sending_pacs_failed": "Не удалось скачать пациента {} из PACS: {}",
   "log_pacs_download_success": "Пациент {} успешно скачан из PACS",
   "log_pacs_download_server_error": "PACS сервер вернул ошибку при скачивании: {}",
+  "log_pacs_download_aborted": "Не удалось скачать КТ: соединение было сброшено сервером PACS.\nУбедитесь, что AET '{}' и IP этого компьютера добавлены в список разрешенных клиентов на сервере Orthanc.",
   "log_pacs_download_no_connection": "Не удалось установить соединение с PACS сервером для скачивания.",
   "log_str_deleted": "У пациента {} был удалён старый файл структур ({})",
   "log_str_delete_error": "Ошибка при удалении {}: {}",

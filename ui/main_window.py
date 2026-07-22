@@ -2430,7 +2430,11 @@ class MainWindow(QMainWindow):
             else:
                 self.pacs_table.set_placeholder_text(tr_ui("placeholder_no_studies"))
         else:
-            self.pacs_table.set_placeholder_text(tr_ui("placeholder_not_configured"))
+            has_abort = any("сброшено сервером" in m or "aborted" in m for m in log_messages)
+            if has_abort:
+                self.pacs_table.set_placeholder_text(tr_ui("placeholder_pacs_access_denied"))
+            else:
+                self.pacs_table.set_placeholder_text(tr_ui("placeholder_not_configured"))
             self.pacs_table.setRowCount(0)
             self.pacs_table.update_placeholder_visibility()
             self.previous_pacs_data = {}

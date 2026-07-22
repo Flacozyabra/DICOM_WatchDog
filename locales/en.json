@@ -16,6 +16,7 @@
   "placeholder_scanning": "Scanning PACS server...",
   "placeholder_standby": "Waiting for new studies from the last hour...",
   "placeholder_not_configured": "PACS server scan is not configured",
+  "placeholder_pacs_access_denied": "PACS access denied: check AET and IP registration on server",
   "placeholder_no_studies": "No studies found on PACS server",
   "placeholder_no_patients": "No patients found",
   "placeholder_not_selected_ct": "No scan folder selected",

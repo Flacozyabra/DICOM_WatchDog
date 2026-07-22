@@ -36,6 +36,7 @@
   "log_sending_pacs_failed": "Failed to download patient {} from PACS: {}",
   "log_pacs_download_success": "Patient {} successfully downloaded from PACS",
   "log_pacs_download_server_error": "PACS server returned an error during download: {}",
+  "log_pacs_download_aborted": "Failed to download CT: connection was aborted by PACS server.\nEnsure AET '{}' and this computer's IP are added to allowed clients on Orthanc.",
   "log_pacs_download_no_connection": "Could not establish connection to PACS server for download.",
   "log_str_deleted": "Old structure file deleted for patient {} ({})",
   "log_str_delete_error": "Error deleting {}: {}",
