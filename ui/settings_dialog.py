@@ -1208,7 +1208,7 @@ class SettingsDialog(QDialog):
         combo.addItem(tr_ui("settings_sound_soft"), "sound_soft")
         for voice in self.system_voices:
             combo.addItem(format_voice_name(voice), voice)
-        idx = find_matching_voice_index(combo, current_val)
+        idx = combo.findData(current_val)
         combo.setCurrentIndex(idx if idx >= 0 else 0)
 
     def play_sound_preview(self, combo):
