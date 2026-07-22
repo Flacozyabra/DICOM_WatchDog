@@ -2488,15 +2488,16 @@ class MainWindow(QMainWindow):
                     for patient_id, data in today_pacs_dict.items():
                         if patient_id not in self.known_pacs_patient_ids:
                             new_patients[patient_id] = data
-                            show_notification(
-                                str(data['patient_name']),
-                                'Новое КТ (PACS)',
-                                'short',
-                                icon_blue_path,
-                                self.config.get('pacs_notification_sound', 'default'),
-                                show_toast=True,
-                                play_sound=pacs_sound_on
-                            )
+                            if master_enabled and (pacs_toast_on or pacs_sound_on):
+                                show_notification(
+                                    str(data['patient_name']),
+                                    'Новое КТ (PACS)',
+                                    'short',
+                                    icon_blue_path,
+                                    self.config.get('pacs_notification_sound', 'default'),
+                                    show_toast=pacs_toast_on,
+                                    play_sound=pacs_sound_on
+                                )
 
                     if new_patients:
                         self.known_pacs_patient_ids.update(new_patients.keys())

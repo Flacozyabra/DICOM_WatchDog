@@ -817,69 +817,33 @@ class SettingsDialog(QDialog):
             self.lbl_pacs_sound.setEnabled(is_master_on and self.pacs_sound_cb.isChecked())
 
         def on_master_toggled(checked):
-            # Блокируем сигналы, чтобы не дергать настройки при массовом изменении
-            self.ct_toast_cb.blockSignals(True)
-            self.ct_sound_cb.blockSignals(True)
-            self.pacs_toast_cb.blockSignals(True)
-            self.pacs_sound_cb.blockSignals(True)
-            
-            if checked:
-                # Включаем ТОЛЬКО Windows-уведомления
-                self.ct_toast_cb.setChecked(True)
-                self.pacs_toast_cb.setChecked(True)
-                self.ct_sound_cb.setChecked(False)
-                self.pacs_sound_cb.setChecked(False)
-            else:
-                # Выключаем вообще все уведомления
+            if not checked:
+                self.ct_toast_cb.blockSignals(True)
+                self.ct_sound_cb.blockSignals(True)
+                self.pacs_toast_cb.blockSignals(True)
+                self.pacs_sound_cb.blockSignals(True)
+                
                 self.ct_toast_cb.setChecked(False)
                 self.pacs_toast_cb.setChecked(False)
                 self.ct_sound_cb.setChecked(False)
                 self.pacs_sound_cb.setChecked(False)
                 
-            self.ct_toast_cb.blockSignals(False)
-            self.ct_sound_cb.blockSignals(False)
-            self.pacs_toast_cb.blockSignals(False)
-            self.pacs_sound_cb.blockSignals(False)
-            
-            # Обновляем состояния активности
+                self.ct_toast_cb.blockSignals(False)
+                self.ct_sound_cb.blockSignals(False)
+                self.pacs_toast_cb.blockSignals(False)
+                self.pacs_sound_cb.blockSignals(False)
+                
             update_notification_states()
-            
-            # Вызываем ручное сохранение, так как сигналы под-свичей были заблокированы
             self.on_setting_changed()
 
-        def on_ct_toast_toggled(checked):
-            if checked:
-                self.ct_sound_cb.blockSignals(True)
-                self.ct_sound_cb.setChecked(False)
-                self.ct_sound_cb.blockSignals(False)
-            update_notification_states()
-
-        def on_ct_sound_toggled(checked):
-            if checked:
-                self.ct_toast_cb.blockSignals(True)
-                self.ct_toast_cb.setChecked(False)
-                self.ct_toast_cb.blockSignals(False)
-            update_notification_states()
-
-        def on_pacs_toast_toggled(checked):
-            if checked:
-                self.pacs_sound_cb.blockSignals(True)
-                self.pacs_sound_cb.setChecked(False)
-                self.pacs_sound_cb.blockSignals(False)
-            update_notification_states()
-
-        def on_pacs_sound_toggled(checked):
-            if checked:
-                self.pacs_toast_cb.blockSignals(True)
-                self.pacs_toast_cb.setChecked(False)
-                self.pacs_toast_cb.blockSignals(False)
+        def on_sub_toggled(checked):
             update_notification_states()
 
         self.notifications_enabled_cb.toggled.connect(on_master_toggled)
-        self.ct_toast_cb.toggled.connect(on_ct_toast_toggled)
-        self.ct_sound_cb.toggled.connect(on_ct_sound_toggled)
-        self.pacs_toast_cb.toggled.connect(on_pacs_toast_toggled)
-        self.pacs_sound_cb.toggled.connect(on_pacs_sound_toggled)
+        self.ct_toast_cb.toggled.connect(on_sub_toggled)
+        self.ct_sound_cb.toggled.connect(on_sub_toggled)
+        self.pacs_toast_cb.toggled.connect(on_sub_toggled)
+        self.pacs_sound_cb.toggled.connect(on_sub_toggled)
         
         # Начальная инициализация
         update_notification_states()
