@@ -63,6 +63,16 @@ migrate_files()
 def get_config_path():
     return os.path.join(get_app_data_dir(), "config.json")
 
+def load_config():
+    config_path = get_config_path()
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
 def get_cache_path():
     return os.path.join(get_app_data_dir(), "archive_cache.json")
 
