@@ -119,8 +119,10 @@ def get_clean_env():
     env = os.environ.copy()
     meipass = getattr(sys, '_MEIPASS', None)
 
-    for key in ['_MEIPASS', '_MEIPASS2', 'PYTHONPATH', 'PYTHONHOME', 'PYINSTALLER_STRICT_UNPACK_MODE']:
-        env.pop(key, None)
+    for key in list(env.keys()):
+        key_upper = key.upper()
+        if 'MEI' in key_upper or 'PYI' in key_upper or key_upper in ('PYTHONPATH', 'PYTHONHOME'):
+            env.pop(key, None)
 
     if 'PATH' in env:
         path_list = env['PATH'].split(os.pathsep)
@@ -477,7 +479,14 @@ def run_auto_update(parent, latest_version, assets):
                 bat_path = os.path.join(dest_dir, "_restart_update.bat")
                 with open(bat_path, "w", encoding="utf-8", errors="ignore") as f:
                     f.write('@echo off\n')
-                    f.write('timeout /t 2 /nobreak > nul\n')
+                    f.write('set "_MEIPASS="\n')
+                    f.write('set "_MEIPASS2="\n')
+                    f.write('set "_PYI_ARCHIVE_FILE="\n')
+                    f.write('set "_PYI_SPLASH_IPC="\n')
+                    f.write('set "PYINSTALLER_STRICT_UNPACK_MODE="\n')
+                    f.write('set "PYTHONPATH="\n')
+                    f.write('set "PYTHONHOME="\n')
+                    f.write('timeout /t 3 /nobreak > nul\n')
                     f.write(f'if exist "{old_exe_path}" del /f /q "{old_exe_path}" > nul 2>&1\n')
                     f.write(f'start "" "{current_exe_path}"\n')
                     f.write('(goto) 2>nul & del "%~f0"\n')
