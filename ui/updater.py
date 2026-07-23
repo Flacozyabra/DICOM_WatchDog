@@ -4,11 +4,17 @@ import json
 import urllib.request
 import shutil
 try:
-    from PyQt6.QtCore import QThread, pyqtSignal, Qt
-    from PyQt6.QtWidgets import QProgressDialog, QMessageBox, QApplication
+    from PyQt6.QtCore import QThread, pyqtSignal, Qt, QCoreApplication
+    from PyQt6.QtWidgets import (
+        QDialog, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton,
+        QMessageBox, QApplication
+    )
 except ImportError:
-    from PyQt5.QtCore import QThread, pyqtSignal, Qt
-    from PyQt5.QtWidgets import QProgressDialog, QMessageBox, QApplication
+    from PyQt5.QtCore import QThread, pyqtSignal, Qt, QCoreApplication
+    from PyQt5.QtWidgets import (
+        QDialog, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton,
+        QMessageBox, QApplication
+    )
 
 DEFAULT_REPO = "Flacozyabra/DICOM_WatchDog"
 _active_workers = set()
@@ -108,14 +114,118 @@ class UpdateCheckWorker(QThread):
         self.finished.emit(tag or "", url or "", assets or {})
 
 
-def show_update_error(parent, title, text, icon=QMessageBox.Icon.Critical):
-    """Показывает стилизованное диалоговое окно ошибки."""
-    msg = QMessageBox(parent)
-    msg.setIcon(icon)
-    msg.setWindowTitle(title)
-    msg.setText(text)
-    apply_dark_title_bar_safe(msg)
-    msg.exec()
+def get_clean_env():
+    """Возвращает очищенный словарь переменных окружения без служебных путей PyInstaller."""
+    env = os.environ.copy()
+    meipass = getattr(sys, '_MEIPASS', None)
+
+    for key in ['_MEIPASS', '_MEIPASS2', 'PYTHONPATH', 'PYTHONHOME', 'PYINSTALLER_STRICT_UNPACK_MODE']:
+        env.pop(key, None)
+
+    if 'PATH' in env:
+        path_list = env['PATH'].split(os.pathsep)
+        cleaned_paths = [
+            p for p in path_list
+            if '_mei' not in p.lower() and (not meipass or os.path.normpath(p) != os.path.normpath(meipass))
+        ]
+        env['PATH'] = os.path.sep.join(cleaned_paths)
+
+    return env
+
+
+class DownloadProgressDialog(QDialog):
+    """Стилизованный диалог скачивания обновления в темном дизайне приложения."""
+    canceled = pyqtSignal()
+
+    def __init__(self, parent=None, title=None):
+        super().__init__(parent)
+        if title is None:
+            title = tr("Обновление программы", "Software Update")
+        self.setWindowTitle(title)
+        self.setMinimumWidth(440)
+        self.setModal(True)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowCloseButtonHint)
+
+        if sys.platform == "win32":
+            import ctypes
+            try:
+                hwnd = int(self.winId())
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 20, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
+                )
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 35, ctypes.byref(ctypes.c_int(0x002b2b2b)), ctypes.sizeof(ctypes.c_int)
+                )
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 36, ctypes.byref(ctypes.c_int(0x00ffffff)), ctypes.sizeof(ctypes.c_int)
+                )
+            except Exception:
+                pass
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        self.label = QLabel(tr("Скачивание обновления...", "Downloading update..."))
+        self.label.setStyleSheet("color: #ffffff; font-size: 13px; font-family: 'Segoe UI'; margin-bottom: 5px;")
+        layout.addWidget(self.label)
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setFixedHeight(22)
+        self.progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #3d3d3d;
+                border-radius: 6px;
+                background-color: #0f0f0f;
+                text-align: center;
+                color: #ffffff;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QProgressBar::chunk {
+                background-color: #1f538d;
+                border-radius: 5px;
+            }
+        """)
+        layout.addWidget(self.progress)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+
+        self.cancel_btn = QPushButton(tr("Отмена", "Cancel"))
+        self.cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                border: 1px solid #3d3d3d;
+                border-radius: 4px;
+                padding: 6px 18px;
+                font-family: 'Segoe UI';
+                min-width: 80px;
+            }
+            QPushButton:hover {
+                background-color: #3d3d3d;
+            }
+            QPushButton:pressed {
+                background-color: #1f538d;
+            }
+        """)
+        self.cancel_btn.clicked.connect(self.on_cancel_clicked)
+        btn_layout.addWidget(self.cancel_btn)
+
+        layout.addLayout(btn_layout)
+        self.setStyleSheet("QDialog { background-color: #202020; }")
+
+    def on_cancel_clicked(self):
+        self.canceled.emit()
+        self.reject()
+
+    def set_progress(self, percent, label_text):
+        self.progress.setValue(percent)
+        self.label.setText(label_text)
+        QCoreApplication.processEvents()
 
 
 class FileDownloadWorker(QThread):
@@ -284,63 +394,13 @@ def run_auto_update(parent, latest_version, assets):
     dest_dir = os.path.dirname(current_exe_path)
     temp_exe_path = os.path.join(dest_dir, "update_new.tmp")
     
-    progress_dialog = QProgressDialog(
-        tr("Скачивание обновления...", "Downloading update..."),
-        tr("Отмена", "Cancel"),
-        0, 100, parent
-    )
-    progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-    progress_dialog.setWindowTitle(tr("Обновление программы", "Software Update"))
-    apply_dark_title_bar_safe(progress_dialog)
-    
-    progress_dialog.setStyleSheet("""
-        QProgressDialog {
-            background-color: #202020;
-        }
-        QLabel {
-            color: #ffffff;
-            font-size: 13px;
-            font-family: 'Segoe UI';
-            margin-bottom: 5px;
-        }
-        QProgressBar {
-            border: 1px solid #3d3d3d;
-            border-radius: 6px;
-            background-color: #0f0f0f;
-            text-align: center;
-            color: #ffffff;
-            font-weight: bold;
-            height: 20px;
-        }
-        QProgressBar::chunk {
-            background-color: #1f538d;
-            border-radius: 5px;
-        }
-        QPushButton {
-            background-color: #2d2d2d;
-            color: #ffffff;
-            border: 1px solid #3d3d3d;
-            border-radius: 4px;
-            padding: 5px 15px;
-            font-family: 'Segoe UI';
-            min-width: 80px;
-        }
-        QPushButton:hover {
-            background-color: #3d3d3d;
-        }
-        QPushButton:pressed {
-            background-color: #1f538d;
-        }
-    """)
-    
-    progress_dialog.setValue(0)
+    progress_dialog = DownloadProgressDialog(parent)
     progress_dialog.show()
 
     worker = FileDownloadWorker(download_url, temp_exe_path)
     _active_workers.add(worker)
     
     def on_progress(percent, speed, downloaded, total):
-        progress_dialog.setValue(percent)
         downloaded_mb = downloaded / (1024 * 1024)
         if total > 0:
             total_mb = total / (1024 * 1024)
@@ -353,7 +413,7 @@ def run_auto_update(parent, latest_version, assets):
                 f"Скачивание обновления...\nЗагружено: {downloaded_mb:.1f} МБ\nСкорость: {speed}",
                 f"Downloading update...\nDownloaded: {downloaded_mb:.1f} MB\nSpeed: {speed}"
             )
-        progress_dialog.setLabelText(label_text)
+        progress_dialog.set_progress(percent, label_text)
 
     worker.progress.connect(on_progress)
     
@@ -411,20 +471,24 @@ def run_auto_update(parent, latest_version, assets):
             
         try:
             import subprocess
-            env = os.environ.copy()
-            if "_MEIPASS" in env:
-                del env["_MEIPASS"]
+            clean_env = get_clean_env()
             
             if sys.platform == "win32":
-                # Запускаем новый exe с паузой 1.5 сек, чтобы старый процесс полностью завершился и очистил _MEIxxxx
-                restart_cmd = f'ping 127.0.0.1 -n 2 > nul & start "" "{current_exe_path}"'
+                # Запускаем новый exe с паузой 3 сек и рабочим каталогом, полностью изолируя от завершающегося процесса
+                restart_cmd = f'ping 127.0.0.1 -n 4 > nul & start "" /D "{dest_dir}" "{current_exe_path}"'
+                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+                if hasattr(subprocess, "DETACHED_PROCESS"):
+                    creationflags |= subprocess.DETACHED_PROCESS
+                    
                 subprocess.Popen(
                     ["cmd.exe", "/c", restart_cmd],
-                    env=env,
-                    creationflags=subprocess.CREATE_NO_WINDOW
+                    env=clean_env,
+                    close_fds=True,
+                    creationflags=creationflags
                 )
             else:
-                subprocess.Popen([current_exe_path], env=env)
+                subprocess.Popen([current_exe_path], env=clean_env, close_fds=True)
+                
             QApplication.quit()
         except Exception as e:
             show_update_error(
