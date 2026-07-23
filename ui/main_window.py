@@ -615,10 +615,10 @@ class MainWindow(QMainWindow):
         self.pacs_timer.timeout.connect(self.auto_update_pacs)
         
         self.net_retry_timer = QTimer(self)
-        self.net_retry_timer.setInterval(3000)
+        self.net_retry_timer.setInterval(5000)
         self.net_retry_timer.timeout.connect(self.check_network_folder_retry)
         self.net_retry_count = 0
-        self.net_retry_max = 40
+        self.net_retry_max = 24
         
         # Инициализируем наблюдатель за файловой системой
         self.init_file_watcher()
@@ -1451,7 +1451,8 @@ class MainWindow(QMainWindow):
             if self.net_retry_count < self.net_retry_max:
                 self.net_retry_count += 1
                 msg = tr_log("log_waiting_network_folder", ct_dir, self.net_retry_count, self.net_retry_max)
-                log_message(self.output_field, msg)
+                if self.net_retry_count == 1:
+                    log_message(self.output_field, msg)
                 self.images_table.setRowCount(0)
                 self.images_table.set_placeholder_state(
                     msg, 
