@@ -101,6 +101,7 @@ def show_notification(
         elif sound_setting and sound_setting != 'default' and sys.platform == "win32":
             # Озвучиваем кастомный текст или имя пациента через SAPI TTS
             raw_text = custom_voice_text.strip() if (custom_voice_text and custom_voice_text.strip()) else title
+            raw_text = raw_text.replace('{name}', title).replace('{patient}', title)
             text_to_speak = preprocess_tts_text(raw_text)
             text_to_speak = text_to_speak.replace('"', '`"').replace("'", "''")
             ps_code = f"""
