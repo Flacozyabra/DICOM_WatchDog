@@ -96,6 +96,7 @@
   "settings_highlight_new": "Выделять новые исследования:",
   "settings_highlight_today": "Выделять сегодняшние исследования:",
   "settings_highlight_no_str": "Выделять исследования без структур:",
+  "settings_highlight_no_slices": "Выделять исследования без срезов:",
   "settings_pacs_server_label": "PACS сервер:",
   "settings_standby_interval": "Интервал автообновления:",
   "settings_notifications_enabled": "Оповещения:",
@@ -240,5 +241,6 @@
   "tooltip_switch_highlighting": "Включить цветовую подсветку строк пациентов в таблице КТ-снимков",
   "tooltip_switch_highlight_new": "Подсвечивать зелёным цветом новые исследования (моложе 1 часа)",
   "tooltip_switch_highlight_today": "Подсвечивать жёлтым цветом сегодняшние исследования",
-  "tooltip_switch_highlight_no_str": "Подсвечивать красным цветом исследования, в которых нет файлов структур (STR)"
+  "tooltip_switch_highlight_no_str": "Подсвечивать красным цветом исследования, в которых нет файлов структур (STR)",
+  "tooltip_switch_highlight_no_slices": "Подсвечивать красным цветом исследования, в которых отсутствуют файлы срезов (только структуры)"
 }

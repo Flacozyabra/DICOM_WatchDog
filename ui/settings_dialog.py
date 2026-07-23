@@ -308,6 +308,7 @@ class SettingsDialog(QDialog):
             'highlight_new_enabled': 'False',
             'highlight_today_enabled': 'False',
             'highlight_no_str_enabled': 'False',
+            'highlight_no_slices_enabled': 'False',
             'rename_study_folder_enabled': 'False',
             'rename_study_folder_mode': 'id',
             'interface_lang': 'en',
@@ -703,6 +704,12 @@ class SettingsDialog(QDialog):
         self.highlight_no_str_cb.setChecked(self.config.get('highlight_no_str_enabled', 'False').lower() == 'true')
         ui_form.addRow(self.lbl_highlight_no_str, self.highlight_no_str_cb)
         
+        self.lbl_highlight_no_slices = QLabel()
+        self.lbl_highlight_no_slices.setStyleSheet("QLabel { padding-left: 30px; }")
+        self.highlight_no_slices_cb = ToggleSwitch()
+        self.highlight_no_slices_cb.setChecked(self.config.get('highlight_no_slices_enabled', 'False').lower() == 'true')
+        ui_form.addRow(self.lbl_highlight_no_slices, self.highlight_no_slices_cb)
+        
         ui_layout.addLayout(ui_form)
         ui_layout.addStretch()
         self.stacked_widget.addWidget(ui_widget)
@@ -1068,6 +1075,8 @@ class SettingsDialog(QDialog):
         self.highlight_today_cb.setEnabled(highlighting_active)
         self.lbl_highlight_no_str.setEnabled(highlighting_active)
         self.highlight_no_str_cb.setEnabled(highlighting_active)
+        self.lbl_highlight_no_slices.setEnabled(highlighting_active)
+        self.highlight_no_slices_cb.setEnabled(highlighting_active)
 
     def accept_settings(self):
         # Save active inputs to current server structure
@@ -1153,6 +1162,7 @@ class SettingsDialog(QDialog):
         self.highlight_new_cb.toggled.connect(self.on_setting_changed)
         self.highlight_today_cb.toggled.connect(self.on_setting_changed)
         self.highlight_no_str_cb.toggled.connect(self.on_setting_changed)
+        self.highlight_no_slices_cb.toggled.connect(self.on_setting_changed)
         self.pacs_toast_cb.toggled.connect(self.on_setting_changed)
         self.pacs_toast_duration_combo.currentIndexChanged.connect(self.on_setting_changed)
         self.pacs_toast_position_combo.currentIndexChanged.connect(self.on_setting_changed)
@@ -1177,14 +1187,17 @@ class SettingsDialog(QDialog):
         self.highlight_new_cb.blockSignals(True)
         self.highlight_today_cb.blockSignals(True)
         self.highlight_no_str_cb.blockSignals(True)
+        self.highlight_no_slices_cb.blockSignals(True)
         
         self.highlight_new_cb.setChecked(checked)
         self.highlight_today_cb.setChecked(checked)
         self.highlight_no_str_cb.setChecked(checked)
+        self.highlight_no_slices_cb.setChecked(checked)
         
         self.highlight_new_cb.blockSignals(False)
         self.highlight_today_cb.blockSignals(False)
         self.highlight_no_str_cb.blockSignals(False)
+        self.highlight_no_slices_cb.blockSignals(False)
         
         self.update_fields_state()
         self.on_setting_changed()
@@ -1240,6 +1253,7 @@ class SettingsDialog(QDialog):
         self.config['highlight_new_enabled'] = 'True' if self.highlight_new_cb.isChecked() else 'False'
         self.config['highlight_today_enabled'] = 'True' if self.highlight_today_cb.isChecked() else 'False'
         self.config['highlight_no_str_enabled'] = 'True' if self.highlight_no_str_cb.isChecked() else 'False'
+        self.config['highlight_no_slices_enabled'] = 'True' if self.highlight_no_slices_cb.isChecked() else 'False'
         self.config['interface_lang'] = self.interface_lang_switch.lang
         self.config['log_lang'] = self.log_lang_switch.lang
 
@@ -1533,6 +1547,7 @@ Copy-VoiceTokens $src $dst32
         self.lbl_highlight_new.setText(tr_ui("settings_highlight_new"))
         self.lbl_highlight_today.setText(tr_ui("settings_highlight_today"))
         self.lbl_highlight_no_str.setText(tr_ui("settings_highlight_no_str"))
+        self.lbl_highlight_no_slices.setText(tr_ui("settings_highlight_no_slices"))
         
         # PACS tab
         self.lbl_pacs_server.setText(tr_ui("settings_pacs_server_label"))
@@ -1577,6 +1592,7 @@ Copy-VoiceTokens $src $dst32
         self.highlight_new_cb.setToolTip(tr_ui("tooltip_switch_highlight_new"))
         self.highlight_today_cb.setToolTip(tr_ui("tooltip_switch_highlight_today"))
         self.highlight_no_str_cb.setToolTip(tr_ui("tooltip_switch_highlight_no_str"))
+        self.highlight_no_slices_cb.setToolTip(tr_ui("tooltip_switch_highlight_no_slices"))
 
     def ping_pacs_action(self):
         pacs_ip = self.pacs_ip_edit.text().strip()

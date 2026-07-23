@@ -96,6 +96,7 @@
   "settings_highlight_new": "Highlight new studies:",
   "settings_highlight_today": "Highlight today's studies:",
   "settings_highlight_no_str": "Highlight studies without structures:",
+  "settings_highlight_no_slices": "Highlight studies without slices:",
   "settings_pacs_server_label": "PACS server:",
   "settings_standby_interval": "Auto-update interval:",
   "settings_notifications_enabled": "Notifications:",
@@ -240,5 +241,6 @@
   "tooltip_switch_highlighting": "Enable color highlighting of patient rows in the CT images table",
   "tooltip_switch_highlight_new": "Highlight new studies (under 1 hour old) in green",
   "tooltip_switch_highlight_today": "Highlight today's studies in yellow",
-  "tooltip_switch_highlight_no_str": "Highlight studies without structure files (STR) in red"
+  "tooltip_switch_highlight_no_str": "Highlight studies without structure files (STR) in red",
+  "tooltip_switch_highlight_no_slices": "Highlight studies without image slices (e.g. structures only) in red"
 }
