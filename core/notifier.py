@@ -72,17 +72,14 @@ def show_notification(
             _play_wav(wav_path)
         elif sound_setting and sound_setting != 'default' and sys.platform == "win32":
             # Озвучиваем кастомный текст или имя пациента через SAPI TTS
-            raw_text = custom_voice_text.strip() if (custom_voice_text and custom_voice_text.strip()) else title
-            # Добавляем ведущую паузу (запятую), чтобы аудиодрайвер Windows успел инициализироваться и не срезал первую букву
-            text_to_speak = f" , {raw_text}"
+            text_to_speak = custom_voice_text.strip() if (custom_voice_text and custom_voice_text.strip()) else title
             ps_code = f"""
-Start-Sleep -Milliseconds 300
 $speech = New-Object -ComObject SAPI.SpVoice
 $voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq "{sound_setting}" }} | Select-Object -First 1
 if ($voice) {{
     $speech.Voice = $voice
 }}
-$speech.Speak("{text_to_speak}")
+$speech.Speak('<silence msec="400"/>{text_to_speak}', 8)
 Remove-Item $MyInvocation.MyCommand.Path -Force
 """
             import tempfile
