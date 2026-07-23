@@ -757,6 +757,11 @@ class SettingsDialog(QDialog):
         self.lbl_ct_sound = QLabel()
         notifications_form.addRow(self.lbl_ct_sound, self.ct_sound_combo)
 
+        # Текст голосового оповещения КТ
+        self.ct_voice_text_edit = QLineEdit(self.config.get('ct_voice_text', ''))
+        self.lbl_ct_voice_text = QLabel()
+        notifications_form.addRow(self.lbl_ct_voice_text, self.ct_voice_text_edit)
+
         # Заполняем ct_sound_combo
         self._populate_sound_combo(self.ct_sound_combo, self.config.get('ct_notification_sound', 'default'))
         self.ct_sound_combo.activated.connect(lambda: self.play_sound_preview(self.ct_sound_combo))
@@ -800,6 +805,11 @@ class SettingsDialog(QDialog):
         self.lbl_pacs_sound = QLabel()
         notifications_form.addRow(self.lbl_pacs_sound, self.pacs_sound_combo)
 
+        # Текст голосового оповещения PACS
+        self.pacs_voice_text_edit = QLineEdit(self.config.get('pacs_voice_text', ''))
+        self.lbl_pacs_voice_text = QLabel()
+        notifications_form.addRow(self.lbl_pacs_voice_text, self.pacs_voice_text_edit)
+
         # Заполняем pacs_sound_combo
         self._populate_sound_combo(self.pacs_sound_combo, self.config.get('pacs_notification_sound', 'default'))
         self.pacs_sound_combo.activated.connect(lambda: self.play_sound_preview(self.pacs_sound_combo))
@@ -834,6 +844,8 @@ class SettingsDialog(QDialog):
             self.lbl_ct_sound_enabled.setEnabled(is_master_on)
             self.ct_sound_combo.setEnabled(ct_sound_on)
             self.lbl_ct_sound.setEnabled(ct_sound_on)
+            self.ct_voice_text_edit.setEnabled(ct_sound_on)
+            self.lbl_ct_voice_text.setEnabled(ct_sound_on)
 
             # Активируем/деактивируем PACS виджеты
             self.pacs_toast_cb.setEnabled(is_master_on)
@@ -847,7 +859,8 @@ class SettingsDialog(QDialog):
             self.lbl_pacs_sound_enabled.setEnabled(is_master_on)
             self.pacs_sound_combo.setEnabled(pacs_sound_on)
             self.lbl_pacs_sound.setEnabled(pacs_sound_on)
-            self.lbl_pacs_sound.setEnabled(is_master_on and self.pacs_sound_cb.isChecked())
+            self.pacs_voice_text_edit.setEnabled(pacs_sound_on)
+            self.lbl_pacs_voice_text.setEnabled(pacs_sound_on)
 
         def on_master_toggled(checked):
             if not checked:
@@ -1135,6 +1148,7 @@ class SettingsDialog(QDialog):
         self.ct_toast_position_combo.currentIndexChanged.connect(self.on_setting_changed)
         self.ct_sound_cb.toggled.connect(self.on_setting_changed)
         self.ct_sound_combo.currentIndexChanged.connect(self.on_setting_changed)
+        self.ct_voice_text_edit.textChanged.connect(self.on_setting_changed)
         self.highlighting_cb.toggled.connect(self.on_highlighting_toggled)
         self.highlight_new_cb.toggled.connect(self.on_setting_changed)
         self.highlight_today_cb.toggled.connect(self.on_setting_changed)
@@ -1144,6 +1158,7 @@ class SettingsDialog(QDialog):
         self.pacs_toast_position_combo.currentIndexChanged.connect(self.on_setting_changed)
         self.pacs_sound_cb.toggled.connect(self.on_setting_changed)
         self.pacs_sound_combo.currentIndexChanged.connect(self.on_setting_changed)
+        self.pacs_voice_text_edit.textChanged.connect(self.on_setting_changed)
         self.check_updates_cb.toggled.connect(self.on_setting_changed)
         self.cleanup_str_cb.toggled.connect(self.on_setting_changed)
         self.fix_patient_id_cb.toggled.connect(self.on_setting_changed)
@@ -1189,13 +1204,13 @@ class SettingsDialog(QDialog):
         self.config['ct_toast_position'] = self.ct_toast_position_combo.currentData()
         self.config['ct_notification_sound_enabled'] = 'True' if self.ct_sound_cb.isChecked() else 'False'
         self.config['ct_notification_sound'] = self.ct_sound_combo.currentData()
+        self.config['ct_voice_text'] = self.ct_voice_text_edit.text()
         self.config['pacs_notification_toast_enabled'] = 'True' if self.pacs_toast_cb.isChecked() else 'False'
         self.config['pacs_toast_duration'] = self.pacs_toast_duration_combo.currentData()
         self.config['pacs_toast_position'] = self.pacs_toast_position_combo.currentData()
-        self.config['ct_notification_sound'] = self.ct_sound_combo.currentData()
-        self.config['pacs_notification_toast_enabled'] = 'True' if self.pacs_toast_cb.isChecked() else 'False'
         self.config['pacs_notification_sound_enabled'] = 'True' if self.pacs_sound_cb.isChecked() else 'False'
         self.config['pacs_notification_sound'] = self.pacs_sound_combo.currentData()
+        self.config['pacs_voice_text'] = self.pacs_voice_text_edit.text()
         self.config['check_updates_at_startup'] = 'on' if self.check_updates_cb.isChecked() else 'off'
         self.config['auto_update_is'] = self.config.get('auto_update_is', 'off')
         self.config['cleanup_structures_enabled'] = 'True' if self.cleanup_str_cb.isChecked() else 'False'
@@ -1265,7 +1280,13 @@ class SettingsDialog(QDialog):
             _play_wav(wav_path)
         elif sys.platform == "win32":
             lang = self.config.get('interface_lang', 'en')
-            text_to_speak = "Проверка звука" if lang == "ru" else "Sound check"
+            default_text = "Проверка звука" if lang == "ru" else "Sound check"
+            custom_text = ""
+            if combo == self.ct_sound_combo:
+                custom_text = self.ct_voice_text_edit.text().strip()
+            elif combo == self.pacs_sound_combo:
+                custom_text = self.pacs_voice_text_edit.text().strip()
+            text_to_speak = custom_text if custom_text else default_text
             ps_code = f"""
 $speech = New-Object -ComObject SAPI.SpVoice
 $voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq "{sound_setting}" }} | Select-Object -First 1
@@ -1417,6 +1438,8 @@ Copy-VoiceTokens $src $dst32
 
         self.lbl_ct_sound_enabled.setText(tr_ui("settings_notifications_sound_enabled"))
         self.lbl_ct_sound.setText(tr_ui("settings_ct_sound_label"))
+        self.lbl_ct_voice_text.setText(tr_ui("settings_ct_voice_text_label"))
+        self.ct_voice_text_edit.setPlaceholderText(tr_ui("settings_ct_voice_text_placeholder"))
 
         # PACS Section Labels and Comboboxes
         self.lbl_pacs_section.setText(tr_ui("settings_pacs_section_title"))
@@ -1455,6 +1478,8 @@ Copy-VoiceTokens $src $dst32
         self.lbl_pacs_toast.setText(tr_ui("settings_notifications_toast_enabled"))
         self.lbl_pacs_sound_enabled.setText(tr_ui("settings_notifications_sound_enabled"))
         self.lbl_pacs_sound.setText(tr_ui("settings_pacs_sound_label"))
+        self.lbl_pacs_voice_text.setText(tr_ui("settings_pacs_voice_text_label"))
+        self.pacs_voice_text_edit.setPlaceholderText(tr_ui("settings_pacs_voice_text_placeholder"))
         self.ct_sound_combo.setItemText(0, tr_ui("settings_sound_default"))
         self.pacs_sound_combo.setItemText(0, tr_ui("settings_sound_default"))
         self.btn_unlock_voices.setText(tr_ui("settings_btn_unlock_voices"))

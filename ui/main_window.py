@@ -1503,7 +1503,8 @@ class MainWindow(QMainWindow):
                             show_toast=ct_toast_on,
                             play_sound=ct_sound_on,
                             duration_setting=self.config.get('ct_toast_duration', self.config.get('toast_duration', '5')),
-                            position_setting=self.config.get('ct_toast_position', self.config.get('toast_position', 'bottom_right'))
+                            position_setting=self.config.get('ct_toast_position', self.config.get('toast_position', 'bottom_right')),
+                            custom_voice_text=self.config.get('ct_voice_text', '')
                         )
 
         self.images_cache = patient_dict
@@ -2500,7 +2501,8 @@ class MainWindow(QMainWindow):
                                     show_toast=pacs_toast_on,
                                     play_sound=pacs_sound_on,
                                     duration_setting=self.config.get('pacs_toast_duration', self.config.get('toast_duration', '5')),
-                                    position_setting=self.config.get('pacs_toast_position', self.config.get('toast_position', 'bottom_right'))
+                                    position_setting=self.config.get('pacs_toast_position', self.config.get('toast_position', 'bottom_right')),
+                                    custom_voice_text=self.config.get('pacs_voice_text', '')
                                 )
 
                     if new_patients:
