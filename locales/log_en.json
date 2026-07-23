@@ -11,6 +11,8 @@
   "log_watcher_started": "Real-time folder monitoring started: {}",
   "log_watcher_failed": "Failed to start folder monitoring: {}",
   "log_invalid_ct_path": "Invalid CT Images folder path",
+  "log_waiting_network_folder": "Waiting for network folder to connect: {} (attempt {}/{})...",
+  "log_network_folder_connected": "Network folder connected: {}",
   "log_skipped_patient_incomplete": "Skipped patient {} due to incomplete DICOM data",
   "log_failed_open_folder": "Failed to open folder {}: {}",
   "log_path_not_exist": "Path {} does not exist",

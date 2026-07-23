@@ -614,6 +614,12 @@ class MainWindow(QMainWindow):
         self.pacs_timer = QTimer(self)
         self.pacs_timer.timeout.connect(self.auto_update_pacs)
         
+        self.net_retry_timer = QTimer(self)
+        self.net_retry_timer.setInterval(3000)
+        self.net_retry_timer.timeout.connect(self.check_network_folder_retry)
+        self.net_retry_count = 0
+        self.net_retry_max = 40
+        
         # Инициализируем наблюдатель за файловой системой
         self.init_file_watcher()
         
@@ -780,6 +786,7 @@ class MainWindow(QMainWindow):
         # 4. Обновляем путь наблюдателя, если он изменился
         if old_dir != new_dir:
             self.is_first_scan = True
+            self.net_retry_count = 0
             self.update_watcher_path()
 
     def init_file_watcher(self):
@@ -1412,12 +1419,24 @@ class MainWindow(QMainWindow):
         self.start_folder_scan()
 
 
+    def check_network_folder_retry(self):
+        ct_dir = self.config.get('ct_images_dir', '')
+        if not ct_dir:
+            self.net_retry_timer.stop()
+            return
+        if os.path.exists(ct_dir):
+            self.start_folder_scan()
+            self.update_watcher_path()
+        else:
+            self.start_folder_scan()
+
     def start_folder_scan(self, show_progress=False):
         if self.scan_worker and self.scan_worker.isRunning():
             return
 
         ct_dir = self.config.get('ct_images_dir', '')
-        if not ct_dir or not os.path.exists(ct_dir):
+        if not ct_dir:
+            self.net_retry_timer.stop()
             log_message(self.output_field, tr_log("log_invalid_ct_path"))
             self.images_table.setRowCount(0)
             self.images_table.set_placeholder_state(
@@ -1427,6 +1446,38 @@ class MainWindow(QMainWindow):
             )
             self.images_table.update_placeholder_visibility()
             return
+
+        if not os.path.exists(ct_dir):
+            if self.net_retry_count < self.net_retry_max:
+                self.net_retry_count += 1
+                msg = tr_log("log_waiting_network_folder", ct_dir, self.net_retry_count, self.net_retry_max)
+                log_message(self.output_field, msg)
+                self.images_table.setRowCount(0)
+                self.images_table.set_placeholder_state(
+                    msg, 
+                    show_button=True, 
+                    button_callback=self.browse_ct_images_dir
+                )
+                self.images_table.update_placeholder_visibility()
+                if not self.net_retry_timer.isActive():
+                    self.net_retry_timer.start()
+                return
+            else:
+                self.net_retry_timer.stop()
+                log_message(self.output_field, tr_log("log_invalid_ct_path"))
+                self.images_table.setRowCount(0)
+                self.images_table.set_placeholder_state(
+                    tr_ui("placeholder_not_selected_ct"), 
+                    show_button=True, 
+                    button_callback=self.browse_ct_images_dir
+                )
+                self.images_table.update_placeholder_visibility()
+                return
+        else:
+            if self.net_retry_timer.isActive() or self.net_retry_count > 0:
+                self.net_retry_timer.stop()
+                self.net_retry_count = 0
+                log_message(self.output_field, tr_log("log_network_folder_connected", ct_dir))
 
         # Запоминаем выделенного пациента
         self.selected_images_patient_id = None

@@ -11,6 +11,8 @@
   "log_watcher_started": "Запущен мониторинг папки в реальном времени: {}",
   "log_watcher_failed": "Не удалось запустить мониторинг папки: {}",
   "log_invalid_ct_path": "Неверный путь к папке CT Images",
+  "log_waiting_network_folder": "Ожидание подключения сетевой папки: {} (попытка {}/{})...",
+  "log_network_folder_connected": "Сетевая папка подключена: {}",
   "log_skipped_patient_incomplete": "Пропущен пациент {} из-за неполных данных DICOM",
   "log_failed_open_folder": "Не удалось открыть папку {}: {}",
   "log_path_not_exist": "Путь {} не существует",
