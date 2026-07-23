@@ -41,25 +41,25 @@ import re
 
 def preprocess_tts_text(text: str) -> str:
     """
-    Преобразует знаки ударения '+' около гласных в заглавные гласные буквы (например, гам+амед -> гамАмед)
-    для идеального звучания ударения во всех движках Windows SAPI5 (Ирина, Павел, RHVoice) без выкрикивания слова "плюс".
+    Преобразует знаки ударения '+' около гласных в SAPI XML теги повышения тона и длительности
+    (<pitch middle="+5"><rate speed="-2">гласная</rate></pitch>) для отчетливой постановки акцента
+    в движках Windows SAPI5 (Ирина, Павел, RHVoice и др.) без выкрикивания слова "плюс".
     """
     if not text:
         return ""
     
-    vowel_map = {
-        'а': 'А', 'е': 'Е', 'ё': 'Ё', 'и': 'И', 'о': 'О',
-        'у': 'У', 'ы': 'Ы', 'э': 'Э', 'ю': 'Ю', 'я': 'Я'
-    }
+    vowels = "аеёиоуыэюяАЕЁИОУЫЭЮЯ"
     
-    # 1. Заменяем +vowel и vowel+ на Заглавную гласную
-    for v_lower, v_upper in vowel_map.items():
-        text = text.replace('+' + v_lower, v_upper)
-        text = text.replace(v_lower + '+', v_upper)
-        text = text.replace('+' + v_upper, v_upper)
-        text = text.replace(v_upper + '+', v_upper)
-        
-    # 2. Удаляем любые оставшиеся знаки плюса
+    def make_sapi_xml_stress(match):
+        char = match.group(1)
+        return f'<pitch middle="+5"><rate speed="-2">{char}</rate></pitch>'
+
+    # Плюс ПЕРЕД гласной: +а -> SAPI XML
+    text = re.sub(r'\+([' + vowels + r'])', make_sapi_xml_stress, text)
+    # Плюс ПОСЛЕ гласной: а+ -> SAPI XML
+    text = re.sub(r'([' + vowels + r'])\+', make_sapi_xml_stress, text)
+    
+    # Удаляем любые оставшиеся знаки плюса
     text = text.replace('+', '')
     return text
 
