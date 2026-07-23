@@ -41,19 +41,25 @@ import re
 
 def preprocess_tts_text(text: str) -> str:
     """
-    Преобразует знаки ударения '+' около гласных в системный Юникод-символ ударения
-    (Combining Acute Accent \\u0301) для корректного звучания в SAPI5 без произношения слова "плюс".
+    Преобразует знаки ударения '+' около гласных в заглавные гласные буквы (например, гам+амед -> гамАмед)
+    для идеального звучания ударения во всех движках Windows SAPI5 (Ирина, Павел, RHVoice) без выкрикивания слова "плюс".
     """
     if not text:
         return ""
     
-    vowels = "аеёиоуыэюяАЕЁИОУЫЭЮЯ"
-    accent = "\u0301"
-    # Плюс ПЕРЕД гласной: +е -> е́
-    text = re.sub(r'\+([' + vowels + r'])', r'\1' + accent, text)
-    # Плюс ПОСЛЕ гласной: е+ -> е́
-    text = re.sub(r'([' + vowels + r'])\+', r'\1' + accent, text)
-    # Удаляем любые оставшиеся знаки плюса
+    vowel_map = {
+        'а': 'А', 'е': 'Е', 'ё': 'Ё', 'и': 'И', 'о': 'О',
+        'у': 'У', 'ы': 'Ы', 'э': 'Э', 'ю': 'Ю', 'я': 'Я'
+    }
+    
+    # 1. Заменяем +vowel и vowel+ на Заглавную гласную
+    for v_lower, v_upper in vowel_map.items():
+        text = text.replace('+' + v_lower, v_upper)
+        text = text.replace(v_lower + '+', v_upper)
+        text = text.replace('+' + v_upper, v_upper)
+        text = text.replace(v_upper + '+', v_upper)
+        
+    # 2. Удаляем любые оставшиеся знаки плюса
     text = text.replace('+', '')
     return text
 
