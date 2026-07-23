@@ -45,14 +45,15 @@ def show_notification(
     show_toast: bool = True,
     play_sound: bool = True,
     duration_setting: str = None,
-    position_setting: str = None
+    position_setting: str = None,
+    custom_voice_text: str = None
 ) -> None:
     """Show a desktop notification using native Qt ToastNotification."""
     try:
         from core.config_utils import get_log_path
         import datetime
         with open(get_log_path(), "a", encoding="utf-8") as f:
-            f.write(f"[{datetime.datetime.now()}] show_notification called: title={title}, msg={msg}, sound_setting={sound_setting}, show_toast={show_toast}, play_sound={play_sound}, duration_setting={duration_setting}, position_setting={position_setting}, ico_path={ico_path}\n")
+            f.write(f"[{datetime.datetime.now()}] show_notification called: title={title}, msg={msg}, sound_setting={sound_setting}, show_toast={show_toast}, play_sound={play_sound}, duration_setting={duration_setting}, position_setting={position_setting}, ico_path={ico_path}, custom_voice_text={custom_voice_text}\n")
     except Exception:
         pass
 
@@ -70,8 +71,8 @@ def show_notification(
             wav_path = get_resource_path(sound_map[sound_setting])
             _play_wav(wav_path)
         elif sound_setting and sound_setting != 'default' and sys.platform == "win32":
-            # Озвучиваем имя через SAPI TTS
-            text_to_speak = title
+            # Озвучиваем кастомный текст или имя пациента через SAPI TTS
+            text_to_speak = custom_voice_text.strip() if (custom_voice_text and custom_voice_text.strip()) else title
             ps_code = f"""
 $speech = New-Object -ComObject SAPI.SpVoice
 $voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq "{sound_setting}" }} | Select-Object -First 1
