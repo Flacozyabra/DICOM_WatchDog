@@ -70,6 +70,7 @@ def show_notification(
             from core.config_utils import get_resource_path
             wav_path = get_resource_path(sound_map[sound_setting])
             _play_wav(wav_path)
+        elif sound_setting and sound_setting != 'default' and sys.platform == "win32":
             # Озвучиваем кастомный текст или имя пациента через SAPI TTS
             raw_text = custom_voice_text.strip() if (custom_voice_text and custom_voice_text.strip()) else title
             # Добавляем ведущую паузу (запятую), чтобы аудиодрайвер Windows успел инициализироваться и не срезал первую букву
