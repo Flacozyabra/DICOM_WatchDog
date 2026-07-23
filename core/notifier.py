@@ -41,23 +41,23 @@ import re
 
 def preprocess_tts_text(text: str) -> str:
     """
-    Преобразует знаки ударения '+' около гласных в SAPI XML теги повышения тона и длительности
-    (<pitch middle="+5"><rate speed="-2">гласная</rate></pitch>) для отчетливой постановки акцента
-    в движках Windows SAPI5 (Ирина, Павел, RHVoice и др.) без выкрикивания слова "плюс".
+    Преобразует знаки ударения '+' около гласных в удвоенные гласные буквы (например, гам+амед -> гамаамед)
+    для устойчивой постановки ударения во всех движках Windows SAPI5 (Ирина, Павел, RHVoice и др.)
+    без выкрикивания слова "плюс" и без пропуска слов.
     """
     if not text:
         return ""
     
     vowels = "аеёиоуыэюяАЕЁИОУЫЭЮЯ"
     
-    def make_sapi_xml_stress(match):
-        char = match.group(1)
-        return f'<pitch middle="+5"><rate speed="-2">{char}</rate></pitch>'
+    def make_doubled_vowel(match):
+        char = match.group(1).lower()
+        return char + char
 
-    # Плюс ПЕРЕД гласной: +а -> SAPI XML
-    text = re.sub(r'\+([' + vowels + r'])', make_sapi_xml_stress, text)
-    # Плюс ПОСЛЕ гласной: а+ -> SAPI XML
-    text = re.sub(r'([' + vowels + r'])\+', make_sapi_xml_stress, text)
+    # Плюс ПЕРЕД гласной: +а -> аа
+    text = re.sub(r'\+([' + vowels + r'])', make_doubled_vowel, text)
+    # Плюс ПОСЛЕ гласной: а+ -> аа
+    text = re.sub(r'([' + vowels + r'])\+', make_doubled_vowel, text)
     
     # Удаляем любые оставшиеся знаки плюса
     text = text.replace('+', '')
