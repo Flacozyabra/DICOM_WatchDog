@@ -1286,8 +1286,10 @@ class SettingsDialog(QDialog):
                 custom_text = self.ct_voice_text_edit.text().strip()
             elif combo == self.pacs_sound_combo:
                 custom_text = self.pacs_voice_text_edit.text().strip()
-            text_to_speak = custom_text if custom_text else default_text
+            raw_text = custom_text if custom_text else default_text
+            text_to_speak = f" , {raw_text}"
             ps_code = f"""
+Start-Sleep -Milliseconds 100
 $speech = New-Object -ComObject SAPI.SpVoice
 $voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq "{sound_setting}" }} | Select-Object -First 1
 if ($voice) {{
