@@ -76,7 +76,7 @@ def show_notification(
             # Добавляем ведущую паузу (запятую), чтобы аудиодрайвер Windows успел инициализироваться и не срезал первую букву
             text_to_speak = f" , {raw_text}"
             ps_code = f"""
-Start-Sleep -Milliseconds 100
+Start-Sleep -Milliseconds 300
 $speech = New-Object -ComObject SAPI.SpVoice
 $voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq "{sound_setting}" }} | Select-Object -First 1
 if ($voice) {{
