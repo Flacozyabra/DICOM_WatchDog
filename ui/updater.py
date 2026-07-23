@@ -474,20 +474,22 @@ def run_auto_update(parent, latest_version, assets):
             clean_env = get_clean_env()
             
             if sys.platform == "win32":
-                # Запускаем новый exe с паузой 3 сек и рабочим каталогом, полностью изолируя от завершающегося процесса
-                restart_cmd = f'ping 127.0.0.1 -n 4 > nul & start "" /D "{dest_dir}" "{current_exe_path}"'
-                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
-                if hasattr(subprocess, "DETACHED_PROCESS"):
-                    creationflags |= subprocess.DETACHED_PROCESS
-                    
+                bat_path = os.path.join(dest_dir, "_restart_update.bat")
+                with open(bat_path, "w", encoding="utf-8", errors="ignore") as f:
+                    f.write('@echo off\n')
+                    f.write('timeout /t 2 /nobreak > nul\n')
+                    f.write(f'if exist "{old_exe_path}" del /f /q "{old_exe_path}" > nul 2>&1\n')
+                    f.write(f'start "" "{current_exe_path}"\n')
+                    f.write('(goto) 2>nul & del "%~f0"\n')
+
                 subprocess.Popen(
-                    ["cmd.exe", "/c", restart_cmd],
+                    ["cmd.exe", "/c", bat_path],
                     env=clean_env,
-                    close_fds=True,
-                    creationflags=creationflags
+                    cwd=dest_dir,
+                    creationflags=subprocess.CREATE_NO_WINDOW
                 )
             else:
-                subprocess.Popen([current_exe_path], env=clean_env, close_fds=True)
+                subprocess.Popen([current_exe_path], env=clean_env, cwd=dest_dir)
                 
             QApplication.quit()
         except Exception as e:
