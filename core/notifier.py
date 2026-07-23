@@ -36,6 +36,28 @@ def _play_wav(wav_path: str) -> None:
             pass
 
 
+import re
+
+
+def preprocess_tts_text(text: str) -> str:
+    """
+    Преобразует знаки ударения '+' около гласных в системный Юникод-символ ударения
+    (Combining Acute Accent \\u0301) для корректного звучания в SAPI5 без произношения слова "плюс".
+    """
+    if not text:
+        return ""
+    
+    vowels = "аеёиоуыэюяАЕЁИОУЫЭЮЯ"
+    accent = "\u0301"
+    # Плюс ПЕРЕД гласной: +е -> е́
+    text = re.sub(r'\+([' + vowels + r'])', r'\1' + accent, text)
+    # Плюс ПОСЛЕ гласной: е+ -> е́
+    text = re.sub(r'([' + vowels + r'])\+', r'\1' + accent, text)
+    # Удаляем любые оставшиеся знаки плюса
+    text = text.replace('+', '')
+    return text
+
+
 def show_notification(
     title: str,
     msg: str,
@@ -72,7 +94,9 @@ def show_notification(
             _play_wav(wav_path)
         elif sound_setting and sound_setting != 'default' and sys.platform == "win32":
             # Озвучиваем кастомный текст или имя пациента через SAPI TTS
-            text_to_speak = custom_voice_text.strip() if (custom_voice_text and custom_voice_text.strip()) else title
+            raw_text = custom_voice_text.strip() if (custom_voice_text and custom_voice_text.strip()) else title
+            text_to_speak = preprocess_tts_text(raw_text)
+            text_to_speak = text_to_speak.replace('"', '`"').replace("'", "''")
             ps_code = f"""
 $speech = New-Object -ComObject SAPI.SpVoice
 $voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq "{sound_setting}" }} | Select-Object -First 1
