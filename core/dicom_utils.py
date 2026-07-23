@@ -119,13 +119,14 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
 
                     # время создания папки
                     patient_data[rel_path]['folder_datetime'] = datetime.fromtimestamp(os.path.getctime(root))
-                    # считаем количество срезов (файлов .dcm)
-                    dcm_count = len([f for f in files if f.lower().endswith('.dcm')])
-                    patient_data[rel_path]['slices'] = dcm_count
                     # считаем количество файлов структур
                     str_files = [f for f in os.listdir(root) if is_structure_file(os.path.join(root, f))]
                     str_count = len(str_files)
                     patient_data[rel_path]['str'] = str_count
+
+                    # считаем количество файлов срезов (файлов .dcm, исключая файлы структур)
+                    slice_files = [f for f in files if f.lower().endswith('.dcm') and not is_structure_file(os.path.join(root, f))]
+                    patient_data[rel_path]['slices'] = len(slice_files)
 
                     if is_cleanup_on and str_count > 1:
                         delete_redundant_str(root, output_field)

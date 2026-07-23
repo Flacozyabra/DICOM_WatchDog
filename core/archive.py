@@ -85,7 +85,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                         'body_part': cached_item['body_part'],
                         'folder_datetime': datetime.fromisoformat(cached_item['folder_datetime']),
                         'str': cached_item['str'],
-                        'slices': cached_item.get('slices', len(dcm_files)),
+                        'slices': cached_item.get('slices', len([f for f in dcm_files if not is_structure_file(os.path.join(root, f))])),
                         'folder_name': rel_path
                     }
                     
@@ -134,6 +134,9 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                             except Exception:
                                 pass
                         
+                        slice_files = [f for f in dcm_files if not is_structure_file(os.path.join(root, f))]
+                        slices_cnt = len(slice_files)
+
                         patient_data[rel_path] = {
                             'patient_id': p_id,
                             'patient_name': p_name,
@@ -142,7 +145,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                             'body_part': body_part_str,
                             'folder_datetime': folder_dt,
                             'str': str_count,
-                            'slices': len(dcm_files),
+                            'slices': slices_cnt,
                             'folder_name': rel_path
                         }
                         
@@ -155,7 +158,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                             'body_part': body_part_str,
                             'folder_datetime': folder_dt.isoformat(),
                             'str': str_count,
-                            'slices': len(dcm_files)
+                            'slices': slices_cnt
                         }
                     except Exception as e:
                         if output_field:
