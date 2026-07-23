@@ -1666,6 +1666,7 @@ class MainWindow(QMainWindow):
                     highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
                     highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
                     highlight_no_str = self.config.get('highlight_no_str_enabled', 'False').lower() == 'true'
+                    highlight_no_slices = self.config.get('highlight_no_slices_enabled', 'False').lower() == 'true'
 
                     if highlight_new and (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
                         color = QColor("lime")
@@ -1673,6 +1674,8 @@ class MainWindow(QMainWindow):
                         color = QColor("mediumturquoise")
 
                     if highlight_no_str and (data['str'] == 0 or data['str'] > 1):
+                        color = QColor("crimson")
+                    if highlight_no_slices and data.get('slices', 0) == 0:
                         color = QColor("crimson")
 
                 for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
@@ -1753,6 +1756,7 @@ class MainWindow(QMainWindow):
                         highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
                         highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
                         highlight_no_str = self.config.get('highlight_no_str_enabled', 'False').lower() == 'true'
+                        highlight_no_slices = self.config.get('highlight_no_slices_enabled', 'False').lower() == 'true'
 
                         if highlight_new and (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
                             color = QColor("lime")
@@ -1760,6 +1764,8 @@ class MainWindow(QMainWindow):
                             color = QColor("mediumturquoise")
 
                         if highlight_no_str and (data['str'] == 0 or data['str'] > 1):
+                            color = QColor("crimson")
+                        if highlight_no_slices and data.get('slices', 0) == 0:
                             color = QColor("crimson")
 
                     for item in [id_child, name_child, modality_child, slices_child, area_child, study_child, folder_child, str_child]:
@@ -2181,6 +2187,7 @@ class MainWindow(QMainWindow):
                     highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
                     highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
                     highlight_no_str = self.config.get('highlight_no_str_enabled', 'False').lower() == 'true'
+                    highlight_no_slices = self.config.get('highlight_no_slices_enabled', 'False').lower() == 'true'
 
                     if highlight_new and (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
                         color = QColor("lime")
@@ -2188,6 +2195,8 @@ class MainWindow(QMainWindow):
                         color = QColor("mediumturquoise")
 
                     if highlight_no_str and (data['str'] == 0 or data['str'] > 1):
+                        color = QColor("crimson")
+                    if highlight_no_slices and data.get('slices', 0) == 0:
                         color = QColor("crimson")
 
                 for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
@@ -2266,6 +2275,7 @@ class MainWindow(QMainWindow):
                         highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
                         highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
                         highlight_no_str = self.config.get('highlight_no_str_enabled', 'False').lower() == 'true'
+                        highlight_no_slices = self.config.get('highlight_no_slices_enabled', 'False').lower() == 'true'
 
                         if highlight_new and (datetime.now() - folder_dt).total_seconds() / 3600 < 1:
                             color = QColor("lime")
@@ -2273,6 +2283,8 @@ class MainWindow(QMainWindow):
                             color = QColor("mediumturquoise")
 
                         if highlight_no_str and (data['str'] == 0 or data['str'] > 1):
+                            color = QColor("crimson")
+                        if highlight_no_slices and data.get('slices', 0) == 0:
                             color = QColor("crimson")
 
                     for item in [id_child, name_child, modality_child, slices_child, area_child, study_child, folder_child, str_child]:
