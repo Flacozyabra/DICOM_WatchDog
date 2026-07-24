@@ -89,55 +89,61 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
             if progress_callback and total_dirs > 0:
                 progress_callback(processed, total_dirs)
 
-        if files:
-            file = files[0]
-            if file.endswith('.dcm'):
-                try:
-                    ds = pydicom.dcmread(os.path.join(root, file), stop_before_pixels=True)
-                    rel_path = os.path.relpath(root, ct_images_dir).replace('\\', '/')
-                    patient_data[rel_path]['patient_id'] = ds.PatientID
-                    patient_data[rel_path]['patient_name'] = ds.PatientName
-                    patient_data[rel_path]['modality'] = str(ds.get('Modality', 'CT'))
-                    patient_data[rel_path]['folder_name'] = rel_path
+        dcm_candidates = [f for f in files if f.lower().endswith('.dcm')]
+        if dcm_candidates:
+            # Сначала ищем файл КТ-среза (не RTSTRUCT)
+            file = dcm_candidates[0]
+            for f in dcm_candidates:
+                if not is_structure_file(os.path.join(root, f)):
+                    file = f
+                    break
+            try:
+                ds = pydicom.dcmread(os.path.join(root, file), stop_before_pixels=True)
+                rel_path = os.path.relpath(root, ct_images_dir).replace('\\', '/')
+                patient_data[rel_path]['patient_id'] = ds.PatientID
+                patient_data[rel_path]['patient_name'] = ds.PatientName
+                patient_data[rel_path]['modality'] = str(ds.get('Modality', 'CT'))
+                patient_data[rel_path]['folder_name'] = rel_path
 
-                    # учитываем два варианта записи времени исследования (с мкс и без)
-                    date_time_string = ds.StudyDate + ds.StudyTime
-                    format_string = '%Y%m%d%H%M%S' if '.' not in ds.StudyTime else '%Y%m%d%H%M%S.%f'
-                    patient_data[rel_path]['study_datetime'] = datetime.strptime(date_time_string, format_string)
+                # учитываем два варианта записи времени исследования (с мкс и без)
+                date_time_string = ds.StudyDate + ds.StudyTime
+                format_string = '%Y%m%d%H%M%S' if '.' not in ds.StudyTime else '%Y%m%d%H%M%S.%f'
+                patient_data[rel_path]['study_datetime'] = datetime.strptime(date_time_string, format_string)
 
-                    # область сканирования (BodyPartExamined / StudyDescription / SeriesDescription)
-                    body_part = ds.get('BodyPartExamined', '')
-                    if not body_part:
-                        body_part = ds.get('StudyDescription', '')
-                    if not body_part:
-                        body_part = ds.get('SeriesDescription', '')
-                    
-                    body_part_str = str(body_part).strip()
-                    if not body_part_str:
-                        body_part_str = "Unknown"
-                    patient_data[rel_path]['body_part'] = body_part_str
+                # область сканирования (BodyPartExamined / StudyDescription / SeriesDescription)
+                body_part = ds.get('BodyPartExamined', '')
+                if not body_part:
+                    body_part = ds.get('StudyDescription', '')
+                if not body_part:
+                    body_part = ds.get('SeriesDescription', '')
+                
+                body_part_str = str(body_part).strip()
+                if not body_part_str:
+                    body_part_str = "Unknown"
+                patient_data[rel_path]['body_part'] = body_part_str
 
-                    # время создания папки
-                    patient_data[rel_path]['folder_datetime'] = datetime.fromtimestamp(os.path.getctime(root))
-                    # считаем количество файлов структур
+                # время создания папки
+                patient_data[rel_path]['folder_datetime'] = datetime.fromtimestamp(os.path.getctime(root))
+                # считаем количество файлов структур
+                str_files = [f for f in os.listdir(root) if is_structure_file(os.path.join(root, f))]
+                str_count = len(str_files)
+                patient_data[rel_path]['str'] = str_count
+
+                # считаем количество файлов срезов (файлов .dcm, исключая файлы структур)
+                slice_files = [f for f in files if f.lower().endswith('.dcm') and not is_structure_file(os.path.join(root, f))]
+                patient_data[rel_path]['slices'] = len(slice_files)
+
+                if is_cleanup_on and str_count > 1:
+                    delete_redundant_str(root, output_field)
+                    # Пересчитываем количество файлов структур
                     str_files = [f for f in os.listdir(root) if is_structure_file(os.path.join(root, f))]
-                    str_count = len(str_files)
-                    patient_data[rel_path]['str'] = str_count
+                    patient_data[rel_path]['str'] = len(str_files)
 
-                    # считаем количество файлов срезов (файлов .dcm, исключая файлы структур)
-                    slice_files = [f for f in files if f.lower().endswith('.dcm') and not is_structure_file(os.path.join(root, f))]
-                    patient_data[rel_path]['slices'] = len(slice_files)
-
-                    if is_cleanup_on and str_count > 1:
-                        delete_redundant_str(root, output_field)
-                        # Пересчитываем количество файлов структур
-                        str_files = [f for f in os.listdir(root) if is_structure_file(os.path.join(root, f))]
-                        patient_data[rel_path]['str'] = len(str_files)
-
-                except Exception as e:
-                    log_message(output_field, tr_log("log_dcm_read_error", os.path.join(root, file), e))
+            except Exception as e:
+                log_message(output_field, tr_log("log_dcm_read_error", os.path.join(root, file), e))
 
     return patient_data
 
-# Re-export process_patient_folder for backward compatibility
-from core.rename_utils import process_patient_folder
+def process_patient_folder(*args, **kwargs):
+    from core.rename_utils import process_patient_folder as _process
+    return _process(*args, **kwargs)

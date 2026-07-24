@@ -56,29 +56,115 @@ def safe_update_patient_ids(folder_path, new_id, output_field=None):
                     if output_field:
                         log_message(output_field, tr_log("log_dcm_update_id_warning", filename, e))
 
+def get_folder_study_info(folder_path):
+    """
+    Извлекает метаданные исследования из папки (PatientID, PatientName, StudyDate, StudyTime).
+    Приоритет отдается файлам КТ-срезов (Modality != 'RTSTRUCT' и с кадрами/пикселями),
+    чтобы дата и время исследования всегда определялись по сканам КТ, а не по созданным позже контурам RTSTRUCT.
+    """
+    if not os.path.isdir(folder_path):
+        return None
+
+    dcm_files = []
+    try:
+        for root, dirs, files in os.walk(folder_path):
+            for f in files:
+                f_path = os.path.join(root, f)
+                if f.lower().endswith('.dcm') or is_structure_file(f_path):
+                    dcm_files.append(f_path)
+    except Exception:
+        pass
+
+    if not dcm_files:
+        return None
+
+    target_file = None
+    # 1. Ищем файл КТ-среза (не RTSTRUCT)
+    for fpath in dcm_files:
+        if not is_structure_file(fpath):
+            try:
+                ds = pydicom.dcmread(fpath, stop_before_pixels=True)
+                mod = str(getattr(ds, 'Modality', 'CT'))
+                if mod not in ('RTSTRUCT', 'RTPLAN', 'RTDOSE') and hasattr(ds, 'Rows'):
+                    target_file = fpath
+                    break
+            except Exception:
+                pass
+
+    # 2. Если файл КТ-среза не найден, берем первый попавшийся DICOM файл
+    if not target_file:
+        target_file = dcm_files[0]
+
+    try:
+        ds = pydicom.dcmread(target_file, stop_before_pixels=True)
+        raw_id = getattr(ds, 'PatientID', '')
+        raw_name = getattr(ds, 'PatientName', '')
+        study_date = str(getattr(ds, 'StudyDate', ''))
+        study_time = str(getattr(ds, 'StudyTime', '000000'))
+        
+        date_time_string = study_date + study_time
+        format_string = '%Y%m%d%H%M%S' if '.' not in study_time else '%Y%m%d%H%M%S.%f'
+        study_dt = datetime.strptime(date_time_string, format_string)
+        study_date_str = study_dt.strftime('%d.%m.%y - %H-%M')
+        date_only_str = study_dt.strftime('%d.%m.%y')
+        
+        return {
+            'ds': ds,
+            'patient_id': raw_id,
+            'patient_name': raw_name,
+            'study_date_str': study_date_str,
+            'date_only_str': date_only_str,
+            'target_file': target_file
+        }
+    except Exception:
+        return None
+
+def find_matching_study_subfolder(parent_path, date_only_str, study_date_str):
+    """
+    Ищет существующую подпапку исследования в parent_path: сначала точное совпадение времени, 
+    затем подпапку с совпадающей календарной датой исследования.
+    """
+    if not os.path.isdir(parent_path):
+        return None
+        
+    exact_subfolder = os.path.join(parent_path, f"[{study_date_str}]")
+    if os.path.exists(exact_subfolder):
+        return exact_subfolder
+        
+    prefix = f"[{date_only_str}"
+    try:
+        for item in os.listdir(parent_path):
+            item_path = os.path.join(parent_path, item)
+            if os.path.isdir(item_path) and item.startswith(prefix) and item.endswith("]"):
+                return item_path
+    except Exception:
+        pass
+        
+    return None
+
 def make_folder_hierarchical(parent_path, output_field=None):
     """
     Преобразует плоскую папку пациента (где файлы лежат в корне)
     в иерархическую структуру, перенося файлы в подпапку с датой исследования.
     """
-    dcm_files = [f for f in os.listdir(parent_path) if f.lower().endswith('.dcm')]
-    if not dcm_files:
-        return True # Уже пустая или файлы уже во вложенных папках
+    info = get_folder_study_info(parent_path)
+    if not info:
+        return True # Пустая или файлы уже во вложенных папках
         
-    try:
-        first_file = os.path.join(parent_path, dcm_files[0])
-        ds = pydicom.dcmread(first_file, stop_before_pixels=True)
-        date_time_string = ds.StudyDate + ds.StudyTime
-        format_string = '%Y%m%d%H%M%S' if '.' not in ds.StudyTime else '%Y%m%d%H%M%S.%f'
-        study_dt = datetime.strptime(date_time_string, format_string)
-        study_date_str = study_dt.strftime('%d.%m.%y - %H-%M')
-    except Exception as e:
-        study_date_str = "unknown_date"
-        
+    study_date_str = info['study_date_str']
     study_subdir = os.path.join(parent_path, f"[{study_date_str}]")
+    
+    # Проверяем, не лежит ли файл уже во вложенной папке
+    if os.path.dirname(os.path.abspath(info['target_file'])) != os.path.abspath(parent_path):
+        return True
+
     os.makedirs(study_subdir, exist_ok=True)
     
-    files_to_move = os.listdir(parent_path)
+    try:
+        files_to_move = os.listdir(parent_path)
+    except Exception:
+        return False
+
     moved_files = []
     
     try:
@@ -110,17 +196,12 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
         return
 
     patient_folder = os.path.basename(path)
-    files = [f for f in os.listdir(path) if f.endswith('.dcm')]
-    if not files:
+    info = get_folder_study_info(path)
+    if not info:
         return
 
-    try:
-        ds = pydicom.dcmread(os.path.join(path, files[0]), stop_before_pixels=True)
-    except Exception as e:
-        log_message(output_field, tr_log("log_dcm_read_patient_error", patient_folder, e))
-        return
-
-    raw_patient_id = ds.PatientID
+    ds = info['ds']
+    raw_patient_id = str(info['patient_id'])
     new_patient_id = raw_patient_id
 
     # 1. Если включено исправление ID (fix_patient_id)
@@ -131,7 +212,6 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
                 if prefix and new_patient_id.startswith(prefix):
                     new_patient_id = new_patient_id[len(prefix):]
                     break
-        # костыль для удаления точек и других символов
         if not new_patient_id.isdigit():
             new_patient_id = remove_non_digits(new_patient_id)
 
@@ -141,7 +221,7 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
 
     # 3. Если включено переименование папки исследования (rename_folder)
     if rename_folder:
-        raw_name = str(getattr(ds, "PatientName", ""))
+        raw_name = str(info['patient_name'])
         clean_name = raw_name.replace('^', ' ').replace('_', ' ').strip()
         clean_name = re.sub(r'\s+', ' ', clean_name)
         name_part = sanitize_folder_name(clean_name)
@@ -156,14 +236,8 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
         else:
             target_folder_name = patient_folder
 
-        # Пытаемся получить дату исследования
-        try:
-            date_time_string = ds.StudyDate + ds.StudyTime
-            format_string = '%Y%m%d%H%M%S' if '.' not in ds.StudyTime else '%Y%m%d%H%M%S.%f'
-            study_dt = datetime.strptime(date_time_string, format_string)
-            study_date_str = study_dt.strftime('%d.%m.%y - %H-%M')
-        except Exception:
-            study_date_str = "unknown_date"
+        study_date_str = info['study_date_str']
+        date_only_str = info['date_only_str']
 
         parent_path = os.path.join(os.path.dirname(path), target_folder_name)
         id_changed = (new_patient_id != raw_patient_id)
@@ -193,66 +267,47 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
 
         else:
             # Папка пациента уже существует.
-            # Если текущая папка и есть целевая папка пациента (сравнение регистронезависимо)
             if os.path.normcase(os.path.abspath(path)) == os.path.normcase(os.path.abspath(parent_path)):
-                # Одиночное исследование в своей целевой папке. Оставляем его плоским.
-                # Обновляем ID, если это необходимо
                 safe_update_patient_ids(path, new_patient_id, output_field)
                 return
 
-            # Если это другая папка, то работаем по стандартной схеме переноса/слияния
             # Проверим, лежит ли существующее исследование в корне parent_path (плоская структура)
-            dcm_in_root = [f for f in os.listdir(parent_path) if f.lower().endswith('.dcm')]
-            if dcm_in_root:
-                # Читаем дату существующего в корне исследования
+            exist_info = get_folder_study_info(parent_path)
+            if exist_info and exist_info['date_only_str'] == date_only_str:
+                # Совпадает по дате, сливаем в корень parent_path
                 try:
-                    first_file = os.path.join(parent_path, dcm_in_root[0])
-                    ds_exist = pydicom.dcmread(first_file, stop_before_pixels=True)
-                    date_time_string_exist = ds_exist.StudyDate + ds_exist.StudyTime
-                    format_string_exist = '%Y%m%d%H%M%S' if '.' not in ds_exist.StudyTime else '%Y%m%d%H%M%S.%f'
-                    study_dt_exist = datetime.strptime(date_time_string_exist, format_string_exist)
-                    study_date_str_exist = study_dt_exist.strftime('%d.%m.%y - %H-%M')
-                except Exception:
-                    study_date_str_exist = "unknown_date"
+                    safe_merge_folders(path, parent_path, new_patient_id)
+                    if id_changed:
+                        log_message(output_field, tr_log("log_files_merged_success_with_id", os.path.basename(parent_path), new_patient_id, patient_folder))
+                    else:
+                        log_message(output_field, tr_log("log_files_merged_success", os.path.basename(parent_path), patient_folder))
+                except Exception as e:
+                    log_message(output_field, tr_log("log_folders_merge_error", patient_folder, os.path.basename(parent_path), e))
+                return
 
-                if study_date_str == study_date_str_exist:
-                    # Это дубликат того же исследования. Просто сливаем файлы в корень parent_path
-                    try:
-                        safe_merge_folders(path, parent_path, new_patient_id)
-                        if id_changed:
-                            log_message(output_field, tr_log("log_files_merged_success_with_id", os.path.basename(parent_path), new_patient_id, patient_folder))
-                        else:
-                            log_message(output_field, tr_log("log_files_merged_success", os.path.basename(parent_path), patient_folder))
-                    except Exception as e:
-                        log_message(output_field, tr_log("log_folders_merge_error", patient_folder, os.path.basename(parent_path), e))
-                    return
-
-            # Если это другое исследование (даты не совпали) или папка уже иерархическая (dcm_in_root пуст):
-            # 1. Сначала делаем целевую папку иерархической, если в ее корне еще лежат файлы первого исследования
+            # Если целевая папка плоская, переведем её в иерархическую структуру
             if not make_folder_hierarchical(parent_path, output_field):
-                # Если произошла блокировка файлов первого исследования, выходим
                 return
                 
-            # 2. Вычисляем путь к подпапке для текущего (нового) исследования
-            new_study_subdir = os.path.join(parent_path, f"[{study_date_str}]")
+            # Ищем подпапку исследования для совпадения по дате (или создаем новую с подпапкой)
+            matching_sub = find_matching_study_subfolder(parent_path, date_only_str, study_date_str)
+            target_sub = matching_sub if matching_sub else os.path.join(parent_path, f"[{study_date_str}]")
             
-            if os.path.exists(new_study_subdir):
-                # Такое же исследование уже существует (дубликат во вложенной папке), выполняем слияние
+            if os.path.exists(target_sub):
                 try:
-                    safe_merge_folders(path, new_study_subdir, new_patient_id)
+                    safe_merge_folders(path, target_sub, new_patient_id)
                     if id_changed:
-                        log_message(output_field, tr_log("log_files_merged_success_with_id", os.path.basename(new_study_subdir), new_patient_id, patient_folder))
+                        log_message(output_field, tr_log("log_files_merged_success_with_id", os.path.basename(target_sub), new_patient_id, patient_folder))
                     else:
-                        log_message(output_field, tr_log("log_files_merged_success", os.path.basename(new_study_subdir), patient_folder))
+                        log_message(output_field, tr_log("log_files_merged_success", os.path.basename(target_sub), patient_folder))
                 except Exception as e:
-                    log_message(output_field, tr_log("log_folders_merge_error", patient_folder, os.path.basename(new_study_subdir), e))
+                    log_message(output_field, tr_log("log_folders_merge_error", patient_folder, os.path.basename(target_sub), e))
             else:
-                # Новое исследование для этого пациента, переименовываем в подпапку
                 success = False
                 last_error = None
                 for attempt in range(5):
                     try:
-                        os.rename(path, new_study_subdir)
+                        os.rename(path, target_sub)
                         success = True
                         break
                     except OSError as e:
@@ -261,10 +316,10 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
                         time.sleep(0.2)
                 
                 if success:
-                    safe_update_patient_ids(new_study_subdir, new_patient_id, output_field)
+                    safe_update_patient_ids(target_sub, new_patient_id, output_field)
                     if id_changed:
-                        log_message(output_field, tr_log("log_folder_renamed_success_with_id", patient_folder, f"{target_folder_name}/[{study_date_str}]", new_patient_id))
+                        log_message(output_field, tr_log("log_folder_renamed_success_with_id", patient_folder, f"{target_folder_name}/{os.path.basename(target_sub)}", new_patient_id))
                     else:
-                        log_message(output_field, tr_log("log_folder_renamed_success", patient_folder, f"{target_folder_name}/[{study_date_str}]"))
+                        log_message(output_field, tr_log("log_folder_renamed_success", patient_folder, f"{target_folder_name}/{os.path.basename(target_sub)}"))
                 else:
                     log_message(output_field, tr_log("log_folder_rename_error", patient_folder, last_error))
