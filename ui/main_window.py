@@ -2960,25 +2960,11 @@ class MainWindow(QMainWindow):
             msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             msg.setDefaultButton(QMessageBox.StandardButton.Yes)
             
-            from PyQt6.QtWidgets import QCheckBox
-            cb = QCheckBox("Больше не проверять при запуске")
-            msg.setCheckBox(cb)
-            
             apply_dark_title_bar(msg)
             
             if msg.exec() == QMessageBox.StandardButton.Yes:
                 from ui.updater import run_auto_update
                 run_auto_update(self, latest_version, assets)
-                
-            if cb.isChecked():
-                self.config['check_updates_at_startup'] = 'off'
-                from core.config_utils import get_config_path
-                import json
-                try:
-                    with open(get_config_path(), "w", encoding="utf-8") as f:
-                        json.dump(self.config, f, ensure_ascii=False, indent=4)
-                except Exception as e:
-                    print(f"Failed to save config: {e}")
 
     def populate_pacs_server_combo(self):
         self.pacs_server_combo.blockSignals(True)
