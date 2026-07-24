@@ -1740,8 +1740,6 @@ class MainWindow(QMainWindow):
                 self.images_table.setItem(row_idx, 7, str_item)
 
                 row_idx += 1
-                if progress_dialog:
-                    progress_dialog.set_progress(row_idx, total_items)
             else:
                 # Родительская строка
                 self.images_table.insertRow(row_idx)
@@ -1776,8 +1774,6 @@ class MainWindow(QMainWindow):
                 self.images_table.setItem(row_idx, 7, str_item)
 
                 row_idx += 1
-                if progress_dialog:
-                    progress_dialog.set_progress(row_idx, total_items)
 
                 # Дочерние строки
                 for patient_key, data in studies:
@@ -2250,8 +2246,6 @@ class MainWindow(QMainWindow):
                 self.archive_table.setItem(row_idx, 7, str_item)
 
                 row_idx += 1
-                if progress_dialog:
-                    progress_dialog.set_progress(row_idx, total_items)
             else:
                 # Родительская строка
                 self.archive_table.insertRow(row_idx)
@@ -2284,8 +2278,6 @@ class MainWindow(QMainWindow):
                 self.archive_table.setItem(row_idx, 7, str_item)
 
                 row_idx += 1
-                if progress_dialog:
-                    progress_dialog.set_progress(row_idx, total_items)
 
                 # Дочерние строки
                 for patient_key, data in studies:
