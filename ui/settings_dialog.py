@@ -1264,19 +1264,14 @@ class SettingsDialog(QDialog):
 
     def _populate_sound_combo(self, combo, current_val):
         from core.locale_utils import tr_ui
-        from PyQt6.QtCore import Qt, QSize
         combo.clear()
         combo.addItem(tr_ui("settings_sound_default"), "default")
         combo.addItem(tr_ui("settings_sound_chime"), "sound_chime")
         combo.addItem(tr_ui("settings_sound_ping"), "sound_ping")
         combo.addItem(tr_ui("settings_sound_pop"), "sound_pop")
         combo.addItem(tr_ui("settings_sound_soft"), "sound_soft")
-        if self.system_voices:
-            sep_idx = combo.count()
-            combo.insertSeparator(sep_idx)
-            combo.setItemData(sep_idx, QSize(0, 26), Qt.ItemDataRole.SizeHintRole)
-            for voice in self.system_voices:
-                combo.addItem(format_voice_name(voice), voice)
+        for voice in self.system_voices:
+            combo.addItem(format_voice_name(voice), voice)
         idx = combo.findData(current_val)
         combo.setCurrentIndex(idx if idx >= 0 else 0)
 
