@@ -242,5 +242,8 @@
   "tooltip_switch_highlight_new": "Highlight new studies (under 1 hour old) in green",
   "tooltip_switch_highlight_today": "Highlight today's studies in yellow",
   "tooltip_switch_highlight_no_str": "Highlight studies without structure files (STR) in red",
-  "tooltip_switch_highlight_no_slices": "Highlight studies without image slices (e.g. structures only) in red"
+  "tooltip_switch_highlight_no_slices": "Highlight studies without image slices (e.g. structures only) in red",
+  "log_system_resumed_from_sleep": "System resumed from sleep mode. Refreshing state...",
+  "log_system_session_unlocked": "User session unlocked. Refreshing state...",
+  "log_date_changed": "New calendar day ({}) reached. Recalculating patient highlights..."
 }
