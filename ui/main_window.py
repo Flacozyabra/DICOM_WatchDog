@@ -1433,15 +1433,29 @@ class MainWindow(QMainWindow):
             if not pacs_notify_on and not pacs_auto_scan_on:
                 self.pacs_timer.stop()
             self.show_patient_list()
+            QTimer.singleShot(0, self.focus_ct_images_search)
         elif index == 1:  # CT archive
             if not pacs_notify_on and not pacs_auto_scan_on:
                 self.pacs_timer.stop()
             self.fill_archive_list()
+            QTimer.singleShot(0, self.focus_ct_archive_search)
         elif index == 2:  # PACS
             self.fill_pacs_list()
             # Запускаем таймер PACS только если включено автообновление или фоновые уведомления
             if pacs_auto_scan_on or pacs_notify_on:
                 self.pacs_timer.start(self.config.get('pacs_scan_time', 10000))
+
+    def focus_ct_images_search(self):
+        if hasattr(self, 'search_images_entry'):
+            self.search_images_entry.setFocus()
+
+    def focus_ct_archive_search(self):
+        if hasattr(self, 'search_entry'):
+            self.search_entry.setFocus()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(100, self.focus_ct_images_search)
 
     # ================= ЛОГИКА ТАБЛИЦЫ CT IMAGES =================
 
