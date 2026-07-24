@@ -244,5 +244,6 @@
   "tooltip_switch_highlight_no_str": "Highlight studies without structure files (STR) in red",
   "tooltip_switch_highlight_no_slices": "Highlight studies without image slices (e.g. structures only) in red",
   "log_system_resumed_from_sleep": "System resumed from sleep mode. Refreshing state...",
-  "log_system_session_unlocked": "User session unlocked. Refreshing state..."
+  "log_system_session_unlocked": "User session unlocked. Refreshing state...",
+  "tooltip_voice_text_hint": "Pronunciation formatting:\n• Double vowels for stress: 'гамаамед' -> 'гама́мед'\n• Hyphens or 'э' for syllables: 'га-ма-мэд'"
 }

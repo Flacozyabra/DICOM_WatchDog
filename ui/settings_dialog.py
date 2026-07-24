@@ -1457,6 +1457,8 @@ Copy-VoiceTokens $src $dst32
         self.lbl_ct_sound.setText(tr_ui("settings_ct_sound_label"))
         self.lbl_ct_voice_text.setText(tr_ui("settings_ct_voice_text_label"))
         self.ct_voice_text_edit.setPlaceholderText(tr_ui("settings_ct_voice_text_placeholder"))
+        self.lbl_ct_voice_text.setToolTip(tr_ui("tooltip_voice_text_hint"))
+        self.ct_voice_text_edit.setToolTip(tr_ui("tooltip_voice_text_hint"))
 
         # PACS Section Labels and Comboboxes
         self.lbl_pacs_section.setText(tr_ui("settings_pacs_section_title"))
@@ -1497,6 +1499,8 @@ Copy-VoiceTokens $src $dst32
         self.lbl_pacs_sound.setText(tr_ui("settings_pacs_sound_label"))
         self.lbl_pacs_voice_text.setText(tr_ui("settings_pacs_voice_text_label"))
         self.pacs_voice_text_edit.setPlaceholderText(tr_ui("settings_pacs_voice_text_placeholder"))
+        self.lbl_pacs_voice_text.setToolTip(tr_ui("tooltip_voice_text_hint"))
+        self.pacs_voice_text_edit.setToolTip(tr_ui("tooltip_voice_text_hint"))
         self.ct_sound_combo.setItemText(0, tr_ui("settings_sound_default"))
         self.pacs_sound_combo.setItemText(0, tr_ui("settings_sound_default"))
         self.btn_unlock_voices.setText(tr_ui("settings_btn_unlock_voices"))
