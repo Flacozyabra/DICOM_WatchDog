@@ -245,5 +245,5 @@
   "tooltip_switch_highlight_no_slices": "Highlight studies without image slices (e.g. structures only) in red",
   "log_system_resumed_from_sleep": "System resumed from sleep mode. Refreshing state...",
   "log_system_session_unlocked": "User session unlocked. Refreshing state...",
-  "tooltip_voice_text_hint": "Pronunciation formatting:\n• Use '+' before/after a vowel for stress (гам+амед)\n• Use hyphens to separate syllables (га-ма-мед)"
+  "tooltip_voice_text_hint": "Pronunciation formatting:\n• Use '+' before/after a vowel for stress\n• Use hyphens to separate syllables"
 }
