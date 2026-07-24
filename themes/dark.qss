@@ -273,6 +273,13 @@ QComboBox QAbstractItemView {
     border: 1px solid #3d3d3d;
 }
 
+QComboBox::separator {
+    height: 1px;
+    background-color: #3d3d3d;
+    margin-top: 3px;
+    margin-bottom: 3px;
+}
+
 /* Кастомный стиль для кнопки Move to Archive (всегда синий фон) */
 #moveToArchiveBtn {
     background-color: #1f538d;

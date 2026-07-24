@@ -1270,8 +1270,10 @@ class SettingsDialog(QDialog):
         combo.addItem(tr_ui("settings_sound_ping"), "sound_ping")
         combo.addItem(tr_ui("settings_sound_pop"), "sound_pop")
         combo.addItem(tr_ui("settings_sound_soft"), "sound_soft")
-        for voice in self.system_voices:
-            combo.addItem(format_voice_name(voice), voice)
+        if self.system_voices:
+            combo.insertSeparator(combo.count())
+            for voice in self.system_voices:
+                combo.addItem(format_voice_name(voice), voice)
         idx = combo.findData(current_val)
         combo.setCurrentIndex(idx if idx >= 0 else 0)
 
