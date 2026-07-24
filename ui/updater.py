@@ -169,6 +169,7 @@ class DownloadProgressDialog(QDialog):
         layout.setSpacing(15)
 
         self.label = QLabel(tr("Скачивание обновления...", "Downloading update..."))
+        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label.setStyleSheet("color: #ffffff; font-size: 13px; font-family: 'Segoe UI'; margin-bottom: 5px;")
         layout.addWidget(self.label)
 
@@ -216,6 +217,7 @@ class DownloadProgressDialog(QDialog):
         """)
         self.cancel_btn.clicked.connect(self.on_cancel_clicked)
         btn_layout.addWidget(self.cancel_btn)
+        btn_layout.addStretch()
 
         layout.addLayout(btn_layout)
         self.setStyleSheet("QDialog { background-color: #202020; }")
@@ -407,8 +409,8 @@ def run_auto_update(parent, latest_version, assets):
         if total > 0:
             total_mb = total / (1024 * 1024)
             label_text = tr(
-                f"Скачивание обновления...\nЗагружено: {downloaded_mb:.1f} МБ из {total_mb:.1f} МБ ({percent}%)\nСкорость: {speed}",
-                f"Downloading update...\nDownloaded: {downloaded_mb:.1f} MB of {total_mb:.1f} MB ({percent}%)\nSpeed: {speed}"
+                f"Скачивание обновления...\nЗагружено: {downloaded_mb:.1f} МБ из {total_mb:.1f} МБ\nСкорость: {speed}",
+                f"Downloading update...\nDownloaded: {downloaded_mb:.1f} MB of {total_mb:.1f} MB\nSpeed: {speed}"
             )
         else:
             label_text = tr(
