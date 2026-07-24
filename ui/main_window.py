@@ -1544,6 +1544,11 @@ class MainWindow(QMainWindow):
         archive_cleanup_enabled = self.config.get('archive_cleanup_enabled', 'False')
         archive_cleanup_days = int(self.config.get('archive_cleanup_days', 30))
 
+        # Если таблица пуста, сразу отображаем статус сканирования
+        if self.images_table.rowCount() == 0:
+            self.images_table.set_placeholder_state(tr_ui("placeholder_scanning_folder"), show_button=False)
+            self.images_table.update_placeholder_visibility()
+
         self.scan_worker = FolderScanWorker(
             ct_dir, cleanup_str_val, fix_id_val, prefixes_val,
             rename_folder_enabled, rename_folder_mode,
@@ -1552,6 +1557,7 @@ class MainWindow(QMainWindow):
         )
         self.scan_worker.finished.connect(self.on_folder_scan_finished)
         self.scan_worker.log_emitted.connect(lambda msg: log_message(self.output_field, msg))
+        self.scan_worker.status_changed.connect(self.on_scan_status_changed)
         
         if show_progress:
             from ui.loading_dialog import LoadingProgressDialog
@@ -1566,6 +1572,11 @@ class MainWindow(QMainWindow):
             self.scan_progress_dialog.exec()
         else:
             self.scan_worker.start()
+
+    def on_scan_status_changed(self, status_text):
+        if self.images_table.rowCount() == 0:
+            self.images_table.set_placeholder_state(status_text, show_button=False)
+            self.images_table.update_placeholder_visibility()
 
     def on_folder_scan_finished(self, patient_dict, log_messages):
         pass

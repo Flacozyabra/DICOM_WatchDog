@@ -14,6 +14,7 @@
   "lbl_to": "to:",
   "lbl_server": "Server:",
   "placeholder_scanning": "Scanning PACS server...",
+  "placeholder_scanning_folder": "Scanning folder...",
   "placeholder_standby": "Waiting for new studies for today...",
   "placeholder_not_configured": "PACS server scan is not configured",
   "placeholder_pacs_access_denied": "PACS access denied: check AET and IP registration on server",

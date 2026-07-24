@@ -14,6 +14,7 @@
   "lbl_to": "по:",
   "lbl_server": "Сервер:",
   "placeholder_scanning": "Выполняется сканирование PACS сервера...",
+  "placeholder_scanning_folder": "Выполняется сканирование папки...",
   "placeholder_standby": "Ожидаю новых исследований за сегодня...",
   "placeholder_not_configured": "Сканирование сервера PACS не настроено",
   "placeholder_pacs_access_denied": "Ошибка доступа к PACS: проверьте регистрацию AET и IP на сервере",
