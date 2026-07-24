@@ -1686,12 +1686,6 @@ class MainWindow(QMainWindow):
             else:
                 total_items += 1 + len(studies)
 
-        progress_dialog = None
-        if total_items > 100:
-            from ui.loading_dialog import LoadingProgressDialog
-            progress_dialog = LoadingProgressDialog(self, title="Заполнение таблицы КТ")
-            progress_dialog.show()
-
         for p_info, studies in sorted_grouped_patients:
             p_name, p_id_val = p_info
 
@@ -1836,11 +1830,6 @@ class MainWindow(QMainWindow):
                     self.images_table.setItem(row_idx, 7, str_child)
 
                     row_idx += 1
-                    if progress_dialog:
-                        progress_dialog.set_progress(row_idx, total_items)
-
-        if progress_dialog:
-            progress_dialog.close()
 
         # Восстанавливаем выделение
         if hasattr(self, 'selected_images_patient_id') and self.selected_images_patient_id:
@@ -2207,12 +2196,6 @@ class MainWindow(QMainWindow):
             else:
                 total_items += 1 + len(studies)
 
-        progress_dialog = None
-        if total_items > 100:
-            from ui.loading_dialog import LoadingProgressDialog
-            progress_dialog = LoadingProgressDialog(self, title="Заполнение таблицы Архива")
-            progress_dialog.show()
-
         for p_info, studies in sorted_grouped_patients:
             p_name, p_id_val = p_info
 
@@ -2355,11 +2338,6 @@ class MainWindow(QMainWindow):
                     self.archive_table.setItem(row_idx, 7, str_child)
 
                     row_idx += 1
-                    if progress_dialog:
-                        progress_dialog.set_progress(row_idx, total_items)
-
-        if progress_dialog:
-            progress_dialog.close()
 
         # Восстанавливаем выделение
         if hasattr(self, 'selected_archive_patient_id') and self.selected_archive_patient_id:
@@ -2643,13 +2621,6 @@ class MainWindow(QMainWindow):
                 row_idx = 0
                 sorted_items = sorted(display_dict.items(), key=lambda x: x[1]['study_datetime_obj'], reverse=True)
                 
-                total_items = len(sorted_items)
-                progress_dialog = None
-                if total_items > 100:
-                    from ui.loading_dialog import LoadingProgressDialog
-                    progress_dialog = LoadingProgressDialog(self, title="Заполнение таблицы PACS")
-                    progress_dialog.show()
-
                 for patient_id, data in sorted_items:
                     self.pacs_table.insertRow(row_idx)
                     
@@ -2689,12 +2660,7 @@ class MainWindow(QMainWindow):
                     self.pacs_table.setItem(row_idx, 4, area_item)
                     self.pacs_table.setItem(row_idx, 5, study_item)
                     
-                    if progress_dialog:
-                        progress_dialog.set_progress(row_idx + 1, total_items)
                     row_idx += 1
-
-                if progress_dialog:
-                    progress_dialog.close()
 
                 if hasattr(self, 'selected_pacs_patient_id') and self.selected_pacs_patient_id:
                     for r in range(self.pacs_table.rowCount()):
