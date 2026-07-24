@@ -891,7 +891,6 @@ class MainWindow(QMainWindow):
         today = datetime.now().date()
         if hasattr(self, 'last_checked_date') and self.last_checked_date != today:
             self.last_checked_date = today
-            log_message(self.output_field, tr_log("log_date_changed", today.strftime("%d.%m.%Y")))
             self.update_images_table_ui()
         else:
             self.last_checked_date = today
