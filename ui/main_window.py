@@ -620,16 +620,17 @@ class MainWindow(QMainWindow):
         self.net_retry_count = 0
         self.net_retry_max = 24
         
-        # Таймер проверки смены суток для обновления подсветок
+        # Инициализируем таймер отслеживания сна и смены суток
+        import time
+        self.last_timer_timestamp = time.time()
         self.last_checked_date = datetime.now().date()
-        self.date_check_timer = QTimer(self)
-        self.date_check_timer.setInterval(30000)
-        self.date_check_timer.timeout.connect(self.check_date_change)
-        self.date_check_timer.start()
+        self.system_check_timer = QTimer(self)
+        self.system_check_timer.setInterval(10000)
+        self.system_check_timer.timeout.connect(self.check_system_status)
+        self.system_check_timer.start()
         
         # Инициализируем наблюдатель за файловой системой
         self.init_file_watcher()
-        self.init_windows_system_events()
         
         self.init_ui()
         self.apply_theme()
@@ -848,52 +849,26 @@ class MainWindow(QMainWindow):
         self.watcher_handler = None
         self.currently_watched_dir = None
 
-    def init_windows_system_events(self):
-        if sys.platform == "win32":
-            import ctypes
-            try:
-                hwnd = int(self.winId())
-                # Регистрируем получение событий сессии пользователя Windows (WTS)
-                ctypes.windll.wtsapi32.WTSRegisterSessionNotification(hwnd, 0)
-            except Exception as e:
-                print("Failed to register session notification:", e)
-
-    def nativeEvent(self, eventType, message):
-        if sys.platform == "win32" and eventType == b"windows_generic_MSG":
-            import ctypes
-            from ctypes import wintypes
-            try:
-                msg = wintypes.MSG.from_address(message.__int__())
-                # 0x0218 = WM_POWERBROADCAST (События питания и сна Windows)
-                if msg.message == 0x0218:
-                    wparam = int(msg.wParam)
-                    # PBT_APMRESUMESUSPEND (0x0007) или PBT_APMRESUMEAUTO (0x0012) - Пробуждение от сна
-                    if wparam in (0x0007, 0x0012):
-                        log_message(self.output_field, tr_log("log_system_resumed_from_sleep"))
-                        self.on_system_wake_or_unlock()
-                # 0x02B1 = WM_WTSSESSION_CHANGE (События сессии и разблокировки Windows)
-                elif msg.message == 0x02B1:
-                    wparam = int(msg.wParam)
-                    # WTS_CONSOLE_CONNECT (0x0001) или WTS_SESSION_UNLOCK (0x0008) - Разблокировка / вход в сессию
-                    if wparam in (0x0001, 0x0008):
-                        log_message(self.output_field, tr_log("log_system_session_unlocked"))
-                        self.on_system_wake_or_unlock()
-            except Exception:
-                pass
-        return super().nativeEvent(eventType, message)
-
-    def on_system_wake_or_unlock(self):
-        self.last_checked_date = datetime.now().date()
-        self.update_images_table_ui()
-        self.check_network_folder_retry()
-
-    def check_date_change(self):
+    def check_system_status(self):
+        import time
+        now_ts = time.time()
         today = datetime.now().date()
-        if hasattr(self, 'last_checked_date') and self.last_checked_date != today:
+        
+        # 1. Проверка пробуждения от сна (таймер был заморожен более чем на 25 секунд)
+        elapsed = now_ts - self.last_timer_timestamp
+        self.last_timer_timestamp = now_ts
+        
+        if elapsed > 25:
+            log_message(self.output_field, tr_log("log_system_resumed_from_sleep"))
             self.last_checked_date = today
             self.update_images_table_ui()
-        else:
+            self.check_network_folder_retry()
+            return
+            
+        # 2. Бесшумная проверка смены суток в полночь
+        if self.last_checked_date != today:
             self.last_checked_date = today
+            self.update_images_table_ui()
 
     def trigger_debounce(self):
         # 2 секунды задержки, чтобы дождаться окончания записи
