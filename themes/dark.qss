@@ -275,13 +275,13 @@ QComboBox QAbstractItemView {
 
 QComboBox::separator,
 QComboBox QAbstractItemView::separator {
-    min-height: 20px;
-    height: 20px;
+    min-height: 18px;
+    height: 18px;
     background: transparent;
     border: none;
     border-top: 2px solid #3d3d3d;
-    margin-top: 9px;
-    margin-bottom: 9px;
+    margin-top: 4px;
+    margin-bottom: 12px;
     margin-left: 16px;
     margin-right: 16px;
 }
