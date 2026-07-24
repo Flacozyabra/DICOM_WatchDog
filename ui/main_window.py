@@ -1558,6 +1558,7 @@ class MainWindow(QMainWindow):
         self.scan_worker.finished.connect(self.on_folder_scan_finished)
         self.scan_worker.log_emitted.connect(lambda msg: log_message(self.output_field, msg))
         self.scan_worker.status_changed.connect(self.on_scan_status_changed)
+        self.scan_worker.progress.connect(self.on_scan_progress)
         
         if show_progress:
             from ui.loading_dialog import LoadingProgressDialog
@@ -1576,6 +1577,15 @@ class MainWindow(QMainWindow):
     def on_scan_status_changed(self, status_text):
         if self.images_table.rowCount() == 0:
             self.images_table.set_placeholder_state(status_text, show_button=False)
+            self.images_table.update_placeholder_visibility()
+
+    def on_scan_progress(self, current, total):
+        if self.images_table.rowCount() == 0 and total > 0:
+            percent = int((current / total) * 100)
+            base_text = tr_ui("placeholder_scanning_folder")
+            is_ru = (base_text == "Выполняется сканирование папки...")
+            suffix = f"{percent}% ({current} из {total})" if is_ru else f"{percent}% ({current} of {total})"
+            self.images_table.set_placeholder_state(f"{base_text} {suffix}", show_button=False)
             self.images_table.update_placeholder_visibility()
 
     def on_folder_scan_finished(self, patient_dict, log_messages):
@@ -2096,9 +2106,15 @@ class MainWindow(QMainWindow):
             if id_item:
                 self.selected_archive_patient_id = id_item.data(Qt.ItemDataRole.UserRole)
 
+        # Если таблица архива пуста, сразу отображаем статус сканирования
+        if self.archive_table.rowCount() == 0:
+            self.archive_table.set_placeholder_state(tr_ui("placeholder_scanning_folder"), show_button=False)
+            self.archive_table.update_placeholder_visibility()
+
         cleanup_str_val = self.config.get('cleanup_structures_enabled', 'False')
         self.archive_worker = ArchiveScanWorker(archive_dir, cleanup_str_val)
         self.archive_worker.finished.connect(lambda ad, lm: self.on_archive_scan_finished(ad, lm, silent))
+        self.archive_worker.progress.connect(self.on_archive_scan_progress)
         if not silent:
             self.archive_worker.log_emitted.connect(lambda msg: log_message(self.output_field, msg))
         
@@ -2114,6 +2130,15 @@ class MainWindow(QMainWindow):
             self.archive_progress_dialog.exec()
         else:
             self.archive_worker.start()
+
+    def on_archive_scan_progress(self, current, total):
+        if self.archive_table.rowCount() == 0 and total > 0:
+            percent = int((current / total) * 100)
+            base_text = tr_ui("placeholder_scanning_folder")
+            is_ru = (base_text == "Выполняется сканирование папки...")
+            suffix = f"{percent}% ({current} из {total})" if is_ru else f"{percent}% ({current} of {total})"
+            self.archive_table.set_placeholder_state(f"{base_text} {suffix}", show_button=False)
+            self.archive_table.update_placeholder_visibility()
 
     def on_archive_scan_finished(self, archive_dict, log_messages, silent=False):
         if not silent:
