@@ -178,6 +178,21 @@ class LoadingSplash(QSplashScreen):
         QApplication.processEvents()
 
 
+def log_uncaught_exceptions(exctype, value, tb):
+    import traceback
+    err = "".join(traceback.format_exception(exctype, value, tb))
+    print(f"Uncaught exception:\n{err}", file=sys.stderr)
+    try:
+        from core.config_utils import get_app_data_dir
+        log_path = os.path.join(get_app_data_dir(), "error.log")
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n{err}\n")
+    except Exception:
+        pass
+
+sys.excepthook = log_uncaught_exceptions
+
+
 def main():
     global MainWindow
     

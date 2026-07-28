@@ -671,7 +671,10 @@ class MainWindow(QMainWindow):
             
         op_key = f"worker_{patient_id}"
         if hasattr(self, op_key):
+            worker = getattr(self, op_key)
             delattr(self, op_key)
+            if worker:
+                worker.deleteLater()
             
         self.images_table.viewport().update()
         self.archive_table.viewport().update()
@@ -679,6 +682,8 @@ class MainWindow(QMainWindow):
         if op_type == 'archive':
             log_message(self.output_field, tr_log("log_patient_archived", result))
             self.show_patient_list()
+            self.archive_cache = None
+            self.fill_archive_list(silent=True)
         elif op_type == 'delete':
             log_message(self.output_field, tr_log("log_patient_deleted", result))
             self.show_patient_list()
@@ -701,7 +706,10 @@ class MainWindow(QMainWindow):
             
         op_key = f"worker_{patient_id}"
         if hasattr(self, op_key):
+            worker = getattr(self, op_key)
             delattr(self, op_key)
+            if worker:
+                worker.deleteLater()
             
         self.images_table.viewport().update()
         self.archive_table.viewport().update()
