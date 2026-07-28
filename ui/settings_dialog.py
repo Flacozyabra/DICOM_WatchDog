@@ -13,30 +13,86 @@ from core.config_utils import get_config_path, get_app_data_dir, get_resource_pa
 from core.locale_utils import tr_ui, set_current_langs
 
 
+def get_voices_from_registry():
+    """Резервный метод чтения установленных голосов напрямую из реестра Windows."""
+    import winreg
+    voices = []
+    reg_paths = [
+        r"SOFTWARE\Microsoft\Speech\Voices\Tokens",
+        r"SOFTWARE\WOW6432Node\Microsoft\Speech\Voices\Tokens",
+        r"SOFTWARE\Microsoft\Speech_OneCore\Voices\Tokens"
+    ]
+    for rel_path in reg_paths:
+        try:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, rel_path)
+            count = winreg.QueryInfoKey(key)[0]
+            for i in range(count):
+                token_name = winreg.EnumKey(key, i)
+                try:
+                    token_key = winreg.OpenKey(key, token_name)
+                    desc = None
+                    try:
+                        desc, _ = winreg.QueryValueEx(token_key, "")
+                    except Exception:
+                        pass
+                    if not desc:
+                        try:
+                            desc, _ = winreg.QueryValueEx(token_key, "419")
+                        except Exception:
+                            pass
+                    if not desc:
+                        desc = token_name
+                    winreg.CloseKey(token_key)
+                    if desc and isinstance(desc, str) and desc.strip():
+                        voices.append(desc.strip())
+                except Exception:
+                    pass
+            winreg.CloseKey(key)
+        except Exception:
+            pass
+    return voices
+
+
 def get_system_voices():
     import subprocess
     import sys
     if sys.platform != "win32":
         return []
+    
+    voices = []
     try:
         cmd = [
             "powershell", "-NoProfile", "-Command",
             "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $speech = New-Object -ComObject SAPI.SpVoice; foreach ($v in $speech.GetVoices()) { $v.GetDescription() }"
         ]
-        output = subprocess.check_output(cmd, text=True, encoding="utf-8", creationflags=subprocess.CREATE_NO_WINDOW)
-        voices = [line.strip() for line in output.splitlines() if line.strip()]
-        seen_names = set()
-        unique_voices = []
-        for voice in voices:
-            # Нормализуем имя для дедупликации идентичных токенов, сохраняя при этом все уникальные сторонние голоса (RHVoice и др.)
-            norm_key = voice.replace("Desktop", "").replace("OneCore", "").replace("Mobile", "").strip().lower()
-            if norm_key not in seen_names:
-                seen_names.add(norm_key)
-                unique_voices.append(voice)
-        return unique_voices
+        raw_bytes = subprocess.check_output(cmd, creationflags=subprocess.CREATE_NO_WINDOW)
+        text = None
+        for enc in ["utf-8", "cp1251", "cp866"]:
+            try:
+                decoded = raw_bytes.decode(enc)
+                if decoded and any(c in decoded for c in "абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ"):
+                    text = decoded
+                    break
+            except Exception:
+                pass
+        if not text:
+            text = raw_bytes.decode("utf-8", errors="replace")
+            
+        voices = [line.strip() for line in text.splitlines() if line.strip()]
     except Exception as e:
-        print("Error getting system voices:", e)
-        return []
+        print("PowerShell voice retrieval error:", e)
+
+    if not voices:
+        voices = get_voices_from_registry()
+
+    seen_names = set()
+    unique_voices = []
+    for voice in voices:
+        norm_key = voice.replace("Desktop", "").replace("OneCore", "").replace("Mobile", "").strip().lower()
+        if norm_key not in seen_names:
+            seen_names.add(norm_key)
+            unique_voices.append(voice)
+    return unique_voices
 
 
 def format_voice_name(voice_raw):
