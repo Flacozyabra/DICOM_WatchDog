@@ -28,12 +28,10 @@ def get_system_voices():
         seen_names = set()
         unique_voices = []
         for voice in voices:
-            parts = voice.replace("Microsoft", "").replace("Desktop", "").split("-")[0].strip().split()
-            if not parts:
-                continue
-            base_name = parts[0].lower()
-            if base_name not in seen_names:
-                seen_names.add(base_name)
+            # Нормализуем имя для дедупликации идентичных токенов, сохраняя при этом все уникальные сторонние голоса (RHVoice и др.)
+            norm_key = voice.replace("Desktop", "").replace("OneCore", "").replace("Mobile", "").strip().lower()
+            if norm_key not in seen_names:
+                seen_names.add(norm_key)
                 unique_voices.append(voice)
         return unique_voices
     except Exception as e:
@@ -60,14 +58,15 @@ def find_matching_voice_index(combo, sound_name):
     idx = combo.findData(sound_name)
     if idx >= 0:
         return idx
-    parts = sound_name.replace("Microsoft", "").replace("Desktop", "").split("-")[0].strip().split()
-    if parts:
-        base_name = parts[0].lower()
+    clean_target = sound_name.replace("Microsoft", "").replace("Desktop", "").replace("OneCore", "").replace("RHVoice", "").strip().lower()
+    words = [w for w in clean_target.replace("-", " ").replace("(", " ").replace(")", " ").split() if len(w) > 1]
+    if words:
+        main_word = words[0]
         for i in range(combo.count()):
             data = combo.itemData(i)
             if data and data != 'default':
-                d_parts = data.replace("Microsoft", "").replace("Desktop", "").split("-")[0].strip().split()
-                if d_parts and d_parts[0].lower() == base_name:
+                data_clean = data.replace("Microsoft", "").replace("Desktop", "").replace("OneCore", "").replace("RHVoice", "").strip().lower()
+                if main_word in data_clean:
                     return i
     return 0
 
