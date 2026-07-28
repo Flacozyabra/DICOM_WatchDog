@@ -862,21 +862,33 @@ class MainWindow(QMainWindow):
         now_ts = time.time()
         today = datetime.now().date()
         
-        # 1. Проверка пробуждения от сна (таймер был заморожен более чем на 25 секунд)
+        # 1. Проверка пробуждения от сна или глубокой задержки (>60 секунд)
         elapsed = now_ts - self.last_timer_timestamp
         self.last_timer_timestamp = now_ts
         
-        if elapsed > 25:
+        if elapsed > 60:
             log_message(self.output_field, tr_log("log_system_resumed_from_sleep"))
             self.last_checked_date = today
             self.update_images_table_ui()
+            # Сбрасываем счетчик повторов сети при выходе из сна
+            self.net_retry_count = 0
             self.check_network_folder_retry()
+            self.last_timer_timestamp = time.time()
             return
+
+        # 2. Периодическая проверка восстановления сетевой папки, если соединение было ранее потеряно
+        ct_dir = self.config.get('ct_images_dir', '')
+        if ct_dir and not self.net_retry_timer.isActive() and not os.path.exists(ct_dir):
+            if self.net_retry_count >= self.net_retry_max:
+                self.net_retry_count = 0
+                self.check_network_folder_retry()
             
-        # 2. Бесшумная проверка смены суток в полночь
+        # 3. Бесшумная проверка смены суток в полночь
         if self.last_checked_date != today:
             self.last_checked_date = today
             self.update_images_table_ui()
+            
+        self.last_timer_timestamp = time.time()
 
     def trigger_debounce(self):
         # 2 секунды задержки, чтобы дождаться окончания записи
@@ -1477,6 +1489,8 @@ class MainWindow(QMainWindow):
             self.net_retry_timer.stop()
             return
         if os.path.exists(ct_dir):
+            self.net_retry_count = 0
+            self.net_retry_timer.stop()
             self.start_folder_scan()
             self.update_watcher_path()
         else:
