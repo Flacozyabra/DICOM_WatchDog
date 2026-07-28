@@ -2934,9 +2934,9 @@ class MainWindow(QMainWindow):
                 log_message(self.output_field, tr_log("log_patient_folder_empty", patient_id))
                 return
                 
-            self.viewer_panel.load_series(files)
-            self.viewer_panel.apply_theme()
             self.stacked_widget.setCurrentIndex(1)
+            self.viewer_panel.apply_theme()
+            self.viewer_panel.load_series(files)
         except Exception as e:
             log_message(self.output_field, tr_log("log_failed_open_viewer", patient_id, e))
 

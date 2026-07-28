@@ -6,7 +6,7 @@ import os
 import numpy as np
 import pydicom
 
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QRect, QPointF
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QRect, QPointF, QThread
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
     QPushButton, QComboBox, QSlider, QApplication, QSplitter, QSplitterHandle,
@@ -108,6 +108,127 @@ def load_rtstruct(filepath):
         print(f"Error parsing RTSTRUCT {filepath}: {e}")
         
     return structures
+
+
+class PatientSeriesLoaderWorker(QThread):
+    progress_signal = pyqtSignal(int, int, str)
+    finished_signal = pyqtSignal(dict)
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, files: list[str]) -> None:
+        super().__init__()
+        self.files = files
+
+    def run(self) -> None:
+        try:
+            if not self.files:
+                self.error_signal.emit("No files provided")
+                return
+
+            total_files = len(self.files)
+            series_dir = os.path.dirname(self.files[0])
+            
+            # 1. Поиск файлов RTSTRUCT
+            struct_files = []
+            if os.path.exists(series_dir):
+                dir_contents = os.listdir(series_dir)
+                for f in dir_contents:
+                    f_path = os.path.join(series_dir, f)
+                    if os.path.isfile(f_path):
+                        if f.upper().startswith("STR"):
+                            struct_files.append(f_path)
+                        elif f.lower().endswith(".dcm"):
+                            try:
+                                ds_meta = safe_dcmread(f_path, stop_before_pixels=True)
+                                if getattr(ds_meta, "Modality", "") == "RTSTRUCT":
+                                    struct_files.append(f_path)
+                            except Exception:
+                                pass
+
+            # 2. Обработка КТ файлов с передачей прогресса
+            slices = []
+            for idx, f in enumerate(self.files):
+                filename = os.path.basename(f)
+                if idx % 5 == 0 or idx == total_files - 1:
+                    status = tr_ui("loading_dicom_files", idx + 1, total_files)
+                    self.progress_signal.emit(idx + 1, total_files, status)
+
+                if filename.startswith("STR"):
+                    continue
+
+                try:
+                    ds = safe_dcmread(f, stop_before_pixels=True)
+                    if getattr(ds, "Modality", "CT") in ("RTSTRUCT", "RTPLAN", "RTDOSE"):
+                        continue
+                    if "Rows" not in ds or "Columns" not in ds:
+                        continue
+
+                    num_frames = int(ds.get("NumberOfFrames", 1))
+                    ipp = getattr(ds, "ImagePositionPatient", None)
+                    z_coord = float(ipp[2]) if ipp and len(ipp) >= 3 else 0.0
+
+                    thickness = float(ds.get("SliceThickness", 0.0))
+                    if thickness == 0.0:
+                        thickness = float(ds.get("SpacingBetweenSlices", 1.0))
+
+                    instance_number = int(getattr(ds, "InstanceNumber", 0))
+
+                    if num_frames > 1:
+                        for frame_idx in range(num_frames):
+                            frame_z = z_coord + frame_idx * thickness
+                            slices.append((f, frame_z, instance_number, frame_idx))
+                    else:
+                        slices.append((f, z_coord, instance_number, 0))
+                except Exception:
+                    pass
+
+            if not slices:
+                self.error_signal.emit("Серия не содержит корректных DICOM файлов.")
+                return
+
+            slices.sort(key=lambda x: (x[1], x[2], x[3]))
+            sorted_files = [(x[0], x[3]) for x in slices]
+
+            # 3. Выбор и предпарсинг наиболее свежего файла RTSTRUCT
+            selected_struct_idx = -1
+            parsed_structures = {}
+            if struct_files:
+                struct_files.sort(key=lambda x: os.path.basename(x))
+                latest_file = max(struct_files, key=lambda x: os.path.getmtime(x))
+                selected_struct_idx = struct_files.index(latest_file) + 1
+                
+                self.progress_signal.emit(total_files, total_files, tr_ui("loading_rtstruct_data"))
+                parsed_structures = load_rtstruct(latest_file)
+
+            result = {
+                "struct_files": struct_files,
+                "selected_struct_idx": selected_struct_idx,
+                "parsed_structures": parsed_structures,
+                "sorted_files": sorted_files
+            }
+            self.finished_signal.emit(result)
+
+        except Exception as e:
+            self.error_signal.emit(str(e))
+
+
+class StructureLoaderWorker(QThread):
+    finished_signal = pyqtSignal(str, dict)
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, sf_path: str) -> None:
+        super().__init__()
+        self.sf_path = sf_path
+
+    def run(self) -> None:
+        try:
+            if not self.sf_path or not os.path.exists(self.sf_path):
+                self.finished_signal.emit(self.sf_path, {})
+                return
+            parsed = load_rtstruct(self.sf_path)
+            self.finished_signal.emit(self.sf_path, parsed)
+        except Exception as e:
+            self.error_signal.emit(str(e))
 
 
 class HUVerticalSlider(QWidget):
@@ -784,6 +905,9 @@ class DicomViewerPanel(QWidget):
         self.sorted_files = []
         self.current_index = -1
         self.is_loading = False
+        self.loader_worker = None
+        self.struct_worker = None
+        self.progress_dialog = None
 
         self.window_width = 400.0
         self.window_center = 40.0
@@ -1034,33 +1158,53 @@ class DicomViewerPanel(QWidget):
             self.viewer.enabled_structures.discard(name)
         self.viewer.update()
 
-    def on_structure_file_changed(self, index: int) -> None:
+    def apply_structures(self, parsed: dict) -> None:
         self.viewer.structures.clear()
         self.viewer.enabled_structures.clear()
         
         self.list_structures.blockSignals(True)
         self.list_structures.clear()
         
+        for num, data in parsed.items():
+            self.viewer.structures[num] = data
+            self.viewer.enabled_structures.add(data["name"])
+            
+        for num, data in self.viewer.structures.items():
+            item = QListWidgetItem(data["name"])
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked)
+            
+            color = data["color"]
+            item.setForeground(QBrush(color))
+            self.list_structures.addItem(item)
+            
+        self.list_structures.blockSignals(False)
+        self.viewer.update()
+
+    def on_structure_file_changed(self, index: int) -> None:
+        self.viewer.structures.clear()
+        self.viewer.enabled_structures.clear()
+        
+        self.list_structures.blockSignals(True)
+        self.list_structures.clear()
+        self.list_structures.blockSignals(False)
+        self.viewer.update()
+        
         if index >= 0:
             sf_path = self.cb_structures.itemData(index)
             if sf_path and os.path.exists(sf_path):
-                parsed = load_rtstruct(sf_path)
-                for num, data in parsed.items():
-                    self.viewer.structures[num] = data
-                    self.viewer.enabled_structures.add(data["name"])
-                    
-                # Заполнение списка структур в UI
-                for num, data in self.viewer.structures.items():
-                    item = QListWidgetItem(data["name"])
-                    item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                    item.setCheckState(Qt.CheckState.Checked)
-                    
-                    color = data["color"]
-                    item.setForeground(QBrush(color))
-                    self.list_structures.addItem(item)
-                    
-        self.list_structures.blockSignals(False)
-        self.viewer.update()
+                if self.struct_worker is not None and self.struct_worker.isRunning():
+                    self.struct_worker.quit()
+                    self.struct_worker.wait()
+                
+                self.struct_worker = StructureLoaderWorker(sf_path)
+                self.struct_worker.finished_signal.connect(self._on_structure_loaded)
+                self.struct_worker.start()
+
+    def _on_structure_loaded(self, sf_path: str, parsed: dict) -> None:
+        current_sf = self.cb_structures.currentData()
+        if current_sf == sf_path:
+            self.apply_structures(parsed)
 
     def setup_hu_panel(self) -> None:
         self.hu_panel = QFrame(self)
@@ -1342,41 +1486,52 @@ class DicomViewerPanel(QWidget):
         self.cb_presets.setCurrentIndex(0)
         self.cb_presets.blockSignals(False)
 
-        # 1. Поиск RTSTRUCT
         self.cb_structures.blockSignals(True)
         self.cb_structures.clear()
-        
         self.struct_files = []
-        if files:
-            series_dir = os.path.dirname(files[0])
-            if os.path.exists(series_dir):
-                for f in os.listdir(series_dir):
-                    f_path = os.path.join(series_dir, f)
-                    if os.path.isfile(f_path):
-                        if f.upper().startswith("STR"):
-                            self.struct_files.append(f_path)
-                        elif f.lower().endswith(".dcm"):
-                            try:
-                                ds_meta = safe_dcmread(f_path, stop_before_pixels=True)
-                                if getattr(ds_meta, "Modality", "") == "RTSTRUCT":
-                                    self.struct_files.append(f_path)
-                            except Exception:
-                                pass
 
+        if self.loader_worker is not None and self.loader_worker.isRunning():
+            self.loader_worker.quit()
+            self.loader_worker.wait()
+
+        from ui.loading_dialog import LoadingProgressDialog
+        self.progress_dialog = LoadingProgressDialog(self, title=tr_ui("loading_viewer_title"))
+        total_count = len(files) if files else 0
+        self.progress_dialog.set_custom_progress(0, total_count, tr_ui("loading_dicom_files", 0, total_count))
+
+        self.loader_worker = PatientSeriesLoaderWorker(files)
+        self.loader_worker.progress_signal.connect(self._on_load_progress)
+        self.loader_worker.finished_signal.connect(self._on_series_loaded)
+        self.loader_worker.error_signal.connect(self._on_series_load_error)
+        self.loader_worker.start()
+
+        self.progress_dialog.exec()
+
+    def _on_load_progress(self, current: int, total: int, text: str) -> None:
+        if self.progress_dialog:
+            self.progress_dialog.set_custom_progress(current, total, text)
+
+    def _on_series_loaded(self, result: dict) -> None:
+        if self.progress_dialog:
+            self.progress_dialog.accept()
+            self.progress_dialog = None
+
+        self.struct_files = result.get("struct_files", [])
+        selected_struct_idx = result.get("selected_struct_idx", -1)
+        parsed_structures = result.get("parsed_structures", {})
+        self.sorted_files = result.get("sorted_files", [])
+
+        self.cb_structures.blockSignals(True)
         if self.struct_files:
-            # Сортируем по имени
-            self.struct_files.sort(key=lambda x: os.path.basename(x))
-            
-            # Добавляем опцию "Без структур"
             self.cb_structures.addItem("Без структур", None)
             for sf in self.struct_files:
                 self.cb_structures.addItem(os.path.basename(sf), sf)
-                
-            # По умолчанию выбираем самый свежий файл по времени изменения
-            latest_file = max(self.struct_files, key=lambda x: os.path.getmtime(x))
-            latest_idx = self.struct_files.index(latest_file) + 1
-            
-            self.cb_structures.setCurrentIndex(latest_idx)
+
+            if selected_struct_idx > 0:
+                self.cb_structures.setCurrentIndex(selected_struct_idx)
+            else:
+                self.cb_structures.setCurrentIndex(0)
+
             self.cb_structures.setEnabled(True)
             self.cb_structures.show()
         else:
@@ -1384,64 +1539,29 @@ class DicomViewerPanel(QWidget):
             self.cb_structures.setCurrentIndex(0)
             self.cb_structures.setEnabled(False)
             self.cb_structures.hide()
-            
+
         self.cb_structures.blockSignals(False)
 
-        # Инициализируем выбранную структуру
-        self.on_structure_file_changed(self.cb_structures.currentIndex())
+        self.apply_structures(parsed_structures)
         self.viewer.show_structures_globally = self.cb_show_structures.isChecked()
 
-        # 2. Поиск КТ срезов
-        slices = []
-        for f in files:
-            # Игнорируем файлы структур при загрузке срезов КТ
-            filename = os.path.basename(f)
-            if filename.startswith("STR"):
-                continue
-                
-            try:
-                ds = safe_dcmread(f, stop_before_pixels=True)
-                # Игнорируем некорректные модальности
-                if getattr(ds, "Modality", "CT") in ("RTSTRUCT", "RTPLAN", "RTDOSE"):
-                    continue
-                # Фильтруем служебные файлы без изображений (Rows/Columns обязательны для картинок)
-                if "Rows" not in ds or "Columns" not in ds:
-                    continue
-
-                num_frames = int(ds.get("NumberOfFrames", 1))
-                ipp = getattr(ds, "ImagePositionPatient", None)
-                z_coord = float(ipp[2]) if ipp and len(ipp) >= 3 else 0.0
-                
-                thickness = float(ds.get("SliceThickness", 0.0))
-                if thickness == 0.0:
-                    thickness = float(ds.get("SpacingBetweenSlices", 1.0))
-                
-                instance_number = int(getattr(ds, "InstanceNumber", 0))
-                
-                if num_frames > 1:
-                    for frame_idx in range(num_frames):
-                        # Для многокадровых файлов виртуальная Z-координата кадра
-                        frame_z = z_coord + frame_idx * thickness
-                        slices.append((f, frame_z, instance_number, frame_idx))
-                else:
-                    slices.append((f, z_coord, instance_number, 0))
-            except Exception:
-                pass
-
-        if not slices:
+        if not self.sorted_files:
             self.lbl_info.setText("Серия не содержит корректных DICOM файлов.")
             self.viewer.set_slice_info(0, 0)
             self.is_loading = False
             return
 
-        # Сортируем срезы по Z-координате, InstanceNumber и индексу кадра
-        slices.sort(key=lambda x: (x[1], x[2], x[3]))
-        self.sorted_files = [(x[0], x[3]) for x in slices]
-
         self.slider.setRange(0, len(self.sorted_files) - 1)
         self.is_loading = False
-        
         self.set_current_slice(0)
+
+    def _on_series_load_error(self, error_msg: str) -> None:
+        if self.progress_dialog:
+            self.progress_dialog.reject()
+            self.progress_dialog = None
+        self.lbl_info.setText(error_msg)
+        self.viewer.set_slice_info(0, 0)
+        self.is_loading = False
 
     def read_truncated_dicom(self, filepath: str):
         ds_meta = safe_dcmread(filepath, stop_before_pixels=True)

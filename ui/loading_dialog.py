@@ -82,3 +82,15 @@ class LoadingProgressDialog(QDialog):
         self.progress.setValue(percent)
         self.label.setText(tr_ui("loading_scanning_folders", current, total, percent))
         QCoreApplication.processEvents()
+
+    def set_custom_progress(self, current: int, total: int, text: str):
+        """Update progress bar value and custom status text."""
+        if total > 0:
+            percent = int((current / total) * 100)
+            self.progress.setValue(percent)
+        else:
+            self.progress.setValue(0)
+        if text:
+            self.label.setText(text)
+        QCoreApplication.processEvents()
+
