@@ -1503,6 +1503,33 @@ class DicomViewerPanel(QWidget):
             self.hu_panel.hide()
         self.update_buttons_style()
 
+    def clear_panel(self) -> None:
+        import gc
+        if self.loader_worker is not None and self.loader_worker.isRunning():
+            self.loader_worker.quit()
+            self.loader_worker.wait()
+        if self.struct_worker is not None and self.struct_worker.isRunning():
+            self.struct_worker.quit()
+            self.struct_worker.wait()
+
+        self.viewer.clear_viewer()
+        self.pixmap_cache.clear()
+        self.sorted_files.clear()
+        self.struct_files.clear()
+
+        self.cb_structures.blockSignals(True)
+        self.cb_structures.clear()
+        self.cb_structures.blockSignals(False)
+
+        self.list_structures.blockSignals(True)
+        self.list_structures.clear()
+        self.list_structures.blockSignals(False)
+
+        self.lbl_info.setText("")
+        self.current_index = -1
+        self.is_loading = False
+        gc.collect()
+
     def load_series(self, files: list[str]) -> None:
         self.is_loading = True
         self.sorted_files = []

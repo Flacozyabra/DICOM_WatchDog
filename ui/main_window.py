@@ -2950,7 +2950,7 @@ class MainWindow(QMainWindow):
 
     def close_viewer(self):
         self.stacked_widget.setCurrentIndex(0)
-        self.viewer_panel.viewer.clear_viewer()
+        self.viewer_panel.clear_panel()
         self.show_patient_list()
         self.fill_archive_list(silent=True)
 
