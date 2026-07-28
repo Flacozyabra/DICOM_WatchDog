@@ -14,39 +14,48 @@ from core.locale_utils import tr_ui, set_current_langs
 
 
 def get_voices_from_registry():
-    """Резервный метод чтения установленных голосов напрямую из реестра Windows."""
+    """Чтение всех установленных голосов напрямую из реестра Windows (HKLM и HKCU)."""
     import winreg
     voices = []
     reg_paths = [
-        r"SOFTWARE\Microsoft\Speech\Voices\Tokens",
-        r"SOFTWARE\WOW6432Node\Microsoft\Speech\Voices\Tokens",
-        r"SOFTWARE\Microsoft\Speech_OneCore\Voices\Tokens"
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Speech\Voices\Tokens"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Speech\Voices\Tokens"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Speech_OneCore\Voices\Tokens"),
+        (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Speech\Voices\Tokens"),
+        (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Speech_OneCore\Voices\Tokens")
     ]
-    for rel_path in reg_paths:
+    for root, rel_path in reg_paths:
         try:
-            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, rel_path)
+            key = winreg.OpenKey(root, rel_path)
             count = winreg.QueryInfoKey(key)[0]
             for i in range(count):
                 token_name = winreg.EnumKey(key, i)
+                token_path = f"{rel_path}\\{token_name}"
+                name = None
                 try:
-                    token_key = winreg.OpenKey(key, token_name)
-                    desc = None
-                    try:
-                        desc, _ = winreg.QueryValueEx(token_key, "")
-                    except Exception:
-                        pass
-                    if not desc:
-                        try:
-                            desc, _ = winreg.QueryValueEx(token_key, "419")
-                        except Exception:
-                            pass
-                    if not desc:
-                        desc = token_name
-                    winreg.CloseKey(token_key)
-                    if desc and isinstance(desc, str) and desc.strip():
-                        voices.append(desc.strip())
+                    attr_key = winreg.OpenKey(root, f"{token_path}\\Attributes")
+                    name, _ = winreg.QueryValueEx(attr_key, "Name")
+                    winreg.CloseKey(attr_key)
                 except Exception:
                     pass
+                if not name:
+                    try:
+                        t_key = winreg.OpenKey(root, token_path)
+                        name, _ = winreg.QueryValueEx(t_key, "")
+                        winreg.CloseKey(t_key)
+                    except Exception:
+                        pass
+                if not name:
+                    try:
+                        t_key = winreg.OpenKey(root, token_path)
+                        name, _ = winreg.QueryValueEx(t_key, "419")
+                        winreg.CloseKey(t_key)
+                    except Exception:
+                        pass
+                if not name:
+                    name = token_name
+                if name and isinstance(name, str) and name.strip():
+                    voices.append(name.strip())
             winreg.CloseKey(key)
         except Exception:
             pass
@@ -59,18 +68,21 @@ def get_system_voices():
     if sys.platform != "win32":
         return []
     
-    voices = []
+    # 1. Быстрое и надёжное чтение всех голосов напрямую из реестра
+    voices = get_voices_from_registry()
+    
+    # 2. Дополнительное обогащение через PowerShell COM SpVoice (с ограничением по времени 3 сек)
     try:
         cmd = [
             "powershell", "-NoProfile", "-Command",
-            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $speech = New-Object -ComObject SAPI.SpVoice; foreach ($v in $speech.GetVoices()) { $v.GetDescription() }"
+            "$speech = New-Object -ComObject SAPI.SpVoice; foreach ($v in $speech.GetVoices()) { $v.GetDescription() }"
         ]
-        raw_bytes = subprocess.check_output(cmd, creationflags=subprocess.CREATE_NO_WINDOW)
+        raw_bytes = subprocess.check_output(cmd, creationflags=subprocess.CREATE_NO_WINDOW, timeout=3)
         text = None
         for enc in ["utf-8", "cp1251", "cp866"]:
             try:
                 decoded = raw_bytes.decode(enc)
-                if decoded and any(c in decoded for c in "абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ"):
+                if decoded and decoded.strip():
                     text = decoded
                     break
             except Exception:
@@ -78,20 +90,20 @@ def get_system_voices():
         if not text:
             text = raw_bytes.decode("utf-8", errors="replace")
             
-        voices = [line.strip() for line in text.splitlines() if line.strip()]
+        for line in text.splitlines():
+            line_str = line.strip()
+            if line_str:
+                voices.append(line_str)
     except Exception as e:
-        print("PowerShell voice retrieval error:", e)
-
-    if not voices:
-        voices = get_voices_from_registry()
+        print("PowerShell voice retrieval warning/timeout:", e)
 
     seen_names = set()
     unique_voices = []
     for voice in voices:
-        norm_key = voice.replace("Desktop", "").replace("OneCore", "").replace("Mobile", "").strip().lower()
-        if norm_key not in seen_names:
-            seen_names.add(norm_key)
-            unique_voices.append(voice)
+        clean_v = voice.strip()
+        if clean_v and clean_v not in seen_names:
+            seen_names.add(clean_v)
+            unique_voices.append(clean_v)
     return unique_voices
 
 
@@ -111,16 +123,27 @@ def format_voice_name(voice_raw):
 def find_matching_voice_index(combo, sound_name):
     if not sound_name or sound_name == 'default':
         return 0
+    # 1. Точное совпадение по значению
     idx = combo.findData(sound_name)
     if idx >= 0:
         return idx
+        
+    # 2. Совпадение по очищенной/нормализованной строке
     clean_target = sound_name.replace("Microsoft", "").replace("Desktop", "").replace("OneCore", "").replace("RHVoice", "").strip().lower()
+    for i in range(combo.count()):
+        data = combo.itemData(i)
+        if data and data not in ('default', 'sound_chime', 'sound_ping', 'sound_pop', 'sound_soft'):
+            data_clean = data.replace("Microsoft", "").replace("Desktop", "").replace("OneCore", "").replace("RHVoice", "").strip().lower()
+            if clean_target == data_clean or clean_target in data_clean or data_clean in clean_target:
+                return i
+                
+    # 3. Совпадение по первому ключу (имени диктора)
     words = [w for w in clean_target.replace("-", " ").replace("(", " ").replace(")", " ").split() if len(w) > 1]
     if words:
         main_word = words[0]
         for i in range(combo.count()):
             data = combo.itemData(i)
-            if data and data != 'default':
+            if data and data not in ('default', 'sound_chime', 'sound_ping', 'sound_pop', 'sound_soft'):
                 data_clean = data.replace("Microsoft", "").replace("Desktop", "").replace("OneCore", "").replace("RHVoice", "").strip().lower()
                 if main_word in data_clean:
                     return i
@@ -1319,6 +1342,7 @@ class SettingsDialog(QDialog):
 
     def _populate_sound_combo(self, combo, current_val):
         from core.locale_utils import tr_ui
+        combo.blockSignals(True)
         combo.clear()
         combo.addItem(tr_ui("settings_sound_default"), "default")
         combo.addItem(tr_ui("settings_sound_chime"), "sound_chime")
@@ -1327,8 +1351,9 @@ class SettingsDialog(QDialog):
         combo.addItem(tr_ui("settings_sound_soft"), "sound_soft")
         for voice in self.system_voices:
             combo.addItem(format_voice_name(voice), voice)
-        idx = combo.findData(current_val)
+        idx = find_matching_voice_index(combo, current_val)
         combo.setCurrentIndex(idx if idx >= 0 else 0)
+        combo.blockSignals(False)
 
     def play_sound_preview(self, combo):
         sound_setting = combo.currentData()
