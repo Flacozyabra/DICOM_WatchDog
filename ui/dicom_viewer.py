@@ -481,9 +481,39 @@ class DicomViewerWidget(QWidget):
         self.structures = {}
         self.enabled_structures = set()
         self.show_structures_globally = True
+        self.contour_sop_index = {}
+        self.contour_z_index = []
 
         self.setMouseTracking(True)
         self.setStyleSheet("background-color: #000000;")
+
+    def rebuild_contour_index(self) -> None:
+        self.contour_sop_index = {}
+        self.contour_z_index = []
+
+        if not self.structures or not self.show_structures_globally:
+            return
+
+        for roi_num, roi_data in self.structures.items():
+            name = roi_data["name"]
+            color = roi_data["color"]
+            if name not in self.enabled_structures:
+                continue
+
+            for contour in roi_data["contours"]:
+                sop_uid = contour.get("sop_uid")
+                z_coord = contour.get("z")
+                points = contour.get("points")
+                if not points:
+                    continue
+
+                if sop_uid:
+                    if sop_uid not in self.contour_sop_index:
+                        self.contour_sop_index[sop_uid] = []
+                    self.contour_sop_index[sop_uid].append((color, points))
+
+                if z_coord is not None:
+                    self.contour_z_index.append((z_coord, color, points))
 
     def set_osd_visible(self, visible: bool) -> None:
         self.osd_visible = visible
@@ -522,6 +552,8 @@ class DicomViewerWidget(QWidget):
         self.structures = {}
         self.enabled_structures = set()
         self.show_structures_globally = True
+        self.contour_sop_index = {}
+        self.contour_z_index = []
         self.update()
 
     def mousePressEvent(self, event) -> None:
@@ -640,7 +672,7 @@ class DicomViewerWidget(QWidget):
             painter.drawPixmap(self.image_rect, self.current_pixmap)
 
             # Отрисовка RTSTRUCT-структур поверх изображения
-            if self.show_structures_globally and self.structures:
+            if self.show_structures_globally and (self.contour_sop_index or self.contour_z_index):
                 ipp = getattr(self.current_dataset, "ImagePositionPatient", None)
                 iop = getattr(self.current_dataset, "ImageOrientationPatient", None)
                 pixel_spacing = getattr(self.current_dataset, "PixelSpacing", None)
@@ -658,40 +690,33 @@ class DicomViewerWidget(QWidget):
                     scale_x = view_w / cols
                     scale_y = view_h / rows
                     
-                    for roi_num, roi_data in self.structures.items():
-                        if roi_data["name"] not in self.enabled_structures:
-                            continue
-                            
-                        color = roi_data["color"]
+                    # Мгновенная выборка контуров текущего среза O(1)
+                    matching_contours = []
+                    if sop_uid and sop_uid in self.contour_sop_index:
+                        matching_contours = self.contour_sop_index[sop_uid]
+                    elif self.contour_z_index:
+                        matching_contours = [(color, pts) for z, color, pts in self.contour_z_index if abs(z - ipp_z) < 0.5]
+                        
+                    for color, points in matching_contours:
                         pen = QPen(color, 2, Qt.PenStyle.SolidLine)
                         painter.setPen(pen)
                         painter.setBrush(Qt.BrushStyle.NoBrush)
                         
-                        for contour in roi_data["contours"]:
-                            # Сопоставляем по SOPInstanceUID или по Z координате с точностью до 0.5 мм
-                            match = False
-                            if contour["sop_uid"] is not None and sop_uid is not None:
-                                match = (contour["sop_uid"] == sop_uid)
-                            else:
-                                match = (abs(contour["z"] - ipp_z) < 0.5)
-                                
-                            if match:
-                                poly = QPolygonF()
-                                for pt in contour["points"]:
-                                    dp_x = pt[0] - ipp_x
-                                    dp_y = pt[1] - ipp_y
-                                    dp_z = pt[2] - ipp_z
-                                    
-                                    # Проекция на оси row (X) и col (Y)
-                                    px = (dp_x * xr + dp_y * yr + dp_z * zr) / dx
-                                    py = (dp_x * xc + dp_y * yc + dp_z * zc) / dy
-                                    
-                                    wx = offset_x + px * scale_x
-                                    wy = offset_y + py * scale_y
-                                    poly.append(QPointF(wx, wy))
-                                    
-                                if not poly.isEmpty():
-                                    painter.drawPolygon(poly)
+                        poly = QPolygonF()
+                        for pt in points:
+                            dp_x = pt[0] - ipp_x
+                            dp_y = pt[1] - ipp_y
+                            dp_z = pt[2] - ipp_z
+                            
+                            px = (dp_x * xr + dp_y * yr + dp_z * zr) / dx
+                            py = (dp_x * xc + dp_y * yc + dp_z * zc) / dy
+                            
+                            wx = offset_x + px * scale_x
+                            wy = offset_y + py * scale_y
+                            poly.append(QPointF(wx, wy))
+                            
+                        if not poly.isEmpty():
+                            painter.drawPolygon(poly)
 
             # Отрисовка измерительной линейки
             if self.ruler_active and self.start_pos and self.current_pos:
@@ -908,6 +933,7 @@ class DicomViewerPanel(QWidget):
         self.loader_worker = None
         self.struct_worker = None
         self.progress_dialog = None
+        self.pixmap_cache = {}
 
         self.window_width = 400.0
         self.window_center = 40.0
@@ -1147,6 +1173,7 @@ class DicomViewerPanel(QWidget):
 
     def on_global_structures_changed(self, state: int) -> None:
         self.viewer.show_structures_globally = (state == 2)
+        self.viewer.rebuild_contour_index()
         self.viewer.update()
 
     def on_structure_item_changed(self, item: QListWidgetItem) -> None:
@@ -1156,6 +1183,7 @@ class DicomViewerPanel(QWidget):
             self.viewer.enabled_structures.add(name)
         else:
             self.viewer.enabled_structures.discard(name)
+        self.viewer.rebuild_contour_index()
         self.viewer.update()
 
     def apply_structures(self, parsed: dict) -> None:
@@ -1179,6 +1207,7 @@ class DicomViewerPanel(QWidget):
             self.list_structures.addItem(item)
             
         self.list_structures.blockSignals(False)
+        self.viewer.rebuild_contour_index()
         self.viewer.update()
 
     def on_structure_file_changed(self, index: int) -> None:
@@ -1478,6 +1507,7 @@ class DicomViewerPanel(QWidget):
         self.is_loading = True
         self.sorted_files = []
         self.current_index = -1
+        self.pixmap_cache.clear()
         self.viewer.clear_viewer()
         self.hu_panel.hide()
         self.update_buttons_style()
@@ -1622,6 +1652,22 @@ class DicomViewerPanel(QWidget):
         self.slider.setValue(index)
 
         filepath, frame_idx = self.sorted_files[index]
+        cache_key = (filepath, frame_idx, round(self.window_width, 1), round(self.window_center, 1))
+
+        if cache_key in self.pixmap_cache:
+            pixmap, ds = self.pixmap_cache[cache_key]
+            pat_name = getattr(ds, "PatientName", "Unknown")
+            pat_id = getattr(ds, "PatientID", "Unknown")
+            study_desc = getattr(ds, "StudyDescription", "")
+            series_desc = getattr(ds, "SeriesDescription", "")
+            
+            info_text = f"{pat_name} [{pat_id}] | {study_desc} | {series_desc}"
+            self.lbl_info.setText(info_text)
+            self.viewer.set_slice_info(index + 1, len(self.sorted_files))
+            self.viewer.set_dicom_image(pixmap, ds)
+            self.viewer.set_window_params(self.window_width, self.window_center)
+            return
+
         try:
             try:
                 ds = safe_dcmread(filepath)
@@ -1650,6 +1696,7 @@ class DicomViewerPanel(QWidget):
                 if preset_data == "dicom":
                     self.window_center = self.default_wc
                     self.window_width = self.default_ww
+                    cache_key = (filepath, frame_idx, round(self.window_width, 1), round(self.window_center, 1))
 
             pat_name = getattr(ds, "PatientName", "Unknown")
             pat_id = getattr(ds, "PatientID", "Unknown")
@@ -1662,6 +1709,10 @@ class DicomViewerPanel(QWidget):
 
             pixmap = self.dicom_to_pixmap(ds, self.window_width, self.window_center)
             if pixmap:
+                if len(self.pixmap_cache) > 80:
+                    oldest_key = next(iter(self.pixmap_cache))
+                    del self.pixmap_cache[oldest_key]
+                self.pixmap_cache[cache_key] = (pixmap, ds)
                 self.viewer.set_dicom_image(pixmap, ds)
                 self.viewer.set_window_params(self.window_width, self.window_center)
             else:
