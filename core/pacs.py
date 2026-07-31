@@ -308,17 +308,67 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     clean_pid = str(patient_id).strip() if patient_id else ""
     clean_uid = str(study_instance_uid).strip() if study_instance_uid else ""
 
+    # Получаем серии исследований для запроса на уровне SERIES
+    series_uids = []
+    try:
+        ae_find_series = AE()
+        ae_find_series.ae_title = calling_aet
+        ae_find_series.connection_timeout = 5
+        ae_find_series.network_timeout = 5
+        ae_find_series.acse_timeout = 5
+        ae_find_series.dimse_timeout = 5
+        ae_find_series.add_requested_context('1.2.840.10008.5.1.4.1.2.1.1')
+        ae_find_series.add_requested_context('1.2.840.10008.5.1.4.1.2.2.1')
+        
+        assoc_sf = ae_find_series.associate(pacs_ip, pacs_port, ae_title=called_aet)
+        if assoc_sf.is_established:
+            ds_sf = Dataset()
+            ds_sf.QueryRetrieveLevel = 'SERIES'
+            if clean_pid:
+                ds_sf.PatientID = clean_pid
+            if clean_uid:
+                ds_sf.StudyInstanceUID = clean_uid
+            ds_sf.SeriesInstanceUID = ''
+            
+            responses_sf = assoc_sf.send_c_find(ds_sf, '1.2.840.10008.5.1.4.1.2.1.1')
+            for (st_sf, id_sf) in responses_sf:
+                if st_sf and id_sf:
+                    s_uid = str(id_sf.get('SeriesInstanceUID', '')).strip()
+                    if s_uid and s_uid not in series_uids:
+                        series_uids.append(s_uid)
+            assoc_sf.release()
+    except Exception:
+        pass
+
     # Создаем комбинации корректных DICOM datasets для C-MOVE
     query_datasets = []
 
-    # 1. Study Root C-MOVE (наиболее распространенный стандарт в современных PACS)
+    # 1. SERIES Level C-MOVE (наиболее надежный для медицинских PACS)
+    for s_uid in series_uids:
+        ds_ser_sr = Dataset()
+        ds_ser_sr.QueryRetrieveLevel = 'SERIES'
+        if clean_uid:
+            ds_ser_sr.StudyInstanceUID = clean_uid
+        ds_ser_sr.SeriesInstanceUID = s_uid
+        query_datasets.append((ds_ser_sr, StudyRootQueryRetrieveInformationModelMove))
+
+        ds_ser_pr = Dataset()
+        ds_ser_pr.QueryRetrieveLevel = 'SERIES'
+        if clean_pid:
+            ds_ser_pr.PatientID = clean_pid
+        if clean_uid:
+            ds_ser_pr.StudyInstanceUID = clean_uid
+        ds_ser_pr.SeriesInstanceUID = s_uid
+        query_datasets.append((ds_ser_pr, PatientRootQueryRetrieveInformationModelMove))
+
+    # 2. Study Root C-MOVE на уровне STUDY
     if clean_uid:
         ds_study_root = Dataset()
         ds_study_root.QueryRetrieveLevel = 'STUDY'
         ds_study_root.StudyInstanceUID = clean_uid
         query_datasets.append((ds_study_root, StudyRootQueryRetrieveInformationModelMove))
 
-    # 2. Patient Root C-MOVE на уровне STUDY по PatientID + StudyInstanceUID
+    # 3. Patient Root C-MOVE на уровне STUDY по PatientID + StudyInstanceUID
     if clean_pid and clean_uid:
         ds_pat_study = Dataset()
         ds_pat_study.QueryRetrieveLevel = 'STUDY'
@@ -326,14 +376,14 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
         ds_pat_study.StudyInstanceUID = clean_uid
         query_datasets.append((ds_pat_study, PatientRootQueryRetrieveInformationModelMove))
 
-    # 3. Patient Root C-MOVE на уровне STUDY только по PatientID
+    # 4. Patient Root C-MOVE на уровне STUDY только по PatientID
     if clean_pid:
         ds_pat_only = Dataset()
         ds_pat_only.QueryRetrieveLevel = 'STUDY'
         ds_pat_only.PatientID = clean_pid
         query_datasets.append((ds_pat_only, PatientRootQueryRetrieveInformationModelMove))
 
-    # 4. Patient Root C-MOVE на уровне PATIENT
+    # 5. Patient Root C-MOVE на уровне PATIENT
     if clean_pid:
         ds_pat_level = Dataset()
         ds_pat_level.QueryRetrieveLevel = 'PATIENT'
@@ -401,7 +451,7 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     if saved_files_count[0] > 0:
         return True, tr_log("log_pacs_download_success", patient_id)
 
-    # 3. Фолбэк на C-GET (на уровнях STUDY и PATIENT)
+    # 3. Фолбэк на C-GET (на уровнях SERIES, STUDY и PATIENT)
     ae_get = AE()
     ae_get.ae_title = calling_aet
     ae_get.connection_timeout = 5
@@ -417,6 +467,25 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
         roles.append(build_role(sop_class, scp_role=True))
 
     get_datasets = []
+
+    # 1. SERIES level C-GET
+    for s_uid in series_uids:
+        ds_g_sr = Dataset()
+        ds_g_sr.QueryRetrieveLevel = 'SERIES'
+        if clean_uid:
+            ds_g_sr.StudyInstanceUID = clean_uid
+        ds_g_sr.SeriesInstanceUID = s_uid
+        get_datasets.append((ds_g_sr, StudyRootQueryRetrieveInformationModelGet))
+
+        ds_g_pr = Dataset()
+        ds_g_pr.QueryRetrieveLevel = 'SERIES'
+        if clean_pid:
+            ds_g_pr.PatientID = clean_pid
+        if clean_uid:
+            ds_g_pr.StudyInstanceUID = clean_uid
+        ds_g_pr.SeriesInstanceUID = s_uid
+        get_datasets.append((ds_g_pr, PatientRootQueryRetrieveInformationModelGet))
+
     if clean_uid:
         ds_sr_get = Dataset()
         ds_sr_get.QueryRetrieveLevel = 'STUDY'
