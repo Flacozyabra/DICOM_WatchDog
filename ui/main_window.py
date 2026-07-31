@@ -19,7 +19,7 @@ from core.dicom_utils import dict_create, process_patient_folder, delete_redunda
 from core.archive import move_old_folders_to_archive
 from core.notifier import show_notification
 from core.logger import log_message
-from core.pacs import pacs_dict_create, download_patient_from_pacs
+from core.pacs import pacs_dict_create, download_patient_from_pacs, start_background_pacs_server
 from core.config_utils import get_resource_path, VERSION
 from core.locale_utils import tr_ui, tr_log, set_current_langs
 from ui.settings_dialog import SettingsDialog, apply_dark_title_bar
@@ -638,6 +638,11 @@ class MainWindow(QMainWindow):
         
         # Инициализируем наблюдатель за файловой системой
         self.init_file_watcher()
+
+        # Запускаем фоновый DICOM SCP сервер на порту 11112 для ответа на опрос (C-ECHO) сервера PACS
+        calling_aet = self.config.get('pacs_calling_aet', 'DW_GAMMA')
+        ct_dir = self.config.get('ct_images_dir', '')
+        start_background_pacs_server(port=11112, ae_title=calling_aet, target_dir=ct_dir)
         
         self.init_ui()
         self.apply_theme()
@@ -2766,6 +2771,11 @@ class MainWindow(QMainWindow):
             # Перечитываем настройки
             self.config = dialog.config
             self.populate_pacs_server_combo()
+            
+            # Перезапускаем фоновый DICOM сервер с новыми настройками
+            calling_aet = self.config.get('pacs_calling_aet', 'DW_GAMMA')
+            ct_dir = self.config.get('ct_images_dir', '')
+            start_background_pacs_server(port=11112, ae_title=calling_aet, target_dir=ct_dir)
             
             # Обновляем шрифт лога
             font = QFont("Consolas", self.config.get('log_font_size', 12))

@@ -11,6 +11,87 @@ from core.config_utils import get_log_path
 from core.locale_utils import tr_log
 
 
+class BackgroundDicomServer:
+    """Фоновый DICOM SCP сервер для ответа на опрос (C-ECHO) сервера PACS и приема снимков (C-STORE)."""
+    def __init__(self):
+        self.server = None
+        self.port = None
+        self.ae_title = None
+
+    def start(self, port=11112, ae_title="DW_GAMMA", target_dir=None):
+        if self.server:
+            self.stop()
+
+        from pynetdicom import AE, evt, ALL_TRANSFER_SYNTAXES
+        from pynetdicom.sop_class import (
+            VerificationSOPClass,
+            CTImageStorage,
+            MRImageStorage,
+            RTStructureSetStorage,
+            SecondaryCaptureImageStorage,
+            PositronEmissionTomographyImageStorage
+        )
+        import os
+
+        self.port = port
+        self.ae_title = ae_title
+
+        def handle_echo(event):
+            return 0x0000
+
+        def handle_store(event):
+            try:
+                if not target_dir or not os.path.exists(target_dir):
+                    return 0xC000
+                d_set = event.dataset
+                d_set.file_meta = event.file_meta
+                
+                pid = str(d_set.get('PatientID', 'UNKNOWN')).strip()
+                safe_pid = "".join([c for c in pid if c.isalnum() or c in (' ', '_', '-')]).strip()
+                if not safe_pid:
+                    safe_pid = "UNKNOWN"
+                    
+                p_dir = os.path.join(target_dir, safe_pid)
+                os.makedirs(p_dir, exist_ok=True)
+                
+                file_path = os.path.join(p_dir, f"{d_set.SOPInstanceUID}.dcm")
+                d_set.save_as(file_path, write_like_original=False)
+                return 0x0000
+            except Exception:
+                return 0xC000
+
+        handlers = [
+            (evt.EVT_C_ECHO, handle_echo),
+            (evt.EVT_C_STORE, handle_store)
+        ]
+
+        ae = AE(ae_title=ae_title)
+        ae.add_supported_context(VerificationSOPClass, ALL_TRANSFER_SYNTAXES)
+        for sop in [CTImageStorage, MRImageStorage, RTStructureSetStorage, SecondaryCaptureImageStorage, PositronEmissionTomographyImageStorage]:
+            ae.add_supported_context(sop, ALL_TRANSFER_SYNTAXES)
+
+        try:
+            self.server = ae.start_server(('', port), block=False, evt_handlers=handlers)
+        except Exception:
+            self.server = None
+
+    def stop(self):
+        if self.server:
+            try:
+                self.server.shutdown()
+            except Exception:
+                pass
+            self.server = None
+
+_global_dicom_server = BackgroundDicomServer()
+
+def start_background_pacs_server(port=11112, ae_title="DW_GAMMA", target_dir=None):
+    _global_dicom_server.start(port=port, ae_title=ae_title, target_dir=target_dir)
+
+def stop_background_pacs_server():
+    _global_dicom_server.stop()
+
+
 def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11112, called_aet="ANY-SCP", calling_aet="ECHOSCU", study_date=None):
     pacs_data = defaultdict(dict)
     con = False
