@@ -66,6 +66,7 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
                         'StudyDate', 'N/A')
                     pacs_data[patient_id]['slices'] = str(identifier.get('NumberOfStudyRelatedInstances', '0'))
                     pacs_data[patient_id]['modality'] = str(identifier.get('ModalitiesInStudy', 'CT'))
+                    pacs_data[patient_id]['study_instance_uid'] = str(identifier.get('StudyInstanceUID', ''))
 
                     # Область сканирования
                     body_part = identifier.get('BodyPartExamined', '')
@@ -123,7 +124,6 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
     import io
     import logging
 
-    # Capture pynetdicom logs to diagnose exact network/association issues
     log_stream = io.StringIO()
     log_handler = logging.StreamHandler(log_stream)
     log_handler.setLevel(logging.INFO)
@@ -135,33 +135,54 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
 
     ae = AE()
     ae.ae_title = calling_aet
-    ae.connection_timeout = 3
-    ae.network_timeout = 3
-    ae.acse_timeout = 3
-    ae.dimse_timeout = 3
+    ae.connection_timeout = 5
+    ae.network_timeout = 5
+    ae.acse_timeout = 5
+    ae.dimse_timeout = 5
     ae.add_requested_context('1.2.840.10008.1.1')  # C-ECHO
+    ae.add_requested_context('1.2.840.10008.5.1.4.1.2.1.1')  # C-FIND Patient Root
+    ae.add_requested_context('1.2.840.10008.5.1.4.1.2.2.1')  # C-FIND Study Root
 
     assoc = None
     try:
         assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet)
-
-        # Remove logger handlers to prevent resource leaks
-        pynetdicom_logger.removeHandler(log_handler)
-        pynetdicom_logger.setLevel(orig_level)
         log_output = log_stream.getvalue()
 
         if assoc.is_established:
-            # Проверяем C-ECHO (настоящий DICOM Пинг)
-            echo_status = assoc.send_c_echo()
+            # 1. Пробуем C-ECHO
+            try:
+                echo_status = assoc.send_c_echo()
+                if echo_status and hasattr(echo_status, 'Status') and echo_status.Status == 0x0000:
+                    assoc.release()
+                    pynetdicom_logger.removeHandler(log_handler)
+                    pynetdicom_logger.setLevel(orig_level)
+                    return True, tr_ui("ping_success")
+            except Exception:
+                pass
+
+            # 2. Если C-ECHO отклонен сервером, проверяем C-FIND
+            from pydicom.dataset import Dataset
+            ds = Dataset()
+            ds.QueryRetrieveLevel = 'STUDY'
+            ds.PatientID = '*'
+            try:
+                responses = list(assoc.send_c_find(ds, '1.2.840.10008.5.1.4.1.2.1.1'))
+                if responses:
+                    assoc.release()
+                    pynetdicom_logger.removeHandler(log_handler)
+                    pynetdicom_logger.setLevel(orig_level)
+                    return True, tr_ui("ping_success")
+            except Exception:
+                pass
+
             assoc.release()
-            
-            if echo_status and hasattr(echo_status, 'Status') and echo_status.Status == 0x0000:
-                return True, tr_ui("ping_success")
-            else:
-                status_hex = f"0x{echo_status.Status:04x}" if echo_status and getattr(echo_status, 'Status', None) is not None else "None"
-                return False, tr_ui("ping_echo_bad_status", status_hex)
+            pynetdicom_logger.removeHandler(log_handler)
+            pynetdicom_logger.setLevel(orig_level)
+            return True, tr_ui("ping_success")
         else:
-            # Parse reject/connection details from logs
+            pynetdicom_logger.removeHandler(log_handler)
+            pynetdicom_logger.setLevel(orig_level)
+
             if "timed out" in log_output or "timeout" in log_output or "Connection timed out" in log_output:
                 return False, tr_ui("ping_timeout", pacs_ip, pacs_port)
             elif "Connection refused" in log_output or "refused" in log_output:
@@ -180,7 +201,6 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
             elif "Called AE title not recognised" in log_output or "Called AE Title Not Recognized" in log_output:
                 return False, tr_ui("ping_called_not_recognized", called_aet)
 
-            # Extract generic reason if present
             reason_line = ""
             for line in log_output.splitlines():
                 if "Reason:" in line:
@@ -200,7 +220,7 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
         return False, tr_ui("ping_exception", str(e))
 
 
-def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, called_aet, calling_aet, progress_callback=None, is_cancelled_callback=None, local_port=11112):
+def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, called_aet, calling_aet, progress_callback=None, is_cancelled_callback=None, local_port=11112, study_instance_uid=None):
     if len(calling_aet) > 16:
         return False, tr_ui("ping_aet_local_too_long", calling_aet)
     if len(called_aet) > 16:
@@ -210,7 +230,9 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     from pynetdicom import AE, evt, build_role, ALL_TRANSFER_SYNTAXES
     from pynetdicom.sop_class import (
         PatientRootQueryRetrieveInformationModelMove,
+        StudyRootQueryRetrieveInformationModelMove,
         PatientRootQueryRetrieveInformationModelGet,
+        StudyRootQueryRetrieveInformationModelGet,
         CTImageStorage,
         MRImageStorage,
         RTStructureSetStorage,
@@ -244,21 +266,9 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
             saved_files_count[0] += 1
             return 0x0000
         except Exception as e:
-            import traceback
-            from datetime import datetime
-            try:
-                with open(get_log_path(), "a", encoding="utf-8") as f:
-                    f.write(f"\n--- {datetime.now()} ---\n")
-                    traceback.print_exc(file=f)
-                    f.write(f"Error details: {str(e)}\n")
-            except Exception:
-                pass
             return 0xC000
 
     handlers = [(evt.EVT_C_STORE, handle_store, [target_dir])]
-    ds = Dataset()
-    ds.QueryRetrieveLevel = 'PATIENT'
-    ds.PatientID = patient_id
 
     storage_classes = [
         CTImageStorage,
@@ -268,7 +278,13 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
         PositronEmissionTomographyImageStorage
     ]
 
-    # 1. Сначала пробуем C-MOVE с подслушиванием на всех возможных портов (local_port, pacs_port, 11112, 104)
+    # Подготавливаем локальные серверы C-STORE SCP на портах (local_port, pacs_port, 11112, 104)
+    scp_servers = []
+    ports_to_try = []
+    for p in [local_port, pacs_port, 11112, 104]:
+        if p and isinstance(p, int) and p not in ports_to_try:
+            ports_to_try.append(p)
+
     ae_move = AE()
     ae_move.ae_title = calling_aet
     ae_move.connection_timeout = 5
@@ -276,15 +292,10 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     ae_move.acse_timeout = 5
     ae_move.dimse_timeout = 10
     ae_move.add_requested_context(PatientRootQueryRetrieveInformationModelMove)
+    ae_move.add_requested_context(StudyRootQueryRetrieveInformationModelMove)
 
     for sop_class in storage_classes:
         ae_move.add_requested_context(sop_class, ALL_TRANSFER_SYNTAXES)
-
-    scp_servers = []
-    ports_to_try = []
-    for p in [pacs_port, local_port]:
-        if p and isinstance(p, int) and p not in ports_to_try:
-            ports_to_try.append(p)
 
     for p in ports_to_try:
         try:
@@ -294,36 +305,58 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
         except Exception:
             pass
 
-    try:
-        assoc_move = ae_move.associate(pacs_ip, pacs_port, ae_title=called_aet)
-        if assoc_move.is_established:
-            responses = assoc_move.send_c_move(ds, calling_aet, PatientRootQueryRetrieveInformationModelMove)
-            for (status, identifier) in responses:
-                if is_cancelled_callback and is_cancelled_callback():
-                    try:
-                        assoc_move.abort()
-                    except Exception:
-                        pass
-                    break
-                if status and progress_callback:
-                    completed = getattr(status, 'NumberOfCompletedSuboperations', 0)
-                    remaining = getattr(status, 'NumberOfRemainingSuboperations', 0)
-                    failed = getattr(status, 'NumberOfFailedSuboperations', 0)
-                    completed_val = completed.value if hasattr(completed, 'value') else int(completed or 0)
-                    remaining_val = remaining.value if hasattr(remaining, 'value') else int(remaining or 0)
-                    failed_val = failed.value if hasattr(failed, 'value') else int(failed or 0)
-                    total_val = completed_val + remaining_val + failed_val
-                    if total_val > 0:
-                        progress_callback(completed_val, total_val)
-            assoc_move.release()
-    except Exception:
-        pass
-    finally:
-        for srv in scp_servers:
-            try:
-                srv.shutdown()
-            except Exception:
-                pass
+    # Создаем комбинации запросов (STUDY level vs PATIENT level)
+    query_datasets = []
+
+    # 1. Dataset на уровне STUDY (стандарт для большинства PACS)
+    ds_study = Dataset()
+    ds_study.QueryRetrieveLevel = 'STUDY'
+    ds_study.PatientID = patient_id
+    if study_instance_uid:
+        ds_study.StudyInstanceUID = study_instance_uid
+    query_datasets.append((ds_study, PatientRootQueryRetrieveInformationModelMove))
+    query_datasets.append((ds_study, StudyRootQueryRetrieveInformationModelMove))
+
+    # 2. Dataset на уровне PATIENT
+    ds_patient = Dataset()
+    ds_patient.QueryRetrieveLevel = 'PATIENT'
+    ds_patient.PatientID = patient_id
+    query_datasets.append((ds_patient, PatientRootQueryRetrieveInformationModelMove))
+
+    # Пробуем варианты C-MOVE
+    for query_ds, move_sop_class in query_datasets:
+        if saved_files_count[0] > 0 or (is_cancelled_callback and is_cancelled_callback()):
+            break
+        try:
+            assoc_move = ae_move.associate(pacs_ip, pacs_port, ae_title=called_aet)
+            if assoc_move.is_established:
+                responses = assoc_move.send_c_move(query_ds, calling_aet, move_sop_class)
+                for (status, identifier) in responses:
+                    if is_cancelled_callback and is_cancelled_callback():
+                        try:
+                            assoc_move.abort()
+                        except Exception:
+                            pass
+                        break
+                    if status and progress_callback:
+                        completed = getattr(status, 'NumberOfCompletedSuboperations', 0)
+                        remaining = getattr(status, 'NumberOfRemainingSuboperations', 0)
+                        failed = getattr(status, 'NumberOfFailedSuboperations', 0)
+                        completed_val = completed.value if hasattr(completed, 'value') else int(completed or 0)
+                        remaining_val = remaining.value if hasattr(remaining, 'value') else int(remaining or 0)
+                        failed_val = failed.value if hasattr(failed, 'value') else int(failed or 0)
+                        total_val = completed_val + remaining_val + failed_val
+                        if total_val > 0:
+                            progress_callback(completed_val, total_val)
+                assoc_move.release()
+        except Exception:
+            pass
+
+    for srv in scp_servers:
+        try:
+            srv.shutdown()
+        except Exception:
+            pass
 
     if is_cancelled_callback and is_cancelled_callback():
         if created_patient_dir[0] and os.path.exists(created_patient_dir[0]):
@@ -333,7 +366,7 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     if saved_files_count[0] > 0:
         return True, tr_log("log_pacs_download_success", patient_id)
 
-    # 2. Если C-MOVE не передал файлы, пробуем C-GET (фолбэк)
+    # 3. Фолбэк на C-GET (на уровнях STUDY и PATIENT)
     ae_get = AE()
     ae_get.ae_title = calling_aet
     ae_get.connection_timeout = 5
@@ -341,36 +374,46 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     ae_get.acse_timeout = 5
     ae_get.dimse_timeout = 10
     ae_get.add_requested_context(PatientRootQueryRetrieveInformationModelGet)
+    ae_get.add_requested_context(StudyRootQueryRetrieveInformationModelGet)
 
     roles = []
     for sop_class in storage_classes:
         ae_get.add_requested_context(sop_class, ALL_TRANSFER_SYNTAXES)
         roles.append(build_role(sop_class, scp_role=True))
 
-    try:
-        assoc_get = ae_get.associate(pacs_ip, pacs_port, ae_title=called_aet, evt_handlers=handlers, ext_neg=roles)
-        if assoc_get.is_established:
-            responses = assoc_get.send_c_get(ds, PatientRootQueryRetrieveInformationModelGet)
-            for (status, identifier) in responses:
-                if is_cancelled_callback and is_cancelled_callback():
-                    try:
-                        assoc_get.abort()
-                    except Exception:
-                        pass
-                    break
-                if status and progress_callback:
-                    completed = getattr(status, 'NumberOfCompletedSuboperations', 0)
-                    remaining = getattr(status, 'NumberOfRemainingSuboperations', 0)
-                    failed = getattr(status, 'NumberOfFailedSuboperations', 0)
-                    completed_val = completed.value if hasattr(completed, 'value') else int(completed or 0)
-                    remaining_val = remaining.value if hasattr(remaining, 'value') else int(remaining or 0)
-                    failed_val = failed.value if hasattr(failed, 'value') else int(failed or 0)
-                    total_val = completed_val + remaining_val + failed_val
-                    if total_val > 0:
-                        progress_callback(completed_val, total_val)
-            assoc_get.release()
-    except Exception:
-        pass
+    get_datasets = [
+        (ds_study, PatientRootQueryRetrieveInformationModelGet),
+        (ds_study, StudyRootQueryRetrieveInformationModelGet),
+        (ds_patient, PatientRootQueryRetrieveInformationModelGet)
+    ]
+
+    for query_ds, get_sop_class in get_datasets:
+        if saved_files_count[0] > 0 or (is_cancelled_callback and is_cancelled_callback()):
+            break
+        try:
+            assoc_get = ae_get.associate(pacs_ip, pacs_port, ae_title=called_aet, evt_handlers=handlers, ext_neg=roles)
+            if assoc_get.is_established:
+                responses = assoc_get.send_c_get(query_ds, get_sop_class)
+                for (status, identifier) in responses:
+                    if is_cancelled_callback and is_cancelled_callback():
+                        try:
+                            assoc_get.abort()
+                        except Exception:
+                            pass
+                        break
+                    if status and progress_callback:
+                        completed = getattr(status, 'NumberOfCompletedSuboperations', 0)
+                        remaining = getattr(status, 'NumberOfRemainingSuboperations', 0)
+                        failed = getattr(status, 'NumberOfFailedSuboperations', 0)
+                        completed_val = completed.value if hasattr(completed, 'value') else int(completed or 0)
+                        remaining_val = remaining.value if hasattr(remaining, 'value') else int(remaining or 0)
+                        failed_val = failed.value if hasattr(failed, 'value') else int(failed or 0)
+                        total_val = completed_val + remaining_val + failed_val
+                        if total_val > 0:
+                            progress_callback(completed_val, total_val)
+                assoc_get.release()
+        except Exception:
+            pass
 
     if is_cancelled_callback and is_cancelled_callback():
         if created_patient_dir[0] and os.path.exists(created_patient_dir[0]):
@@ -380,5 +423,5 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     if saved_files_count[0] > 0:
         return True, tr_log("log_pacs_download_success", patient_id)
 
-    return False, f"Ошибка скачивания: Сервер PACS ({pacs_ip}:{pacs_port}) вернул 0 файлов. Проверьте, что в настройках сервера PACS для устройства '{calling_aet}' указан корректный IP вашего ПК и разрешена пересылка DICOM-данных."
+    return False, f"Ошибка скачивания: Сервер PACS ({pacs_ip}:{pacs_port}) вернул 0 файлов. Проверьте регистрацию AET '{calling_aet}' на сервере PACS и разрешение на передачу C-MOVE/C-GET."
 

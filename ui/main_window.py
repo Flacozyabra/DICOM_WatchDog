@@ -389,7 +389,7 @@ class PacsDownloadWorker(QThread):
     finished = pyqtSignal(bool, str)
     progress = pyqtSignal(int, int)
 
-    def __init__(self, patient_id, target_dir, pacs_ip, pacs_port, called_aet, calling_aet):
+    def __init__(self, patient_id, target_dir, pacs_ip, pacs_port, called_aet, calling_aet, study_instance_uid=None):
         super().__init__()
         self.patient_id = patient_id
         self.target_dir = target_dir
@@ -397,6 +397,7 @@ class PacsDownloadWorker(QThread):
         self.pacs_port = pacs_port
         self.called_aet = called_aet
         self.calling_aet = calling_aet
+        self.study_instance_uid = study_instance_uid
         self.is_cancelled = False
 
     def cancel(self):
@@ -408,7 +409,8 @@ class PacsDownloadWorker(QThread):
             self.pacs_ip, self.pacs_port,
             self.called_aet, self.calling_aet,
             progress_callback=self.progress.emit,
-            is_cancelled_callback=lambda: self.is_cancelled
+            is_cancelled_callback=lambda: self.is_cancelled,
+            study_instance_uid=self.study_instance_uid
         )
         self.finished.emit(success, msg)
 
@@ -2872,6 +2874,10 @@ class MainWindow(QMainWindow):
         called_aet = self.config.get('pacs_called_aet', 'ANY-SCP')
         calling_aet = self.config.get('pacs_calling_aet', 'ECHOSCU')
         
+        study_instance_uid = None
+        if hasattr(self, 'pacs_data') and patient_id in self.pacs_data:
+            study_instance_uid = self.pacs_data[patient_id].get('study_instance_uid')
+
         from ui.loading_dialog import LoadingProgressDialog
         self.download_progress_dialog = LoadingProgressDialog(
             self, title="Скачивание из PACS", show_cancel=True, on_cancel=self.cancel_pacs_download
@@ -2880,7 +2886,7 @@ class MainWindow(QMainWindow):
         self.download_progress_dialog.show()
 
         self.pacs_download_worker = PacsDownloadWorker(
-            patient_id, ct_images_dir, pacs_ip, pacs_port, called_aet, calling_aet
+            patient_id, ct_images_dir, pacs_ip, pacs_port, called_aet, calling_aet, study_instance_uid=study_instance_uid
         )
         self.pacs_download_worker.finished.connect(self.on_pacs_download_finished)
         self.pacs_download_worker.progress.connect(self.on_pacs_download_progress)
