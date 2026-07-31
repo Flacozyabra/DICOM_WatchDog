@@ -63,10 +63,21 @@ def check_github_updates(repo_name=DEFAULT_REPO):
     Проверяет репозиторий GitHub на наличие последнего стабильного релиза.
     Возвращает (latest_tag_name, html_url, assets_dict) или (None, None, None).
     """
+    import ssl
     url = f"https://api.github.com/repos/{repo_name}/releases/latest"
     req = urllib.request.Request(url, headers={'User-Agent': 'PyQt-App-Updater'})
+    
+    ctx = None
     try:
-        with urllib.request.urlopen(req, timeout=10) as response:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    except Exception:
+        pass
+
+    try:
+        open_kwargs = {'context': ctx} if ctx else {}
+        with urllib.request.urlopen(req, timeout=10, **open_kwargs) as response:
             data = json.loads(response.read().decode('utf-8'))
             tag_name = data.get('tag_name', '')
             html_url = data.get('html_url', f'https://github.com/{repo_name}/releases')
@@ -229,7 +240,6 @@ class DownloadProgressDialog(QDialog):
     def set_progress(self, percent, label_text):
         self.progress.setValue(percent)
         self.label.setText(label_text)
-        QCoreApplication.processEvents()
 
 
 class FileDownloadWorker(QThread):
@@ -242,19 +252,35 @@ class FileDownloadWorker(QThread):
         super().__init__()
         self.url = url
         self.dest_path = dest_path
+        self.is_cancelled = False
+
+    def cancel(self):
+        self.is_cancelled = True
 
     def run(self):
         import time
+        import ssl
         max_retries = 3
         retry_delay = 2
         
+        ctx = None
+        try:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+        except Exception:
+            pass
+
         for attempt in range(max_retries):
+            if self.is_cancelled:
+                return
             try:
                 req = urllib.request.Request(self.url, headers={'User-Agent': 'PyQt-App-Updater'})
-                with urllib.request.urlopen(req, timeout=30) as response:
+                open_kwargs = {'context': ctx} if ctx else {}
+                with urllib.request.urlopen(req, timeout=30, **open_kwargs) as response:
                     total_size = int(response.info().get('Content-Length', 0))
                     bytes_downloaded = 0
-                    block_size = 1024 * 8
+                    block_size = 1024 * 16
                     
                     start_time = time.time()
                     last_time = start_time
@@ -263,6 +289,15 @@ class FileDownloadWorker(QThread):
                     
                     with open(self.dest_path, 'wb') as f:
                         while True:
+                            if self.is_cancelled:
+                                f.close()
+                                try:
+                                    if os.path.exists(self.dest_path):
+                                        os.remove(self.dest_path)
+                                except Exception:
+                                    pass
+                                return
+
                             buffer = response.read(block_size)
                             if not buffer:
                                 break
@@ -288,10 +323,13 @@ class FileDownloadWorker(QThread):
                             percent = int((bytes_downloaded / total_size) * 100) if total_size > 0 else 0
                             self.progress.emit(percent, speed_str, bytes_downloaded, total_size)
                                 
-                self.progress.emit(100, speed_str, bytes_downloaded, total_size)
-                self.finished.emit(self.dest_path)
+                if not self.is_cancelled:
+                    self.progress.emit(100, speed_str, bytes_downloaded, total_size)
+                    self.finished.emit(self.dest_path)
                 return
             except Exception as e:
+                if self.is_cancelled:
+                    return
                 if attempt < max_retries - 1:
                     time.sleep(retry_delay)
                     continue
@@ -524,7 +562,7 @@ def run_auto_update(parent, latest_version, assets):
         )
 
     def on_cancel():
-        worker.terminate()
+        worker.cancel()
         _active_workers.discard(worker)
 
     worker.finished.connect(on_finished)
