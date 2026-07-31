@@ -305,23 +305,40 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
         except Exception:
             pass
 
-    # Создаем комбинации запросов (STUDY level vs PATIENT level)
+    clean_pid = str(patient_id).strip() if patient_id else ""
+    clean_uid = str(study_instance_uid).strip() if study_instance_uid else ""
+
+    # Создаем комбинации корректных DICOM datasets для C-MOVE
     query_datasets = []
 
-    # 1. Dataset на уровне STUDY (стандарт для большинства PACS)
-    ds_study = Dataset()
-    ds_study.QueryRetrieveLevel = 'STUDY'
-    ds_study.PatientID = patient_id
-    if study_instance_uid:
-        ds_study.StudyInstanceUID = study_instance_uid
-    query_datasets.append((ds_study, PatientRootQueryRetrieveInformationModelMove))
-    query_datasets.append((ds_study, StudyRootQueryRetrieveInformationModelMove))
+    # 1. Study Root C-MOVE (наиболее распространенный стандарт в современных PACS)
+    if clean_uid:
+        ds_study_root = Dataset()
+        ds_study_root.QueryRetrieveLevel = 'STUDY'
+        ds_study_root.StudyInstanceUID = clean_uid
+        query_datasets.append((ds_study_root, StudyRootQueryRetrieveInformationModelMove))
 
-    # 2. Dataset на уровне PATIENT
-    ds_patient = Dataset()
-    ds_patient.QueryRetrieveLevel = 'PATIENT'
-    ds_patient.PatientID = patient_id
-    query_datasets.append((ds_patient, PatientRootQueryRetrieveInformationModelMove))
+    # 2. Patient Root C-MOVE на уровне STUDY по PatientID + StudyInstanceUID
+    if clean_pid and clean_uid:
+        ds_pat_study = Dataset()
+        ds_pat_study.QueryRetrieveLevel = 'STUDY'
+        ds_pat_study.PatientID = clean_pid
+        ds_pat_study.StudyInstanceUID = clean_uid
+        query_datasets.append((ds_pat_study, PatientRootQueryRetrieveInformationModelMove))
+
+    # 3. Patient Root C-MOVE на уровне STUDY только по PatientID
+    if clean_pid:
+        ds_pat_only = Dataset()
+        ds_pat_only.QueryRetrieveLevel = 'STUDY'
+        ds_pat_only.PatientID = clean_pid
+        query_datasets.append((ds_pat_only, PatientRootQueryRetrieveInformationModelMove))
+
+    # 4. Patient Root C-MOVE на уровне PATIENT
+    if clean_pid:
+        ds_pat_level = Dataset()
+        ds_pat_level.QueryRetrieveLevel = 'PATIENT'
+        ds_pat_level.PatientID = clean_pid
+        query_datasets.append((ds_pat_level, PatientRootQueryRetrieveInformationModelMove))
 
     last_error_details = []
 
@@ -350,6 +367,8 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
                                 last_error_details.append(f"Код {hex_st} (PACS отказал в C-STORE)")
                             elif st_code == 0xA900:
                                 last_error_details.append(f"Код {hex_st} (Неверный формат параметров C-MOVE)")
+                            elif st_code == 0xC000:
+                                last_error_details.append(f"Код {hex_st} (Сервер не принял параметры запроса C-MOVE)")
                             else:
                                 last_error_details.append(f"Код {hex_st}")
                         if progress_callback:
@@ -397,11 +416,31 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
         ae_get.add_requested_context(sop_class, ALL_TRANSFER_SYNTAXES)
         roles.append(build_role(sop_class, scp_role=True))
 
-    get_datasets = [
-        (ds_study, PatientRootQueryRetrieveInformationModelGet),
-        (ds_study, StudyRootQueryRetrieveInformationModelGet),
-        (ds_patient, PatientRootQueryRetrieveInformationModelGet)
-    ]
+    get_datasets = []
+    if clean_uid:
+        ds_sr_get = Dataset()
+        ds_sr_get.QueryRetrieveLevel = 'STUDY'
+        ds_sr_get.StudyInstanceUID = clean_uid
+        get_datasets.append((ds_sr_get, StudyRootQueryRetrieveInformationModelGet))
+
+    if clean_pid and clean_uid:
+        ds_pr_get1 = Dataset()
+        ds_pr_get1.QueryRetrieveLevel = 'STUDY'
+        ds_pr_get1.PatientID = clean_pid
+        ds_pr_get1.StudyInstanceUID = clean_uid
+        get_datasets.append((ds_pr_get1, PatientRootQueryRetrieveInformationModelGet))
+
+    if clean_pid:
+        ds_pr_get2 = Dataset()
+        ds_pr_get2.QueryRetrieveLevel = 'STUDY'
+        ds_pr_get2.PatientID = clean_pid
+        get_datasets.append((ds_pr_get2, PatientRootQueryRetrieveInformationModelGet))
+
+    if clean_pid:
+        ds_pr_get3 = Dataset()
+        ds_pr_get3.QueryRetrieveLevel = 'PATIENT'
+        ds_pr_get3.PatientID = clean_pid
+        get_datasets.append((ds_pr_get3, PatientRootQueryRetrieveInformationModelGet))
 
     for query_ds, get_sop_class in get_datasets:
         if saved_files_count[0] > 0 or (is_cancelled_callback and is_cancelled_callback()):
