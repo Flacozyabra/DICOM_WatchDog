@@ -323,6 +323,8 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     ds_patient.PatientID = patient_id
     query_datasets.append((ds_patient, PatientRootQueryRetrieveInformationModelMove))
 
+    last_error_details = []
+
     # Пробуем варианты C-MOVE
     for query_ds, move_sop_class in query_datasets:
         if saved_files_count[0] > 0 or (is_cancelled_callback and is_cancelled_callback()):
@@ -338,19 +340,33 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
                         except Exception:
                             pass
                         break
-                    if status and progress_callback:
-                        completed = getattr(status, 'NumberOfCompletedSuboperations', 0)
-                        remaining = getattr(status, 'NumberOfRemainingSuboperations', 0)
-                        failed = getattr(status, 'NumberOfFailedSuboperations', 0)
-                        completed_val = completed.value if hasattr(completed, 'value') else int(completed or 0)
-                        remaining_val = remaining.value if hasattr(remaining, 'value') else int(remaining or 0)
-                        failed_val = failed.value if hasattr(failed, 'value') else int(failed or 0)
-                        total_val = completed_val + remaining_val + failed_val
-                        if total_val > 0:
-                            progress_callback(completed_val, total_val)
+                    if status:
+                        st_code = getattr(status, 'Status', None)
+                        if st_code is not None and st_code not in (0x0000, 0xFF00, 0xFF01):
+                            hex_st = f"0x{st_code:04X}"
+                            if st_code == 0xA801:
+                                last_error_details.append(f"Код {hex_st} (AET '{calling_aet}' не прописан в базе назначения C-MOVE сервера PACS)")
+                            elif st_code in (0xA701, 0xA702):
+                                last_error_details.append(f"Код {hex_st} (PACS отказал в C-STORE)")
+                            elif st_code == 0xA900:
+                                last_error_details.append(f"Код {hex_st} (Неверный формат параметров C-MOVE)")
+                            else:
+                                last_error_details.append(f"Код {hex_st}")
+                        if progress_callback:
+                            completed = getattr(status, 'NumberOfCompletedSuboperations', 0)
+                            remaining = getattr(status, 'NumberOfRemainingSuboperations', 0)
+                            failed = getattr(status, 'NumberOfFailedSuboperations', 0)
+                            completed_val = completed.value if hasattr(completed, 'value') else int(completed or 0)
+                            remaining_val = remaining.value if hasattr(remaining, 'value') else int(remaining or 0)
+                            failed_val = failed.value if hasattr(failed, 'value') else int(failed or 0)
+                            total_val = completed_val + remaining_val + failed_val
+                            if total_val > 0:
+                                progress_callback(completed_val, total_val)
                 assoc_move.release()
-        except Exception:
-            pass
+            else:
+                last_error_details.append("PACS отклонил C-MOVE ассоциацию")
+        except Exception as e:
+            last_error_details.append(f"Ошибка C-MOVE: {e}")
 
     for srv in scp_servers:
         try:
@@ -401,19 +417,26 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
                         except Exception:
                             pass
                         break
-                    if status and progress_callback:
-                        completed = getattr(status, 'NumberOfCompletedSuboperations', 0)
-                        remaining = getattr(status, 'NumberOfRemainingSuboperations', 0)
-                        failed = getattr(status, 'NumberOfFailedSuboperations', 0)
-                        completed_val = completed.value if hasattr(completed, 'value') else int(completed or 0)
-                        remaining_val = remaining.value if hasattr(remaining, 'value') else int(remaining or 0)
-                        failed_val = failed.value if hasattr(failed, 'value') else int(failed or 0)
-                        total_val = completed_val + remaining_val + failed_val
-                        if total_val > 0:
-                            progress_callback(completed_val, total_val)
+                    if status:
+                        st_code = getattr(status, 'Status', None)
+                        if st_code is not None and st_code not in (0x0000, 0xFF00, 0xFF01):
+                            hex_st = f"0x{st_code:04X}"
+                            last_error_details.append(f"C-GET Код {hex_st}")
+                        if progress_callback:
+                            completed = getattr(status, 'NumberOfCompletedSuboperations', 0)
+                            remaining = getattr(status, 'NumberOfRemainingSuboperations', 0)
+                            failed = getattr(status, 'NumberOfFailedSuboperations', 0)
+                            completed_val = completed.value if hasattr(completed, 'value') else int(completed or 0)
+                            remaining_val = remaining.value if hasattr(remaining, 'value') else int(remaining or 0)
+                            failed_val = failed.value if hasattr(failed, 'value') else int(failed or 0)
+                            total_val = completed_val + remaining_val + failed_val
+                            if total_val > 0:
+                                progress_callback(completed_val, total_val)
                 assoc_get.release()
-        except Exception:
-            pass
+            else:
+                last_error_details.append("PACS отклонил C-GET ассоциацию")
+        except Exception as e:
+            last_error_details.append(f"Ошибка C-GET: {e}")
 
     if is_cancelled_callback and is_cancelled_callback():
         if created_patient_dir[0] and os.path.exists(created_patient_dir[0]):
@@ -423,5 +446,6 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     if saved_files_count[0] > 0:
         return True, tr_log("log_pacs_download_success", patient_id)
 
-    return False, f"Ошибка скачивания: Сервер PACS ({pacs_ip}:{pacs_port}) вернул 0 файлов. Проверьте регистрацию AET '{calling_aet}' на сервере PACS и разрешение на передачу C-MOVE/C-GET."
+    err_reason = "; ".join(list(dict.fromkeys(last_error_details))) if last_error_details else "Сервер не передал файлы"
+    return False, f"Ошибка скачивания: Сервер PACS ({pacs_ip}:{pacs_port}) вернул 0 файлов.\nДетали: {err_reason}.\nПроверьте регистрацию AET '{calling_aet}' на сервере PACS."
 
