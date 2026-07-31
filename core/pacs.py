@@ -202,103 +202,28 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
     if len(called_aet) > 16:
         return False, tr_ui("ping_aet_remote_too_long", called_aet)
 
-    import io
-    import logging
-
-    log_stream = io.StringIO()
-    log_handler = logging.StreamHandler(log_stream)
-    log_handler.setLevel(logging.INFO)
-
-    pynetdicom_logger = logging.getLogger('pynetdicom')
-    orig_level = pynetdicom_logger.level
-    pynetdicom_logger.setLevel(logging.INFO)
-    pynetdicom_logger.addHandler(log_handler)
-
     ae = AE()
     ae.ae_title = calling_aet
     ae.connection_timeout = 5
     ae.network_timeout = 5
     ae.acse_timeout = 5
     ae.dimse_timeout = 5
-    ae.add_requested_context('1.2.840.10008.1.1')  # C-ECHO
-    ae.add_requested_context('1.2.840.10008.5.1.4.1.2.1.1')  # C-FIND Patient Root
-    ae.add_requested_context('1.2.840.10008.5.1.4.1.2.2.1')  # C-FIND Study Root
+    ae.add_requested_context('1.2.840.10008.1.1')  # C-ECHO ONLY
 
-    assoc = None
     try:
         assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet)
-        log_output = log_stream.getvalue()
-
         if assoc.is_established:
-            # 1. Пробуем C-ECHO
-            try:
-                echo_status = assoc.send_c_echo()
-                if echo_status and hasattr(echo_status, 'Status') and echo_status.Status == 0x0000:
-                    assoc.release()
-                    pynetdicom_logger.removeHandler(log_handler)
-                    pynetdicom_logger.setLevel(orig_level)
-                    return True, tr_ui("ping_success")
-            except Exception:
-                pass
-
-            # 2. Если C-ECHO отклонен сервером, проверяем C-FIND
-            from pydicom.dataset import Dataset
-            ds = Dataset()
-            ds.QueryRetrieveLevel = 'STUDY'
-            ds.PatientID = '*'
-            try:
-                responses = list(assoc.send_c_find(ds, '1.2.840.10008.5.1.4.1.2.1.1'))
-                if responses:
-                    assoc.release()
-                    pynetdicom_logger.removeHandler(log_handler)
-                    pynetdicom_logger.setLevel(orig_level)
-                    return True, tr_ui("ping_success")
-            except Exception:
-                pass
-
+            status = assoc.send_c_echo()
             assoc.release()
-            pynetdicom_logger.removeHandler(log_handler)
-            pynetdicom_logger.setLevel(orig_level)
-            return True, tr_ui("ping_success")
+            if status and hasattr(status, 'Status') and status.Status == 0x0000:
+                return True, tr_ui("ping_success")
+            else:
+                st_hex = f"0x{status.Status:04X}" if status and hasattr(status, 'Status') else "N/A"
+                return False, f"PACS сервер вернул статус {st_hex} на C-ECHO."
         else:
-            pynetdicom_logger.removeHandler(log_handler)
-            pynetdicom_logger.setLevel(orig_level)
-
-            if "timed out" in log_output or "timeout" in log_output or "Connection timed out" in log_output:
-                return False, tr_ui("ping_timeout", pacs_ip, pacs_port)
-            elif "Connection refused" in log_output or "refused" in log_output:
-                return False, tr_ui("ping_refused", pacs_ip, pacs_port, pacs_port)
-            elif "Calling AE title not recognised" in log_output or "Calling AE Title Not Recognized" in log_output:
-                import socket
-                local_ip = "N/A"
-                try:
-                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                    s.connect((pacs_ip, pacs_port))
-                    local_ip = s.getsockname()[0]
-                    s.close()
-                except Exception:
-                    pass
-                return False, tr_ui("ping_calling_not_recognized", calling_aet, local_ip, calling_aet)
-            elif "Called AE title not recognised" in log_output or "Called AE Title Not Recognized" in log_output:
-                return False, tr_ui("ping_called_not_recognized", called_aet)
-
-            reason_line = ""
-            for line in log_output.splitlines():
-                if "Reason:" in line:
-                    reason_line = line.split("Reason:")[-1].strip()
-                    break
-
-            if reason_line:
-                return False, tr_ui("ping_rejected_with_reason", reason_line)
-
-            return False, tr_ui("ping_generic_fail")
+            return False, f"PACS сервер ({pacs_ip}:{pacs_port}) отклонил DICOM-ассоциацию C-ECHO."
     except Exception as e:
-        try:
-            pynetdicom_logger.removeHandler(log_handler)
-            pynetdicom_logger.setLevel(orig_level)
-        except Exception:
-            pass
-        return False, tr_ui("ping_exception", str(e))
+        return False, f"Ошибка при подключении к PACS: {e}"
 
 
 def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, called_aet, calling_aet, progress_callback=None, is_cancelled_callback=None, local_port=11112, study_instance_uid=None):
@@ -389,67 +314,27 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     clean_pid = str(patient_id).strip() if patient_id else ""
     clean_uid = str(study_instance_uid).strip() if study_instance_uid else ""
 
-    # Получаем серии исследований для запроса на уровне SERIES
-    series_uids = []
-    try:
-        ae_find_series = AE()
-        ae_find_series.ae_title = calling_aet
-        ae_find_series.connection_timeout = 5
-        ae_find_series.network_timeout = 5
-        ae_find_series.acse_timeout = 5
-        ae_find_series.dimse_timeout = 5
-        ae_find_series.add_requested_context('1.2.840.10008.5.1.4.1.2.1.1')
-        ae_find_series.add_requested_context('1.2.840.10008.5.1.4.1.2.2.1')
-        
-        assoc_sf = ae_find_series.associate(pacs_ip, pacs_port, ae_title=called_aet)
-        if assoc_sf.is_established:
-            ds_sf = Dataset()
-            ds_sf.QueryRetrieveLevel = 'SERIES'
-            if clean_pid:
-                ds_sf.PatientID = clean_pid
-            if clean_uid:
-                ds_sf.StudyInstanceUID = clean_uid
-            ds_sf.SeriesInstanceUID = ''
-            
-            responses_sf = assoc_sf.send_c_find(ds_sf, '1.2.840.10008.5.1.4.1.2.1.1')
-            for (st_sf, id_sf) in responses_sf:
-                if st_sf and id_sf:
-                    s_uid = str(id_sf.get('SeriesInstanceUID', '')).strip()
-                    if s_uid and s_uid not in series_uids:
-                        series_uids.append(s_uid)
-            assoc_sf.release()
-    except Exception:
-        pass
+    safe_pid = "".join([c for c in clean_pid if c.isalnum() or c in (' ', '_', '-')]).strip() or "UNKNOWN"
+    p_dir = os.path.join(target_dir, safe_pid)
+
+    def count_downloaded_files():
+        if os.path.exists(p_dir):
+            return len([f for f in os.listdir(p_dir) if f.endswith('.dcm')])
+        return 0
+
+    initial_files = count_downloaded_files()
 
     # Создаем комбинации корректных DICOM datasets для C-MOVE
     query_datasets = []
 
-    # 1. SERIES Level C-MOVE (наиболее надежный для медицинских PACS)
-    for s_uid in series_uids:
-        ds_ser_sr = Dataset()
-        ds_ser_sr.QueryRetrieveLevel = 'SERIES'
-        if clean_uid:
-            ds_ser_sr.StudyInstanceUID = clean_uid
-        ds_ser_sr.SeriesInstanceUID = s_uid
-        query_datasets.append((ds_ser_sr, StudyRootQueryRetrieveInformationModelMove))
-
-        ds_ser_pr = Dataset()
-        ds_ser_pr.QueryRetrieveLevel = 'SERIES'
-        if clean_pid:
-            ds_ser_pr.PatientID = clean_pid
-        if clean_uid:
-            ds_ser_pr.StudyInstanceUID = clean_uid
-        ds_ser_pr.SeriesInstanceUID = s_uid
-        query_datasets.append((ds_ser_pr, PatientRootQueryRetrieveInformationModelMove))
-
-    # 2. Study Root C-MOVE на уровне STUDY
+    # 1. Study Root C-MOVE на уровне STUDY
     if clean_uid:
         ds_study_root = Dataset()
         ds_study_root.QueryRetrieveLevel = 'STUDY'
         ds_study_root.StudyInstanceUID = clean_uid
         query_datasets.append((ds_study_root, StudyRootQueryRetrieveInformationModelMove))
 
-    # 3. Patient Root C-MOVE на уровне STUDY по PatientID + StudyInstanceUID
+    # 2. Patient Root C-MOVE на уровне STUDY по PatientID + StudyInstanceUID
     if clean_pid and clean_uid:
         ds_pat_study = Dataset()
         ds_pat_study.QueryRetrieveLevel = 'STUDY'
@@ -457,25 +342,18 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
         ds_pat_study.StudyInstanceUID = clean_uid
         query_datasets.append((ds_pat_study, PatientRootQueryRetrieveInformationModelMove))
 
-    # 4. Patient Root C-MOVE на уровне STUDY только по PatientID
+    # 3. Patient Root C-MOVE на уровне STUDY только по PatientID
     if clean_pid:
         ds_pat_only = Dataset()
         ds_pat_only.QueryRetrieveLevel = 'STUDY'
         ds_pat_only.PatientID = clean_pid
         query_datasets.append((ds_pat_only, PatientRootQueryRetrieveInformationModelMove))
 
-    # 5. Patient Root C-MOVE на уровне PATIENT
-    if clean_pid:
-        ds_pat_level = Dataset()
-        ds_pat_level.QueryRetrieveLevel = 'PATIENT'
-        ds_pat_level.PatientID = clean_pid
-        query_datasets.append((ds_pat_level, PatientRootQueryRetrieveInformationModelMove))
-
     last_error_details = []
 
     # Пробуем варианты C-MOVE
     for query_ds, move_sop_class in query_datasets:
-        if saved_files_count[0] > 0 or (is_cancelled_callback and is_cancelled_callback()):
+        if (count_downloaded_files() > initial_files or count_downloaded_files() > 0) or (is_cancelled_callback and is_cancelled_callback()):
             break
         try:
             assoc_move = ae_move.associate(pacs_ip, pacs_port, ae_title=called_aet)
@@ -529,110 +407,7 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
             shutil.rmtree(created_patient_dir[0], ignore_errors=True)
         return False, "Скачивание отменено пользователем."
 
-    if saved_files_count[0] > 0:
-        return True, tr_log("log_pacs_download_success", patient_id)
-
-    # 3. Фолбэк на C-GET (на уровнях SERIES, STUDY и PATIENT)
-    ae_get = AE()
-    ae_get.ae_title = calling_aet
-    ae_get.connection_timeout = 5
-    ae_get.network_timeout = 5
-    ae_get.acse_timeout = 5
-    ae_get.dimse_timeout = 10
-    ae_get.add_requested_context(PatientRootQueryRetrieveInformationModelGet)
-    ae_get.add_requested_context(StudyRootQueryRetrieveInformationModelGet)
-
-    roles = []
-    for sop_class in storage_classes:
-        ae_get.add_requested_context(sop_class, ALL_TRANSFER_SYNTAXES)
-        roles.append(build_role(sop_class, scp_role=True))
-
-    get_datasets = []
-
-    # 1. SERIES level C-GET
-    for s_uid in series_uids:
-        ds_g_sr = Dataset()
-        ds_g_sr.QueryRetrieveLevel = 'SERIES'
-        if clean_uid:
-            ds_g_sr.StudyInstanceUID = clean_uid
-        ds_g_sr.SeriesInstanceUID = s_uid
-        get_datasets.append((ds_g_sr, StudyRootQueryRetrieveInformationModelGet))
-
-        ds_g_pr = Dataset()
-        ds_g_pr.QueryRetrieveLevel = 'SERIES'
-        if clean_pid:
-            ds_g_pr.PatientID = clean_pid
-        if clean_uid:
-            ds_g_pr.StudyInstanceUID = clean_uid
-        ds_g_pr.SeriesInstanceUID = s_uid
-        get_datasets.append((ds_g_pr, PatientRootQueryRetrieveInformationModelGet))
-
-    if clean_uid:
-        ds_sr_get = Dataset()
-        ds_sr_get.QueryRetrieveLevel = 'STUDY'
-        ds_sr_get.StudyInstanceUID = clean_uid
-        get_datasets.append((ds_sr_get, StudyRootQueryRetrieveInformationModelGet))
-
-    if clean_pid and clean_uid:
-        ds_pr_get1 = Dataset()
-        ds_pr_get1.QueryRetrieveLevel = 'STUDY'
-        ds_pr_get1.PatientID = clean_pid
-        ds_pr_get1.StudyInstanceUID = clean_uid
-        get_datasets.append((ds_pr_get1, PatientRootQueryRetrieveInformationModelGet))
-
-    if clean_pid:
-        ds_pr_get2 = Dataset()
-        ds_pr_get2.QueryRetrieveLevel = 'STUDY'
-        ds_pr_get2.PatientID = clean_pid
-        get_datasets.append((ds_pr_get2, PatientRootQueryRetrieveInformationModelGet))
-
-    if clean_pid:
-        ds_pr_get3 = Dataset()
-        ds_pr_get3.QueryRetrieveLevel = 'PATIENT'
-        ds_pr_get3.PatientID = clean_pid
-        get_datasets.append((ds_pr_get3, PatientRootQueryRetrieveInformationModelGet))
-
-    for query_ds, get_sop_class in get_datasets:
-        if saved_files_count[0] > 0 or (is_cancelled_callback and is_cancelled_callback()):
-            break
-        try:
-            assoc_get = ae_get.associate(pacs_ip, pacs_port, ae_title=called_aet, evt_handlers=handlers, ext_neg=roles)
-            if assoc_get.is_established:
-                responses = assoc_get.send_c_get(query_ds, get_sop_class)
-                for (status, identifier) in responses:
-                    if is_cancelled_callback and is_cancelled_callback():
-                        try:
-                            assoc_get.abort()
-                        except Exception:
-                            pass
-                        break
-                    if status:
-                        st_code = getattr(status, 'Status', None)
-                        if st_code is not None and st_code not in (0x0000, 0xFF00, 0xFF01):
-                            hex_st = f"0x{st_code:04X}"
-                            last_error_details.append(f"C-GET Код {hex_st}")
-                        if progress_callback:
-                            completed = getattr(status, 'NumberOfCompletedSuboperations', 0)
-                            remaining = getattr(status, 'NumberOfRemainingSuboperations', 0)
-                            failed = getattr(status, 'NumberOfFailedSuboperations', 0)
-                            completed_val = completed.value if hasattr(completed, 'value') else int(completed or 0)
-                            remaining_val = remaining.value if hasattr(remaining, 'value') else int(remaining or 0)
-                            failed_val = failed.value if hasattr(failed, 'value') else int(failed or 0)
-                            total_val = completed_val + remaining_val + failed_val
-                            if total_val > 0:
-                                progress_callback(completed_val, total_val)
-                assoc_get.release()
-            else:
-                last_error_details.append("PACS отклонил C-GET ассоциацию")
-        except Exception as e:
-            last_error_details.append(f"Ошибка C-GET: {e}")
-
-    if is_cancelled_callback and is_cancelled_callback():
-        if created_patient_dir[0] and os.path.exists(created_patient_dir[0]):
-            shutil.rmtree(created_patient_dir[0], ignore_errors=True)
-        return False, "Скачивание отменено пользователем."
-
-    if saved_files_count[0] > 0:
+    if count_downloaded_files() > initial_files or count_downloaded_files() > 0 or saved_files_count[0] > 0:
         return True, tr_log("log_pacs_download_success", patient_id)
 
     err_reason = "; ".join(list(dict.fromkeys(last_error_details))) if last_error_details else "Сервер не передал файлы"
