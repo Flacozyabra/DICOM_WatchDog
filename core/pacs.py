@@ -23,8 +23,8 @@ class BackgroundDicomServer:
             self.stop()
 
         from pynetdicom import AE, evt, ALL_TRANSFER_SYNTAXES
+        VerificationSOPClass = '1.2.840.10008.1.1'
         from pynetdicom.sop_class import (
-            VerificationSOPClass,
             CTImageStorage,
             MRImageStorage,
             RTStructureSetStorage,
