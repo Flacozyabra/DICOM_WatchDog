@@ -2667,6 +2667,7 @@ class MainWindow(QMainWindow):
                     self.pacs_table.insertRow(row_idx)
                     
                     id_item = QTableWidgetItem(str(patient_id))
+                    id_item.setData(Qt.ItemDataRole.UserRole, data.get('study_instance_uid', ''))
                     name_item = QTableWidgetItem(str(data['patient_name']))
                     modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
                     slices_item = QTableWidgetItem(str(data.get('slices', '0')))
@@ -2715,6 +2716,7 @@ class MainWindow(QMainWindow):
                 self.pacs_table.blockSignals(False)
                 self.pacs_table.setUpdatesEnabled(True)
 
+                self.pacs_data = display_dict.copy()
                 self.previous_pacs_data = display_dict.copy()
             else:
                 self.pacs_table.update_placeholder_visibility()
@@ -2852,8 +2854,9 @@ class MainWindow(QMainWindow):
             return
             
         row = selected_ranges[0].topRow()
-        patient_id = self.pacs_table.item(row, 0).text()
-        patient_name = self.pacs_table.item(row, 1).text()
+        id_item = self.pacs_table.item(row, 0)
+        patient_id = id_item.text() if id_item else ""
+        patient_name = self.pacs_table.item(row, 1).text() if self.pacs_table.item(row, 1) else ""
         
         ct_images_dir = self.config.get('ct_images_dir', '')
         if not ct_images_dir or not os.path.exists(ct_images_dir):
@@ -2874,9 +2877,12 @@ class MainWindow(QMainWindow):
         called_aet = self.config.get('pacs_called_aet', 'ANY-SCP')
         calling_aet = self.config.get('pacs_calling_aet', 'ECHOSCU')
         
-        study_instance_uid = None
-        if hasattr(self, 'pacs_data') and patient_id in self.pacs_data:
-            study_instance_uid = self.pacs_data[patient_id].get('study_instance_uid')
+        study_instance_uid = id_item.data(Qt.ItemDataRole.UserRole) if id_item else None
+        if not study_instance_uid:
+            if hasattr(self, 'previous_pacs_data') and patient_id in self.previous_pacs_data:
+                study_instance_uid = self.previous_pacs_data[patient_id].get('study_instance_uid')
+            elif hasattr(self, 'pacs_data') and patient_id in self.pacs_data:
+                study_instance_uid = self.pacs_data[patient_id].get('study_instance_uid')
 
         from ui.loading_dialog import LoadingProgressDialog
         self.download_progress_dialog = LoadingProgressDialog(
