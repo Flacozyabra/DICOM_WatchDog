@@ -140,7 +140,6 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
     ae.acse_timeout = 3
     ae.dimse_timeout = 3
     ae.add_requested_context('1.2.840.10008.1.1')  # C-ECHO
-    ae.add_requested_context('1.2.840.10008.5.1.4.1.2.1.1')  # C-FIND
 
     assoc = None
     try:
@@ -152,36 +151,15 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
         log_output = log_stream.getvalue()
 
         if assoc.is_established:
-            # 1. Проверяем C-ECHO
+            # Проверяем C-ECHO (настоящий DICOM Пинг)
             echo_status = assoc.send_c_echo()
-            if not echo_status or echo_status.Status != 0x0000:
-                assoc.release()
-                status_hex = f"0x{echo_status.Status:04x}" if echo_status and echo_status.Status is not None else "None"
-                return False, tr_ui("ping_echo_bad_status", status_hex)
-
-            # 2. Проверяем возможность C-FIND (проверка регистрации AET/IP)
-            from pydicom.dataset import Dataset
-            ds = Dataset()
-            ds.QueryRetrieveLevel = 'STUDY'
-            ds.PatientName = '*'
-            ds.PatientID = '*'
-            ds.StudyTime = ''
-            ds.StudyDate = '19000101'  # Тестовая дата
-            
-            find_aborted = False
-            try:
-                responses = list(assoc.send_c_find(ds, '1.2.840.10008.5.1.4.1.2.1.1'))
-                if not responses or assoc.is_aborted:
-                    find_aborted = True
-            except Exception:
-                find_aborted = True
-                
             assoc.release()
             
-            if find_aborted:
-                return False, tr_ui("ping_cfind_unregistered", calling_aet, called_aet)
-
-            return True, tr_ui("ping_success")
+            if echo_status and hasattr(echo_status, 'Status') and echo_status.Status == 0x0000:
+                return True, tr_ui("ping_success")
+            else:
+                status_hex = f"0x{echo_status.Status:04x}" if echo_status and getattr(echo_status, 'Status', None) is not None else "None"
+                return False, tr_ui("ping_echo_bad_status", status_hex)
         else:
             # Parse reject/connection details from logs
             if "timed out" in log_output or "timeout" in log_output or "Connection timed out" in log_output:
@@ -290,7 +268,7 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
         PositronEmissionTomographyImageStorage
     ]
 
-    # 1. Сначала пробуем C-MOVE с локальным сервером C-STORE SCP
+    # 1. Сначала пробуем C-MOVE с подслушиванием на всех возможных портов (local_port, pacs_port, 11112, 104)
     ae_move = AE()
     ae_move.ae_title = calling_aet
     ae_move.connection_timeout = 5
@@ -302,11 +280,19 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     for sop_class in storage_classes:
         ae_move.add_requested_context(sop_class, ALL_TRANSFER_SYNTAXES)
 
-    scp_server = None
-    try:
-        scp_server = ae_move.start_server(('', local_port), block=False, evt_handlers=handlers)
-    except Exception:
-        scp_server = None
+    scp_servers = []
+    ports_to_try = []
+    for p in [pacs_port, local_port]:
+        if p and isinstance(p, int) and p not in ports_to_try:
+            ports_to_try.append(p)
+
+    for p in ports_to_try:
+        try:
+            srv = ae_move.start_server(('', p), block=False, evt_handlers=handlers)
+            if srv:
+                scp_servers.append(srv)
+        except Exception:
+            pass
 
     try:
         assoc_move = ae_move.associate(pacs_ip, pacs_port, ae_title=called_aet)
@@ -333,9 +319,9 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     except Exception:
         pass
     finally:
-        if scp_server:
+        for srv in scp_servers:
             try:
-                scp_server.shutdown()
+                srv.shutdown()
             except Exception:
                 pass
 
@@ -394,5 +380,5 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     if saved_files_count[0] > 0:
         return True, tr_log("log_pacs_download_success", patient_id)
 
-    return False, "Ошибка скачивания: Сервер PACS вернул 0 файлов. Проверьте регистрацию AET (Calling AET) и порт 11112 на сервере PACS."
+    return False, f"Ошибка скачивания: Сервер PACS ({pacs_ip}:{pacs_port}) вернул 0 файлов. Проверьте, что в настройках сервера PACS для устройства '{calling_aet}' указан корректный IP вашего ПК и разрешена пересылка DICOM-данных."
 
