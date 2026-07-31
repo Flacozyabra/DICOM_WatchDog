@@ -397,13 +397,18 @@ class PacsDownloadWorker(QThread):
         self.pacs_port = pacs_port
         self.called_aet = called_aet
         self.calling_aet = calling_aet
+        self.is_cancelled = False
+
+    def cancel(self):
+        self.is_cancelled = True
 
     def run(self):
         success, msg = download_patient_from_pacs(
             self.patient_id, self.target_dir,
             self.pacs_ip, self.pacs_port,
             self.called_aet, self.calling_aet,
-            progress_callback=self.progress.emit
+            progress_callback=self.progress.emit,
+            is_cancelled_callback=lambda: self.is_cancelled
         )
         self.finished.emit(success, msg)
 
@@ -1198,7 +1203,7 @@ class MainWindow(QMainWindow):
         self.pacs_date_from.setDisplayFormat("dd.MM.yyyy")
         self.pacs_date_from.setDate(QDate.currentDate())
         self.pacs_date_from.setFixedHeight(30)
-        self.pacs_date_from.dateChanged.connect(lambda: self.fill_pacs_list(silent=True))
+        self.pacs_date_from.dateChanged.connect(lambda: self.fill_pacs_list(silent=False))
         
         self.lbl_to = QLabel("по:")
         self.lbl_to.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
@@ -1207,7 +1212,7 @@ class MainWindow(QMainWindow):
         self.pacs_date_to.setDisplayFormat("dd.MM.yyyy")
         self.pacs_date_to.setDate(QDate.currentDate())
         self.pacs_date_to.setFixedHeight(30)
-        self.pacs_date_to.dateChanged.connect(lambda: self.fill_pacs_list(silent=True))
+        self.pacs_date_to.dateChanged.connect(lambda: self.fill_pacs_list(silent=False))
         
         self.pacs_auto_scan_cb = ToggleSwitch(tr_ui("pacs_standby_mode"))
         self.pacs_auto_scan_cb.setChecked(self.config.get('auto_update_is', 'off').lower() == 'on')
@@ -2828,7 +2833,7 @@ class MainWindow(QMainWindow):
         self.pacs_date_to.setDate(QDate.currentDate())
         self.pacs_date_from.blockSignals(False)
         self.pacs_date_to.blockSignals(False)
-        self.fill_pacs_list(silent=True)
+        self.fill_pacs_list(silent=False)
 
     def pacs_set_3days(self):
         self.pacs_date_from.blockSignals(True)
@@ -2837,7 +2842,7 @@ class MainWindow(QMainWindow):
         self.pacs_date_to.setDate(QDate.currentDate())
         self.pacs_date_from.blockSignals(False)
         self.pacs_date_to.blockSignals(False)
-        self.fill_pacs_list(silent=True)
+        self.fill_pacs_list(silent=False)
 
     def send_to_ct_images_cmd(self):
         selected_ranges = self.pacs_table.selectedRanges()
@@ -2868,7 +2873,9 @@ class MainWindow(QMainWindow):
         calling_aet = self.config.get('pacs_calling_aet', 'ECHOSCU')
         
         from ui.loading_dialog import LoadingProgressDialog
-        self.download_progress_dialog = LoadingProgressDialog(self, title="Скачивание из PACS")
+        self.download_progress_dialog = LoadingProgressDialog(
+            self, title="Скачивание из PACS", show_cancel=True, on_cancel=self.cancel_pacs_download
+        )
         self.download_progress_dialog.label.setText("Подключение к PACS и запуск скачивания...")
         self.download_progress_dialog.show()
 
@@ -2878,6 +2885,11 @@ class MainWindow(QMainWindow):
         self.pacs_download_worker.finished.connect(self.on_pacs_download_finished)
         self.pacs_download_worker.progress.connect(self.on_pacs_download_progress)
         self.pacs_download_worker.start()
+
+    def cancel_pacs_download(self):
+        if hasattr(self, 'pacs_download_worker') and self.pacs_download_worker:
+            self.pacs_download_worker.cancel()
+            log_message(self.output_field, "Запрос на отмену скачивания отправлен...")
 
     def on_pacs_download_progress(self, completed, total):
         if hasattr(self, 'download_progress_dialog') and self.download_progress_dialog:

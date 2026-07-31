@@ -136,6 +136,9 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
     ae = AE()
     ae.ae_title = calling_aet
     ae.connection_timeout = 3
+    ae.network_timeout = 3
+    ae.acse_timeout = 3
+    ae.dimse_timeout = 3
     ae.add_requested_context('1.2.840.10008.1.1')  # C-ECHO
     ae.add_requested_context('1.2.840.10008.5.1.4.1.2.1.1')  # C-FIND
 
@@ -168,7 +171,7 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
             find_aborted = False
             try:
                 responses = list(assoc.send_c_find(ds, '1.2.840.10008.5.1.4.1.2.1.1'))
-                if not responses or not responses[0][0].keys() or assoc.is_aborted:
+                if not responses or assoc.is_aborted:
                     find_aborted = True
             except Exception:
                 find_aborted = True
@@ -219,7 +222,7 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
         return False, tr_ui("ping_exception", str(e))
 
 
-def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, called_aet, calling_aet, progress_callback=None):
+def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, called_aet, calling_aet, progress_callback=None, is_cancelled_callback=None, local_port=11112):
     if len(calling_aet) > 16:
         return False, tr_ui("ping_aet_local_too_long", calling_aet)
     if len(called_aet) > 16:
@@ -228,6 +231,7 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     from pydicom.dataset import Dataset
     from pynetdicom import AE, evt, build_role, ALL_TRANSFER_SYNTAXES
     from pynetdicom.sop_class import (
+        PatientRootQueryRetrieveInformationModelMove,
         PatientRootQueryRetrieveInformationModelGet,
         CTImageStorage,
         MRImageStorage,
@@ -236,29 +240,14 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
         PositronEmissionTomographyImageStorage
     )
     import os
+    import shutil
 
-    ae = AE()
-    ae.ae_title = calling_aet
-    ae.add_requested_context(PatientRootQueryRetrieveInformationModelGet)
-    
-    storage_classes = [
-        CTImageStorage,
-        MRImageStorage,
-        RTStructureSetStorage,
-        SecondaryCaptureImageStorage,
-        PositronEmissionTomographyImageStorage
-    ]
-    
-    roles = []
-    for sop_class in storage_classes:
-        ae.add_requested_context(sop_class, ALL_TRANSFER_SYNTAXES)
-        roles.append(build_role(sop_class, scp_role=True))
-        
-    ds = Dataset()
-    ds.QueryRetrieveLevel = 'PATIENT'
-    ds.PatientID = patient_id
-    
+    saved_files_count = [0]
+    created_patient_dir = [None]
+
     def handle_store(event, dest_dir):
+        if is_cancelled_callback and is_cancelled_callback():
+            return 0xFE00
         try:
             d_set = event.dataset
             d_set.file_meta = event.file_meta
@@ -270,9 +259,11 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
                 
             p_dir = os.path.join(dest_dir, safe_pid)
             os.makedirs(p_dir, exist_ok=True)
+            created_patient_dir[0] = p_dir
             
             file_path = os.path.join(p_dir, f"{d_set.SOPInstanceUID}.dcm")
             d_set.save_as(file_path, write_like_original=False)
+            saved_files_count[0] += 1
             return 0x0000
         except Exception as e:
             import traceback
@@ -284,28 +275,51 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
                     f.write(f"Error details: {str(e)}\n")
             except Exception:
                 pass
-            traceback.print_exc()
             return 0xC000
-            
+
     handlers = [(evt.EVT_C_STORE, handle_store, [target_dir])]
-    assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet, evt_handlers=handlers, ext_neg=roles)
-    
-    success = False
-    msg = ""
-    if assoc.is_established:
-        responses = assoc.send_c_get(ds, PatientRootQueryRetrieveInformationModelGet)
-        status_list = []
-        for (status, identifier) in responses:
-            if status:
-                status_list.append(status.Status)
-                try:
-                    with open(get_log_path(), "a", encoding="utf-8") as f:
-                        f.write(f"\n--- C-GET Status Response ({datetime.now()}) ---\n")
-                        f.write(str(status))
-                        f.write("\n")
-                except Exception:
-                    pass
-                if progress_callback:
+    ds = Dataset()
+    ds.QueryRetrieveLevel = 'PATIENT'
+    ds.PatientID = patient_id
+
+    storage_classes = [
+        CTImageStorage,
+        MRImageStorage,
+        RTStructureSetStorage,
+        SecondaryCaptureImageStorage,
+        PositronEmissionTomographyImageStorage
+    ]
+
+    # 1. Сначала пробуем C-MOVE с локальным сервером C-STORE SCP
+    ae_move = AE()
+    ae_move.ae_title = calling_aet
+    ae_move.connection_timeout = 5
+    ae_move.network_timeout = 5
+    ae_move.acse_timeout = 5
+    ae_move.dimse_timeout = 10
+    ae_move.add_requested_context(PatientRootQueryRetrieveInformationModelMove)
+
+    for sop_class in storage_classes:
+        ae_move.add_requested_context(sop_class, ALL_TRANSFER_SYNTAXES)
+
+    scp_server = None
+    try:
+        scp_server = ae_move.start_server(('', local_port), block=False, evt_handlers=handlers)
+    except Exception:
+        scp_server = None
+
+    try:
+        assoc_move = ae_move.associate(pacs_ip, pacs_port, ae_title=called_aet)
+        if assoc_move.is_established:
+            responses = assoc_move.send_c_move(ds, calling_aet, PatientRootQueryRetrieveInformationModelMove)
+            for (status, identifier) in responses:
+                if is_cancelled_callback and is_cancelled_callback():
+                    try:
+                        assoc_move.abort()
+                    except Exception:
+                        pass
+                    break
+                if status and progress_callback:
                     completed = getattr(status, 'NumberOfCompletedSuboperations', 0)
                     remaining = getattr(status, 'NumberOfRemainingSuboperations', 0)
                     failed = getattr(status, 'NumberOfFailedSuboperations', 0)
@@ -315,25 +329,70 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
                     total_val = completed_val + remaining_val + failed_val
                     if total_val > 0:
                         progress_callback(completed_val, total_val)
-        is_aborted_or_rejected = getattr(assoc, 'is_aborted', False) or getattr(assoc, 'is_rejected', False)
-        assoc.release()
-        
-        if is_aborted_or_rejected:
-            success = False
-            msg = tr_log("log_pacs_download_aborted", calling_aet)
-        elif status_list and (status_list[-1] == 0x0000 or status_list[-1] == 0xB000):
-            success = True
-            msg = tr_log("log_pacs_download_success", patient_id)
-        elif status_list and (0x0000 in status_list or 0xB000 in status_list):
-            success = True
-            msg = tr_log("log_pacs_download_success", patient_id)
-        else:
-            last_status = f"0x{status_list[-1]:04x}" if status_list else "unknown status"
-            success = False
-            msg = tr_log("log_pacs_download_server_error", last_status)
-    else:
-        success = False
-        msg = tr_log("log_pacs_download_no_connection")
-        
-    return success, msg
+            assoc_move.release()
+    except Exception:
+        pass
+    finally:
+        if scp_server:
+            try:
+                scp_server.shutdown()
+            except Exception:
+                pass
+
+    if is_cancelled_callback and is_cancelled_callback():
+        if created_patient_dir[0] and os.path.exists(created_patient_dir[0]):
+            shutil.rmtree(created_patient_dir[0], ignore_errors=True)
+        return False, "Скачивание отменено пользователем."
+
+    if saved_files_count[0] > 0:
+        return True, tr_log("log_pacs_download_success", patient_id)
+
+    # 2. Если C-MOVE не передал файлы, пробуем C-GET (фолбэк)
+    ae_get = AE()
+    ae_get.ae_title = calling_aet
+    ae_get.connection_timeout = 5
+    ae_get.network_timeout = 5
+    ae_get.acse_timeout = 5
+    ae_get.dimse_timeout = 10
+    ae_get.add_requested_context(PatientRootQueryRetrieveInformationModelGet)
+
+    roles = []
+    for sop_class in storage_classes:
+        ae_get.add_requested_context(sop_class, ALL_TRANSFER_SYNTAXES)
+        roles.append(build_role(sop_class, scp_role=True))
+
+    try:
+        assoc_get = ae_get.associate(pacs_ip, pacs_port, ae_title=called_aet, evt_handlers=handlers, ext_neg=roles)
+        if assoc_get.is_established:
+            responses = assoc_get.send_c_get(ds, PatientRootQueryRetrieveInformationModelGet)
+            for (status, identifier) in responses:
+                if is_cancelled_callback and is_cancelled_callback():
+                    try:
+                        assoc_get.abort()
+                    except Exception:
+                        pass
+                    break
+                if status and progress_callback:
+                    completed = getattr(status, 'NumberOfCompletedSuboperations', 0)
+                    remaining = getattr(status, 'NumberOfRemainingSuboperations', 0)
+                    failed = getattr(status, 'NumberOfFailedSuboperations', 0)
+                    completed_val = completed.value if hasattr(completed, 'value') else int(completed or 0)
+                    remaining_val = remaining.value if hasattr(remaining, 'value') else int(remaining or 0)
+                    failed_val = failed.value if hasattr(failed, 'value') else int(failed or 0)
+                    total_val = completed_val + remaining_val + failed_val
+                    if total_val > 0:
+                        progress_callback(completed_val, total_val)
+            assoc_get.release()
+    except Exception:
+        pass
+
+    if is_cancelled_callback and is_cancelled_callback():
+        if created_patient_dir[0] and os.path.exists(created_patient_dir[0]):
+            shutil.rmtree(created_patient_dir[0], ignore_errors=True)
+        return False, "Скачивание отменено пользователем."
+
+    if saved_files_count[0] > 0:
+        return True, tr_log("log_pacs_download_success", patient_id)
+
+    return False, "Ошибка скачивания: Сервер PACS вернул 0 файлов. Проверьте регистрацию AET (Calling AET) и порт 11112 на сервере PACS."
 

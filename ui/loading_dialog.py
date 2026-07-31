@@ -4,15 +4,19 @@ from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QProgressBar
 from core.locale_utils import tr_ui
 
 class LoadingProgressDialog(QDialog):
-    def __init__(self, parent=None, title=None):
+    def __init__(self, parent=None, title=None, show_cancel=False, on_cancel=None):
         super().__init__(parent)
         if title is None:
             title = tr_ui("loading_title_data")
         self.setWindowTitle(title)
         self.setMinimumWidth(400)
         self.setModal(True)
-        # Отключаем кнопку закрытия ("X"), чтобы пользователь не мог прервать заполнение
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowCloseButtonHint)
+        self.on_cancel_cb = on_cancel
+        self.is_cancelled = False
+
+        if not show_cancel:
+            # Отключаем кнопку закрытия ("X"), чтобы пользователь не мог прервать заполнение
+            self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowCloseButtonHint)
         
         # Темный режим заголовка для Windows
         if sys.platform == "win32":
@@ -62,9 +66,40 @@ class LoadingProgressDialog(QDialog):
             }
         """)
         layout.addWidget(self.progress)
+
+        if show_cancel:
+            from PyQt6.QtWidgets import QPushButton, QHBoxLayout
+            btn_layout = QHBoxLayout()
+            btn_layout.addStretch()
+            self.cancel_btn = QPushButton("Отмена")
+            self.cancel_btn.setFixedSize(100, 32)
+            self.cancel_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #3a3a3a;
+                    color: #ffffff;
+                    border: 1px solid #555555;
+                    border-radius: 4px;
+                    font-size: 13px;
+                }
+                QPushButton:hover {
+                    background-color: #4a4a4a;
+                }
+                QPushButton:pressed {
+                    background-color: #2a2a2a;
+                }
+            """)
+            self.cancel_btn.clicked.connect(self._handle_cancel)
+            btn_layout.addWidget(self.cancel_btn)
+            layout.addLayout(btn_layout)
         
         # Стили самого диалога (темный фон)
         self.setStyleSheet("QDialog { background-color: #202020; }")
+
+    def _handle_cancel(self):
+        self.is_cancelled = True
+        if self.on_cancel_cb:
+            self.on_cancel_cb()
+        self.reject()
         
     def set_progress(self, current, total):
         if total <= 0:
