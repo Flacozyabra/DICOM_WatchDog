@@ -865,7 +865,7 @@ class SettingsDialog(QDialog):
 
         # PACS Оповещения Windows
         self.pacs_toast_cb = ToggleSwitch()
-        self.pacs_toast_cb.setChecked(self.config.get('pacs_notification_toast_enabled', 'True').lower() == 'true')
+        self.pacs_toast_cb.setChecked(self.config.get('pacs_notification_toast_enabled', 'False').lower() == 'true')
         self.lbl_pacs_toast = QLabel()
         notifications_form.addRow(self.lbl_pacs_toast, self.pacs_toast_cb)
 

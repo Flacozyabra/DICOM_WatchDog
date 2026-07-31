@@ -903,14 +903,12 @@ class MainWindow(QMainWindow):
         # Наблюдатель файлов в реальном времени работает всегда
         self.update_watcher_path()
             
-        # Таймер PACS работает, если включено автообновление (Standby mode) или включены фоновые уведомления PACS
-        master_notif = str(self.config.get('notifications_enabled', 'False')).lower() == 'true'
-        pacs_toast = str(self.config.get('pacs_notification_toast_enabled', 'True')).lower() == 'true'
-        pacs_sound = str(self.config.get('pacs_notification_sound_enabled', 'False')).lower() == 'true'
-        pacs_notify_on = master_notif and (pacs_toast or pacs_sound)
+        # Таймер PACS работает только при включенном свиче автообновления (Standby mode)
         pacs_auto_scan_on = self.config.get('auto_update_is', 'off').lower() == 'on'
-        if pacs_auto_scan_on or pacs_notify_on:
+        if pacs_auto_scan_on:
             self.pacs_timer.start(self.config.get('pacs_scan_time', 10000))
+        else:
+            self.pacs_timer.stop()
 
     def update_pacs_controls_state(self):
         auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
@@ -1444,26 +1442,24 @@ class MainWindow(QMainWindow):
         if not hasattr(self, 'archive_table') or not hasattr(self, 'pacs_table') or not hasattr(self, 'images_table'):
             return
             
-        master_notif = str(self.config.get('notifications_enabled', 'False')).lower() == 'true'
-        pacs_toast = str(self.config.get('pacs_notification_toast_enabled', 'True')).lower() == 'true'
-        pacs_sound = str(self.config.get('pacs_notification_sound_enabled', 'False')).lower() == 'true'
-        pacs_notify_on = master_notif and (pacs_toast or pacs_sound)
         pacs_auto_scan_on = self.config.get('auto_update_is', 'off').lower() == 'on'
         if index == 0:  # CT images
-            if not pacs_notify_on and not pacs_auto_scan_on:
+            if not pacs_auto_scan_on:
                 self.pacs_timer.stop()
             self.show_patient_list()
             QTimer.singleShot(0, self.focus_ct_images_search)
         elif index == 1:  # CT archive
-            if not pacs_notify_on and not pacs_auto_scan_on:
+            if not pacs_auto_scan_on:
                 self.pacs_timer.stop()
             self.fill_archive_list()
             QTimer.singleShot(0, self.focus_ct_archive_search)
         elif index == 2:  # PACS
             self.fill_pacs_list()
-            # Запускаем таймер PACS только если включено автообновление или фоновые уведомления
-            if pacs_auto_scan_on or pacs_notify_on:
+            # Запускаем таймер PACS только если включено автообновление
+            if pacs_auto_scan_on:
                 self.pacs_timer.start(self.config.get('pacs_scan_time', 10000))
+            else:
+                self.pacs_timer.stop()
 
     def focus_ct_images_search(self):
         if hasattr(self, 'search_images_entry'):
@@ -2601,7 +2597,7 @@ class MainWindow(QMainWindow):
             
             # Фоновое уведомление о новых КТ в PACS
             master_enabled = str(self.config.get('notifications_enabled', 'False')).lower() == 'true'
-            pacs_toast_on = str(self.config.get('pacs_notification_toast_enabled', 'True')).lower() == 'true'
+            pacs_toast_on = str(self.config.get('pacs_notification_toast_enabled', 'False')).lower() == 'true'
             pacs_sound_on = str(self.config.get('pacs_notification_sound_enabled', 'False')).lower() == 'true'
             auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
             
