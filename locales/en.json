@@ -114,7 +114,7 @@
   "settings_pacs_voice_text_label": "PACS Voice Text:",
   "settings_pacs_voice_text_placeholder": "Default: Patient Name",
   "settings_dicom_scp_port_label": "DICOM SCP Server:",
-  "tooltip_dicom_scp_port": "Local port of the background DICOM SCP server on your computer. Used to answer connectivity polling (C-ECHO) from the PACS server and receive incoming images (C-STORE). Default: 11112.",
+  "tooltip_dicom_scp_port": "Local port of the background DICOM SCP server on your computer. Used to answer connectivity polling (C-ECHO) from the PACS server and receive incoming images (C-STORE).",
   "settings_tab_notifications": "Notifications",
   "settings_sound_default": "WatchDog",
   "settings_sound_chime": "Chime",

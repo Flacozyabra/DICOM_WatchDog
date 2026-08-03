@@ -114,7 +114,7 @@
   "settings_pacs_voice_text_label": "Текст голосового оповещения (PACS):",
   "settings_pacs_voice_text_placeholder": "По умолчанию: Имя пациента",
   "settings_dicom_scp_port_label": "DICOM SCP сервер:",
-  "tooltip_dicom_scp_port": "Локальный порт фонового DICOM сервера (SCP) на вашем компьютере. Используется для ответа на опрос связности (C-ECHO / Опросить) со стороны сервера PACS и приема снимков (C-STORE). По умолчанию: 11112.",
+  "tooltip_dicom_scp_port": "Локальный порт фонового DICOM сервера (SCP) на вашем компьютере. Используется для ответа на опрос связности (C-ECHO) со стороны сервера PACS и приема снимков (C-STORE).",
   "settings_tab_notifications": "Уведомления",
   "settings_sound_default": "WatchDog",
   "settings_sound_chime": "Перезвон (Chime)",
