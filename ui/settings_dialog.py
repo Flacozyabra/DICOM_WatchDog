@@ -6,7 +6,7 @@ from PyQt6.QtGui import QFont, QPixmap
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QLineEdit, QPushButton, QFileDialog, QFormLayout, 
                              QSpinBox, QDialogButtonBox, QMessageBox,
-                             QComboBox, QListWidget, QStackedWidget, QWidget, QFrame)
+                             QComboBox, QListWidget, QStackedWidget, QWidget, QFrame, QSlider)
 
 from ui.toggle_switch import ToggleSwitch
 from core.config_utils import get_config_path, get_app_data_dir, get_resource_path
