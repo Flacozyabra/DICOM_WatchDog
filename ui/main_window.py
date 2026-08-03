@@ -1188,6 +1188,8 @@ class MainWindow(QMainWindow):
         self.pacs_table.set_placeholder_text("Сканирование сервера PACS не настроено")
         self.pacs_table.update_placeholder_visibility()
         self.restore_table_state(self.pacs_table)
+        self.pacs_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.pacs_table.customContextMenuRequested.connect(self.show_pacs_context_menu)
         self.pacs_table.itemSelectionChanged.connect(self.on_pacs_selection_changed)
         layout.addWidget(self.pacs_table)
         
@@ -2843,6 +2845,38 @@ class MainWindow(QMainWindow):
     def on_pacs_selection_changed(self):
         has_selection = len(self.pacs_table.selectedRanges()) > 0
         self.send_to_ct_btn.setEnabled(has_selection)
+
+    def show_pacs_context_menu(self, pos):
+        item = self.pacs_table.itemAt(pos)
+        if not item:
+            return
+        row = item.row()
+        self.pacs_table.selectRow(row)
+        
+        from PyQt6.QtWidgets import QMenu
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #1f1f1f;
+                color: #ffffff;
+                border: 1px solid #3d3d3d;
+                border-radius: 4px;
+                padding: 4px;
+                font-family: 'Segoe UI';
+                font-size: 13px;
+            }
+            QMenu::item {
+                padding: 6px 16px;
+                border-radius: 3px;
+            }
+            QMenu::item:selected {
+                background-color: #1f538d;
+                color: #ffffff;
+            }
+        """)
+        action_send = menu.addAction(tr_ui("btn_send_to_ct"))
+        action_send.triggered.connect(self.send_to_ct_images_cmd)
+        menu.exec(self.pacs_table.viewport().mapToGlobal(pos))
 
     def pacs_set_today(self):
         self.pacs_date_from.blockSignals(True)

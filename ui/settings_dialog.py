@@ -890,7 +890,7 @@ class SettingsDialog(QDialog):
         ct_vol_layout.addWidget(self.ct_volume_label_val)
         self.ct_volume_slider.valueChanged.connect(lambda v: self.ct_volume_label_val.setText(f"{v}%"))
         self.ct_volume_slider.sliderReleased.connect(lambda: self.play_sound_preview(self.ct_sound_combo))
-        self.lbl_ct_volume = QLabel()
+        self.lbl_ct_volume = QLabel(tr_ui("settings_ct_volume_label"))
         notifications_form.addRow(self.lbl_ct_volume, ct_vol_layout)
 
         # Текст голосового оповещения КТ
@@ -955,7 +955,7 @@ class SettingsDialog(QDialog):
         pacs_vol_layout.addWidget(self.pacs_volume_label_val)
         self.pacs_volume_slider.valueChanged.connect(lambda v: self.pacs_volume_label_val.setText(f"{v}%"))
         self.pacs_volume_slider.sliderReleased.connect(lambda: self.play_sound_preview(self.pacs_sound_combo))
-        self.lbl_pacs_volume = QLabel()
+        self.lbl_pacs_volume = QLabel(tr_ui("settings_pacs_volume_label"))
         notifications_form.addRow(self.lbl_pacs_volume, pacs_vol_layout)
 
         # Текст голосового оповещения PACS
