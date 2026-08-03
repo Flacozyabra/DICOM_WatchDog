@@ -131,24 +131,24 @@ $speech.Volume = {vol_int}
 $speech.Speak('<silence msec="400"/><volume level="{vol_int}">{text_to_speak}</volume>', 8)
 Remove-Item $MyInvocation.MyCommand.Path -Force
 """
-            import tempfile
-            import subprocess
-            try:
-                fd, path = tempfile.mkstemp(suffix=".ps1", text=True)
-                with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
-                    f.write(ps_code)
-                subprocess.Popen(
-                    ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                )
-            except Exception as e:
+                import tempfile
+                import subprocess
                 try:
-                    from core.config_utils import get_log_path
-                    import datetime
-                    with open(get_log_path(), "a", encoding="utf-8") as f:
-                        f.write(f"[{datetime.datetime.now()}] TTS subprocess error: {e}\n")
-                except Exception:
-                    pass
+                    fd, path = tempfile.mkstemp(suffix=".ps1", text=True)
+                    with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
+                        f.write(ps_code)
+                    subprocess.Popen(
+                        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+                except Exception as e:
+                    try:
+                        from core.config_utils import get_log_path
+                        import datetime
+                        with open(get_log_path(), "a", encoding="utf-8") as f:
+                            f.write(f"[{datetime.datetime.now()}] TTS subprocess error: {e}\n")
+                    except Exception:
+                        pass
 
     # 2. Показываем всплывающее тост-уведомление PyQt
     if show_toast:
