@@ -8,7 +8,7 @@ from pprint import pprint
 
 from core.logger import log_message
 from core.config_utils import get_log_path
-from core.locale_utils import tr_log
+from core.locale_utils import tr_log, tr_ui
 
 
 class BackgroundDicomServer:
