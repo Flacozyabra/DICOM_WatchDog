@@ -66,6 +66,7 @@ class BackgroundDicomServer:
         ]
 
         ae = AE(ae_title=ae_title)
+        ae.require_called_aet = False
         ae.add_supported_context(VerificationSOPClass, ALL_TRANSFER_SYNTAXES)
         for sop in [CTImageStorage, MRImageStorage, RTStructureSetStorage, SecondaryCaptureImageStorage, PositronEmissionTomographyImageStorage]:
             ae.add_supported_context(sop, ALL_TRANSFER_SYNTAXES)
@@ -406,6 +407,80 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
         if created_patient_dir[0] and os.path.exists(created_patient_dir[0]):
             shutil.rmtree(created_patient_dir[0], ignore_errors=True)
         return False, "Скачивание отменено пользователем."
+
+    if count_downloaded_files() > initial_files or saved_files_count[0] > 0:
+        return True, tr_log("log_pacs_download_success", patient_id)
+
+    # 2. Фолбэк на C-GET если C-MOVE вернул 0 файлов (особенно актуально для Orthanc PACS)
+    from pynetdicom.sop_class import (
+        PatientRootQueryRetrieveInformationModelGet,
+        StudyRootQueryRetrieveInformationModelGet
+    )
+    from pynetdicom import build_role
+
+    ae_get = AE()
+    ae_get.ae_title = calling_aet
+    ae_get.connection_timeout = 5
+    ae_get.network_timeout = 5
+    ae_get.acse_timeout = 5
+    ae_get.dimse_timeout = 10
+    ae_get.add_requested_context(PatientRootQueryRetrieveInformationModelGet)
+    ae_get.add_requested_context(StudyRootQueryRetrieveInformationModelGet)
+
+    roles = []
+    for sop_class in storage_classes:
+        ae_get.add_requested_context(sop_class, ALL_TRANSFER_SYNTAXES)
+        roles.append(build_role(sop_class, scp_role=True))
+
+    get_datasets = []
+    if clean_uid:
+        ds_sr_get = Dataset()
+        ds_sr_get.QueryRetrieveLevel = 'STUDY'
+        ds_sr_get.StudyInstanceUID = clean_uid
+        get_datasets.append((ds_sr_get, StudyRootQueryRetrieveInformationModelGet))
+
+    if clean_pid and clean_uid:
+        ds_pr_get1 = Dataset()
+        ds_pr_get1.QueryRetrieveLevel = 'STUDY'
+        ds_pr_get1.PatientID = clean_pid
+        ds_pr_get1.StudyInstanceUID = clean_uid
+        get_datasets.append((ds_pr_get1, PatientRootQueryRetrieveInformationModelGet))
+
+    if clean_pid:
+        ds_pr_get2 = Dataset()
+        ds_pr_get2.QueryRetrieveLevel = 'STUDY'
+        ds_pr_get2.PatientID = clean_pid
+        get_datasets.append((ds_pr_get2, PatientRootQueryRetrieveInformationModelGet))
+
+    for query_ds, get_sop_class in get_datasets:
+        if count_downloaded_files() > initial_files or (is_cancelled_callback and is_cancelled_callback()):
+            break
+        try:
+            assoc_get = ae_get.associate(pacs_ip, pacs_port, ae_title=called_aet, evt_handlers=handlers, ext_neg=roles)
+            if assoc_get.is_established:
+                responses = assoc_get.send_c_get(query_ds, get_sop_class)
+                for (status, identifier) in responses:
+                    if is_cancelled_callback and is_cancelled_callback():
+                        try:
+                            assoc_get.abort()
+                        except Exception:
+                            pass
+                        break
+                    if status and progress_callback:
+                        completed = getattr(status, 'NumberOfCompletedSuboperations', 0)
+                        remaining = getattr(status, 'NumberOfRemainingSuboperations', 0)
+                        failed = getattr(status, 'NumberOfFailedSuboperations', 0)
+                        completed_val = completed.value if hasattr(completed, 'value') else int(completed or 0)
+                        remaining_val = remaining.value if hasattr(remaining, 'value') else int(remaining or 0)
+                        failed_val = failed.value if hasattr(failed, 'value') else int(failed or 0)
+                        total_val = completed_val + remaining_val + failed_val
+                        if total_val > 0:
+                            progress_callback(completed_val, total_val)
+                assoc_get.release()
+            else:
+                last_error_details.append("PACS отклонил C-GET ассоциацию")
+        except Exception as e:
+            last_error_details.append(f"Ошибка C-GET: {e}")
 
     if count_downloaded_files() > initial_files or count_downloaded_files() > 0 or saved_files_count[0] > 0:
         return True, tr_log("log_pacs_download_success", patient_id)
