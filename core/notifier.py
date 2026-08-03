@@ -4,7 +4,7 @@ import os
 _active_sound_effects = []
 
 
-def _play_wav(wav_path: str) -> None:
+def _play_wav(wav_path: str, volume: float = 1.0) -> None:
     if not wav_path or not os.path.exists(wav_path):
         return
     try:
@@ -19,7 +19,8 @@ def _play_wav(wav_path: str) -> None:
         if app is not None:
             effect = QSoundEffect()
             effect.setSource(QUrl.fromLocalFile(os.path.abspath(wav_path)))
-            effect.setVolume(1.0)
+            vol_clamp = max(0.0, min(1.0, float(volume)))
+            effect.setVolume(vol_clamp)
             global _active_sound_effects
             _active_sound_effects.append(effect)
             effect.playingChanged.connect(lambda: _active_sound_effects.remove(effect) if not effect.isPlaying() and effect in _active_sound_effects else None)
@@ -74,14 +75,15 @@ def show_notification(
     play_sound: bool = True,
     duration_setting: str = None,
     position_setting: str = None,
-    custom_voice_text: str = None
+    custom_voice_text: str = None,
+    volume: int = 100
 ) -> None:
     """Show a desktop notification using native Qt ToastNotification."""
     try:
         from core.config_utils import get_log_path
         import datetime
         with open(get_log_path(), "a", encoding="utf-8") as f:
-            f.write(f"[{datetime.datetime.now()}] show_notification called: title={title}, msg={msg}, sound_setting={sound_setting}, show_toast={show_toast}, play_sound={play_sound}, duration_setting={duration_setting}, position_setting={position_setting}, ico_path={ico_path}, custom_voice_text={custom_voice_text}\n")
+            f.write(f"[{datetime.datetime.now()}] show_notification called: title={title}, msg={msg}, sound_setting={sound_setting}, show_toast={show_toast}, play_sound={play_sound}, duration_setting={duration_setting}, position_setting={position_setting}, ico_path={ico_path}, custom_voice_text={custom_voice_text}, volume={volume}\n")
     except Exception:
         pass
 
@@ -94,10 +96,13 @@ def show_notification(
             'sound_pop': "src/notification_pop.wav",
             'sound_soft': "src/notification_soft.wav",
         }
+        vol_float = max(0.0, min(1.0, float(volume) / 100.0))
+        vol_int = max(0, min(100, int(volume)))
+
         if sound_setting in sound_map:
             from core.config_utils import get_resource_path
             wav_path = get_resource_path(sound_map[sound_setting])
-            _play_wav(wav_path)
+            _play_wav(wav_path, volume=vol_float)
         elif sound_setting and sound_setting != 'default' and sys.platform == "win32":
             # Озвучиваем кастомный текст или имя пациента через SAPI TTS
             raw_text = custom_voice_text.strip() if (custom_voice_text and custom_voice_text.strip()) else title
@@ -106,6 +111,7 @@ def show_notification(
             text_to_speak = text_to_speak.replace('"', '`"').replace("'", "''")
             ps_code = f"""
 $speech = New-Object -ComObject SAPI.SpVoice
+$speech.Volume = {vol_int}
 $voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq "{sound_setting}" }} | Select-Object -First 1
 if ($voice) {{
     $speech.Voice = $voice

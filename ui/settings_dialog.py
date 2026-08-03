@@ -842,6 +842,20 @@ class SettingsDialog(QDialog):
         self.lbl_ct_sound = QLabel()
         notifications_form.addRow(self.lbl_ct_sound, self.ct_sound_combo)
 
+        # Громкость уведомлений КТ
+        self.ct_volume_slider = QSlider(Qt.Orientation.Horizontal)
+        self.ct_volume_slider.setRange(0, 100)
+        ct_vol_val = int(self.config.get('ct_notification_volume', 100))
+        self.ct_volume_slider.setValue(ct_vol_val)
+        self.ct_volume_label_val = QLabel(f"{ct_vol_val}%")
+        self.ct_volume_label_val.setFixedWidth(40)
+        ct_vol_layout = QHBoxLayout()
+        ct_vol_layout.addWidget(self.ct_volume_slider)
+        ct_vol_layout.addWidget(self.ct_volume_label_val)
+        self.ct_volume_slider.valueChanged.connect(lambda v: self.ct_volume_label_val.setText(f"{v}%"))
+        self.lbl_ct_volume = QLabel()
+        notifications_form.addRow(self.lbl_ct_volume, ct_vol_layout)
+
         # Текст голосового оповещения КТ
         self.ct_voice_text_edit = QLineEdit(self.config.get('ct_voice_text', ''))
         self.lbl_ct_voice_text = QLabel()
@@ -890,6 +904,20 @@ class SettingsDialog(QDialog):
         self.lbl_pacs_sound = QLabel()
         notifications_form.addRow(self.lbl_pacs_sound, self.pacs_sound_combo)
 
+        # Громкость уведомлений PACS
+        self.pacs_volume_slider = QSlider(Qt.Orientation.Horizontal)
+        self.pacs_volume_slider.setRange(0, 100)
+        pacs_vol_val = int(self.config.get('pacs_notification_volume', 100))
+        self.pacs_volume_slider.setValue(pacs_vol_val)
+        self.pacs_volume_label_val = QLabel(f"{pacs_vol_val}%")
+        self.pacs_volume_label_val.setFixedWidth(40)
+        pacs_vol_layout = QHBoxLayout()
+        pacs_vol_layout.addWidget(self.pacs_volume_slider)
+        pacs_vol_layout.addWidget(self.pacs_volume_label_val)
+        self.pacs_volume_slider.valueChanged.connect(lambda v: self.pacs_volume_label_val.setText(f"{v}%"))
+        self.lbl_pacs_volume = QLabel()
+        notifications_form.addRow(self.lbl_pacs_volume, pacs_vol_layout)
+
         # Текст голосового оповещения PACS
         self.pacs_voice_text_edit = QLineEdit(self.config.get('pacs_voice_text', ''))
         self.lbl_pacs_voice_text = QLabel()
@@ -929,6 +957,9 @@ class SettingsDialog(QDialog):
             self.lbl_ct_sound_enabled.setEnabled(is_master_on)
             self.ct_sound_combo.setEnabled(ct_sound_on)
             self.lbl_ct_sound.setEnabled(ct_sound_on)
+            self.ct_volume_slider.setEnabled(ct_sound_on)
+            self.lbl_ct_volume.setEnabled(ct_sound_on)
+            self.ct_volume_label_val.setEnabled(ct_sound_on)
             self.ct_voice_text_edit.setEnabled(ct_sound_on)
             self.lbl_ct_voice_text.setEnabled(ct_sound_on)
 
@@ -944,6 +975,9 @@ class SettingsDialog(QDialog):
             self.lbl_pacs_sound_enabled.setEnabled(is_master_on)
             self.pacs_sound_combo.setEnabled(pacs_sound_on)
             self.lbl_pacs_sound.setEnabled(pacs_sound_on)
+            self.pacs_volume_slider.setEnabled(pacs_sound_on)
+            self.lbl_pacs_volume.setEnabled(pacs_sound_on)
+            self.pacs_volume_label_val.setEnabled(pacs_sound_on)
             self.pacs_voice_text_edit.setEnabled(pacs_sound_on)
             self.lbl_pacs_voice_text.setEnabled(pacs_sound_on)
 
@@ -1057,6 +1091,13 @@ class SettingsDialog(QDialog):
         self.pacs_calling_aet_edit.setMaxLength(16)
         self.lbl_pacs_calling_aet = QLabel()
         pacs_form.addRow(self.lbl_pacs_calling_aet, self.pacs_calling_aet_edit)
+        
+        # DICOM SCP Server (Local Port)
+        self.pacs_local_port_spin = QSpinBox()
+        self.pacs_local_port_spin.setRange(1, 65535)
+        self.pacs_local_port_spin.setValue(int(self.config.get('pacs_local_port', 11112)))
+        self.lbl_dicom_scp_port = QLabel()
+        pacs_form.addRow(self.lbl_dicom_scp_port, self.pacs_local_port_spin)
         
         pacs_layout.addLayout(pacs_form)
 
@@ -1235,6 +1276,7 @@ class SettingsDialog(QDialog):
         self.ct_toast_position_combo.currentIndexChanged.connect(self.on_setting_changed)
         self.ct_sound_cb.toggled.connect(self.on_setting_changed)
         self.ct_sound_combo.currentIndexChanged.connect(self.on_setting_changed)
+        self.ct_volume_slider.valueChanged.connect(self.on_setting_changed)
         self.ct_voice_text_edit.textChanged.connect(self.on_setting_changed)
         self.highlighting_cb.toggled.connect(self.on_highlighting_toggled)
         self.highlight_new_cb.toggled.connect(self.on_setting_changed)
@@ -1246,6 +1288,7 @@ class SettingsDialog(QDialog):
         self.pacs_toast_position_combo.currentIndexChanged.connect(self.on_setting_changed)
         self.pacs_sound_cb.toggled.connect(self.on_setting_changed)
         self.pacs_sound_combo.currentIndexChanged.connect(self.on_setting_changed)
+        self.pacs_volume_slider.valueChanged.connect(self.on_setting_changed)
         self.pacs_voice_text_edit.textChanged.connect(self.on_setting_changed)
         self.check_updates_cb.toggled.connect(self.on_setting_changed)
         self.cleanup_str_cb.toggled.connect(self.on_setting_changed)
@@ -1258,6 +1301,7 @@ class SettingsDialog(QDialog):
         self.archive_cleanup_days_spin.valueChanged.connect(self.on_setting_changed)
         self.pacs_ip_edit.textChanged.connect(self.on_setting_changed)
         self.pacs_port_spin.valueChanged.connect(self.on_setting_changed)
+        self.pacs_local_port_spin.valueChanged.connect(self.on_setting_changed)
         self.pacs_called_aet_edit.textChanged.connect(self.on_setting_changed)
         self.pacs_calling_aet_edit.textChanged.connect(self.on_setting_changed)
 
@@ -1295,13 +1339,16 @@ class SettingsDialog(QDialog):
         self.config['ct_toast_position'] = self.ct_toast_position_combo.currentData()
         self.config['ct_notification_sound_enabled'] = 'True' if self.ct_sound_cb.isChecked() else 'False'
         self.config['ct_notification_sound'] = self.ct_sound_combo.currentData()
+        self.config['ct_notification_volume'] = self.ct_volume_slider.value()
         self.config['ct_voice_text'] = self.ct_voice_text_edit.text()
         self.config['pacs_notification_toast_enabled'] = 'True' if self.pacs_toast_cb.isChecked() else 'False'
         self.config['pacs_toast_duration'] = self.pacs_toast_duration_combo.currentData()
         self.config['pacs_toast_position'] = self.pacs_toast_position_combo.currentData()
         self.config['pacs_notification_sound_enabled'] = 'True' if self.pacs_sound_cb.isChecked() else 'False'
         self.config['pacs_notification_sound'] = self.pacs_sound_combo.currentData()
+        self.config['pacs_notification_volume'] = self.pacs_volume_slider.value()
         self.config['pacs_voice_text'] = self.pacs_voice_text_edit.text()
+        self.config['pacs_local_port'] = self.pacs_local_port_spin.value()
         self.config['check_updates_at_startup'] = 'on' if self.check_updates_cb.isChecked() else 'off'
         self.config['auto_update_is'] = self.config.get('auto_update_is', 'off')
         self.config['cleanup_structures_enabled'] = 'True' if self.cleanup_str_cb.isChecked() else 'False'
@@ -1360,6 +1407,15 @@ class SettingsDialog(QDialog):
         if not sound_setting:
             return
 
+        vol = 100
+        if combo == getattr(self, 'ct_sound_combo', None):
+            vol = self.ct_volume_slider.value()
+        elif combo == getattr(self, 'pacs_sound_combo', None):
+            vol = self.pacs_volume_slider.value()
+
+        vol_float = max(0.0, min(1.0, float(vol) / 100.0))
+        vol_int = max(0, min(100, int(vol)))
+
         sound_map = {
             'default': "src/notification.wav",
             'sound_chime': "src/notification_chime.wav",
@@ -1371,7 +1427,7 @@ class SettingsDialog(QDialog):
             from core.config_utils import get_resource_path
             from core.notifier import _play_wav
             wav_path = get_resource_path(sound_map[sound_setting])
-            _play_wav(wav_path)
+            _play_wav(wav_path, volume=vol_float)
         elif sys.platform == "win32":
             lang = self.config.get('interface_lang', 'en')
             default_text = "Проверка звука" if lang == "ru" else "Sound check"
@@ -1386,6 +1442,7 @@ class SettingsDialog(QDialog):
             text_to_speak = text_to_speak.replace('"', '`"').replace("'", "''")
             ps_code = f"""
 $speech = New-Object -ComObject SAPI.SpVoice
+$speech.Volume = {vol_int}
 $voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq "{sound_setting}" }} | Select-Object -First 1
 if ($voice) {{
     $speech.Voice = $voice

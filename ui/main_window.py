@@ -639,10 +639,11 @@ class MainWindow(QMainWindow):
         # Инициализируем наблюдатель за файловой системой
         self.init_file_watcher()
 
-        # Запускаем фоновый DICOM SCP сервер на порту 11112 для ответа на опрос (C-ECHO) сервера PACS
+        # Запускаем фоновый DICOM SCP сервер для ответа на опрос (C-ECHO) сервера PACS и приема C-STORE
+        pacs_local_port = int(self.config.get('pacs_local_port', 11112))
         calling_aet = self.config.get('pacs_calling_aet', 'DW_GAMMA')
         ct_dir = self.config.get('ct_images_dir', '')
-        start_background_pacs_server(port=11112, ae_title=calling_aet, target_dir=ct_dir)
+        start_background_pacs_server(port=pacs_local_port, ae_title=calling_aet, target_dir=ct_dir)
         
         self.init_ui()
         self.apply_theme()
@@ -1651,7 +1652,8 @@ class MainWindow(QMainWindow):
                             play_sound=ct_sound_on,
                             duration_setting=self.config.get('ct_toast_duration', self.config.get('toast_duration', '5')),
                             position_setting=self.config.get('ct_toast_position', self.config.get('toast_position', 'bottom_right')),
-                            custom_voice_text=self.config.get('ct_voice_text', '')
+                            custom_voice_text=self.config.get('ct_voice_text', ''),
+                            volume=int(self.config.get('ct_notification_volume', 100))
                         )
 
         self.images_cache = patient_dict
@@ -2646,7 +2648,8 @@ class MainWindow(QMainWindow):
                                     play_sound=pacs_sound_on,
                                     duration_setting=self.config.get('pacs_toast_duration', self.config.get('toast_duration', '5')),
                                     position_setting=self.config.get('pacs_toast_position', self.config.get('toast_position', 'bottom_right')),
-                                    custom_voice_text=self.config.get('pacs_voice_text', '')
+                                    custom_voice_text=self.config.get('pacs_voice_text', ''),
+                                    volume=int(self.config.get('pacs_notification_volume', 100))
                                 )
 
                     if new_patients:
@@ -2773,9 +2776,10 @@ class MainWindow(QMainWindow):
             self.populate_pacs_server_combo()
             
             # Перезапускаем фоновый DICOM сервер с новыми настройками
+            pacs_local_port = int(self.config.get('pacs_local_port', 11112))
             calling_aet = self.config.get('pacs_calling_aet', 'DW_GAMMA')
             ct_dir = self.config.get('ct_images_dir', '')
-            start_background_pacs_server(port=11112, ae_title=calling_aet, target_dir=ct_dir)
+            start_background_pacs_server(port=pacs_local_port, ae_title=calling_aet, target_dir=ct_dir)
             
             # Обновляем шрифт лога
             font = QFont("Consolas", self.config.get('log_font_size', 12))
