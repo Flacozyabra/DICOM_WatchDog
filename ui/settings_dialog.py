@@ -1455,8 +1455,10 @@ class SettingsDialog(QDialog):
         elif combo == getattr(self, 'pacs_sound_combo', None):
             vol = self.pacs_volume_slider.value()
 
-        vol_float = max(0.0, min(1.0, float(vol) / 100.0))
-        vol_int = max(0, min(100, int(vol)))
+        from core.notifier import get_perceptual_volume
+        vol_float, vol_int = get_perceptual_volume(vol)
+        if vol_int <= 0:
+            return
 
         sound_map = {
             'default': "src/notification.wav",
@@ -1471,8 +1473,6 @@ class SettingsDialog(QDialog):
             wav_path = get_resource_path(sound_map[sound_setting])
             _play_wav(wav_path, volume=vol_float)
         elif sys.platform == "win32":
-            if vol_int <= 0:
-                return
             lang = self.config.get('interface_lang', 'en')
             default_text = "Проверка звука" if lang == "ru" else "Sound check"
             custom_text = ""

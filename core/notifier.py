@@ -65,6 +65,18 @@ def preprocess_tts_text(text: str) -> str:
     return text
 
 
+def get_perceptual_volume(volume_percent: int) -> tuple:
+    """Перевод линейных процентов слайдера (0..100) в логарифмическую кривую слуха человека."""
+    val = max(0.0, min(100.0, float(volume_percent)))
+    if val <= 0.0:
+        return 0.0, 0
+    ratio = val / 100.0
+    vol_float = ratio ** 2.5
+    vol_int = int(round((ratio ** 2.2) * 100.0))
+    vol_int = max(1, min(100, vol_int))
+    return vol_float, vol_int
+
+
 def show_notification(
     title: str,
     msg: str,
@@ -89,30 +101,29 @@ def show_notification(
 
     # 1. Воспроизводим звук/голос
     if play_sound:
-        sound_map = {
-            'default': "src/notification.wav",
-            'sound_chime': "src/notification_chime.wav",
-            'sound_ping': "src/notification_ping.wav",
-            'sound_pop': "src/notification_pop.wav",
-            'sound_soft': "src/notification_soft.wav",
-        }
-        vol_float = max(0.0, min(1.0, float(volume) / 100.0))
-        vol_int = max(0, min(100, int(volume)))
+        vol_float, vol_int = get_perceptual_volume(volume)
+        if vol_int <= 0:
+            pass
+        else:
+            sound_map = {
+                'default': "src/notification.wav",
+                'sound_chime': "src/notification_chime.wav",
+                'sound_ping': "src/notification_ping.wav",
+                'sound_pop': "src/notification_pop.wav",
+                'sound_soft': "src/notification_soft.wav",
+            }
 
-        if sound_setting in sound_map:
-            from core.config_utils import get_resource_path
-            wav_path = get_resource_path(sound_map[sound_setting])
-            _play_wav(wav_path, volume=vol_float)
-        elif sound_setting and sound_setting != 'default' and sys.platform == "win32":
-            vol_int = max(0, min(100, int(volume)))
-            if vol_int <= 0:
-                return
-            # Озвучиваем кастомный текст или имя пациента через SAPI TTS
-            raw_text = custom_voice_text.strip() if (custom_voice_text and custom_voice_text.strip()) else title
-            raw_text = raw_text.replace('{name}', title).replace('{patient}', title)
-            text_to_speak = preprocess_tts_text(raw_text)
-            text_to_speak = text_to_speak.replace('"', '`"').replace("'", "''")
-            ps_code = f"""
+            if sound_setting in sound_map:
+                from core.config_utils import get_resource_path
+                wav_path = get_resource_path(sound_map[sound_setting])
+                _play_wav(wav_path, volume=vol_float)
+            elif sound_setting and sound_setting != 'default' and sys.platform == "win32":
+                # Озвучиваем кастомный текст или имя пациента через SAPI TTS
+                raw_text = custom_voice_text.strip() if (custom_voice_text and custom_voice_text.strip()) else title
+                raw_text = raw_text.replace('{name}', title).replace('{patient}', title)
+                text_to_speak = preprocess_tts_text(raw_text)
+                text_to_speak = text_to_speak.replace('"', '`"').replace("'", "''")
+                ps_code = f"""
 $speech = New-Object -ComObject SAPI.SpVoice
 $voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq "{sound_setting}" }} | Select-Object -First 1
 if ($voice) {{
