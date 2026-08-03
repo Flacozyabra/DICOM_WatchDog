@@ -119,7 +119,7 @@ if ($voice) {{
     $speech.Voice = $voice
 }}
 $speech.Volume = {vol_int}
-$speech.Speak('<silence msec="400"/><volume level="{vol_int}">{text_to_speak}</volume>', 9)
+$speech.Speak('<silence msec="400"/><volume level="{vol_int}">{text_to_speak}</volume>', 8)
 Remove-Item $MyInvocation.MyCommand.Path -Force
 """
             import tempfile
