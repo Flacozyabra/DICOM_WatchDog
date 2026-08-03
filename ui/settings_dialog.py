@@ -1136,7 +1136,9 @@ class SettingsDialog(QDialog):
         self.pacs_local_port_spin = QSpinBox()
         self.pacs_local_port_spin.setRange(1, 65535)
         self.pacs_local_port_spin.setValue(int(self.config.get('pacs_local_port', 11112)))
-        self.lbl_dicom_scp_port = QLabel()
+        self.pacs_local_port_spin.setToolTip(tr_ui("tooltip_dicom_scp_port"))
+        self.lbl_dicom_scp_port = QLabel(tr_ui("settings_dicom_scp_port_label"))
+        self.lbl_dicom_scp_port.setToolTip(tr_ui("tooltip_dicom_scp_port"))
         pacs_form.addRow(self.lbl_dicom_scp_port, self.pacs_local_port_spin)
         
         pacs_layout.addLayout(pacs_form)
@@ -1469,6 +1471,8 @@ class SettingsDialog(QDialog):
             wav_path = get_resource_path(sound_map[sound_setting])
             _play_wav(wav_path, volume=vol_float)
         elif sys.platform == "win32":
+            if vol_int <= 0:
+                return
             lang = self.config.get('interface_lang', 'en')
             default_text = "Проверка звука" if lang == "ru" else "Sound check"
             custom_text = ""
@@ -1482,12 +1486,12 @@ class SettingsDialog(QDialog):
             text_to_speak = text_to_speak.replace('"', '`"').replace("'", "''")
             ps_code = f"""
 $speech = New-Object -ComObject SAPI.SpVoice
-$speech.Volume = {vol_int}
 $voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq "{sound_setting}" }} | Select-Object -First 1
 if ($voice) {{
     $speech.Voice = $voice
 }}
-$speech.Speak('<silence msec="400"/>{text_to_speak}', 8)
+$speech.Volume = {vol_int}
+$speech.Speak('<silence msec="400"/><volume level="{vol_int}">{text_to_speak}</volume>', 9)
 Remove-Item $MyInvocation.MyCommand.Path -Force
 """
             import tempfile
@@ -1739,6 +1743,9 @@ Copy-VoiceTokens $src $dst32
         self.lbl_pacs_ip.setText(tr_ui("settings_pacs_ip"))
         self.lbl_pacs_called_aet.setText(tr_ui("settings_pacs_called_aet"))
         self.lbl_pacs_calling_aet.setText(tr_ui("settings_pacs_calling_aet"))
+        self.lbl_dicom_scp_port.setText(tr_ui("settings_dicom_scp_port_label"))
+        self.lbl_dicom_scp_port.setToolTip(tr_ui("tooltip_dicom_scp_port"))
+        self.pacs_local_port_spin.setToolTip(tr_ui("tooltip_dicom_scp_port"))
         self.add_server_btn.setText(tr_ui("settings_btn_add"))
         self.del_server_btn.setText(tr_ui("settings_btn_del"))
         self.rename_server_btn.setText(tr_ui("settings_btn_rename"))

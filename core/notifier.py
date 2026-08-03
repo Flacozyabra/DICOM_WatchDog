@@ -104,6 +104,9 @@ def show_notification(
             wav_path = get_resource_path(sound_map[sound_setting])
             _play_wav(wav_path, volume=vol_float)
         elif sound_setting and sound_setting != 'default' and sys.platform == "win32":
+            vol_int = max(0, min(100, int(volume)))
+            if vol_int <= 0:
+                return
             # Озвучиваем кастомный текст или имя пациента через SAPI TTS
             raw_text = custom_voice_text.strip() if (custom_voice_text and custom_voice_text.strip()) else title
             raw_text = raw_text.replace('{name}', title).replace('{patient}', title)
@@ -111,12 +114,12 @@ def show_notification(
             text_to_speak = text_to_speak.replace('"', '`"').replace("'", "''")
             ps_code = f"""
 $speech = New-Object -ComObject SAPI.SpVoice
-$speech.Volume = {vol_int}
 $voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq "{sound_setting}" }} | Select-Object -First 1
 if ($voice) {{
     $speech.Voice = $voice
 }}
-$speech.Speak('<silence msec="400"/>{text_to_speak}', 8)
+$speech.Volume = {vol_int}
+$speech.Speak('<silence msec="400"/><volume level="{vol_int}">{text_to_speak}</volume>', 9)
 Remove-Item $MyInvocation.MyCommand.Path -Force
 """
             import tempfile
