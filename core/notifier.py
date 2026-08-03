@@ -66,14 +66,12 @@ def preprocess_tts_text(text: str) -> str:
 
 
 def get_perceptual_volume(volume_percent: int) -> tuple:
-    """Перевод линейных процентов слайдера (0..100) в сверхчувствительную логарифмическую кривую слуха (степень 3.5)."""
-    val = max(0.0, min(100.0, float(volume_percent)))
-    if val <= 0.0:
+    """Прямая линейная зависимость громкости (0..100) от значения ползунка."""
+    val = max(0, min(100, int(volume_percent)))
+    if val <= 0:
         return 0.0, 0
-    ratio = val / 100.0
-    vol_float = ratio ** 3.5
-    vol_int = int(round((ratio ** 3.5) * 100.0))
-    vol_int = max(1, min(100, vol_int))
+    vol_float = float(val) / 100.0
+    vol_int = val
     return vol_float, vol_int
 
 
