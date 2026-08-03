@@ -842,17 +842,54 @@ class SettingsDialog(QDialog):
         self.lbl_ct_sound = QLabel()
         notifications_form.addRow(self.lbl_ct_sound, self.ct_sound_combo)
 
+        slider_qss = """
+        QSlider::groove:horizontal {
+            border: 1px solid #3d3d3d;
+            height: 6px;
+            background: #1a1a1a;
+            margin: 0px;
+            border-radius: 3px;
+        }
+        QSlider::sub-page:horizontal {
+            background: #1f538d;
+            border-radius: 3px;
+        }
+        QSlider::add-page:horizontal {
+            background: #2b2b2b;
+            border-radius: 3px;
+        }
+        QSlider::handle:horizontal {
+            background: #3a8ee6;
+            border: 1px solid #1f538d;
+            width: 14px;
+            height: 14px;
+            margin: -4px 0;
+            border-radius: 7px;
+        }
+        QSlider::handle:horizontal:hover {
+            background: #52a5ff;
+            border: 1px solid #3a8ee6;
+        }
+        QSlider::handle:horizontal:disabled {
+            background: #444444;
+            border: 1px solid #333333;
+        }
+        """
+
         # Громкость уведомлений КТ
         self.ct_volume_slider = QSlider(Qt.Orientation.Horizontal)
+        self.ct_volume_slider.setStyleSheet(slider_qss)
         self.ct_volume_slider.setRange(0, 100)
         ct_vol_val = int(self.config.get('ct_notification_volume', 100))
         self.ct_volume_slider.setValue(ct_vol_val)
         self.ct_volume_label_val = QLabel(f"{ct_vol_val}%")
         self.ct_volume_label_val.setFixedWidth(40)
+        self.ct_volume_label_val.setStyleSheet("font-weight: bold; color: #3a8ee6;")
         ct_vol_layout = QHBoxLayout()
         ct_vol_layout.addWidget(self.ct_volume_slider)
         ct_vol_layout.addWidget(self.ct_volume_label_val)
         self.ct_volume_slider.valueChanged.connect(lambda v: self.ct_volume_label_val.setText(f"{v}%"))
+        self.ct_volume_slider.sliderReleased.connect(lambda: self.play_sound_preview(self.ct_sound_combo))
         self.lbl_ct_volume = QLabel()
         notifications_form.addRow(self.lbl_ct_volume, ct_vol_layout)
 
@@ -906,15 +943,18 @@ class SettingsDialog(QDialog):
 
         # Громкость уведомлений PACS
         self.pacs_volume_slider = QSlider(Qt.Orientation.Horizontal)
+        self.pacs_volume_slider.setStyleSheet(slider_qss)
         self.pacs_volume_slider.setRange(0, 100)
         pacs_vol_val = int(self.config.get('pacs_notification_volume', 100))
         self.pacs_volume_slider.setValue(pacs_vol_val)
         self.pacs_volume_label_val = QLabel(f"{pacs_vol_val}%")
         self.pacs_volume_label_val.setFixedWidth(40)
+        self.pacs_volume_label_val.setStyleSheet("font-weight: bold; color: #3a8ee6;")
         pacs_vol_layout = QHBoxLayout()
         pacs_vol_layout.addWidget(self.pacs_volume_slider)
         pacs_vol_layout.addWidget(self.pacs_volume_label_val)
         self.pacs_volume_slider.valueChanged.connect(lambda v: self.pacs_volume_label_val.setText(f"{v}%"))
+        self.pacs_volume_slider.sliderReleased.connect(lambda: self.play_sound_preview(self.pacs_sound_combo))
         self.lbl_pacs_volume = QLabel()
         notifications_form.addRow(self.lbl_pacs_volume, pacs_vol_layout)
 

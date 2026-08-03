@@ -17,7 +17,7 @@ def _play_wav(wav_path: str, volume: float = 1.0) -> None:
 
         app = QApplication.instance()
         if app is not None:
-            effect = QSoundEffect()
+            effect = QSoundEffect(parent=app)
             effect.setSource(QUrl.fromLocalFile(os.path.abspath(wav_path)))
             vol_clamp = max(0.0, min(1.0, float(volume)))
             effect.setVolume(vol_clamp)
