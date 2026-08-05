@@ -22,44 +22,69 @@ def get_voices_from_registry():
         (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Speech\Voices\Tokens"),
         (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Speech_OneCore\Voices\Tokens"),
         (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Speech\Voices\Tokens"),
-        (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Speech_OneCore\Voices\Tokens")
+        (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Speech_OneCore\Voices\Tokens"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Speech\Voices\TokenEnums"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Speech\Voices\TokenEnums"),
+        (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Speech\Voices\TokenEnums")
     ]
+    flags = [winreg.KEY_READ]
+    if hasattr(winreg, 'KEY_WOW64_32KEY'):
+        flags.append(winreg.KEY_READ | winreg.KEY_WOW64_32KEY)
+    if hasattr(winreg, 'KEY_WOW64_64KEY'):
+        flags.append(winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
+
     for root, rel_path in reg_paths:
-        try:
-            key = winreg.OpenKey(root, rel_path)
-            count = winreg.QueryInfoKey(key)[0]
-            for i in range(count):
-                token_name = winreg.EnumKey(key, i)
-                token_path = f"{rel_path}\\{token_name}"
-                name = None
-                try:
-                    attr_key = winreg.OpenKey(root, f"{token_path}\\Attributes")
-                    name, _ = winreg.QueryValueEx(attr_key, "Name")
-                    winreg.CloseKey(attr_key)
-                except Exception:
-                    pass
-                if not name:
+        for flag in flags:
+            try:
+                key = winreg.OpenKey(root, rel_path, 0, flag)
+                count = winreg.QueryInfoKey(key)[0]
+                for i in range(count):
+                    token_name = winreg.EnumKey(key, i)
+                    token_path = f"{rel_path}\\{token_name}"
+                    
+                    sub_tokens = [token_path]
                     try:
-                        t_key = winreg.OpenKey(root, token_path)
-                        name, _ = winreg.QueryValueEx(t_key, "")
-                        winreg.CloseKey(t_key)
+                        sub_k = winreg.OpenKey(root, token_path, 0, flag)
+                        sub_count = winreg.QueryInfoKey(sub_k)[0]
+                        for j in range(sub_count):
+                            child_name = winreg.EnumKey(sub_k, j)
+                            sub_tokens.append(f"{token_path}\\{child_name}")
+                        winreg.CloseKey(sub_k)
                     except Exception:
                         pass
-                if not name:
-                    try:
-                        t_key = winreg.OpenKey(root, token_path)
-                        name, _ = winreg.QueryValueEx(t_key, "419")
-                        winreg.CloseKey(t_key)
-                    except Exception:
-                        pass
-                if not name:
-                    name = token_name
-                if name and isinstance(name, str) and name.strip():
-                    voices.append(name.strip())
-            winreg.CloseKey(key)
-        except Exception:
-            pass
-    return voices
+
+                    for t_path in sub_tokens:
+                        name = None
+                        try:
+                            attr_key = winreg.OpenKey(root, f"{t_path}\\Attributes", 0, flag)
+                            name, _ = winreg.QueryValueEx(attr_key, "Name")
+                            winreg.CloseKey(attr_key)
+                        except Exception:
+                            pass
+                        if not name:
+                            try:
+                                t_key = winreg.OpenKey(root, t_path, 0, flag)
+                                name, _ = winreg.QueryValueEx(t_key, "")
+                                winreg.CloseKey(t_key)
+                            except Exception:
+                                pass
+                        if not name:
+                            try:
+                                t_key = winreg.OpenKey(root, t_path, 0, flag)
+                                name, _ = winreg.QueryValueEx(t_key, "419")
+                                winreg.CloseKey(t_key)
+                            except Exception:
+                                pass
+                        if not name and "TokenEnums" in rel_path:
+                            last_part = t_path.split("\\")[-1]
+                            if last_part and last_part not in ("RHVoice", "TokenEnums"):
+                                name = last_part
+                        if name and isinstance(name, str) and name.strip():
+                            voices.append(name.strip())
+                winreg.CloseKey(key)
+            except Exception:
+                pass
+    return list(dict.fromkeys(voices))
 
 
 def get_system_voices():
@@ -71,13 +96,13 @@ def get_system_voices():
     # 1. Быстрое и надёжное чтение всех голосов напрямую из реестра
     voices = get_voices_from_registry()
     
-    # 2. Дополнительное обогащение через PowerShell COM SpVoice (с ограничением по времени 3 сек)
+    # 2. Дополнительное обогащение через PowerShell COM SpVoice (с резервным таймаутом 8 сек)
     try:
         cmd = [
             "powershell", "-NoProfile", "-Command",
             "$speech = New-Object -ComObject SAPI.SpVoice; foreach ($v in $speech.GetVoices()) { $v.GetDescription() }"
         ]
-        raw_bytes = subprocess.check_output(cmd, creationflags=subprocess.CREATE_NO_WINDOW, timeout=3)
+        raw_bytes = subprocess.check_output(cmd, creationflags=subprocess.CREATE_NO_WINDOW, timeout=8)
         text = None
         for enc in ["utf-8", "cp1251", "cp866"]:
             try:
@@ -128,26 +153,30 @@ def find_matching_voice_index(combo, sound_name):
     if idx >= 0:
         return idx
         
-    # 2. Совпадение по очищенной/нормализованной строке
+    # 2. Совпадение по очищенной/нормализованной строке (с поддержкой alexandr/aleksandr)
     clean_target = sound_name.replace("Microsoft", "").replace("Desktop", "").replace("OneCore", "").replace("RHVoice", "").strip().lower()
+    clean_target_norm = clean_target.replace("alexandr", "aleksandr")
     for i in range(combo.count()):
         data = combo.itemData(i)
         if data and data not in ('default', 'sound_chime', 'sound_ping', 'sound_pop', 'sound_soft'):
             data_clean = data.replace("Microsoft", "").replace("Desktop", "").replace("OneCore", "").replace("RHVoice", "").strip().lower()
-            if clean_target == data_clean or clean_target in data_clean or data_clean in clean_target:
+            data_clean_norm = data_clean.replace("alexandr", "aleksandr")
+            if (clean_target == data_clean or clean_target in data_clean or data_clean in clean_target or
+                clean_target_norm == data_clean_norm or clean_target_norm in data_clean_norm or data_clean_norm in clean_target_norm):
                 return i
                 
     # 3. Совпадение по первому ключу (имени диктора)
-    words = [w for w in clean_target.replace("-", " ").replace("(", " ").replace(")", " ").split() if len(w) > 1]
+    words = [w for w in clean_target_norm.replace("-", " ").replace("(", " ").replace(")", " ").split() if len(w) > 1]
     if words:
         main_word = words[0]
         for i in range(combo.count()):
             data = combo.itemData(i)
             if data and data not in ('default', 'sound_chime', 'sound_ping', 'sound_pop', 'sound_soft'):
                 data_clean = data.replace("Microsoft", "").replace("Desktop", "").replace("OneCore", "").replace("RHVoice", "").strip().lower()
-                if main_word in data_clean:
+                data_clean_norm = data_clean.replace("alexandr", "aleksandr")
+                if main_word in data_clean_norm:
                     return i
-    return 0
+    return -1
 
 
 def are_onecore_voices_locked():
@@ -1441,7 +1470,14 @@ class SettingsDialog(QDialog):
         for voice in self.system_voices:
             combo.addItem(format_voice_name(voice), voice)
         idx = find_matching_voice_index(combo, current_val)
-        combo.setCurrentIndex(idx if idx >= 0 else 0)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+        elif current_val and current_val not in ('default', 'sound_chime', 'sound_ping', 'sound_pop', 'sound_soft'):
+            # Защита: сохраняем выбранный ранее голос, даже если он не вернулся из системы
+            combo.addItem(format_voice_name(current_val), current_val)
+            combo.setCurrentIndex(combo.count() - 1)
+        else:
+            combo.setCurrentIndex(0)
         combo.blockSignals(False)
 
     def play_sound_preview(self, combo):
@@ -1486,7 +1522,17 @@ class SettingsDialog(QDialog):
             text_to_speak = text_to_speak.replace('"', '`"').replace("'", "''")
             ps_code = f"""
 $speech = New-Object -ComObject SAPI.SpVoice
-$voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq "{sound_setting}" }} | Select-Object -First 1
+$targetName = "{sound_setting}"
+$voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq $targetName }} | Select-Object -First 1
+if (-not $voice) {{
+    $cleanTarget = $targetName.Replace("Microsoft", "").Replace("Desktop", "").Replace("OneCore", "").Replace("RHVoice", "").Trim().ToLower()
+    $cleanTargetNorm = $cleanTarget.Replace("alexandr", "aleksandr")
+    $voice = $speech.GetVoices() | Where-Object {{
+        $desc = $_.GetDescription().ToLower()
+        $descNorm = $desc.Replace("alexandr", "aleksandr")
+        $desc -like "*$cleanTarget*" -or $descNorm -like "*$cleanTargetNorm*" -or $cleanTargetNorm -like "*$descNorm*"
+    }} | Select-Object -First 1
+}}
 if ($voice) {{
     $speech.Voice = $voice
 }}

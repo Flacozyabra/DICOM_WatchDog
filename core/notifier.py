@@ -123,7 +123,17 @@ def show_notification(
                 text_to_speak = text_to_speak.replace('"', '`"').replace("'", "''")
                 ps_code = f"""
 $speech = New-Object -ComObject SAPI.SpVoice
-$voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq "{sound_setting}" }} | Select-Object -First 1
+$targetName = "{sound_setting}"
+$voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq $targetName }} | Select-Object -First 1
+if (-not $voice) {{
+    $cleanTarget = $targetName.Replace("Microsoft", "").Replace("Desktop", "").Replace("OneCore", "").Replace("RHVoice", "").Trim().ToLower()
+    $cleanTargetNorm = $cleanTarget.Replace("alexandr", "aleksandr")
+    $voice = $speech.GetVoices() | Where-Object {{
+        $desc = $_.GetDescription().ToLower()
+        $descNorm = $desc.Replace("alexandr", "aleksandr")
+        $desc -like "*$cleanTarget*" -or $descNorm -like "*$cleanTargetNorm*" -or $cleanTargetNorm -like "*$descNorm*"
+    }} | Select-Object -First 1
+}}
 if ($voice) {{
     $speech.Voice = $voice
 }}
