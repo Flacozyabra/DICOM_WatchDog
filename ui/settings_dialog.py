@@ -90,37 +90,71 @@ def get_voices_from_registry():
 def get_system_voices():
     import subprocess
     import sys
+    import tempfile
+    import os
     if sys.platform != "win32":
         return []
     
     # 1. Быстрое и надёжное чтение всех голосов напрямую из реестра
     voices = get_voices_from_registry()
     
-    # 2. Дополнительное обогащение через PowerShell COM SpVoice (с резервным таймаутом 8 сек)
+    # 2. Быстрое получение всех SAPI голосов через VBScript (cscript ~0.1 сек)
+    vbs_voices = []
     try:
-        cmd = [
-            "powershell", "-NoProfile", "-Command",
-            "$speech = New-Object -ComObject SAPI.SpVoice; foreach ($v in $speech.GetVoices()) { $v.GetDescription() }"
-        ]
-        raw_bytes = subprocess.check_output(cmd, creationflags=subprocess.CREATE_NO_WINDOW, timeout=8)
-        text = None
-        for enc in ["utf-8", "cp1251", "cp866"]:
-            try:
-                decoded = raw_bytes.decode(enc)
-                if decoded and decoded.strip():
-                    text = decoded
-                    break
-            except Exception:
-                pass
-        if not text:
-            text = raw_bytes.decode("utf-8", errors="replace")
+        vbs_code = """Set speech = CreateObject("SAPI.SpVoice")
+On Error Resume Next
+Set speech.AudioOutput = Nothing
+On Error GoTo 0
+For Each v In speech.GetVoices()
+    WScript.Echo v.GetDescription()
+Next
+"""
+        fd, path = tempfile.mkstemp(suffix=".vbs", text=True)
+        with os.fdopen(fd, "w", encoding="cp1251", errors="replace") as f:
+            f.write(vbs_code)
+        
+        res = subprocess.run(["cscript", "//NoLogo", path], capture_output=True, text=True, timeout=4)
+        try:
+            os.remove(path)
+        except Exception:
+            pass
             
-        for line in text.splitlines():
-            line_str = line.strip()
-            if line_str:
-                voices.append(line_str)
+        if res.returncode == 0 and res.stdout:
+            for line in res.stdout.splitlines():
+                line_str = line.strip()
+                if line_str:
+                    vbs_voices.append(line_str)
     except Exception as e:
-        print("PowerShell voice retrieval warning/timeout:", e)
+        print("VBScript voice retrieval warning:", e)
+
+    if vbs_voices:
+        voices.extend(vbs_voices)
+    else:
+        # Резервное обогащение через PowerShell COM SpVoice
+        try:
+            cmd = [
+                "powershell", "-NoProfile", "-Command",
+                "$speech = New-Object -ComObject SAPI.SpVoice; $speech.AudioOutput = $null; foreach ($v in $speech.GetVoices()) { $v.GetDescription() }"
+            ]
+            raw_bytes = subprocess.check_output(cmd, creationflags=subprocess.CREATE_NO_WINDOW, timeout=8)
+            text = None
+            for enc in ["utf-8", "cp1251", "cp866"]:
+                try:
+                    decoded = raw_bytes.decode(enc)
+                    if decoded and decoded.strip():
+                        text = decoded
+                        break
+                except Exception:
+                    pass
+            if not text:
+                text = raw_bytes.decode("utf-8", errors="replace")
+                
+            for line in text.splitlines():
+                line_str = line.strip()
+                if line_str:
+                    voices.append(line_str)
+        except Exception as e:
+            print("PowerShell voice retrieval warning/timeout:", e)
 
     seen_names = set()
     unique_voices = []
@@ -1516,42 +1550,10 @@ class SettingsDialog(QDialog):
                 custom_text = self.ct_voice_text_edit.text().strip()
             elif combo == self.pacs_sound_combo:
                 custom_text = self.pacs_voice_text_edit.text().strip()
-            from core.notifier import preprocess_tts_text
+            from core.notifier import preprocess_tts_text, speak_sapi_tts
             raw_text = custom_text if custom_text else default_text
             text_to_speak = preprocess_tts_text(raw_text)
-            text_to_speak = text_to_speak.replace('"', '`"').replace("'", "''")
-            ps_code = f"""
-$speech = New-Object -ComObject SAPI.SpVoice
-$targetName = "{sound_setting}"
-$voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq $targetName }} | Select-Object -First 1
-if (-not $voice) {{
-    $cleanTarget = $targetName.Replace("Microsoft", "").Replace("Desktop", "").Replace("OneCore", "").Replace("RHVoice", "").Trim().ToLower()
-    $cleanTargetNorm = $cleanTarget.Replace("alexandr", "aleksandr")
-    $voice = $speech.GetVoices() | Where-Object {{
-        $desc = $_.GetDescription().ToLower()
-        $descNorm = $desc.Replace("alexandr", "aleksandr")
-        $desc -like "*$cleanTarget*" -or $descNorm -like "*$cleanTargetNorm*" -or $cleanTargetNorm -like "*$descNorm*"
-    }} | Select-Object -First 1
-}}
-if ($voice) {{
-    $speech.Voice = $voice
-}}
-$speech.Volume = {vol_int}
-$speech.Speak('<silence msec="400"/><volume level="{vol_int}">{text_to_speak}</volume>', 8)
-Remove-Item $MyInvocation.MyCommand.Path -Force
-"""
-            import tempfile
-            import subprocess
-            try:
-                fd, path = tempfile.mkstemp(suffix=".ps1", text=True)
-                with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
-                    f.write(ps_code)
-                subprocess.Popen(
-                    ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                )
-            except Exception:
-                pass
+            speak_sapi_tts(sound_setting, text_to_speak, vol_int)
 
     def unlock_system_voices(self):
         import subprocess

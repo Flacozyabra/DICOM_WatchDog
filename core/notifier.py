@@ -111,18 +111,63 @@ def show_notification(
                 'sound_soft': "src/notification_soft.wav",
             }
 
-            if sound_setting in sound_map:
-                from core.config_utils import get_resource_path
-                wav_path = get_resource_path(sound_map[sound_setting])
-                _play_wav(wav_path, volume=vol_float)
-            elif sound_setting and sound_setting != 'default' and sys.platform == "win32":
-                # Озвучиваем кастомный текст или имя пациента через SAPI TTS
-                raw_text = custom_voice_text.strip() if (custom_voice_text and custom_voice_text.strip()) else title
-                raw_text = raw_text.replace('{name}', title).replace('{patient}', title)
-                text_to_speak = preprocess_tts_text(raw_text)
-                text_to_speak = text_to_speak.replace('"', '`"').replace("'", "''")
-                ps_code = f"""
+def speak_sapi_tts(sound_setting: str, text_to_speak: str, vol_int: int) -> None:
+    """Озвучивание текста через SAPI TTS (VBScript с автосбросом аудиовыхода + фолбэк на PowerShell)."""
+    if sys.platform != "win32" or not sound_setting or sound_setting == 'default':
+        return
+
+    import tempfile
+    import subprocess
+
+    vbs_text = text_to_speak.replace('"', '""')
+    vbs_code = f"""Set speech = CreateObject("SAPI.SpVoice")
+On Error Resume Next
+Set speech.AudioOutput = Nothing
+On Error GoTo 0
+targetName = "{sound_setting}"
+Set foundVoice = Nothing
+For Each v In speech.GetVoices()
+    If LCase(v.GetDescription()) = LCase(targetName) Then
+        Set foundVoice = v
+        Exit For
+    End If
+Next
+If foundVoice Is Nothing Then
+    targetNorm = Replace(LCase(targetName), "alexandr", "aleksandr")
+    For Each v In speech.GetVoices()
+        cleanDesc = Replace(Replace(Replace(Replace(LCase(v.GetDescription()), "microsoft", ""), "desktop", ""), "onecore", ""), "rhvoice", "")
+        cleanDesc = Trim(cleanDesc)
+        cleanDesc = Replace(cleanDesc, "alexandr", "aleksandr")
+        If InStr(cleanDesc, targetNorm) > 0 Or InStr(targetNorm, cleanDesc) > 0 Then
+            Set foundVoice = v
+            Exit For
+        End If
+    Next
+End If
+If Not foundVoice Is Nothing Then
+    Set speech.Voice = foundVoice
+End If
+speech.Volume = {vol_int}
+speech.Speak "<silence msec=""400""/><volume level=""{vol_int}"">{vbs_text}</volume>", 8
+"""
+    vbs_success = False
+    try:
+        fd, path = tempfile.mkstemp(suffix=".vbs", text=True)
+        with os.fdopen(fd, "w", encoding="cp1251", errors="replace") as f:
+            f.write(vbs_code)
+        subprocess.Popen(
+            ["cscript", "//NoLogo", path],
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        vbs_success = True
+    except Exception as e:
+        print("VBScript TTS launch warning:", e)
+
+    if not vbs_success:
+        ps_text = text_to_speak.replace('"', '`"').replace("'", "''")
+        ps_code = f"""
 $speech = New-Object -ComObject SAPI.SpVoice
+$speech.AudioOutput = $null
 $targetName = "{sound_setting}"
 $voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq $targetName }} | Select-Object -First 1
 if (-not $voice) {{
@@ -138,27 +183,54 @@ if ($voice) {{
     $speech.Voice = $voice
 }}
 $speech.Volume = {vol_int}
-$speech.Speak('<silence msec="400"/><volume level="{vol_int}">{text_to_speak}</volume>', 8)
+$speech.Speak('<silence msec="400"/><volume level="{vol_int}">{ps_text}</volume>', 8)
 Remove-Item $MyInvocation.MyCommand.Path -Force
 """
-                import tempfile
-                import subprocess
-                try:
-                    fd, path = tempfile.mkstemp(suffix=".ps1", text=True)
-                    with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
-                        f.write(ps_code)
-                    subprocess.Popen(
-                        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
-                        creationflags=subprocess.CREATE_NO_WINDOW
-                    )
-                except Exception as e:
-                    try:
-                        from core.config_utils import get_log_path
-                        import datetime
-                        with open(get_log_path(), "a", encoding="utf-8") as f:
-                            f.write(f"[{datetime.datetime.now()}] TTS subprocess error: {e}\n")
-                    except Exception:
-                        pass
+        try:
+            fd, path = tempfile.mkstemp(suffix=".ps1", text=True)
+            with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
+                f.write(ps_code)
+            subprocess.Popen(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+        except Exception as e:
+            try:
+                from core.config_utils import get_log_path
+                import datetime
+                with open(get_log_path(), "a", encoding="utf-8") as f:
+                    f.write(f"[{datetime.datetime.now()}] TTS subprocess error: {e}\n")
+            except Exception:
+                pass
+
+
+def show_notification(title: str, message: str, sound_setting: str = 'default', volume: int = 100,
+                      custom_voice_text: str = "", play_sound: bool = True, show_toast: bool = True,
+                      duration_setting: str = None, toast_position: str = None) -> None:
+    # 1. Воспроизводим звук/голос
+    if play_sound:
+        vol_float, vol_int = get_perceptual_volume(volume)
+        if vol_int <= 0:
+            pass
+        else:
+            sound_map = {
+                'default': "src/notification.wav",
+                'sound_chime': "src/notification_chime.wav",
+                'sound_ping': "src/notification_ping.wav",
+                'sound_pop': "src/notification_pop.wav",
+                'sound_soft': "src/notification_soft.wav",
+            }
+
+            if sound_setting in sound_map:
+                from core.config_utils import get_resource_path
+                wav_path = get_resource_path(sound_map[sound_setting])
+                _play_wav(wav_path, volume=vol_float)
+            elif sound_setting and sound_setting != 'default' and sys.platform == "win32":
+                # Озвучиваем кастомный текст или имя пациента через SAPI TTS
+                raw_text = custom_voice_text.strip() if (custom_voice_text and custom_voice_text.strip()) else title
+                raw_text = raw_text.replace('{name}', title).replace('{patient}', title)
+                text_to_speak = preprocess_tts_text(raw_text)
+                speak_sapi_tts(sound_setting, text_to_speak, vol_int)
 
     # 2. Показываем всплывающее тост-уведомление PyQt
     if show_toast:
