@@ -1614,10 +1614,11 @@ class MainWindow(QMainWindow):
 
     def on_scan_progress(self, current, total):
         if self.images_table.rowCount() == 0 and total > 0:
-            percent = int((current / total) * 100)
+            curr_capped = min(current, total)
+            percent = int((curr_capped / total) * 100)
             base_text = tr_ui("placeholder_scanning_folder")
             is_ru = (base_text == "Выполняется сканирование папки...")
-            suffix = f"{percent}% ({current} из {total})" if is_ru else f"{percent}% ({current} of {total})"
+            suffix = f"{percent}% ({curr_capped} из {total})" if is_ru else f"{percent}% ({curr_capped} of {total})"
             self.images_table.set_placeholder_state(f"{base_text} {suffix}", show_button=False)
             self.images_table.update_placeholder_visibility()
 
@@ -1644,19 +1645,21 @@ class MainWindow(QMainWindow):
             if 'patient_name' in data and 'study_datetime' in data and 'folder_datetime' in data and 'str' in data:
                 if not self.is_first_scan and patient_id not in existing_ids and patient_id not in self.restored_patient_ids:
                     if master_enabled and (ct_toast_on or ct_sound_on):
-                        show_notification(
-                            str(data['patient_name']), 
-                            'Новое КТ', 
-                            'short', 
-                            icon_path,
-                            self.config.get('ct_notification_sound', 'default'),
-                            show_toast=ct_toast_on,
-                            play_sound=ct_sound_on,
-                            duration_setting=self.config.get('ct_toast_duration', self.config.get('toast_duration', '5')),
-                            position_setting=self.config.get('ct_toast_position', self.config.get('toast_position', 'bottom_right')),
-                            custom_voice_text=self.config.get('ct_voice_text', ''),
-                            volume=int(self.config.get('ct_notification_volume', 100))
-                        )
+                        try:
+                            show_notification(
+                                title=str(data['patient_name']), 
+                                message='Новое КТ', 
+                                sound_setting=self.config.get('ct_notification_sound', 'default'),
+                                volume=int(self.config.get('ct_notification_volume', 100)),
+                                custom_voice_text=self.config.get('ct_voice_text', ''),
+                                play_sound=ct_sound_on,
+                                show_toast=ct_toast_on,
+                                duration_setting=self.config.get('ct_toast_duration', self.config.get('toast_duration', '5')),
+                                position_setting=self.config.get('ct_toast_position', self.config.get('toast_position', 'bottom_right')),
+                                icon_path=icon_path
+                            )
+                        except Exception as e:
+                            log_message(self.output_field, f"CT notification error: {e}")
 
         self.images_cache = patient_dict
         # Завершили первое сканирование
@@ -2640,19 +2643,21 @@ class MainWindow(QMainWindow):
                         if patient_id not in self.known_pacs_patient_ids:
                             new_patients[patient_id] = data
                             if master_enabled and (pacs_toast_on or pacs_sound_on):
-                                show_notification(
-                                    str(data['patient_name']),
-                                    'Новое КТ (PACS)',
-                                    'short',
-                                    icon_blue_path,
-                                    self.config.get('pacs_notification_sound', 'default'),
-                                    show_toast=pacs_toast_on,
-                                    play_sound=pacs_sound_on,
-                                    duration_setting=self.config.get('pacs_toast_duration', self.config.get('toast_duration', '5')),
-                                    position_setting=self.config.get('pacs_toast_position', self.config.get('toast_position', 'bottom_right')),
-                                    custom_voice_text=self.config.get('pacs_voice_text', ''),
-                                    volume=int(self.config.get('pacs_notification_volume', 100))
-                                )
+                                try:
+                                    show_notification(
+                                        title=str(data['patient_name']),
+                                        message='Новое КТ (PACS)',
+                                        sound_setting=self.config.get('pacs_notification_sound', 'default'),
+                                        volume=int(self.config.get('pacs_notification_volume', 100)),
+                                        custom_voice_text=self.config.get('pacs_voice_text', ''),
+                                        play_sound=pacs_sound_on,
+                                        show_toast=pacs_toast_on,
+                                        duration_setting=self.config.get('pacs_toast_duration', self.config.get('toast_duration', '5')),
+                                        position_setting=self.config.get('pacs_toast_position', self.config.get('toast_position', 'bottom_right')),
+                                        icon_path=icon_blue_path
+                                    )
+                                except Exception as e:
+                                    log_message(self.output_field, f"PACS notification error: {e}")
 
                     if new_patients:
                         self.known_pacs_patient_ids.update(new_patients.keys())

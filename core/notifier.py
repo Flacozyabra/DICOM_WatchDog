@@ -67,49 +67,16 @@ def preprocess_tts_text(text: str) -> str:
 
 def get_perceptual_volume(volume_percent: int) -> tuple:
     """Прямая линейная зависимость громкости (0..100) от значения ползунка."""
-    val = max(0, min(100, int(volume_percent)))
+    try:
+        val = max(0, min(100, int(volume_percent)))
+    except (ValueError, TypeError):
+        val = 100
     if val <= 0:
         return 0.0, 0
     vol_float = float(val) / 100.0
     vol_int = val
     return vol_float, vol_int
 
-
-def show_notification(
-    title: str,
-    msg: str,
-    durations: str,
-    ico_path: str,
-    sound_setting: str = 'default',
-    show_toast: bool = True,
-    play_sound: bool = True,
-    duration_setting: str = None,
-    position_setting: str = None,
-    custom_voice_text: str = None,
-    volume: int = 100
-) -> None:
-    """Show a desktop notification using native Qt ToastNotification."""
-    try:
-        from core.config_utils import get_log_path
-        import datetime
-        with open(get_log_path(), "a", encoding="utf-8") as f:
-            f.write(f"[{datetime.datetime.now()}] show_notification called: title={title}, msg={msg}, sound_setting={sound_setting}, show_toast={show_toast}, play_sound={play_sound}, duration_setting={duration_setting}, position_setting={position_setting}, ico_path={ico_path}, custom_voice_text={custom_voice_text}, volume={volume}\n")
-    except Exception:
-        pass
-
-    # 1. Воспроизводим звук/голос
-    if play_sound:
-        vol_float, vol_int = get_perceptual_volume(volume)
-        if vol_int <= 0:
-            pass
-        else:
-            sound_map = {
-                'default': "src/notification.wav",
-                'sound_chime': "src/notification_chime.wav",
-                'sound_ping': "src/notification_ping.wav",
-                'sound_pop': "src/notification_pop.wav",
-                'sound_soft': "src/notification_soft.wav",
-            }
 
 def speak_sapi_tts(sound_setting: str, text_to_speak: str, vol_int: int) -> None:
     """Озвучивание текста через SAPI TTS (VBScript с автосбросом аудиовыхода + фолбэк на PowerShell)."""
@@ -206,13 +173,11 @@ Remove-Item $MyInvocation.MyCommand.Path -Force
 
 def show_notification(title: str, message: str, sound_setting: str = 'default', volume: int = 100,
                       custom_voice_text: str = "", play_sound: bool = True, show_toast: bool = True,
-                      duration_setting: str = None, toast_position: str = None) -> None:
+                      duration_setting: str = None, position_setting: str = None, icon_path: str = None) -> None:
     # 1. Воспроизводим звук/голос
     if play_sound:
         vol_float, vol_int = get_perceptual_volume(volume)
-        if vol_int <= 0:
-            pass
-        else:
+        if vol_int > 0:
             sound_map = {
                 'default': "src/notification.wav",
                 'sound_chime': "src/notification_chime.wav",
@@ -250,7 +215,7 @@ def show_notification(title: str, message: str, sound_setting: str = 'default', 
                     duration_ms = 5000
 
             position = position_setting if position_setting is not None else cfg.get('toast_position', 'bottom_right')
-            show_qt_toast(title, msg, durations, ico_path, duration_ms=duration_ms, position=position)
+            show_qt_toast(title, message, 'short', icon_path, duration_ms=duration_ms, position=position)
         except Exception as e:
             try:
                 from core.config_utils import get_log_path

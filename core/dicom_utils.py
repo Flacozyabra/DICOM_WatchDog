@@ -83,11 +83,11 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
     processed = 0
 
     for root, dirs, files in os.walk(ct_images_dir):
-        # Track progress at the top level only
-        if os.path.dirname(root) == ct_images_dir or root == ct_images_dir:
+        # Track progress at top-level patient directories only
+        if os.path.dirname(root) == ct_images_dir:
             processed += 1
             if progress_callback and total_dirs > 0:
-                progress_callback(processed, total_dirs)
+                progress_callback(min(processed, total_dirs), total_dirs)
 
         dcm_candidates = [f for f in files if f.lower().endswith('.dcm')]
         if dcm_candidates:
@@ -100,15 +100,36 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
             try:
                 ds = pydicom.dcmread(os.path.join(root, file), stop_before_pixels=True)
                 rel_path = os.path.relpath(root, ct_images_dir).replace('\\', '/')
-                patient_data[rel_path]['patient_id'] = ds.PatientID
-                patient_data[rel_path]['patient_name'] = ds.PatientName
+                
+                patient_id = getattr(ds, 'PatientID', '') or str(ds.get('PatientID', ''))
+                patient_name = getattr(ds, 'PatientName', '') or str(ds.get('PatientName', ''))
+                if not patient_id:
+                    patient_id = os.path.basename(root)
+                if not patient_name:
+                    patient_name = os.path.basename(root)
+
+                patient_data[rel_path]['patient_id'] = str(patient_id)
+                patient_data[rel_path]['patient_name'] = str(patient_name)
                 patient_data[rel_path]['modality'] = str(ds.get('Modality', 'CT'))
                 patient_data[rel_path]['folder_name'] = rel_path
 
-                # учитываем два варианта записи времени исследования (с мкс и без)
-                date_time_string = ds.StudyDate + ds.StudyTime
-                format_string = '%Y%m%d%H%M%S' if '.' not in ds.StudyTime else '%Y%m%d%H%M%S.%f'
-                patient_data[rel_path]['study_datetime'] = datetime.strptime(date_time_string, format_string)
+                # Безопасный разбор времени исследования
+                study_date = str(ds.get('StudyDate', '')).strip()
+                study_time = str(ds.get('StudyTime', '')).strip()
+                folder_ctime = datetime.fromtimestamp(os.path.getctime(root))
+
+                study_dt = folder_ctime
+                if study_date:
+                    try:
+                        date_time_string = study_date + study_time
+                        study_dt = datetime.strptime(date_time_string[:14], '%Y%m%d%H%M%S')
+                    except Exception:
+                        try:
+                            study_dt = datetime.strptime(study_date, '%Y%m%d')
+                        except Exception:
+                            pass
+
+                patient_data[rel_path]['study_datetime'] = study_dt
 
                 # область сканирования (BodyPartExamined / StudyDescription / SeriesDescription)
                 body_part = ds.get('BodyPartExamined', '')
@@ -123,7 +144,7 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
                 patient_data[rel_path]['body_part'] = body_part_str
 
                 # время создания папки
-                patient_data[rel_path]['folder_datetime'] = datetime.fromtimestamp(os.path.getctime(root))
+                patient_data[rel_path]['folder_datetime'] = folder_ctime
                 # считаем количество файлов структур
                 str_files = [f for f in os.listdir(root) if is_structure_file(os.path.join(root, f))]
                 str_count = len(str_files)
