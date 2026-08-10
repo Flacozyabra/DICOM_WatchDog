@@ -113,7 +113,8 @@ Next
         with os.fdopen(fd, "w", encoding="cp1251", errors="replace") as f:
             f.write(vbs_code)
         
-        res = subprocess.run(["cscript", "//NoLogo", path], capture_output=True, text=True, timeout=4)
+        creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        res = subprocess.run(["cscript", "//NoLogo", path], capture_output=True, text=True, timeout=4, creationflags=creation_flags)
         try:
             os.remove(path)
         except Exception:
