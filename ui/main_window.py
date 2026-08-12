@@ -1793,9 +1793,8 @@ class MainWindow(QMainWindow):
 
                 # Родительская строка содержит имя и ID, остальные ячейки пустые
                 id_item = QTableWidgetItem(p_id_val)
-                # Сохраняем в UserRole родительскую папку
-                parent_key = os.path.dirname(studies[0][0])
-                id_item.setData(Qt.ItemDataRole.UserRole, parent_key)
+                # Для родительской строки сохраняем путь к самому свежему исследованию пациента
+                id_item.setData(Qt.ItemDataRole.UserRole, studies[0][0])
 
                 name_item = QTableWidgetItem(p_name)
                 modality_item = QTableWidgetItem("")
@@ -1896,7 +1895,14 @@ class MainWindow(QMainWindow):
     def open_current_folder_cmd(self, row, column):
         id_item = self.images_table.item(row, 0)
         patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
-        path = os.path.join(self.config.get('ct_images_dir', ''), patient_id)
+        if not patient_id or not str(patient_id).strip() or str(patient_id).strip() in ('.', '/', '\\'):
+            return
+        base_dir = self.config.get('ct_images_dir', '')
+        if not base_dir:
+            return
+        path = os.path.normpath(os.path.join(base_dir, patient_id))
+        if os.path.normcase(path) == os.path.normcase(os.path.normpath(base_dir)):
+            return
         if os.path.exists(path):
             try:
                 os.startfile(path)
@@ -2313,8 +2319,8 @@ class MainWindow(QMainWindow):
                 self.archive_table.insertRow(row_idx)
 
                 id_item = QTableWidgetItem(p_id_val)
-                parent_key = os.path.dirname(studies[0][0])
-                id_item.setData(Qt.ItemDataRole.UserRole, parent_key)
+                # Для родительской строки сохраняем путь к самому свежему исследованию пациента
+                id_item.setData(Qt.ItemDataRole.UserRole, studies[0][0])
 
                 name_item = QTableWidgetItem(p_name)
                 modality_item = QTableWidgetItem("")
@@ -2988,9 +2994,18 @@ class MainWindow(QMainWindow):
 
     def open_patient_folder(self, patient_id, is_archive=False):
         dir_key = 'archive_dir' if is_archive else 'ct_images_dir'
+        base_dir = self.config.get(dir_key, '')
+        if not base_dir or not os.path.exists(base_dir):
+            return
+        if not patient_id or not str(patient_id).strip() or str(patient_id).strip() in ('.', '/', '\\'):
+            return
         cache = self.archive_cache if is_archive else self.images_cache
         folder_name = cache[patient_id].get('folder_name', patient_id) if (cache and patient_id in cache) else patient_id
-        path = os.path.join(self.config.get(dir_key, ''), folder_name)
+        if not folder_name or not str(folder_name).strip() or str(folder_name).strip() in ('.', '/', '\\'):
+            return
+        path = os.path.normpath(os.path.join(base_dir, folder_name))
+        if os.path.normcase(path) == os.path.normcase(os.path.normpath(base_dir)):
+            return
         if os.path.exists(path):
             try:
                 os.startfile(path)
@@ -3011,10 +3026,24 @@ class MainWindow(QMainWindow):
 
     def open_viewer(self, patient_id, is_archive=False):
         dir_key = 'archive_dir' if is_archive else 'ct_images_dir'
+        base_dir = self.config.get(dir_key, '')
+        if not base_dir or not os.path.exists(base_dir):
+            log_message(self.output_field, tr_log("log_path_not_exist", base_dir))
+            return
+
+        if not patient_id or not str(patient_id).strip() or str(patient_id).strip() in ('.', '/', '\\'):
+            return
+
         cache = self.archive_cache if is_archive else self.images_cache
         folder_name = cache[patient_id].get('folder_name', patient_id) if (cache and patient_id in cache) else patient_id
-        patient_dir = os.path.join(self.config.get(dir_key, ''), folder_name)
-        
+        if not folder_name or not str(folder_name).strip() or str(folder_name).strip() in ('.', '/', '\\'):
+            return
+
+        patient_dir = os.path.normpath(os.path.join(base_dir, folder_name))
+        # Защита от открытия всего корневого каталога КТ/Архива
+        if os.path.normcase(patient_dir) == os.path.normcase(os.path.normpath(base_dir)):
+            return
+            
         if not os.path.exists(patient_dir):
             log_message(self.output_field, tr_log("log_path_not_exist", patient_dir))
             return
