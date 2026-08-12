@@ -71,7 +71,10 @@ class LoadingProgressDialog(QDialog):
             from PyQt6.QtWidgets import QPushButton, QHBoxLayout
             btn_layout = QHBoxLayout()
             btn_layout.addStretch()
-            self.cancel_btn = QPushButton("Отмена")
+            cancel_text = tr_ui("btn_cancel")
+            if cancel_text == "btn_cancel":
+                cancel_text = "Отмена"
+            self.cancel_btn = QPushButton(cancel_text)
             self.cancel_btn.setFixedSize(100, 32)
             self.cancel_btn.setStyleSheet("""
                 QPushButton {
@@ -95,10 +98,14 @@ class LoadingProgressDialog(QDialog):
         # Стили самого диалога (темный фон)
         self.setStyleSheet("QDialog { background-color: #202020; }")
 
+    def reject(self):
+        if not self.is_cancelled:
+            self.is_cancelled = True
+            if self.on_cancel_cb:
+                self.on_cancel_cb()
+        super().reject()
+
     def _handle_cancel(self):
-        self.is_cancelled = True
-        if self.on_cancel_cb:
-            self.on_cancel_cb()
         self.reject()
         
     def set_progress(self, current, total):

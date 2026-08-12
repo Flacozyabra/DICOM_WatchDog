@@ -118,6 +118,10 @@ class PatientSeriesLoaderWorker(QThread):
     def __init__(self, files: list[str]) -> None:
         super().__init__()
         self.files = files
+        self._is_cancelled = False
+
+    def cancel(self) -> None:
+        self._is_cancelled = True
 
     def run(self) -> None:
         try:
@@ -133,6 +137,8 @@ class PatientSeriesLoaderWorker(QThread):
             if os.path.exists(series_dir):
                 dir_contents = os.listdir(series_dir)
                 for f in dir_contents:
+                    if self._is_cancelled:
+                        return
                     f_path = os.path.join(series_dir, f)
                     if os.path.isfile(f_path):
                         if f.upper().startswith("STR"):
@@ -148,6 +154,8 @@ class PatientSeriesLoaderWorker(QThread):
             # 2. Обработка КТ файлов с передачей прогресса
             slices = []
             for idx, f in enumerate(self.files):
+                if self._is_cancelled:
+                    return
                 filename = os.path.basename(f)
                 if idx % 5 == 0 or idx == total_files - 1:
                     status = tr_ui("loading_dicom_files", idx + 1, total_files)
@@ -182,6 +190,9 @@ class PatientSeriesLoaderWorker(QThread):
                 except Exception:
                     pass
 
+            if self._is_cancelled:
+                return
+
             if not slices:
                 self.error_signal.emit("Серия не содержит корректных DICOM файлов.")
                 return
@@ -193,12 +204,17 @@ class PatientSeriesLoaderWorker(QThread):
             selected_struct_idx = -1
             parsed_structures = {}
             if struct_files:
+                if self._is_cancelled:
+                    return
                 struct_files.sort(key=lambda x: os.path.basename(x))
                 latest_file = max(struct_files, key=lambda x: os.path.getmtime(x))
                 selected_struct_idx = struct_files.index(latest_file) + 1
                 
                 self.progress_signal.emit(total_files, total_files, tr_ui("loading_rtstruct_data"))
                 parsed_structures = load_rtstruct(latest_file)
+
+            if self._is_cancelled:
+                return
 
             result = {
                 "struct_files": struct_files,
@@ -209,7 +225,8 @@ class PatientSeriesLoaderWorker(QThread):
             self.finished_signal.emit(result)
 
         except Exception as e:
-            self.error_signal.emit(str(e))
+            if not self._is_cancelled:
+                self.error_signal.emit(str(e))
 
 
 class StructureLoaderWorker(QThread):
@@ -1552,7 +1569,12 @@ class DicomViewerPanel(QWidget):
             self.loader_worker.wait()
 
         from ui.loading_dialog import LoadingProgressDialog
-        self.progress_dialog = LoadingProgressDialog(self, title=tr_ui("loading_viewer_title"))
+        self.progress_dialog = LoadingProgressDialog(
+            self,
+            title=tr_ui("loading_viewer_title"),
+            show_cancel=True,
+            on_cancel=self._on_cancel_load_series
+        )
         total_count = len(files) if files else 0
         self.progress_dialog.set_custom_progress(0, total_count, tr_ui("loading_dicom_files", 0, total_count))
 
@@ -1564,11 +1586,20 @@ class DicomViewerPanel(QWidget):
 
         self.progress_dialog.exec()
 
+    def _on_cancel_load_series(self) -> None:
+        if self.loader_worker is not None:
+            self.loader_worker.cancel()
+        self.is_loading = False
+        self.lbl_info.setText("Загрузка отменена.")
+
     def _on_load_progress(self, current: int, total: int, text: str) -> None:
         if self.progress_dialog:
             self.progress_dialog.set_custom_progress(current, total, text)
 
     def _on_series_loaded(self, result: dict) -> None:
+        if self.loader_worker and getattr(self.loader_worker, '_is_cancelled', False):
+            return
+
         if self.progress_dialog:
             self.progress_dialog.accept()
             self.progress_dialog = None
@@ -1613,6 +1644,9 @@ class DicomViewerPanel(QWidget):
         self.set_current_slice(0)
 
     def _on_series_load_error(self, error_msg: str) -> None:
+        if self.loader_worker and getattr(self.loader_worker, '_is_cancelled', False):
+            return
+
         if self.progress_dialog:
             self.progress_dialog.reject()
             self.progress_dialog = None
