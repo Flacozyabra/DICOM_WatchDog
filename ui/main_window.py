@@ -1703,9 +1703,12 @@ class MainWindow(QMainWindow):
                 continue
             
             patient_name = str(data.get('patient_name', '')).lower()
+            p_id = str(data.get('patient_id', patient_id)).lower()
             if search_text:
                 words = patient_name.replace('^', ' ').split()
-                if not (words and words[0].startswith(search_text)):
+                name_match = bool(words and words[0].startswith(search_text))
+                id_match = p_id.startswith(search_text)
+                if not (name_match or id_match):
                     continue
                 
             valid_patients[patient_id] = data
@@ -2227,9 +2230,12 @@ class MainWindow(QMainWindow):
                 continue
             
             patient_name = str(data.get('patient_name', '')).lower()
+            p_id = str(data.get('patient_id', patient_id)).lower()
             if search_text:
                 words = patient_name.replace('^', ' ').split()
-                if not (words and words[0].startswith(search_text)):
+                name_match = bool(words and words[0].startswith(search_text))
+                id_match = p_id.startswith(search_text)
+                if not (name_match or id_match):
                     continue
                 
             valid_items[patient_id] = data
@@ -2722,9 +2728,12 @@ class MainWindow(QMainWindow):
         filtered_items = {}
         for patient_id, data in display_dict.items():
             patient_name = str(data.get('patient_name', '')).lower()
+            p_id = str(data.get('patient_id', patient_id)).lower()
             if search_text:
                 words = patient_name.replace('^', ' ').split()
-                if not (words and words[0].startswith(search_text)):
+                name_match = bool(words and words[0].startswith(search_text))
+                id_match = p_id.startswith(search_text)
+                if not (name_match or id_match):
                     continue
             filtered_items[patient_id] = data
 
