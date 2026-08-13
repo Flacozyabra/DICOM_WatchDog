@@ -93,6 +93,7 @@ class LoadingProgressDialog(QDialog):
             """)
             self.cancel_btn.clicked.connect(self._handle_cancel)
             btn_layout.addWidget(self.cancel_btn)
+            btn_layout.addStretch()
             layout.addLayout(btn_layout)
         
         # Стили самого диалога (темный фон)
