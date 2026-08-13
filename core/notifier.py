@@ -92,7 +92,7 @@ def speak_sapi_tts(sound_setting: str, text_to_speak: str, vol_int: int) -> None
 $speech = New-Object -ComObject SAPI.SpVoice
 $targetName = "{sound_setting_escaped}"
 $targetLower = $targetName.ToLower()
-$targetNorm = $targetLower.Replace("alexandr", "aleksandr")
+$targetNorm = $targetLower.Replace("alexandr", "aleksandr").Replace("александр", "aleksandr").Replace("анна", "anna").Replace("елена", "elena").Replace("ирина", "irina").Replace("павел", "pavel")
 $targetClean = $targetNorm.Replace("microsoft", "").Replace("desktop", "").Replace("onecore", "").Replace("rhvoice", "").Trim()
 
 $voices = @($speech.GetVoices())
@@ -105,7 +105,7 @@ $voice = $voices | Where-Object {{
 # 2. Совпадение по очищенному имени
 if (-not $voice) {{
     $voice = $voices | Where-Object {{
-        $clean = $_.GetDescription().ToLower().Replace("microsoft", "").Replace("desktop", "").Replace("onecore", "").Replace("rhvoice", "").Trim().Replace("alexandr", "aleksandr")
+        $clean = $_.GetDescription().ToLower().Replace("microsoft", "").Replace("desktop", "").Replace("onecore", "").Replace("rhvoice", "").Trim().Replace("alexandr", "aleksandr").Replace("александр", "aleksandr").Replace("анна", "anna").Replace("елена", "elena").Replace("ирина", "irina").Replace("павел", "pavel")
         $clean -eq $targetClean -or $clean -eq $targetNorm
     }} | Select-Object -First 1
 }}
@@ -117,7 +117,7 @@ if (-not $voice) {{
         if ($desc -like "*microsoft anna*" -and $targetLower -notlike "*microsoft*") {{
             $false
         }} else {{
-            $clean = $desc.Replace("microsoft", "").Replace("desktop", "").Replace("onecore", "").Replace("rhvoice", "").Trim().Replace("alexandr", "aleksandr")
+            $clean = $desc.Replace("microsoft", "").Replace("desktop", "").Replace("onecore", "").Replace("rhvoice", "").Trim().Replace("alexandr", "aleksandr").Replace("александр", "aleksandr").Replace("анна", "anna").Replace("елена", "elena").Replace("ирина", "irina").Replace("павел", "pavel")
             $clean -like "*$targetClean*" -or $targetClean -like "*$clean*"
         }}
     }} | Select-Object -First 1

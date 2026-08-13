@@ -13,16 +13,39 @@ from core.config_utils import get_config_path, get_app_data_dir, get_resource_pa
 from core.locale_utils import tr_ui, set_current_langs
 
 
+def get_rhvoice_from_disk():
+    """Поиск установленных голосов RHVoice напрямую на диске."""
+    import os
+    voices = []
+    paths = [
+        r"C:\ProgramData\Olga Yakovleva\RHVoice\data\voices",
+        r"C:\ProgramData\rhvoice.org\RHVoice\data\voices",
+        r"C:\Program Files\RHVoice\data\voices",
+        r"C:\Program Files (x86)\RHVoice\data\voices",
+        r"C:\Program Files\rhvoice.org\RHVoice\data\voices",
+        r"C:\Program Files (x86)\rhvoice.org\RHVoice\data\voices",
+        os.path.expandvars(r"%APPDATA%\RHVoice\voices")
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            try:
+                for item in os.listdir(p):
+                    full = os.path.join(p, item)
+                    if os.path.isdir(full) and item.lower() not in ("languages", "dicts", "configs"):
+                        voices.append(item.capitalize())
+            except Exception:
+                pass
+    return list(dict.fromkeys(voices))
+
+
 def get_voices_from_registry():
-    """Чтение всех установленных голосов напрямую из реестра Windows (HKLM и HKCU)."""
+    """Чтение установленных голосов SAPI5 напрямую из реестра Windows (HKLM и HKCU)."""
     import winreg
     voices = []
     reg_paths = [
         (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Speech\Voices\Tokens"),
         (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Speech\Voices\Tokens"),
-        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Speech_OneCore\Voices\Tokens"),
         (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Speech\Voices\Tokens"),
-        (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Speech_OneCore\Voices\Tokens"),
         (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Speech\Voices\TokenEnums"),
         (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Speech\Voices\TokenEnums"),
         (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Speech\Voices\TokenEnums")
@@ -84,6 +107,7 @@ def get_voices_from_registry():
                 winreg.CloseKey(key)
             except Exception:
                 pass
+    voices.extend(get_rhvoice_from_disk())
     return list(dict.fromkeys(voices))
 
 
@@ -95,10 +119,8 @@ def get_system_voices():
     if sys.platform != "win32":
         return []
     
-    # 1. Быстрое и надёжное чтение всех голосов напрямую из реестра
-    voices = get_voices_from_registry()
-    
-    # 2. Дополнительное обогащение через PowerShell COM SpVoice
+    ps_voices = []
+    # 1. Получение актуальных рабочих SAPI5 голосов через PowerShell COM SpVoice
     try:
         ps_code = """$speech = New-Object -ComObject SAPI.SpVoice
 foreach ($v in $speech.GetVoices()) {
@@ -131,16 +153,28 @@ Remove-Item $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
         for line in text.splitlines():
             line_str = line.strip()
             if line_str:
-                voices.append(line_str)
+                ps_voices.append(line_str)
     except Exception as e:
         print("PowerShell voice retrieval warning/timeout:", e)
 
-    seen_names = set()
+    # 2. Если PowerShell вернул список, используем его; иначе fallback на прямое чтение реестра и папок
+    raw_list = ps_voices if ps_voices else get_voices_from_registry()
+    
+    # 3. Гарантируем присутствие установленных голосов RHVoice (Анна, Елена, Александр)
+    for rh_v in get_rhvoice_from_disk():
+        if not any(rh_v.lower() == x.strip().lower() or rh_v.lower() in x.strip().lower() for x in raw_list):
+            raw_list.append(rh_v)
+
+    # 4. Умная дедупликация по форматированному отображаемому имени
+    seen_formatted = set()
     unique_voices = []
-    for voice in voices:
+    for voice in raw_list:
         clean_v = voice.strip()
-        if clean_v and clean_v not in seen_names:
-            seen_names.add(clean_v)
+        if not clean_v:
+            continue
+        fmt = format_voice_name(clean_v).strip().lower()
+        if fmt and fmt not in seen_formatted:
+            seen_formatted.add(fmt)
             unique_voices.append(clean_v)
             
     return unique_voices
@@ -167,14 +201,26 @@ def find_matching_voice_index(combo, sound_name):
     if idx >= 0:
         return idx
         
-    # 2. Совпадение по очищенной/нормализованной строке (с поддержкой alexandr/aleksandr)
+    # 2. Совпадение по очищенной/нормализованной строке (с поддержкой кириллицы и alexandr/aleksandr)
     clean_target = sound_name.replace("Microsoft", "").replace("Desktop", "").replace("OneCore", "").replace("RHVoice", "").strip().lower()
-    clean_target_norm = clean_target.replace("alexandr", "aleksandr")
+    clean_target_norm = (clean_target
+                         .replace("alexandr", "aleksandr")
+                         .replace("александр", "aleksandr")
+                         .replace("анна", "anna")
+                         .replace("елена", "elena")
+                         .replace("ирина", "irina")
+                         .replace("павел", "pavel"))
     for i in range(combo.count()):
         data = combo.itemData(i)
         if data and data not in ('default', 'sound_chime', 'sound_ping', 'sound_pop', 'sound_soft'):
             data_clean = data.replace("Microsoft", "").replace("Desktop", "").replace("OneCore", "").replace("RHVoice", "").strip().lower()
-            data_clean_norm = data_clean.replace("alexandr", "aleksandr")
+            data_clean_norm = (data_clean
+                               .replace("alexandr", "aleksandr")
+                               .replace("александр", "aleksandr")
+                               .replace("анна", "anna")
+                               .replace("елена", "elena")
+                               .replace("ирина", "irina")
+                               .replace("павел", "pavel"))
             if (clean_target == data_clean or clean_target in data_clean or data_clean in clean_target or
                 clean_target_norm == data_clean_norm or clean_target_norm in data_clean_norm or data_clean_norm in clean_target_norm):
                 return i
@@ -187,7 +233,13 @@ def find_matching_voice_index(combo, sound_name):
             data = combo.itemData(i)
             if data and data not in ('default', 'sound_chime', 'sound_ping', 'sound_pop', 'sound_soft'):
                 data_clean = data.replace("Microsoft", "").replace("Desktop", "").replace("OneCore", "").replace("RHVoice", "").strip().lower()
-                data_clean_norm = data_clean.replace("alexandr", "aleksandr")
+                data_clean_norm = (data_clean
+                                   .replace("alexandr", "aleksandr")
+                                   .replace("александр", "aleksandr")
+                                   .replace("анна", "anna")
+                                   .replace("елена", "elena")
+                                   .replace("ирина", "irina")
+                                   .replace("павел", "pavel"))
                 if main_word in data_clean_norm:
                     return i
     return -1
