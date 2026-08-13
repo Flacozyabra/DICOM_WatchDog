@@ -8,7 +8,7 @@
   "btn_open_archive": "Открыть папку архива",
   "btn_force_check": "Принудительное сканирование",
   "btn_today": "Сегодня",
-  "btn_3days": "3 дня",
+  "btn_3days": "Последние 3 дня",
   "btn_clear_log": "Очистить лог",
   "lbl_from": "С:",
   "lbl_to": "по:",

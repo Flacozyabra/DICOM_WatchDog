@@ -8,7 +8,7 @@
   "btn_open_archive": "Open archive folder",
   "btn_force_check": "Force check folders",
   "btn_today": "Today",
-  "btn_3days": "3 days",
+  "btn_3days": "Last 3 days",
   "btn_clear_log": "Clear log",
   "lbl_from": "From:",
   "lbl_to": "to:",

@@ -7,15 +7,15 @@ class CenteredDateEdit(QDateEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setCalendarPopup(True)
-        self.setFixedWidth(105)
-        self.setMaximumWidth(105)
+        self.setFixedWidth(110)
+        self.setMaximumWidth(110)
         self.lineEdit().setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.setStyleSheet(
             "QDateEdit {"
             "  background-color: #0f0f0f; color: #ffffff;"
             "  border: 1px solid #3d3d3d; border-radius: 6px;"
-            "  padding: 2px 4px;"
+            "  padding: 4px 4px 4px 16px;"
             "  font-family: 'Segoe UI'; font-size: 13px;"
             "}"
             "QDateEdit:disabled {"
@@ -92,7 +92,7 @@ class CenteredDateEdit(QDateEdit):
             super().mouseReleaseEvent(event)
 
     def minimumSizeHint(self):
-        return QSize(105, 30)
+        return QSize(110, 30)
 
     def sizeHint(self):
-        return QSize(105, 30)
+        return QSize(110, 30)

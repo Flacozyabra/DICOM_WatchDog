@@ -1213,7 +1213,6 @@ class MainWindow(QMainWindow):
         self.pacs_date_from.setDisplayFormat("dd.MM.yyyy")
         self.pacs_date_from.setDate(QDate.currentDate())
         self.pacs_date_from.setFixedHeight(30)
-        self.pacs_date_from.setFixedWidth(105)
         self.pacs_date_from.dateChanged.connect(lambda: self.fill_pacs_list(silent=False))
         
         self.lbl_to = QLabel(tr_ui("lbl_to"))
@@ -1223,7 +1222,6 @@ class MainWindow(QMainWindow):
         self.pacs_date_to.setDisplayFormat("dd.MM.yyyy")
         self.pacs_date_to.setDate(QDate.currentDate())
         self.pacs_date_to.setFixedHeight(30)
-        self.pacs_date_to.setFixedWidth(105)
         self.pacs_date_to.dateChanged.connect(lambda: self.fill_pacs_list(silent=False))
         
         self.pacs_auto_scan_cb = ToggleSwitch(tr_ui("pacs_standby_mode"))
