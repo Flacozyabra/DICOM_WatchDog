@@ -2062,9 +2062,8 @@ class MainWindow(QMainWindow):
         self.images_table.viewport().update()
         
         def run_archive():
-            if os.path.exists(dest_path):
-                shutil.rmtree(dest_path)
-            shutil.move(path, dest_path)
+            from core.rename_utils import move_study_folder_hierarchical
+            move_study_folder_hierarchical(path, archive_dir, self.output_field)
             return self.get_folder_desc(patient_id, patient_name)
             
         worker = BackgroundFileWorker(patient_id, 'archive', run_archive)
@@ -2513,10 +2512,8 @@ class MainWindow(QMainWindow):
         self.archive_table.viewport().update()
         
         def run_restore():
-            if os.path.exists(dest_path):
-                shutil.rmtree(dest_path)
-            shutil.copytree(path, dest_path)
-            shutil.rmtree(path)
+            from core.rename_utils import move_study_folder_hierarchical
+            move_study_folder_hierarchical(path, ct_images_dir, self.output_field)
             return self.get_folder_desc(patient_id, patient_name)
             
         worker = BackgroundFileWorker(patient_id, 'restore', run_restore)

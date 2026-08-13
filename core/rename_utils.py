@@ -459,3 +459,136 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
 
             # Автолечение на случай ранее разделенных папок
             auto_heal_split_patient_folders(parent_path, new_patient_id, output_field)
+
+
+def move_single_study_folder(src_study_path: str, dest_patient_path: str, output_field=None) -> bool:
+    """
+    Переносит одно конкретное исследование (src_study_path) в целевую папку пациента (dest_patient_path).
+    Сохраняет иерархическую структуру при наличии нескольких исследований одного пациента.
+    """
+    if not os.path.exists(src_study_path):
+        return False
+
+    info = get_folder_study_info(src_study_path)
+    if not info:
+        if not os.path.exists(dest_patient_path):
+            shutil.move(src_study_path, dest_patient_path)
+        else:
+            target_dest = os.path.join(dest_patient_path, os.path.basename(src_study_path))
+            if os.path.exists(target_dest):
+                safe_merge_folders(src_study_path, target_dest, "")
+            else:
+                shutil.move(src_study_path, target_dest)
+        return True
+
+    patient_id = info.get('patient_id', '')
+    study_date_str = info.get('study_date_str', '')
+    date_only_str = info.get('date_only_str', '')
+    incoming_uid = info.get('study_instance_uid', '')
+    is_incoming_struct_only = is_structure_only_folder(src_study_path)
+
+    # 1. Если папки пациента в целевом каталоге ещё нет:
+    if not os.path.exists(dest_patient_path):
+        if os.path.basename(src_study_path).startswith("[") and os.path.basename(src_study_path).endswith("]"):
+            os.makedirs(dest_patient_path, exist_ok=True)
+            dest_sub = os.path.join(dest_patient_path, os.path.basename(src_study_path))
+            shutil.move(src_study_path, dest_sub)
+        else:
+            shutil.move(src_study_path, dest_patient_path)
+        return True
+
+    # 2. Папка пациента в целевом каталоге уже существует!
+    exist_info = get_folder_study_info(dest_patient_path)
+    is_dest_flat = exist_info and (os.path.dirname(os.path.abspath(exist_info['target_file'])) == os.path.abspath(dest_patient_path))
+
+    if is_dest_flat:
+        exist_uid = exist_info.get('study_instance_uid', '')
+        if (exist_uid and incoming_uid and exist_uid == incoming_uid) or is_incoming_struct_only or (exist_info.get('date_only_str') == date_only_str):
+            # Тот же StudyInstanceUID или дата — сливаем в корень dest_patient_path
+            safe_merge_folders(src_study_path, dest_patient_path, patient_id)
+            return True
+
+        # Разные исследования: переводим целевую плоскую папку в иерархическую структуру
+        if not make_folder_hierarchical(dest_patient_path, output_field):
+            return False
+
+    # 3. Целевая папка иерархическая (содержит подпапки [дата1], [дата2]...)
+    matching_sub = find_matching_study_subfolder(dest_patient_path, incoming_uid, date_only_str, study_date_str)
+    
+    if not matching_sub and is_incoming_struct_only:
+        try:
+            for item in os.listdir(dest_patient_path):
+                sub_path = os.path.join(dest_patient_path, item)
+                if os.path.isdir(sub_path) and not is_structure_only_folder(sub_path):
+                    matching_sub = sub_path
+                    break
+        except Exception:
+            pass
+
+    target_sub = matching_sub if matching_sub else os.path.join(dest_patient_path, f"[{study_date_str}]")
+
+    if os.path.exists(target_sub):
+        safe_merge_folders(src_study_path, target_sub, patient_id)
+    else:
+        shutil.move(src_study_path, target_sub)
+
+    # Автолечение на случай дублирования
+    auto_heal_split_patient_folders(dest_patient_path, patient_id, output_field)
+    return True
+
+
+def move_study_folder_hierarchical(src_path: str, dest_root_dir: str, output_field=None) -> bool:
+    """
+    Перемещает исследование или папку пациента из исходного каталога в целевой (архив или ct_images)
+    с сохранением иерархической структуры исследований одного пациента.
+    """
+    if not os.path.exists(src_path):
+        return False
+        
+    os.makedirs(dest_root_dir, exist_ok=True)
+    
+    src_parent = os.path.dirname(os.path.abspath(src_path))
+    src_name = os.path.basename(os.path.abspath(src_path))
+    
+    try:
+        immediate_subdirs = [os.path.join(src_path, d) for d in os.listdir(src_path)
+                             if os.path.isdir(os.path.join(src_path, d)) and d.startswith("[") and d.endswith("]")]
+    except Exception:
+        immediate_subdirs = []
+
+    # Если src_path — это родительская папка пациента, в которой есть подпапки исследований:
+    if immediate_subdirs:
+        dest_patient_path = os.path.join(dest_root_dir, src_name)
+        if not os.path.exists(dest_patient_path):
+            shutil.move(src_path, dest_patient_path)
+            return True
+        else:
+            if not make_folder_hierarchical(dest_patient_path, output_field):
+                return False
+            for sub in immediate_subdirs:
+                move_single_study_folder(sub, dest_patient_path, output_field)
+            try:
+                if os.path.exists(src_path) and not os.listdir(src_path):
+                    os.rmdir(src_path)
+            except Exception:
+                pass
+            return True
+
+    # Иначе src_path — это одиночное исследование
+    if src_name.startswith("[") and src_name.endswith("]"):
+        patient_folder_name = os.path.basename(src_parent)
+    else:
+        patient_folder_name = src_name
+
+    dest_patient_path = os.path.join(dest_root_dir, patient_folder_name)
+    success = move_single_study_folder(src_path, dest_patient_path, output_field)
+    
+    if src_name.startswith("[") and src_name.endswith("]"):
+        try:
+            if os.path.exists(src_parent) and not os.listdir(src_parent):
+                os.rmdir(src_parent)
+        except Exception:
+            pass
+            
+    return success
+

@@ -178,45 +178,53 @@ def move_old_folders_to_archive(ct_images_dir, archive_dir, archive_days, output
     if not os.path.exists(ct_images_dir) or not archive_dir or archive_days <= 0:
         return
         
-    for root, dirs, files in os.walk(ct_images_dir):
-        for dir in dirs:
-            folder_path = os.path.join(root, dir)
+    try:
+        top_dirs = [d for d in os.listdir(ct_images_dir) if os.path.isdir(os.path.join(ct_images_dir, d))]
+    except Exception:
+        return
+
+    from core.rename_utils import move_study_folder_hierarchical, get_folder_study_info
+
+    now = datetime.now()
+    for dir_name in top_dirs:
+        patient_folder = os.path.join(ct_images_dir, dir_name)
+        try:
+            subdirs = [os.path.join(patient_folder, s) for s in os.listdir(patient_folder)
+                       if os.path.isdir(os.path.join(patient_folder, s))]
+        except Exception:
+            subdirs = []
+
+        if subdirs:
+            for sub in subdirs:
+                try:
+                    folder_date = datetime.fromtimestamp(os.path.getctime(sub))
+                except Exception:
+                    continue
+                if (now - folder_date).days >= archive_days:
+                    try:
+                        patient_name = tr_log("log_patient_unknown")
+                        info = get_folder_study_info(sub)
+                        if info and info.get('patient_name'):
+                            patient_name = str(info['patient_name'])
+                        move_study_folder_hierarchical(sub, archive_dir, output_field)
+                        log_message(output_field, tr_log("log_patient_moved_to_archive", patient_name, dir_name))
+                    except Exception as e:
+                        log_message(output_field, tr_log("log_patient_move_to_archive_error", dir_name, e))
+        else:
             try:
-                folder_date = datetime.fromtimestamp(os.path.getctime(folder_path))
+                folder_date = datetime.fromtimestamp(os.path.getctime(patient_folder))
             except Exception:
                 continue
-
-            if (datetime.now() - folder_date).days >= archive_days:
-                if not os.path.exists(archive_dir):
-                    try:
-                        os.makedirs(archive_dir)
-                    except Exception as e:
-                        log_message(output_field, tr_log("log_archive_create_error", e))
-                        continue
-
-                archive_path = os.path.join(archive_dir, dir)
-
-                if os.path.exists(archive_path):
-                    try:
-                        shutil.rmtree(archive_path)
-                    except Exception as e:
-                        log_message(output_field, tr_log("log_archive_delete_existing_error", e))
-                        continue
-
+            if (now - folder_date).days >= archive_days:
                 try:
                     patient_name = tr_log("log_patient_unknown")
-                    try:
-                        dcm_files = [f for f in os.listdir(folder_path) if f.endswith('.dcm')]
-                        if dcm_files:
-                            ds = pydicom.dcmread(os.path.join(folder_path, dcm_files[0]), specific_tags=['PatientName'])
-                            patient_name = str(ds.get('PatientName', tr_log("log_patient_unknown")))
-                    except Exception:
-                        pass
-
-                    shutil.move(folder_path, archive_path)
-                    log_message(output_field, tr_log("log_patient_moved_to_archive", patient_name, dir))
+                    info = get_folder_study_info(patient_folder)
+                    if info and info.get('patient_name'):
+                        patient_name = str(info['patient_name'])
+                    move_study_folder_hierarchical(patient_folder, archive_dir, output_field)
+                    log_message(output_field, tr_log("log_patient_moved_to_archive", patient_name, dir_name))
                 except Exception as e:
-                    log_message(output_field, tr_log("log_patient_move_to_archive_error", dir, e))
+                    log_message(output_field, tr_log("log_patient_move_to_archive_error", dir_name, e))
 
 
 def cleanup_old_archive_folders(archive_dir, cleanup_days, output_field):
