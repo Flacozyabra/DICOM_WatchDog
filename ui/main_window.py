@@ -1483,6 +1483,7 @@ class MainWindow(QMainWindow):
                 self.pacs_timer.start(self.config.get('pacs_scan_time', 10000))
             else:
                 self.pacs_timer.stop()
+            QTimer.singleShot(0, self.focus_pacs_search)
 
     def focus_ct_images_search(self):
         if hasattr(self, 'search_images_entry'):
@@ -1491,6 +1492,10 @@ class MainWindow(QMainWindow):
     def focus_ct_archive_search(self):
         if hasattr(self, 'search_entry'):
             self.search_entry.setFocus()
+
+    def focus_pacs_search(self):
+        if hasattr(self, 'pacs_search_entry'):
+            self.pacs_search_entry.setFocus()
 
     def showEvent(self, event):
         super().showEvent(event)
