@@ -1196,7 +1196,7 @@ class MainWindow(QMainWindow):
         # Панель управления PACS
         pacs_control_layout = QHBoxLayout()
         pacs_control_layout.setContentsMargins(5, 0, 5, 0)
-        pacs_control_layout.setSpacing(10)
+        pacs_control_layout.setSpacing(6)
         
         self.pacs_today_btn = QPushButton("Today")
         self.pacs_today_btn.setFixedHeight(30)
@@ -1213,6 +1213,7 @@ class MainWindow(QMainWindow):
         self.pacs_date_from.setDisplayFormat("dd.MM.yyyy")
         self.pacs_date_from.setDate(QDate.currentDate())
         self.pacs_date_from.setFixedHeight(30)
+        self.pacs_date_from.setFixedWidth(95)
         self.pacs_date_from.dateChanged.connect(lambda: self.fill_pacs_list(silent=False))
         
         self.lbl_to = QLabel("по:")
@@ -1222,12 +1223,19 @@ class MainWindow(QMainWindow):
         self.pacs_date_to.setDisplayFormat("dd.MM.yyyy")
         self.pacs_date_to.setDate(QDate.currentDate())
         self.pacs_date_to.setFixedHeight(30)
+        self.pacs_date_to.setFixedWidth(95)
         self.pacs_date_to.dateChanged.connect(lambda: self.fill_pacs_list(silent=False))
         
         self.pacs_auto_scan_cb = ToggleSwitch(tr_ui("pacs_standby_mode"))
         self.pacs_auto_scan_cb.setChecked(self.config.get('auto_update_is', 'off').lower() == 'on')
         self.pacs_auto_scan_cb.setToolTip(tr_ui("tooltip_pacs_auto_scan"))
         self.pacs_auto_scan_cb.stateChanged.connect(self.on_pacs_auto_scan_changed)
+        
+        self.pacs_search_entry = QLineEdit()
+        self.pacs_search_entry.setPlaceholderText(tr_ui("placeholder_search_filter"))
+        self.pacs_search_entry.setFixedHeight(30)
+        self.pacs_search_entry.setFixedWidth(160)
+        self.pacs_search_entry.textChanged.connect(self.search_patient_pacs)
         
         self.send_to_ct_btn = QPushButton(tr_ui("btn_send_to_ct"))
         self.send_to_ct_btn.setFixedHeight(30)
@@ -1247,7 +1255,7 @@ class MainWindow(QMainWindow):
         self.lbl_server.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
         
         self.pacs_server_combo = QComboBox()
-        self.pacs_server_combo.setFixedWidth(160)
+        self.pacs_server_combo.setFixedWidth(120)
         self.pacs_server_combo.setStyleSheet("""
             QComboBox {
                 background-color: #2A2A2A;
@@ -1279,6 +1287,7 @@ class MainWindow(QMainWindow):
         pacs_control_layout.addWidget(self.pacs_server_combo, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.pacs_auto_scan_cb, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addStretch(1)
+        pacs_control_layout.addWidget(self.pacs_search_entry, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.send_to_ct_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         pacs_control_layout.addWidget(self.settings_btn3, alignment=Qt.AlignmentFlag.AlignVCenter)
         
@@ -2674,68 +2683,9 @@ class MainWindow(QMainWindow):
 
             data_changed = (display_dict != self.previous_pacs_data)
             if data_changed and (auto_update_on or not silent):
-                self.pacs_table.setUpdatesEnabled(False)
-                self.pacs_table.blockSignals(True)
-
-                self.pacs_table.setRowCount(0)
-                row_idx = 0
-                sorted_items = sorted(display_dict.items(), key=lambda x: x[1]['study_datetime_obj'], reverse=True)
-                
-                for patient_id, data in sorted_items:
-                    self.pacs_table.insertRow(row_idx)
-                    
-                    id_item = QTableWidgetItem(str(patient_id))
-                    id_item.setData(Qt.ItemDataRole.UserRole, data.get('study_instance_uid', ''))
-                    name_item = QTableWidgetItem(str(data['patient_name']))
-                    modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
-                    slices_item = QTableWidgetItem(str(data.get('slices', '0')))
-                    area_item = QTableWidgetItem(str(data.get('body_part', '')))
-                    study_item = QTableWidgetItem(data['study_datetime_str'])
-                    
-                    id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                    name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                    modality_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    
-                    color = QColor("#ffffff")
-                    highlighting_enabled = self.config.get('highlighting_enabled', 'False').lower() == 'true'
-                    if highlighting_enabled:
-                        highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
-                        highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
-                        d_time = data.get('study_datetime_obj')
-                        if d_time:
-                            if highlight_new and (datetime.now() - d_time).total_seconds() / 3600 < 1:
-                                color = QColor("lime")
-                            elif highlight_today and d_time.date() == datetime.now().date():
-                                color = QColor("mediumturquoise")
-                        
-                    for item in [id_item, name_item, modality_item, slices_item, area_item, study_item]:
-                        item.setForeground(color)
-                        
-                    self.pacs_table.setItem(row_idx, 0, id_item)
-                    self.pacs_table.setItem(row_idx, 1, name_item)
-                    self.pacs_table.setItem(row_idx, 2, modality_item)
-                    self.pacs_table.setItem(row_idx, 3, slices_item)
-                    self.pacs_table.setItem(row_idx, 4, area_item)
-                    self.pacs_table.setItem(row_idx, 5, study_item)
-                    
-                    row_idx += 1
-
-                if hasattr(self, 'selected_pacs_patient_id') and self.selected_pacs_patient_id:
-                    for r in range(self.pacs_table.rowCount()):
-                        id_item = self.pacs_table.item(r, 0)
-                        if id_item and id_item.text() == self.selected_pacs_patient_id:
-                            self.pacs_table.selectRow(r)
-                            break
-
-                self.pacs_table.update_placeholder_visibility()
-                self.pacs_table.blockSignals(False)
-                self.pacs_table.setUpdatesEnabled(True)
-
                 self.pacs_data = display_dict.copy()
                 self.previous_pacs_data = display_dict.copy()
+                self.render_pacs_table()
             else:
                 self.pacs_table.update_placeholder_visibility()
 
@@ -2753,6 +2703,88 @@ class MainWindow(QMainWindow):
                 self.previous_pacs_data = {}
             else:
                 self.pacs_table.update_placeholder_visibility()
+
+    def search_patient_pacs(self):
+        self.render_pacs_table()
+
+    def render_pacs_table(self):
+        if not hasattr(self, 'pacs_data') or self.pacs_data is None:
+            return
+
+        display_dict = self.pacs_data
+        search_text = self.pacs_search_entry.text().lower().strip() if hasattr(self, 'pacs_search_entry') else ""
+
+        filtered_items = {}
+        for patient_id, data in display_dict.items():
+            if search_text:
+                p_name = str(data.get('patient_name', '')).lower().replace('^', ' ')
+                p_id = str(patient_id).lower()
+                words = p_name.split()
+                name_match = any(w.startswith(search_text) for w in words) if words else False
+                id_match = search_text in p_id
+                if not (name_match or id_match or search_text in p_name):
+                    continue
+            filtered_items[patient_id] = data
+
+        self.pacs_table.setUpdatesEnabled(False)
+        self.pacs_table.blockSignals(True)
+
+        self.pacs_table.setRowCount(0)
+        row_idx = 0
+        sorted_items = sorted(filtered_items.items(), key=lambda x: x[1]['study_datetime_obj'], reverse=True)
+        
+        for patient_id, data in sorted_items:
+            self.pacs_table.insertRow(row_idx)
+            
+            id_item = QTableWidgetItem(str(patient_id))
+            id_item.setData(Qt.ItemDataRole.UserRole, data.get('study_instance_uid', ''))
+            name_item = QTableWidgetItem(str(data['patient_name']))
+            modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
+            slices_item = QTableWidgetItem(str(data.get('slices', '0')))
+            area_item = QTableWidgetItem(str(data.get('body_part', '')))
+            study_item = QTableWidgetItem(data['study_datetime_str'])
+            
+            id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            modality_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            color = QColor("#ffffff")
+            highlighting_enabled = self.config.get('highlighting_enabled', 'False').lower() == 'true'
+            if highlighting_enabled:
+                highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
+                highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
+                d_time = data.get('study_datetime_obj')
+                if d_time:
+                    if highlight_new and (datetime.now() - d_time).total_seconds() / 3600 < 1:
+                        color = QColor("lime")
+                    elif highlight_today and d_time.date() == datetime.now().date():
+                        color = QColor("mediumturquoise")
+                
+            for item in [id_item, name_item, modality_item, slices_item, area_item, study_item]:
+                item.setForeground(color)
+                
+            self.pacs_table.setItem(row_idx, 0, id_item)
+            self.pacs_table.setItem(row_idx, 1, name_item)
+            self.pacs_table.setItem(row_idx, 2, modality_item)
+            self.pacs_table.setItem(row_idx, 3, slices_item)
+            self.pacs_table.setItem(row_idx, 4, area_item)
+            self.pacs_table.setItem(row_idx, 5, study_item)
+            
+            row_idx += 1
+
+        if hasattr(self, 'selected_pacs_patient_id') and self.selected_pacs_patient_id:
+            for r in range(self.pacs_table.rowCount()):
+                id_item = self.pacs_table.item(r, 0)
+                if id_item and id_item.text() == self.selected_pacs_patient_id:
+                    self.pacs_table.selectRow(r)
+                    break
+
+        self.pacs_table.update_placeholder_visibility()
+        self.pacs_table.blockSignals(False)
+        self.pacs_table.setUpdatesEnabled(True)
 
     # ================= УПРАВЛЕНИЕ НАСТРОЙКАМИ =================
 
@@ -3153,6 +3185,7 @@ class MainWindow(QMainWindow):
         self.lbl_from.setText(tr_ui("lbl_from"))
         self.lbl_to.setText(tr_ui("lbl_to"))
         self.lbl_server.setText(tr_ui("lbl_server"))
+        self.pacs_search_entry.setPlaceholderText(tr_ui("placeholder_search_filter"))
         self.send_to_ct_btn.setText(tr_ui("btn_send_to_ct"))
         self.pacs_auto_scan_cb.setText(tr_ui("pacs_standby_mode"))
         
@@ -3175,6 +3208,7 @@ class MainWindow(QMainWindow):
         self.pacs_date_from.setToolTip(tr_ui("tooltip_pacs_date_from"))
         self.pacs_date_to.setToolTip(tr_ui("tooltip_pacs_date_to"))
         self.pacs_server_combo.setToolTip(tr_ui("tooltip_pacs_server_combo"))
+        self.pacs_search_entry.setToolTip(tr_ui("tooltip_search_pacs_entry"))
         self.send_to_ct_btn.setToolTip(tr_ui("tooltip_send_to_ct"))
 
 
