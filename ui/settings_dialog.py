@@ -98,61 +98,42 @@ def get_system_voices():
     # 1. Быстрое и надёжное чтение всех голосов напрямую из реестра
     voices = get_voices_from_registry()
     
-    # 2. Быстрое получение всех SAPI голосов через VBScript (cscript ~0.1 сек)
-    vbs_voices = []
+    # 2. Дополнительное обогащение через PowerShell COM SpVoice
     try:
-        vbs_code = """Set speech = CreateObject("SAPI.SpVoice")
-For Each v In speech.GetVoices()
-    WScript.Echo v.GetDescription()
-Next
+        ps_code = """$speech = New-Object -ComObject SAPI.SpVoice
+foreach ($v in $speech.GetVoices()) {
+    $v.GetDescription()
+}
+Remove-Item $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
 """
-        fd, path = tempfile.mkstemp(suffix=".vbs", text=True)
-        with os.fdopen(fd, "w", encoding="cp1251", errors="replace") as f:
-            f.write(vbs_code)
+        fd, path = tempfile.mkstemp(suffix=".ps1", text=True)
+        with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
+            f.write(ps_code)
         
         creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-        res = subprocess.run(["cscript", "//NoLogo", path], capture_output=True, text=True, timeout=4, creationflags=creation_flags)
-        try:
-            os.remove(path)
-        except Exception:
-            pass
+        raw_bytes = subprocess.check_output(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
+            creationflags=creation_flags,
+            timeout=8
+        )
+        text = None
+        for enc in ["utf-8", "cp1251", "cp866"]:
+            try:
+                decoded = raw_bytes.decode(enc)
+                if decoded and decoded.strip():
+                    text = decoded
+                    break
+            except Exception:
+                pass
+        if not text:
+            text = raw_bytes.decode("utf-8", errors="replace")
             
-        if res.returncode == 0 and res.stdout:
-            for line in res.stdout.splitlines():
-                line_str = line.strip()
-                if line_str:
-                    vbs_voices.append(line_str)
+        for line in text.splitlines():
+            line_str = line.strip()
+            if line_str:
+                voices.append(line_str)
     except Exception as e:
-        print("VBScript voice retrieval warning:", e)
-
-    if vbs_voices:
-        voices.extend(vbs_voices)
-    else:
-        # Резервное обогащение через PowerShell COM SpVoice
-        try:
-            cmd = [
-                "powershell", "-NoProfile", "-Command",
-                "$speech = New-Object -ComObject SAPI.SpVoice; foreach ($v in $speech.GetVoices()) { $v.GetDescription() }"
-            ]
-            raw_bytes = subprocess.check_output(cmd, creationflags=subprocess.CREATE_NO_WINDOW, timeout=8)
-            text = None
-            for enc in ["utf-8", "cp1251", "cp866"]:
-                try:
-                    decoded = raw_bytes.decode(enc)
-                    if decoded and decoded.strip():
-                        text = decoded
-                        break
-                except Exception:
-                    pass
-            if not text:
-                text = raw_bytes.decode("utf-8", errors="replace")
-                
-            for line in text.splitlines():
-                line_str = line.strip()
-                if line_str:
-                    voices.append(line_str)
-        except Exception as e:
-            print("PowerShell voice retrieval warning/timeout:", e)
+        print("PowerShell voice retrieval warning/timeout:", e)
 
     seen_names = set()
     unique_voices = []
@@ -161,6 +142,7 @@ Next
         if clean_v and clean_v not in seen_names:
             seen_names.add(clean_v)
             unique_voices.append(clean_v)
+            
     return unique_voices
 
 

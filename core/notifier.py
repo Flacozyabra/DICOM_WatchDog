@@ -79,103 +79,38 @@ def get_perceptual_volume(volume_percent: int) -> tuple:
 
 
 def speak_sapi_tts(sound_setting: str, text_to_speak: str, vol_int: int) -> None:
-    """Озвучивание текста через SAPI TTS (VBScript + фолбэк на PowerShell)."""
+    """Озвучивание текста через SAPI TTS в PowerShell."""
     if sys.platform != "win32" or not sound_setting or sound_setting == 'default':
         return
 
     import tempfile
     import subprocess
 
-    vbs_text = text_to_speak.replace('"', '""')
-    vbs_code = f"""Set speech = CreateObject("SAPI.SpVoice")
-targetName = "{sound_setting}"
-Set foundVoice = Nothing
-targetLower = LCase(targetName)
-targetNorm = Replace(targetLower, "alexandr", "aleksandr")
-targetClean = Trim(Replace(Replace(Replace(Replace(targetNorm, "microsoft", ""), "desktop", ""), "onecore", ""), "rhvoice", ""))
-
-' 1. Точное совпадение по полному описанию
-For Each v In speech.GetVoices()
-    vDesc = LCase(v.GetDescription())
-    If vDesc = targetLower Or vDesc = targetNorm Then
-        Set foundVoice = v
-        Exit For
-    End If
-Next
-
-' 2. Точное совпадение по очищенному имени (например, RHVoice Anna -> anna == anna)
-If foundVoice Is Nothing Then
-    For Each v In speech.GetVoices()
-        cleanDesc = Replace(Replace(Replace(Replace(LCase(v.GetDescription()), "microsoft", ""), "desktop", ""), "onecore", ""), "rhvoice", "")
-        cleanDesc = Trim(Replace(cleanDesc, "alexandr", "aleksandr"))
-        If cleanDesc = targetClean Or cleanDesc = targetNorm Then
-            Set foundVoice = v
-            Exit For
-        End If
-    Next
-End If
-
-' 3. Частичное совпадение (исключая Microsoft Anna, если целевой голос не содержит Microsoft)
-If foundVoice Is Nothing Then
-    For Each v In speech.GetVoices()
-        descLower = LCase(v.GetDescription())
-        If InStr(descLower, "microsoft anna") > 0 And InStr(targetLower, "microsoft") = 0 Then
-            ' Пропускаем англоязычную Microsoft Anna
-        Else
-            cleanDesc = Replace(Replace(Replace(Replace(descLower, "microsoft", ""), "desktop", ""), "onecore", ""), "rhvoice", "")
-            cleanDesc = Trim(Replace(cleanDesc, "alexandr", "aleksandr"))
-            If InStr(cleanDesc, targetClean) > 0 Or InStr(targetClean, cleanDesc) > 0 Then
-                Set foundVoice = v
-                Exit For
-            End If
-        End If
-    Next
-End If
-
-If Not foundVoice Is Nothing Then
-    Set speech.Voice = foundVoice
-End If
-
-speech.Volume = {vol_int}
-On Error Resume Next
-speech.Speak "<silence msec=""400""/><volume level=""{vol_int}"">{vbs_text}</volume>", 8
-If Err.Number <> 0 Then
-    Err.Clear
-    speech.Speak "{vbs_text}", 0
-End If
-Set fso = CreateObject("Scripting.FileSystemObject")
-fso.DeleteFile WScript.ScriptFullName, True
-On Error GoTo 0
-"""
-    vbs_success = False
-    try:
-        fd, path = tempfile.mkstemp(suffix=".vbs", text=True)
-        with os.fdopen(fd, "w", encoding="cp1251", errors="replace") as f:
-            f.write(vbs_code)
-        subprocess.Popen(
-            ["cscript", "//NoLogo", path],
-            creationflags=subprocess.CREATE_NO_WINDOW
-        )
-        vbs_success = True
-    except Exception as e:
-        print("VBScript TTS launch warning:", e)
-
-    if not vbs_success:
-        ps_text = text_to_speak.replace('"', '`"').replace("'", "''")
-        ps_code = f"""
+    ps_text = text_to_speak.replace('"', '`"').replace("'", "''")
+    sound_setting_escaped = sound_setting.replace('"', '`"').replace("'", "''")
+    ps_code = f"""
 $speech = New-Object -ComObject SAPI.SpVoice
-$targetName = "{sound_setting}"
+$targetName = "{sound_setting_escaped}"
 $targetLower = $targetName.ToLower()
 $targetNorm = $targetLower.Replace("alexandr", "aleksandr")
 $targetClean = $targetNorm.Replace("microsoft", "").Replace("desktop", "").Replace("onecore", "").Replace("rhvoice", "").Trim()
+
 $voices = @($speech.GetVoices())
-$voice = $voices | Where-Object {{ $_.GetDescription().ToLower() -eq $targetLower -or $_.GetDescription().ToLower() -eq $targetNorm }} | Select-Object -First 1
+# 1. Прямое совпадение по описанию
+$voice = $voices | Where-Object {{
+    $d = $_.GetDescription().ToLower()
+    $d -eq $targetLower -or $d -eq $targetNorm
+}} | Select-Object -First 1
+
+# 2. Совпадение по очищенному имени
 if (-not $voice) {{
     $voice = $voices | Where-Object {{
         $clean = $_.GetDescription().ToLower().Replace("microsoft", "").Replace("desktop", "").Replace("onecore", "").Replace("rhvoice", "").Trim().Replace("alexandr", "aleksandr")
         $clean -eq $targetClean -or $clean -eq $targetNorm
     }} | Select-Object -First 1
 }}
+
+# 3. Частичное совпадение (с защитой от англоязычной Microsoft Anna при выборе русской Анны)
 if (-not $voice) {{
     $voice = $voices | Where-Object {{
         $desc = $_.GetDescription().ToLower()
@@ -187,9 +122,11 @@ if (-not $voice) {{
         }}
     }} | Select-Object -First 1
 }}
+
 if ($voice) {{
     $speech.Voice = $voice
 }}
+
 $speech.Volume = {vol_int}
 try {{
     $speech.Speak('<silence msec="400"/><volume level="{vol_int}">{ps_text}</volume>', 8)
@@ -200,22 +137,22 @@ try {{
 }}
 Remove-Item $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
 """
+    try:
+        fd, path = tempfile.mkstemp(suffix=".ps1", text=True)
+        with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
+            f.write(ps_code)
+        subprocess.Popen(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+    except Exception as e:
         try:
-            fd, path = tempfile.mkstemp(suffix=".ps1", text=True)
-            with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
-                f.write(ps_code)
-            subprocess.Popen(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
-        except Exception as e:
-            try:
-                from core.config_utils import get_log_path
-                import datetime
-                with open(get_log_path(), "a", encoding="utf-8") as f:
-                    f.write(f"[{datetime.datetime.now()}] TTS subprocess error: {e}\n")
-            except Exception:
-                pass
+            from core.config_utils import get_log_path
+            import datetime
+            with open(get_log_path(), "a", encoding="utf-8") as f:
+                f.write(f"[{datetime.datetime.now()}] TTS subprocess error: {e}\n")
+        except Exception:
+            pass
 
 
 def show_notification(title: str, message: str, sound_setting: str = 'default', volume: int = 100,
