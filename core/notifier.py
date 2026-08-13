@@ -79,7 +79,7 @@ def get_perceptual_volume(volume_percent: int) -> tuple:
 
 
 def speak_sapi_tts(sound_setting: str, text_to_speak: str, vol_int: int) -> None:
-    """Озвучивание текста через SAPI TTS (VBScript с автосбросом аудиовыхода + фолбэк на PowerShell)."""
+    """Озвучивание текста через SAPI TTS (VBScript + фолбэк на PowerShell)."""
     if sys.platform != "win32" or not sound_setting or sound_setting == 'default':
         return
 
@@ -88,34 +88,64 @@ def speak_sapi_tts(sound_setting: str, text_to_speak: str, vol_int: int) -> None
 
     vbs_text = text_to_speak.replace('"', '""')
     vbs_code = f"""Set speech = CreateObject("SAPI.SpVoice")
-On Error Resume Next
-Set speech.AudioOutput = Nothing
-On Error GoTo 0
 targetName = "{sound_setting}"
 Set foundVoice = Nothing
+targetLower = LCase(targetName)
+targetNorm = Replace(targetLower, "alexandr", "aleksandr")
+targetClean = Trim(Replace(Replace(Replace(Replace(targetNorm, "microsoft", ""), "desktop", ""), "onecore", ""), "rhvoice", ""))
+
+' 1. Точное совпадение по полному описанию
 For Each v In speech.GetVoices()
-    If LCase(v.GetDescription()) = LCase(targetName) Then
+    vDesc = LCase(v.GetDescription())
+    If vDesc = targetLower Or vDesc = targetNorm Then
         Set foundVoice = v
         Exit For
     End If
 Next
+
+' 2. Точное совпадение по очищенному имени (например, RHVoice Anna -> anna == anna)
 If foundVoice Is Nothing Then
-    targetNorm = Replace(LCase(targetName), "alexandr", "aleksandr")
     For Each v In speech.GetVoices()
         cleanDesc = Replace(Replace(Replace(Replace(LCase(v.GetDescription()), "microsoft", ""), "desktop", ""), "onecore", ""), "rhvoice", "")
-        cleanDesc = Trim(cleanDesc)
-        cleanDesc = Replace(cleanDesc, "alexandr", "aleksandr")
-        If InStr(cleanDesc, targetNorm) > 0 Or InStr(targetNorm, cleanDesc) > 0 Then
+        cleanDesc = Trim(Replace(cleanDesc, "alexandr", "aleksandr"))
+        If cleanDesc = targetClean Or cleanDesc = targetNorm Then
             Set foundVoice = v
             Exit For
         End If
     Next
 End If
+
+' 3. Частичное совпадение (исключая Microsoft Anna, если целевой голос не содержит Microsoft)
+If foundVoice Is Nothing Then
+    For Each v In speech.GetVoices()
+        descLower = LCase(v.GetDescription())
+        If InStr(descLower, "microsoft anna") > 0 And InStr(targetLower, "microsoft") = 0 Then
+            ' Пропускаем англоязычную Microsoft Anna
+        Else
+            cleanDesc = Replace(Replace(Replace(Replace(descLower, "microsoft", ""), "desktop", ""), "onecore", ""), "rhvoice", "")
+            cleanDesc = Trim(Replace(cleanDesc, "alexandr", "aleksandr"))
+            If InStr(cleanDesc, targetClean) > 0 Or InStr(targetClean, cleanDesc) > 0 Then
+                Set foundVoice = v
+                Exit For
+            End If
+        End If
+    Next
+End If
+
 If Not foundVoice Is Nothing Then
     Set speech.Voice = foundVoice
 End If
+
 speech.Volume = {vol_int}
+On Error Resume Next
 speech.Speak "<silence msec=""400""/><volume level=""{vol_int}"">{vbs_text}</volume>", 8
+If Err.Number <> 0 Then
+    Err.Clear
+    speech.Speak "{vbs_text}", 0
+End If
+Set fso = CreateObject("Scripting.FileSystemObject")
+fso.DeleteFile WScript.ScriptFullName, True
+On Error GoTo 0
 """
     vbs_success = False
     try:
@@ -134,24 +164,41 @@ speech.Speak "<silence msec=""400""/><volume level=""{vol_int}"">{vbs_text}</vol
         ps_text = text_to_speak.replace('"', '`"').replace("'", "''")
         ps_code = f"""
 $speech = New-Object -ComObject SAPI.SpVoice
-$speech.AudioOutput = $null
 $targetName = "{sound_setting}"
-$voice = $speech.GetVoices() | Where-Object {{ $_.GetDescription() -eq $targetName }} | Select-Object -First 1
+$targetLower = $targetName.ToLower()
+$targetNorm = $targetLower.Replace("alexandr", "aleksandr")
+$targetClean = $targetNorm.Replace("microsoft", "").Replace("desktop", "").Replace("onecore", "").Replace("rhvoice", "").Trim()
+$voices = @($speech.GetVoices())
+$voice = $voices | Where-Object {{ $_.GetDescription().ToLower() -eq $targetLower -or $_.GetDescription().ToLower() -eq $targetNorm }} | Select-Object -First 1
 if (-not $voice) {{
-    $cleanTarget = $targetName.Replace("Microsoft", "").Replace("Desktop", "").Replace("OneCore", "").Replace("RHVoice", "").Trim().ToLower()
-    $cleanTargetNorm = $cleanTarget.Replace("alexandr", "aleksandr")
-    $voice = $speech.GetVoices() | Where-Object {{
+    $voice = $voices | Where-Object {{
+        $clean = $_.GetDescription().ToLower().Replace("microsoft", "").Replace("desktop", "").Replace("onecore", "").Replace("rhvoice", "").Trim().Replace("alexandr", "aleksandr")
+        $clean -eq $targetClean -or $clean -eq $targetNorm
+    }} | Select-Object -First 1
+}}
+if (-not $voice) {{
+    $voice = $voices | Where-Object {{
         $desc = $_.GetDescription().ToLower()
-        $descNorm = $desc.Replace("alexandr", "aleksandr")
-        $desc -like "*$cleanTarget*" -or $descNorm -like "*$cleanTargetNorm*" -or $cleanTargetNorm -like "*$descNorm*"
+        if ($desc -like "*microsoft anna*" -and $targetLower -notlike "*microsoft*") {{
+            $false
+        }} else {{
+            $clean = $desc.Replace("microsoft", "").Replace("desktop", "").Replace("onecore", "").Replace("rhvoice", "").Trim().Replace("alexandr", "aleksandr")
+            $clean -like "*$targetClean*" -or $targetClean -like "*$clean*"
+        }}
     }} | Select-Object -First 1
 }}
 if ($voice) {{
     $speech.Voice = $voice
 }}
 $speech.Volume = {vol_int}
-$speech.Speak('<silence msec="400"/><volume level="{vol_int}">{ps_text}</volume>', 8)
-Remove-Item $MyInvocation.MyCommand.Path -Force
+try {{
+    $speech.Speak('<silence msec="400"/><volume level="{vol_int}">{ps_text}</volume>', 8)
+}} catch {{
+    try {{
+        $speech.Speak('{ps_text}', 0)
+    }} catch {{}}
+}}
+Remove-Item $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
 """
         try:
             fd, path = tempfile.mkstemp(suffix=".ps1", text=True)

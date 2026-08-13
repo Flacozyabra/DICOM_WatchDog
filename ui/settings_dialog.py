@@ -102,9 +102,6 @@ def get_system_voices():
     vbs_voices = []
     try:
         vbs_code = """Set speech = CreateObject("SAPI.SpVoice")
-On Error Resume Next
-Set speech.AudioOutput = Nothing
-On Error GoTo 0
 For Each v In speech.GetVoices()
     WScript.Echo v.GetDescription()
 Next
@@ -135,7 +132,7 @@ Next
         try:
             cmd = [
                 "powershell", "-NoProfile", "-Command",
-                "$speech = New-Object -ComObject SAPI.SpVoice; $speech.AudioOutput = $null; foreach ($v in $speech.GetVoices()) { $v.GetDescription() }"
+                "$speech = New-Object -ComObject SAPI.SpVoice; foreach ($v in $speech.GetVoices()) { $v.GetDescription() }"
             ]
             raw_bytes = subprocess.check_output(cmd, creationflags=subprocess.CREATE_NO_WINDOW, timeout=8)
             text = None
