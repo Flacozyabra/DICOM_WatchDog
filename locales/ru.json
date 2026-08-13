@@ -55,6 +55,7 @@
   "btn_move_to_archive": "Переместить в архив",
   "btn_restore_from_archive": "Восстановить из архива",
   "placeholder_no_studies_in_folder": "В этой папке нет исследований",
+  "placeholder_no_filter_matches": "Нет совпадений с выбранным фильтром",
   "ctx_open_folder": "Открыть папку",
   "ctx_rename": "Переименовать",
   "ctx_delete_patient": "Удалить пациента",

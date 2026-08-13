@@ -36,7 +36,7 @@ class ToggleTableWidget(QTableWidget):
         self.placeholder_label = None
         self.placeholder_btn = None
 
-    def set_placeholder_state(self, text, show_button=False, button_callback=None):
+    def set_placeholder_state(self, text, show_button=False, button_callback=None, color=None):
         if not self.placeholder_widget:
             self.placeholder_widget = QWidget(self.viewport())
             layout = QVBoxLayout(self.placeholder_widget)
@@ -46,7 +46,6 @@ class ToggleTableWidget(QTableWidget):
             
             self.placeholder_label = QLabel(text, self.placeholder_widget)
             self.placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.placeholder_label.setStyleSheet("color: #666666; font-size: 15px; font-family: 'Segoe UI'; background: transparent;")
             layout.addWidget(self.placeholder_label)
             
             self.placeholder_btn = QPushButton(tr_ui("btn_browse"), self.placeholder_widget)
@@ -70,6 +69,8 @@ class ToggleTableWidget(QTableWidget):
             layout.addWidget(self.placeholder_btn, alignment=Qt.AlignmentFlag.AlignCenter)
             self.placeholder_widget.hide()
             
+        label_color = color if color else "#666666"
+        self.placeholder_label.setStyleSheet(f"color: {label_color}; font-size: 15px; font-family: 'Segoe UI'; background: transparent;")
         self.placeholder_label.setText(text)
         self.placeholder_btn.setText(tr_ui("btn_browse"))
         self.placeholder_btn.setVisible(show_button)
@@ -84,8 +85,8 @@ class ToggleTableWidget(QTableWidget):
             
         self.update_placeholder_visibility()
 
-    def set_placeholder_text(self, text):
-        self.set_placeholder_state(text, show_button=False)
+    def set_placeholder_text(self, text, color=None):
+        self.set_placeholder_state(text, show_button=False, color=color)
 
     def update_placeholder_visibility(self):
         if self.placeholder_widget:
@@ -1888,7 +1889,10 @@ class MainWindow(QMainWindow):
                     self.images_table.selectRow(r)
                     break
 
-        self.images_table.set_placeholder_state("В этой папке нет исследований", show_button=False)
+        if search_text and self.images_table.rowCount() == 0 and bool(self.images_cache):
+            self.images_table.set_placeholder_state(tr_ui("placeholder_no_filter_matches"), show_button=False, color="crimson")
+        else:
+            self.images_table.set_placeholder_state(tr_ui("placeholder_no_studies_in_folder"), show_button=False)
         self.images_table.update_placeholder_visibility()
         self.images_table.blockSignals(False)
         self.images_table.setUpdatesEnabled(True)
@@ -2413,7 +2417,10 @@ class MainWindow(QMainWindow):
                     self.archive_table.selectRow(r)
                     break
 
-        self.archive_table.set_placeholder_state(tr_ui("placeholder_no_studies_in_folder"), show_button=False)
+        if search_text and self.archive_table.rowCount() == 0 and bool(self.archive_cache):
+            self.archive_table.set_placeholder_state(tr_ui("placeholder_no_filter_matches"), show_button=False, color="crimson")
+        else:
+            self.archive_table.set_placeholder_state(tr_ui("placeholder_no_studies_in_folder"), show_button=False)
         self.archive_table.update_placeholder_visibility()
         self.archive_table.blockSignals(False)
         self.archive_table.setUpdatesEnabled(True)
@@ -2776,6 +2783,15 @@ class MainWindow(QMainWindow):
                 if id_item and id_item.text() == self.selected_pacs_patient_id:
                     self.pacs_table.selectRow(r)
                     break
+
+        if search_text and self.pacs_table.rowCount() == 0 and bool(self.pacs_data):
+            self.pacs_table.set_placeholder_text(tr_ui("placeholder_no_filter_matches"), color="crimson")
+        elif not search_text:
+            auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
+            if auto_update_on:
+                self.pacs_table.set_placeholder_text(tr_ui("placeholder_standby"))
+            else:
+                self.pacs_table.set_placeholder_text(tr_ui("placeholder_no_studies"))
 
         self.pacs_table.update_placeholder_visibility()
         self.pacs_table.blockSignals(False)

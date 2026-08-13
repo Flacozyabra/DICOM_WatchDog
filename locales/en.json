@@ -55,6 +55,7 @@
   "btn_move_to_archive": "Move to Archive",
   "btn_restore_from_archive": "Restore from Archive",
   "placeholder_no_studies_in_folder": "No studies in this folder",
+  "placeholder_no_filter_matches": "No matches found for the selected filter",
   "ctx_open_folder": "Open folder",
   "ctx_rename": "Rename",
   "ctx_delete_patient": "Delete patient",
