@@ -1345,7 +1345,7 @@ class MainWindow(QMainWindow):
         
         # Установим пропорции ширины по умолчанию
         if table.columnCount() == 8:
-            table.setColumnWidth(0, 110)  # ID
+            table.setColumnWidth(0, 140)  # ID
             table.setColumnWidth(1, 300)  # Name
             table.setColumnWidth(2, 65)   # Modality
             table.setColumnWidth(3, 65)   # Slices
@@ -1355,7 +1355,7 @@ class MainWindow(QMainWindow):
             table.setColumnWidth(7, 45)   # STR
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Имя тянется
         elif table.columnCount() == 6:
-            table.setColumnWidth(0, 120)  # ID
+            table.setColumnWidth(0, 140)  # ID
             table.setColumnWidth(1, 300)  # Name
             table.setColumnWidth(2, 70)   # Modality
             table.setColumnWidth(3, 65)   # Slices
