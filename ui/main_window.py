@@ -1206,24 +1206,24 @@ class MainWindow(QMainWindow):
         self.pacs_3days_btn.setFixedHeight(30)
         self.pacs_3days_btn.clicked.connect(self.pacs_set_3days)
         
-        self.lbl_from = QLabel("Период с:")
+        self.lbl_from = QLabel(tr_ui("lbl_from"))
         self.lbl_from.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
         
         self.pacs_date_from = CenteredDateEdit()
         self.pacs_date_from.setDisplayFormat("dd.MM.yyyy")
         self.pacs_date_from.setDate(QDate.currentDate())
         self.pacs_date_from.setFixedHeight(30)
-        self.pacs_date_from.setFixedWidth(95)
+        self.pacs_date_from.setFixedWidth(105)
         self.pacs_date_from.dateChanged.connect(lambda: self.fill_pacs_list(silent=False))
         
-        self.lbl_to = QLabel("по:")
+        self.lbl_to = QLabel(tr_ui("lbl_to"))
         self.lbl_to.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
         
         self.pacs_date_to = CenteredDateEdit()
         self.pacs_date_to.setDisplayFormat("dd.MM.yyyy")
         self.pacs_date_to.setDate(QDate.currentDate())
         self.pacs_date_to.setFixedHeight(30)
-        self.pacs_date_to.setFixedWidth(95)
+        self.pacs_date_to.setFixedWidth(105)
         self.pacs_date_to.dateChanged.connect(lambda: self.fill_pacs_list(silent=False))
         
         self.pacs_auto_scan_cb = ToggleSwitch(tr_ui("pacs_standby_mode"))
@@ -1232,7 +1232,7 @@ class MainWindow(QMainWindow):
         self.pacs_auto_scan_cb.stateChanged.connect(self.on_pacs_auto_scan_changed)
         
         self.pacs_search_entry = QLineEdit()
-        self.pacs_search_entry.setPlaceholderText(tr_ui("placeholder_search_filter"))
+        self.pacs_search_entry.setPlaceholderText(tr_ui("placeholder_search_patient"))
         self.pacs_search_entry.setFixedHeight(30)
         self.pacs_search_entry.setFixedWidth(160)
         self.pacs_search_entry.textChanged.connect(self.search_patient_pacs)
@@ -2716,13 +2716,10 @@ class MainWindow(QMainWindow):
 
         filtered_items = {}
         for patient_id, data in display_dict.items():
+            patient_name = str(data.get('patient_name', '')).lower()
             if search_text:
-                p_name = str(data.get('patient_name', '')).lower().replace('^', ' ')
-                p_id = str(patient_id).lower()
-                words = p_name.split()
-                name_match = any(w.startswith(search_text) for w in words) if words else False
-                id_match = search_text in p_id
-                if not (name_match or id_match or search_text in p_name):
+                words = patient_name.replace('^', ' ').split()
+                if not (words and words[0].startswith(search_text)):
                     continue
             filtered_items[patient_id] = data
 
@@ -3185,7 +3182,7 @@ class MainWindow(QMainWindow):
         self.lbl_from.setText(tr_ui("lbl_from"))
         self.lbl_to.setText(tr_ui("lbl_to"))
         self.lbl_server.setText(tr_ui("lbl_server"))
-        self.pacs_search_entry.setPlaceholderText(tr_ui("placeholder_search_filter"))
+        self.pacs_search_entry.setPlaceholderText(tr_ui("placeholder_search_patient"))
         self.send_to_ct_btn.setText(tr_ui("btn_send_to_ct"))
         self.pacs_auto_scan_cb.setText(tr_ui("pacs_standby_mode"))
         
