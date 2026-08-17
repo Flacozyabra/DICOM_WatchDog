@@ -1253,6 +1253,18 @@ class MainWindow(QMainWindow):
         rename_action.triggered.connect(lambda: self.rename_tab_dialog(index))
         menu.addAction(rename_action)
         
+        # Если задано кастомное имя, добавляем пункт "Сбросить название"
+        config_keys = {0: 'custom_tab_name_ct', 1: 'custom_tab_name_archive', 2: 'custom_tab_name_pacs'}
+        key = config_keys.get(index)
+        if key and self.config.get(key):
+            reset_action = QAction(tr_ui("ctx_reset_tab_name"), self)
+            def do_reset():
+                self.config.pop(key, None)
+                self.save_current_config()
+                self.retranslate_ui()
+            reset_action.triggered.connect(do_reset)
+            menu.addAction(reset_action)
+        
         menu.exec(self.tab_widget.tabBar().mapToGlobal(pos))
 
     def get_move_to_archive_text(self):
