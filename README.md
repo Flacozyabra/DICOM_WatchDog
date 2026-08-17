@@ -14,17 +14,14 @@
 
 DICOM WatchDog is a lightweight desktop utility designed for automated monitoring, organization, and backup of DICOM studies (CT images) from scanning workstations and local archives, with optional integration with PACS servers.
 
-### Executable (EXE) Versions Detail
+### Executable (EXE) Editions
 When downloading release assets, choose the executable that best fits your environment:
-- **`DICOM_WatchDog_PyQt6.exe`** (Recommended for Modern Windows 10/11)
+- **`DICOM WatchDog.exe`** (Main Edition — Recommended for Windows 10/11)
   - Built on Python 3.11 with PyQt6.
   - Recommended for modern computers. Includes native bootloader splash screen for instant visual feedback on startup.
-- **`DICOM_WatchDog_PyQt5.exe`** (Windows 10/11 Compatible)
-  - Built on Python 3.11 with PyQt5.
-  - A fallback version for modern OS environments in case PyQt6 encounters hardware/driver compatibility issues. Includes startup splash screen.
-- **`DICOM_WatchDog_PyQt5_Legacy.exe`** (Windows 7/8/10 Legacy)
+- **`DICOM WatchDog Legacy.exe`** (Compatibility Edition — Windows 7 / 8.1 / 10 Legacy)
   - Built on Python 3.8 with PyQt5.
-  - Tailored specifically for legacy OS workstations (e.g. Windows 7). Native splash screen is completely disabled to avoid startup DLL/DWM API crashes and ensure 100% compatibility.
+  - Tailored specifically for legacy OS workstations (e.g. Windows 7 SP1) or machines with legacy graphics drivers. Native splash screen is disabled to avoid startup DWM/API crashes and guarantee 100% compatibility.
 
 ### Key Features
 - **Real-Time Monitoring**: Automatically scans folders for new CT scan files.
@@ -40,13 +37,11 @@ When downloading release assets, choose the executable that best fits your envir
 
 ### Building from Source (EXE)
 To compile the application into a standalone executable:
-- **PyQt6 / PyQt5 (Modern)**: Compile using Python 3.11+.
+- **Main Edition (`DICOM WatchDog.exe`)**: Compile using Python 3.11+.
   ```bash
   python build_PyQt6.py
-  # or
-  python build_PyQt5.py
   ```
-- **PyQt5 Legacy (Windows 7)**: You **must use Python 3.8** for compilation. Newer Python versions (3.9+) are not compatible with Windows 7.
+- **Legacy Edition (`DICOM WatchDog Legacy.exe`)**: You **must use Python 3.8** for compilation. Newer Python versions (3.9+) are not compatible with Windows 7.
   ```bash
   python build_PyQt5_Legacy.py
   ```
@@ -63,14 +58,12 @@ This software is provided for research, data management, and workflow automation
 
 DICOM WatchDog — это легковесная утилита для автоматического мониторинга, сортировки и резервного копирования КТ-исследований (DICOM) с рабочих станций сканирования и локальных архивов с возможностью работы с PACS-серверами.
 
-### Подробное описание EXE-версий
+### Официальные редакции EXE-файлов
 При скачивании релизов выберите файл, подходящий для вашего рабочего окружения:
-- **`DICOM_WatchDog_PyQt6.exe`** (Рекомендуется для современной Windows 10/11)
-  - Собрано на Python 3.11 и PyQt6, предназначено для современных ПК. 
-- **`DICOM_WatchDog_PyQt5.exe`** (Windows 10/11 Совместимая)
-  - Собрано на Python 3.11 и PyQt5, резервная версия для современных ОС на случай проблем совместимости видеодрайверов с PyQt6.
-- **`DICOM_WatchDog_PyQt5_Legacy.exe`** (Легаси Windows 7/8/10)
-  - Собрано на Python 3.8 и PyQt5, специальная стабильная версия для устаревших рабочих станций (например, на Windows 7).
+- **`DICOM WatchDog.exe`** (Основная редакция — Рекомендуется для Windows 10/11)
+  - Собрано на Python 3.11 и PyQt6, предназначено для современных рабочих станций. Включает нативный анимированный экран загрузки.
+- **`DICOM WatchDog Legacy.exe`** (Совместимая редакция — Windows 7 / 8.1 / 10)
+  - Собрано на Python 3.8 и PyQt5, специальная стабильная версия для устаревших рабочих станций (например, Windows 7 SP1) или компьютеров с устаревшими видеокартами.
 
 ### Ключевые возможности
 - **Мониторинг в реальном времени**: Автоматическое сканирование папок на наличие новых КТ-снимков.
@@ -86,13 +79,11 @@ DICOM WatchDog — это легковесная утилита для авто�
 
 ### Сборка исполняемых файлов (EXE)
 Для компиляции приложения в автономный EXE-файл:
-- **PyQt6 / PyQt5 (Современная)**: Выполните сборку с помощью Python 3.11+.
+- **Основная редакция (`DICOM WatchDog.exe`)**: Выполните сборку с помощью Python 3.11+.
   ```bash
   python build_PyQt6.py
-  # или
-  python build_PyQt5.py
   ```
-- **PyQt5 Legacy (Windows 7)**: Сборку **необходимо выполнять строго на Python 3.8**. Более новые версии Python (3.9+) несовместимы с Windows 7.
+- **Совместимая редакция (`DICOM WatchDog Legacy.exe`)**: Сборку **необходимо выполнять строго на Python 3.8**. Более новые версии Python (3.9+) несовместимы с Windows 7.
   ```bash
   python build_PyQt5_Legacy.py
   ```

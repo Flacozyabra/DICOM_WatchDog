@@ -125,22 +125,21 @@ def build_executable(has_icon):
         "--add-data=src;src",
         "--add-data=themes;themes",
         "--add-data=locales;locales",
-        "--name=DICOM_WatchDog_PyQt6",
+        "--name=DICOM WatchDog",
         "--splash=src/splashscreen_compiled.png",
     ]
 
-    # Явный поиск и добавление vcruntime140.dll для предотвращения ошибок на GitHub Actions
-    vcruntime_path = Path(sys.base_prefix) / "vcruntime140.dll"
-    if not vcruntime_path.exists():
-        system32_path = Path(os.environ.get("SystemRoot", "C:\\Windows")) / "System32" / "vcruntime140.dll"
-        if system32_path.exists():
-            vcruntime_path = system32_path
+    # Явный поиск и добавление библиотек рантайма Visual C++ для максимальной автономности
+    for dll_name in ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"]:
+        dll_path = Path(sys.base_prefix) / dll_name
+        if not dll_path.exists():
+            system32_path = Path(os.environ.get("SystemRoot", "C:\\Windows")) / "System32" / dll_name
+            if system32_path.exists():
+                dll_path = system32_path
 
-    if vcruntime_path.exists():
-        args.append(f"--add-data={vcruntime_path};.")
-        print(f"[INFO] Явно добавлена библиотека рантайма: {vcruntime_path}")
-    else:
-        print("[WARNING] vcruntime140.dll не найдена! Сборка может быть неработоспособной.")
+        if dll_path.exists():
+            args.append(f"--add-data={dll_path};.")
+            print(f"[INFO] Явно добавлена библиотека рантайма: {dll_path}")
     
     if has_icon:
         args.append("--icon=src/app_icon.ico")
