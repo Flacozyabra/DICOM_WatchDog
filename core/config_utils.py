@@ -79,3 +79,14 @@ def get_cache_path():
 def get_log_path():
     return os.path.join(get_app_data_dir(), "pacs_error.log")
 
+def save_config(config):
+    config_path = get_config_path()
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=4)
+        return True
+    except Exception as e:
+        print(f"Failed to save config: {e}")
+        return False
+
+

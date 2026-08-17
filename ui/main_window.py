@@ -233,9 +233,7 @@ class MainWindow(QMainWindow):
         return f"{folder_name} [{patient_name}]"
 
     def load_config(self):
-        # Быстрый способ получить актуальные настройки из config.txt
-        dialog = SettingsDialog(self)
-        return dialog.config
+        return SettingsDialog.load_config()
 
     def init_window_geometry(self):
         width = max(self.config.get('x', 1100), 1100)
@@ -2179,6 +2177,7 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             # Перечитываем настройки
             self.config = dialog.config
+            self.apply_settings_dynamic(self.config)
             self.populate_pacs_server_combo()
             
             # Перезапускаем фоновый DICOM сервер с новыми настройками
@@ -2186,48 +2185,6 @@ class MainWindow(QMainWindow):
             calling_aet = self.config.get('pacs_calling_aet', 'DW_GAMMA')
             ct_dir = self.config.get('ct_images_dir', '')
             start_background_pacs_server(port=pacs_local_port, ae_title=calling_aet, target_dir=ct_dir)
-            
-            # Обновляем шрифт лога
-            font = QFont("Consolas", self.config.get('log_font_size', 12))
-            self.output_field.setFont(font)
-            
-            # Обновляем шрифты и высоту строк таблиц через styleSheet
-            font_size = self.config.get('patient_font_size', 16)
-            row_height = max(25, font_size + 12)
-            weight_map = {
-                "Regular": "400",
-                "Semibold": "600",
-                "Bold": "700"
-            }
-            weight_str = self.config.get('patient_weight', 'Semibold')
-            weight = weight_map.get(weight_str, "400")
-            table_style = f"font-size: {font_size}px; font-weight: {weight}; font-family: 'Segoe UI';"
-            header_style = """
-                QHeaderView::section {
-                    background-color: #1a1a1a;
-                    color: #ffffff;
-                    padding: 6px;
-                    border: none;
-                    border-left: 1px solid qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 transparent, stop:0.25 transparent, stop:0.3 #3d3d3d, stop:0.7 #3d3d3d, stop:0.75 transparent, stop:1 transparent);
-                    font-size: 14px;
-                    font-weight: normal;
-                    font-family: 'Segoe UI';
-                }
-                QHeaderView::section:first {
-                    border-left: none;
-                }
-                QHeaderView {
-                    background-color: #1a1a1a;
-                    border: none;
-                }
-            """
-            for table in [self.images_table, self.archive_table, self.pacs_table]:
-                table.setStyleSheet(table_style)
-                table.horizontalHeader().setStyleSheet(header_style)
-                table.verticalHeader().setDefaultSectionSize(row_height)
-            
-            # Сброс и перезапуск таймеров
-            self.restart_timers()
             
             log_message(self.output_field, tr_log("log_settings_saved"))
             
@@ -2238,13 +2195,13 @@ class MainWindow(QMainWindow):
             archive_changed = (old_archive_dir != new_archive_dir)
             
             # Обновляем текущую вкладку
-            current_idx = self.tab_widget.currentIndex()
-            if current_idx == 0:
+            current_widget = self.tab_widget.currentWidget()
+            if current_widget == self.images_tab:
                 self.start_folder_scan(show_progress=ct_changed)
-            elif current_idx == 1:
+            elif current_widget == self.archive_tab:
                 self.fill_archive_list(show_progress=archive_changed)
             else:
-                self.on_tab_changed(current_idx)
+                self.on_tab_changed(self.tab_widget.currentIndex())
 
     def on_pacs_selection_changed(self):
         has_selection = len(self.pacs_table.selectedRanges()) > 0
@@ -2381,9 +2338,8 @@ class MainWindow(QMainWindow):
             msg_box.exec()
 
     def save_current_config(self):
-        dialog = SettingsDialog(self)
-        dialog.config = self.config
-        dialog.save_config()
+        from core.config_utils import save_config
+        save_config(self.config)
 
     def open_patient_folder(self, patient_id, is_archive=False):
         dir_key = 'archive_dir' if is_archive else 'ct_images_dir'

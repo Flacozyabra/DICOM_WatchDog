@@ -440,7 +440,8 @@ class SettingsDialog(QDialog):
         self.initial_config = self.config.copy()
         self.init_ui()
 
-    def load_config(self):
+    @staticmethod
+    def load_config():
         config = {
             'ct_images_dir': '',
             'archive_dir': '',
@@ -1404,7 +1405,10 @@ class SettingsDialog(QDialog):
         ct_text = self.ct_images_edit.text().strip()
         archive_text = self.archive_edit.text().strip()
         
-        if ct_text and archive_text:
+        is_archive_enabled = self.show_tab_archive_cb.isChecked()
+        is_pacs_enabled = self.show_tab_pacs_cb.isChecked()
+
+        if is_archive_enabled and ct_text and archive_text:
             ct_dir = os.path.normpath(ct_text)
             archive_dir = os.path.normpath(archive_text)
             if ct_dir.lower() == archive_dir.lower():
@@ -1416,7 +1420,7 @@ class SettingsDialog(QDialog):
                 msg.exec()
                 return
 
-        if self.archive_enabled_cb.isChecked() and not archive_text:
+        if is_archive_enabled and self.archive_enabled_cb.isChecked() and not archive_text:
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Warning)
             msg.setWindowTitle(tr_ui("dlg_warning_title"))
@@ -1425,17 +1429,18 @@ class SettingsDialog(QDialog):
             msg.exec()
             return
 
-        # Валидация AE Title
-        called_aet = self.pacs_called_aet_edit.text().strip()
-        calling_aet = self.pacs_calling_aet_edit.text().strip()
-        if len(called_aet) > 16 or len(calling_aet) > 16:
-            msg = QMessageBox(self)
-            msg.setIcon(QMessageBox.Icon.Warning)
-            msg.setWindowTitle(tr_ui("dlg_error_title"))
-            msg.setText(tr_ui("dlg_aet_too_long", called_aet, len(called_aet), calling_aet, len(calling_aet)))
-            apply_dark_title_bar(msg)
-            msg.exec()
-            return
+        # Валидация AE Title только если PACS включен
+        if is_pacs_enabled:
+            called_aet = self.pacs_called_aet_edit.text().strip()
+            calling_aet = self.pacs_calling_aet_edit.text().strip()
+            if len(called_aet) > 16 or len(calling_aet) > 16:
+                msg = QMessageBox(self)
+                msg.setIcon(QMessageBox.Icon.Warning)
+                msg.setWindowTitle(tr_ui("dlg_error_title"))
+                msg.setText(tr_ui("dlg_aet_too_long", called_aet, len(called_aet), calling_aet, len(calling_aet)))
+                apply_dark_title_bar(msg)
+                msg.exec()
+                return
 
         # Принудительно синхронизируем все настройки перед сохранением
         self.on_setting_changed()
