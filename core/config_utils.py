@@ -4,7 +4,7 @@ import shutil
 import json
 import urllib.request
 
-VERSION = "1.7.8"
+VERSION = "1.7.9"
 
 from ui.updater import check_github_updates, is_newer_version
 
