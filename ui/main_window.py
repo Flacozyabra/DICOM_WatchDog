@@ -28,544 +28,16 @@ from ui.centered_date_edit import CenteredDateEdit
 from ui.tab_badge import TabBadge
 from themes.theme_manager import load_theme
 from ui.dicom_viewer import DicomViewerPanel
-
-
-class ToggleTableWidget(QTableWidget):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.placeholder_widget = None
-        self.placeholder_label = None
-        self.placeholder_btn = None
-
-    def set_placeholder_state(self, text, show_button=False, button_callback=None, color=None):
-        if not self.placeholder_widget:
-            self.placeholder_widget = QWidget(self.viewport())
-            layout = QVBoxLayout(self.placeholder_widget)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(10)
-            layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            
-            self.placeholder_label = QLabel(text, self.placeholder_widget)
-            self.placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(self.placeholder_label)
-            
-            self.placeholder_btn = QPushButton(tr_ui("btn_browse"), self.placeholder_widget)
-            self.placeholder_btn.setFixedSize(120, 30)
-            self.placeholder_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #2b2b2b;
-                    color: #ffffff;
-                    border: 1px solid #3d3d3d;
-                    border-radius: 4px;
-                    font-family: 'Segoe UI';
-                    font-size: 13px;
-                }
-                QPushButton:hover {
-                    background-color: #3d3d3d;
-                }
-                QPushButton:pressed {
-                    background-color: #1a1a1a;
-                }
-            """)
-            layout.addWidget(self.placeholder_btn, alignment=Qt.AlignmentFlag.AlignCenter)
-            self.placeholder_widget.hide()
-            
-        label_color = color if color else "#666666"
-        self.placeholder_label.setStyleSheet(f"color: {label_color}; font-size: 15px; font-family: 'Segoe UI'; background: transparent;")
-        self.placeholder_label.setText(text)
-        self.placeholder_btn.setText(tr_ui("btn_browse"))
-        self.placeholder_btn.setVisible(show_button)
-        
-        try:
-            self.placeholder_btn.clicked.disconnect()
-        except TypeError:
-            pass
-            
-        if button_callback:
-            self.placeholder_btn.clicked.connect(button_callback)
-            
-        self.update_placeholder_visibility()
-
-    def set_placeholder_text(self, text, color=None):
-        self.set_placeholder_state(text, show_button=False, color=color)
-
-    def update_placeholder_visibility(self):
-        if self.placeholder_widget:
-            if self.rowCount() == 0:
-                self.placeholder_widget.setGeometry(self.viewport().rect())
-                self.placeholder_widget.show()
-            else:
-                self.placeholder_widget.hide()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self.placeholder_widget:
-            self.placeholder_widget.setGeometry(self.viewport().rect())
-
-    def mousePressEvent(self, event):
-        if event.button() != Qt.MouseButton.LeftButton:
-            super().mousePressEvent(event)
-            return
-            
-        index = self.indexAt(event.pos())
-        if not index.isValid():
-            self.clearSelection()
-            super().mousePressEvent(event)
-            return
-
-        row = index.row()
-        is_selected = False
-        selected_ranges = self.selectedRanges()
-        for r in selected_ranges:
-            if r.topRow() <= row <= r.bottomRow():
-                is_selected = True
-                break
-
-        if is_selected:
-            self.clearSelection()
-            self.setCurrentIndex(self.model().index(-1, -1))
-            self.setFocus()
-        else:
-            super().mousePressEvent(event)
-
-
-class WatchdogHandler(QObject, FileSystemEventHandler):
-    changed = pyqtSignal()
-
-    def on_any_event(self, event):
-        self.changed.emit()
-
-
-class ThreadLogCollector:
-    def __init__(self, emit_callback=None):
-        self.messages = []
-        self.emit_callback = emit_callback
-
-    def appendPlainText(self, text):
-        self.messages.append(text)
-        if self.emit_callback:
-            self.emit_callback(text)
-
-
-class FolderScanWorker(QThread):
-    finished = pyqtSignal(dict, list)
-    progress = pyqtSignal(int, int)  # (current, total)
-    status_changed = pyqtSignal(str) # (status_text)
-    log_emitted = pyqtSignal(str)
-
-    def __init__(self, ct_images_dir, cleanup_structures_enabled, fix_patient_id_enabled, id_prefixes,
-                 rename_study_folder_enabled, rename_study_folder_mode,
-                 archive_dir, archive_enabled, archive_days, archive_cleanup_enabled, archive_cleanup_days):
-        super().__init__()
-        self.ct_images_dir = ct_images_dir
-        self.cleanup_structures_enabled = cleanup_structures_enabled
-        self.fix_patient_id_enabled = fix_patient_id_enabled
-        self.id_prefixes = id_prefixes
-        self.rename_study_folder_enabled = rename_study_folder_enabled
-        self.rename_study_folder_mode = rename_study_folder_mode
-        self.archive_dir = archive_dir
-        self.archive_enabled = archive_enabled
-        self.archive_days = archive_days
-        self.archive_cleanup_enabled = archive_cleanup_enabled
-        self.archive_cleanup_days = archive_cleanup_days
-
-    def run(self):
-        collector = ThreadLogCollector(emit_callback=self.log_emitted.emit)
-        is_cleanup_struct_on = self.cleanup_structures_enabled.lower() == 'true'
-        is_fix_id_on = self.fix_patient_id_enabled.lower() == 'true'
-        is_rename_folder_on = self.rename_study_folder_enabled.lower() == 'true'
-        is_archive_on = self.archive_enabled.lower() == 'true'
-        is_cleanup_on = self.archive_cleanup_enabled.lower() == 'true'
-        
-        prefixes_list = []
-        if self.id_prefixes:
-            prefixes_list = [p.strip() for p in self.id_prefixes.split(',') if p.strip()]
-
-        patient_folders = []
-        if os.path.exists(self.ct_images_dir):
-            try:
-                patient_folders = [os.path.join(self.ct_images_dir, d) for d in os.listdir(self.ct_images_dir)
-                                   if os.path.isdir(os.path.join(self.ct_images_dir, d))]
-            except Exception:
-                pass
-
-        total_folders = len(patient_folders)
-
-        # 1. Фаза исправления ID и переименования папок
-        if (is_fix_id_on or is_rename_folder_on) and total_folders > 0:
-            self.status_changed.emit(tr_ui("loading_fixing_folders_status"))
-            for i, path in enumerate(patient_folders):
-                self.progress.emit(i, total_folders)
-                process_patient_folder(
-                    path, collector,
-                    fix_patient_id=is_fix_id_on,
-                    prefixes=prefixes_list,
-                    rename_folder=is_rename_folder_on,
-                    rename_mode=self.rename_study_folder_mode
-                )
-            self.progress.emit(total_folders, total_folders)
-            
-        # 2. Фаза архивации
-        if is_archive_on and not self.archive_dir:
-            collector.appendPlainText(tr_log("log_warn_auto_archive_not_configured"))
-
-        if self.archive_dir and is_archive_on and os.path.exists(self.ct_images_dir):
-            self.status_changed.emit(tr_ui("loading_archiving_status"))
-            from core.archive import move_old_folders_to_archive
-            move_old_folders_to_archive(self.ct_images_dir, self.archive_dir, self.archive_days, collector)
-
-        # 3. Фаза очистки архива
-        if self.archive_dir and is_cleanup_on:
-            self.status_changed.emit(tr_ui("loading_cleanup_status"))
-            from core.archive import cleanup_old_archive_folders
-            cleanup_old_archive_folders(self.archive_dir, self.archive_cleanup_days, collector)
-
-        # 4. Фаза сканирования папок для таблицы
-        self.status_changed.emit(tr_ui("loading_scanning_folders_status"))
-        patient_dict = dict_create(
-            self.ct_images_dir, collector,
-            cleanup_structures=is_cleanup_struct_on,
-            progress_callback=self.progress.emit
-        )
-        self.finished.emit(patient_dict, collector.messages)
-
-
-class PacsScanWorker(QThread):
-    finished = pyqtSignal(dict, bool, list)
-
-    def __init__(self, pacs_ip, pacs_port, called_aet, calling_aet, study_date=None):
-        super().__init__()
-        self.pacs_ip = pacs_ip
-        self.pacs_port = pacs_port
-        self.called_aet = called_aet
-        self.calling_aet = calling_aet
-        self.study_date = study_date
-
-    def run(self):
-        collector = ThreadLogCollector()
-        try:
-            pacs_dict, con = pacs_dict_create(
-                collector,
-                pacs_ip=self.pacs_ip,
-                pacs_port=self.pacs_port,
-                called_aet=self.called_aet,
-                calling_aet=self.calling_aet,
-                study_date=self.study_date
-            )
-        except Exception:
-            from collections import defaultdict
-            pacs_dict, con = defaultdict(dict), False
-        self.finished.emit(pacs_dict, con, collector.messages)
-
-
-class ArchiveScanWorker(QThread):
-    finished = pyqtSignal(dict, list)
-    progress = pyqtSignal(int, int)  # (current, total)
-    log_emitted = pyqtSignal(str)
-
-    def __init__(self, archive_dir, cleanup_structures_enabled):
-        super().__init__()
-        self.archive_dir = archive_dir
-        self.cleanup_structures_enabled = cleanup_structures_enabled
-
-    def run(self):
-        collector = ThreadLogCollector(emit_callback=self.log_emitted.emit)
-        is_cleanup_struct_on = self.cleanup_structures_enabled.lower() == 'true'
-        from core.archive import archive_dict_create
-        d = archive_dict_create(
-            self.archive_dir, collector,
-            cleanup_structures=is_cleanup_struct_on,
-            progress_callback=self.progress.emit
-        )
-        self.finished.emit(d, collector.messages)
-
-
-def tr(ru_text, en_text):
-    from core.locale_utils import get_current_langs
-    lang, _ = get_current_langs()
-    return ru_text if lang == 'ru' else en_text
-
-
-class BackgroundFileWorker(QThread):
-    finished = pyqtSignal(str, str, object)  # patient_id, op_type, result
-    error = pyqtSignal(str, str, str, str)    # patient_id, op_type, err_msg, err_title
-
-    def __init__(self, patient_id, op_type, func, *args):
-        super().__init__()
-        self.patient_id = patient_id
-        self.op_type = op_type
-        self.func = func
-        self.args = args
-
-    def run(self):
-        try:
-            res = self.func(*self.args)
-            self.finished.emit(self.patient_id, self.op_type, res)
-        except Exception as e:
-            err_title = tr_ui("dlg_error_archive_title") if self.op_type == "archive" else tr_ui("dlg_error_delete_title")
-            self.error.emit(self.patient_id, self.op_type, str(e), err_title)
-
-
-class TaskProgressDelegate(QStyledItemDelegate):
-    def __init__(self, parent, active_ops, anim_phase):
-        super().__init__(parent)
-        self.main_window = parent
-        self.active_ops = active_ops
-        self.anim_phase = anim_phase
-
-    def paint(self, painter, option, index):
-        id_index = index.sibling(index.row(), 0)
-        patient_id = id_index.data(Qt.ItemDataRole.UserRole)
-
-        if patient_id in self.active_ops:
-            op_data = self.active_ops[patient_id]
-            op_type = op_data.get('op')
-
-            painter.save()
-
-            # Базовые цвета градиента для разных операций (активный / фоновый)
-            color_map = {
-                'archive': (QColor(40, 30, 15, 200), QColor(80, 50, 20, 200)),
-                'delete': (QColor(50, 15, 15, 200), QColor(90, 25, 25, 200)),
-                'restore': (QColor(15, 40, 50, 200), QColor(25, 70, 90, 200)),
-                'clean_str': (QColor(35, 15, 50, 200), QColor(60, 25, 90, 200))
-            }
-            c1, c2 = color_map.get(op_type, (QColor(30, 30, 30, 200), QColor(50, 50, 50, 200)))
-
-            table_widget = option.widget
-            rect = option.rect
-            
-            # Вычисляем геометрические границы всей строки для плавного общего градиента
-            row_left = rect.left()
-            row_right = rect.right()
-            if table_widget:
-                total_width = 0
-                for col in range(table_widget.columnCount()):
-                    total_width += table_widget.columnWidth(col)
-                
-                cell_left_offset = 0
-                for col in range(index.column()):
-                    cell_left_offset += table_widget.columnWidth(col)
-                
-                row_left = rect.left() - cell_left_offset
-                row_right = row_left + total_width
-
-            gradient = QLinearGradient(row_left, rect.top(), row_right, rect.top())
-
-            phase = self.anim_phase[0]
-            stop1 = phase % 1.0
-            stop2 = (phase + 0.33) % 1.0
-            stop3 = (phase + 0.66) % 1.0
-
-            stops = sorted([(stop1, c1), (stop2, c2), (stop3, c1)], key=lambda x: x[0])
-            
-            # Обеспечиваем плавность на границах
-            gradient.setColorAt(0.0, stops[0][1])
-            for stop, color in stops:
-                gradient.setColorAt(stop, color)
-            gradient.setColorAt(1.0, stops[-1][1])
-
-            painter.fillRect(rect, QBrush(gradient))
-            painter.restore()
-
-            new_option = QStyleOptionViewItem(option)
-            if new_option.state & QStyle.StateFlag.State_Selected:
-                new_option.state &= ~QStyle.StateFlag.State_Selected
-            new_option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, QColor("#ffffff"))
-            new_option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
-
-            # Добавляем текстовый суффикс
-            if index.column() in (0, 1):
-                suffix_map = {
-                    'archive': tr(" [Архивация...]", " [Archiving...]"),
-                    'delete': tr(" [Удаление...]", " [Deleting...]"),
-                    'restore': tr(" [Восстановление...]", " [Restoring...]"),
-                    'clean_str': tr(" [Очистка STR...]", " [Cleaning STR...]")
-                }
-                suffix = suffix_map.get(op_type, tr(" [Выполнение...]", " [Processing...]"))
-                orig_text = index.data(Qt.ItemDataRole.DisplayRole)
-                new_option.text = str(orig_text) + suffix
-
-            super().paint(painter, new_option, index)
-        else:
-            super().paint(painter, option, index)
-
-
-class PacsDownloadWorker(QThread):
-    finished = pyqtSignal(bool, str)
-    progress = pyqtSignal(int, int)
-
-    def __init__(self, patient_id, target_dir, pacs_ip, pacs_port, called_aet, calling_aet, study_instance_uid=None):
-        super().__init__()
-        self.patient_id = patient_id
-        self.target_dir = target_dir
-        self.pacs_ip = pacs_ip
-        self.pacs_port = pacs_port
-        self.called_aet = called_aet
-        self.calling_aet = calling_aet
-        self.study_instance_uid = study_instance_uid
-        self.is_cancelled = False
-
-    def cancel(self):
-        self.is_cancelled = True
-
-    def run(self):
-        success, msg = download_patient_from_pacs(
-            self.patient_id, self.target_dir,
-            self.pacs_ip, self.pacs_port,
-            self.called_aet, self.calling_aet,
-            progress_callback=self.progress.emit,
-            is_cancelled_callback=lambda: self.is_cancelled,
-            study_instance_uid=self.study_instance_uid
-        )
-        self.finished.emit(success, msg)
-
-
-class CustomSplitterHandle(QSplitterHandle):
-    def __init__(self, orientation: Qt.Orientation, parent) -> None:
-        super().__init__(orientation, parent)
-        self.is_collapsed = False
-        self.setMouseTracking(True)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        if orientation == Qt.Orientation.Horizontal:
-            self.setFixedWidth(8)
-        else:
-            self.setFixedHeight(8)
-
-    def get_handle_index(self) -> int:
-        splitter = self.splitter()
-        if not splitter:
-            return -1
-        for i in range(1, splitter.count()):
-            if splitter.handle(i) is self:
-                return i
-        return -1
-
-    def enterEvent(self, event) -> None:
-        super().enterEvent(event)
-        self.update()
-
-    def leaveEvent(self, event) -> None:
-        super().leaveEvent(event)
-        self.update()
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        idx = self.get_handle_index()
-        splitter = self.splitter()
-        if splitter and idx != -1:
-            sizes = splitter.sizes()
-            if len(sizes) >= 2 and idx == 1:
-                self.is_collapsed = (sizes[1] <= 5)
-        self.update()
-
-    def mouseMoveEvent(self, event) -> None:
-        event.ignore()
-
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            idx = self.get_handle_index()
-            if idx != -1:
-                self.toggle_collapse()
-        else:
-            event.ignore()
-
-    def paintEvent(self, event) -> None:
-        idx = self.get_handle_index()
-        if idx == -1:
-            return
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        line_color = QColor("#3F3F46")
-        if self.underMouse():
-            arrow_color = QColor("#1f538d")
-        else:
-            arrow_color = QColor("#71717A")
-
-        w = self.width()
-        h = self.height()
-        cx = w // 2
-        cy = h // 2
-
-        poly = QPolygon()
-
-        if self.orientation() == Qt.Orientation.Horizontal:
-            painter.setPen(QPen(line_color, 1))
-            painter.drawLine(cx, 0, cx, h)
-
-            if not self.is_collapsed:
-                poly.append(QPoint(cx - 2, cy))
-                poly.append(QPoint(cx + 2, cy - 10))
-                poly.append(QPoint(cx + 2, cy + 10))
-            else:
-                poly.append(QPoint(cx + 2, cy))
-                poly.append(QPoint(cx - 2, cy - 10))
-                poly.append(QPoint(cx - 2, cy + 10))
-        else:
-            painter.setPen(QPen(line_color, 1))
-            painter.drawLine(15, cy, w - 15, cy)
-
-            if not self.is_collapsed:
-                poly.append(QPoint(cx, cy + 2))
-                poly.append(QPoint(cx - 10, cy - 2))
-                poly.append(QPoint(cx + 10, cy - 2))
-            else:
-                poly.append(QPoint(cx, cy - 2))
-                poly.append(QPoint(cx - 10, cy + 2))
-                poly.append(QPoint(cx + 10, cy + 2))
-
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(arrow_color))
-        painter.drawPolygon(poly)
-
-    def toggle_collapse(self) -> None:
-        splitter = self.splitter()
-        if not splitter:
-            return
-
-        sizes = splitter.sizes()
-        idx = self.get_handle_index()
-
-        if splitter.orientation() == Qt.Orientation.Horizontal:
-            if len(sizes) < 2:
-                return
-            if idx == 1:
-                if not self.is_collapsed:
-                    self.saved_width = sizes[0] if sizes[0] > 5 else 385
-                    new_sizes = [0, sizes[1] + sizes[0]]
-                    splitter.setSizes(new_sizes)
-                    self.is_collapsed = True
-                else:
-                    w = getattr(self, 'saved_width', 385)
-                    new_sizes = [w, max(50, sizes[1] + sizes[0] - w)]
-                    splitter.setSizes(new_sizes)
-                    self.is_collapsed = False
-        else:
-            if len(sizes) < 2:
-                return
-            if idx == 1:
-                if not self.is_collapsed:
-                    self.saved_log_height = sizes[1] if sizes[1] > 5 else 150
-                    new_sizes = [sizes[0] + sizes[1], 0]
-                    splitter.setSizes(new_sizes)
-                    self.is_collapsed = True
-                else:
-                    h = getattr(self, 'saved_log_height', 150)
-                    new_sizes = [max(50, sizes[0] + sizes[1] - h), h]
-                    splitter.setSizes(new_sizes)
-                    self.is_collapsed = False
-
-        self.update()
-
-
-class CustomSplitter(QSplitter):
-    def __init__(self, orientation: Qt.Orientation, parent: QWidget = None) -> None:
-        super().__init__(orientation, parent)
-
-    def createHandle(self) -> QSplitterHandle:
-        return CustomSplitterHandle(self.orientation(), self)
+from ui.table_widgets import (
+    ToggleTableWidget, TaskProgressDelegate, CustomSplitter, CustomSplitterHandle
+)
+from ui.workers import (
+    WatchdogHandler, ThreadLogCollector, FolderScanWorker, PacsScanWorker,
+    ArchiveScanWorker, BackgroundFileWorker, PacsDownloadWorker
+)
+from ui.tabs.images_tab import ImagesTab
+from ui.tabs.archive_tab import ArchiveTab
+from ui.tabs.pacs_tab import PacsTab
 
 
 class MainWindow(QMainWindow):
@@ -1059,262 +531,41 @@ class MainWindow(QMainWindow):
         self.stacked_widget.addWidget(self.viewer_panel)
 
     def create_tab_ct_images(self):
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(4, 10, 4, 6)
-        layout.setSpacing(10)
-        
-        # Таблица КТ-изображений
-        self.images_table = ToggleTableWidget()
-        self.images_table.setColumnCount(8)
-        self.images_table.setHorizontalHeaderLabels([
-            "Patient ID", "Patient Name", "Modality", "Slices", "Scanning Area", 
-            "Study datetime", "Folder datetime", "STR"
-        ])
-        self.images_table.setColumnHidden(2, True)
-        self.images_table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.images_table.horizontalHeader().customContextMenuRequested.connect(
-            lambda pos: self.show_header_context_menu(pos, self.images_table)
-        )
-        self.setup_table_properties(self.images_table)
-        self.images_table.set_placeholder_text("В этой папке нет исследований")
-        self.images_table.update_placeholder_visibility()
-        self.restore_table_state(self.images_table)
-        self.images_table.cellDoubleClicked.connect(self.on_images_double_clicked)
-        self.images_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.images_table.customContextMenuRequested.connect(self.show_images_context_menu)
-        self.images_table.itemSelectionChanged.connect(self.on_images_selection_changed)
-        
-        layout.addWidget(self.images_table)
-        
-        # Нижняя панель управления
-        control_layout = QHBoxLayout()
-        control_layout.setContentsMargins(5, 0, 5, 0)
-        control_layout.setSpacing(10)
-        
-        # Поиск по КТ-изображениям
-        self.search_images_entry = QLineEdit()
-        self.search_images_entry.setPlaceholderText("Введите имя пациента для поиска")
-        self.search_images_entry.textChanged.connect(self.search_patient_images)
-        self.search_images_entry.setFixedHeight(30)
-        control_layout.addWidget(self.search_images_entry, stretch=1, alignment=Qt.AlignmentFlag.AlignVCenter)
-        
-        self.search_images_btn = QPushButton("Search")
-        self.search_images_btn.setFixedHeight(30)
-        self.search_images_btn.clicked.connect(self.search_patient_images)
-        control_layout.addWidget(self.search_images_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
-        
-        # Кнопка перемещения в архив
-        self.move_to_archive_btn = QPushButton("Move to Archive")
-        self.move_to_archive_btn.clicked.connect(self.move_to_archive_cmd)
-        self.move_to_archive_btn.setEnabled(False)  # Затененная по умолчанию
-        self.move_to_archive_btn.setFixedHeight(30)
-        self.move_to_archive_btn.setObjectName("moveToArchiveBtn")
-        control_layout.addWidget(self.move_to_archive_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
-        
-        # Кнопка настроек (шестеренка)
-        self.settings_btn1 = QPushButton()
-        self.settings_btn1.setIcon(QIcon(get_resource_path("themes/settings.svg")))
-        self.settings_btn1.setIconSize(QSize(20, 20))
-        self.settings_btn1.setFixedSize(35, 30)
-        self.settings_btn1.setToolTip("Настройки папок и интервалов")
-        self.settings_btn1.clicked.connect(self.open_settings_cmd)
-        control_layout.addWidget(self.settings_btn1, alignment=Qt.AlignmentFlag.AlignVCenter)
-        
-        layout.addLayout(control_layout)
-        
-        self.tab_widget.addTab(tab, tr_ui("tab_ct_images"))
+        self.images_tab = ImagesTab(self)
+        self.images_table = self.images_tab.table
+        self.search_images_entry = self.images_tab.search_entry
+        self.search_images_btn = self.images_tab.search_btn
+        self.move_to_archive_btn = self.images_tab.move_to_archive_btn
+        self.settings_btn1 = self.images_tab.settings_btn
+        self.tab_widget.addTab(self.images_tab, tr_ui("tab_ct_images"))
 
     def create_tab_ct_archive(self):
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(4, 10, 4, 6)
-        layout.setSpacing(10)
-        
-        # Таблица архива
-        self.archive_table = ToggleTableWidget()
-        self.archive_table.setColumnCount(8)
-        self.archive_table.setHorizontalHeaderLabels([
-            "Patient ID", "Patient Name", "Modality", "Slices", "Scanning Area", 
-            "Study datetime", "Folder datetime", "STR"
-        ])
-        self.archive_table.setColumnHidden(2, True)
-        self.archive_table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.archive_table.horizontalHeader().customContextMenuRequested.connect(
-            lambda pos: self.show_header_context_menu(pos, self.archive_table)
-        )
-        self.setup_table_properties(self.archive_table)
-        self.archive_table.set_placeholder_text("В этой папке нет исследований")
-        self.archive_table.update_placeholder_visibility()
-        self.restore_table_state(self.archive_table)
-        self.archive_table.cellDoubleClicked.connect(self.on_archive_double_clicked)
-        self.archive_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.archive_table.customContextMenuRequested.connect(self.show_archive_context_menu)
-        self.archive_table.itemSelectionChanged.connect(self.on_archive_selection_changed)
-        layout.addWidget(self.archive_table)
-        
-        # Панель поиска и восстановления
-        search_layout = QHBoxLayout()
-        search_layout.setContentsMargins(5, 0, 5, 0)
-        search_layout.setSpacing(10)
-        
-        self.search_entry = QLineEdit()
-        self.search_entry.setPlaceholderText("Введите имя пациента для поиска")
-        self.search_entry.textChanged.connect(self.search_patient_archive)
-        self.search_entry.setFixedHeight(30)
-        search_layout.addWidget(self.search_entry, stretch=1, alignment=Qt.AlignmentFlag.AlignVCenter)
-        
-        self.search_btn = QPushButton("Search")
-        self.search_btn.setFixedHeight(30)
-        self.search_btn.clicked.connect(self.search_patient_archive)
-        search_layout.addWidget(self.search_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
-        
-        self.move_from_archive_btn = QPushButton("Move to CT images")
-        self.move_from_archive_btn.setFixedHeight(30)
-        self.move_from_archive_btn.setEnabled(False)
-        self.move_from_archive_btn.clicked.connect(self.move_from_archive_cmd)
-        search_layout.addWidget(self.move_from_archive_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
-        
-        # Кнопка настроек (шестеренка)
-        self.settings_btn2 = QPushButton()
-        self.settings_btn2.setIcon(QIcon(get_resource_path("themes/settings.svg")))
-        self.settings_btn2.setIconSize(QSize(20, 20))
-        self.settings_btn2.setFixedSize(35, 30)
-        self.settings_btn2.setToolTip("Настройки папок и интервалов")
-        self.settings_btn2.clicked.connect(self.open_settings_cmd)
-        search_layout.addWidget(self.settings_btn2, alignment=Qt.AlignmentFlag.AlignVCenter)
-        
-        layout.addLayout(search_layout)
-        
-        self.tab_widget.addTab(tab, tr_ui("tab_ct_archive"))
+        self.archive_tab = ArchiveTab(self)
+        self.archive_table = self.archive_tab.table
+        self.search_entry = self.archive_tab.search_entry
+        self.search_btn = self.archive_tab.search_btn
+        self.move_from_archive_btn = self.archive_tab.move_from_archive_btn
+        self.settings_btn2 = self.archive_tab.settings_btn
+        self.tab_widget.addTab(self.archive_tab, tr_ui("tab_ct_archive"))
 
     def create_tab_pacs(self):
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(4, 10, 4, 6)
-        layout.setSpacing(10)
-        
-        # Таблица PACS
-        self.pacs_table = ToggleTableWidget()
-        self.pacs_table.setColumnCount(6)
-        self.pacs_table.setHorizontalHeaderLabels([
-            "Patient ID", "Patient Name", "Modality", "Slices", "Scanning Area", "Study datetime"
-        ])
-        self.pacs_table.setColumnHidden(2, True)
-        self.pacs_table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.pacs_table.horizontalHeader().customContextMenuRequested.connect(
-            lambda pos: self.show_header_context_menu(pos, self.pacs_table)
-        )
-        self.setup_table_properties(self.pacs_table)
-        self.pacs_table.set_placeholder_text("Сканирование сервера PACS не настроено")
-        self.pacs_table.update_placeholder_visibility()
-        self.restore_table_state(self.pacs_table)
-        self.pacs_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.pacs_table.customContextMenuRequested.connect(self.show_pacs_context_menu)
-        self.pacs_table.itemSelectionChanged.connect(self.on_pacs_selection_changed)
-        layout.addWidget(self.pacs_table)
-        
-        # Панель управления PACS
-        pacs_control_layout = QHBoxLayout()
-        pacs_control_layout.setContentsMargins(5, 0, 5, 0)
-        pacs_control_layout.setSpacing(6)
-        
-        self.pacs_today_btn = QPushButton("Today")
-        self.pacs_today_btn.setFixedHeight(30)
-        self.pacs_today_btn.clicked.connect(self.pacs_set_today)
-        
-        self.pacs_3days_btn = QPushButton("Last 3 days")
-        self.pacs_3days_btn.setFixedHeight(30)
-        self.pacs_3days_btn.clicked.connect(self.pacs_set_3days)
-        
-        self.lbl_from = QLabel(tr_ui("lbl_from"))
-        self.lbl_from.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
-        
-        self.pacs_date_from = CenteredDateEdit()
-        self.pacs_date_from.setDisplayFormat("dd.MM.yyyy")
-        self.pacs_date_from.setDate(QDate.currentDate())
-        self.pacs_date_from.setFixedHeight(30)
-        self.pacs_date_from.dateChanged.connect(lambda: self.fill_pacs_list(silent=False))
-        
-        self.lbl_to = QLabel(tr_ui("lbl_to"))
-        self.lbl_to.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
-        
-        self.pacs_date_to = CenteredDateEdit()
-        self.pacs_date_to.setDisplayFormat("dd.MM.yyyy")
-        self.pacs_date_to.setDate(QDate.currentDate())
-        self.pacs_date_to.setFixedHeight(30)
-        self.pacs_date_to.dateChanged.connect(lambda: self.fill_pacs_list(silent=False))
-        
-        self.pacs_auto_scan_cb = ToggleSwitch(tr_ui("pacs_standby_mode"))
-        self.pacs_auto_scan_cb.setChecked(self.config.get('auto_update_is', 'off').lower() == 'on')
-        self.pacs_auto_scan_cb.setToolTip(tr_ui("tooltip_pacs_auto_scan"))
-        self.pacs_auto_scan_cb.stateChanged.connect(self.on_pacs_auto_scan_changed)
-        
-        self.pacs_search_entry = QLineEdit()
-        self.pacs_search_entry.setPlaceholderText(tr_ui("placeholder_search_patient"))
-        self.pacs_search_entry.setFixedHeight(30)
-        self.pacs_search_entry.setFixedWidth(160)
-        self.pacs_search_entry.textChanged.connect(self.search_patient_pacs)
-        
-        self.send_to_ct_btn = QPushButton(tr_ui("btn_send_to_ct"))
-        self.send_to_ct_btn.setFixedHeight(30)
-        self.send_to_ct_btn.setEnabled(False)
-        self.send_to_ct_btn.clicked.connect(self.send_to_ct_images_cmd)
-        
-        # Кнопка настроек (шестеренка)
-        self.settings_btn3 = QPushButton()
-        self.settings_btn3.setIcon(QIcon(get_resource_path("themes/settings.svg")))
-        self.settings_btn3.setIconSize(QSize(20, 20))
-        self.settings_btn3.setFixedSize(35, 30)
-        self.settings_btn3.setToolTip("Настройки папок и интервалов")
-        self.settings_btn3.clicked.connect(self.open_settings_cmd)
-        
-        # Выпадающий список серверов PACS
-        self.lbl_server = QLabel("Сервер:")
-        self.lbl_server.setStyleSheet("color: #ffffff; font-family: 'Segoe UI'; font-size: 13px;")
-        
-        self.pacs_server_combo = QComboBox()
-        self.pacs_server_combo.setFixedWidth(120)
-        self.pacs_server_combo.setStyleSheet("""
-            QComboBox {
-                background-color: #2A2A2A;
-                border: 1px solid #374151;
-                border-radius: 4px;
-                color: #FFFFFF;
-                padding: 0px 8px;
-                font-size: 12px;
-                min-height: 28px;
-                max-height: 28px;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #1A1A1A;
-                border: 1px solid #374151;
-                color: #FFFFFF;
-                selection-background-color: #3B82F6;
-            }
-        """)
+        self.pacs_tab = PacsTab(self)
+        self.pacs_table = self.pacs_tab.table
+        self.pacs_today_btn = self.pacs_tab.today_btn
+        self.pacs_3days_btn = self.pacs_tab.last_3days_btn
+        self.lbl_from = self.pacs_tab.lbl_from
+        self.pacs_date_from = self.pacs_tab.date_from
+        self.lbl_to = self.pacs_tab.lbl_to
+        self.pacs_date_to = self.pacs_tab.date_to
+        self.lbl_server = self.pacs_tab.lbl_server
+        self.pacs_server_combo = self.pacs_tab.server_combo
+        self.pacs_auto_scan_cb = self.pacs_tab.auto_scan_cb
+        self.pacs_search_entry = self.pacs_tab.search_entry
+        self.send_to_ct_btn = self.pacs_tab.send_to_ct_btn
+        self.settings_btn3 = self.pacs_tab.settings_btn
         self.populate_pacs_server_combo()
-        self.pacs_server_combo.currentIndexChanged.connect(self.on_pacs_server_changed)
-        
-        pacs_control_layout.addWidget(self.pacs_today_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
-        pacs_control_layout.addWidget(self.pacs_3days_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
-        pacs_control_layout.addWidget(self.lbl_from, alignment=Qt.AlignmentFlag.AlignVCenter)
-        pacs_control_layout.addWidget(self.pacs_date_from, alignment=Qt.AlignmentFlag.AlignVCenter)
-        pacs_control_layout.addWidget(self.lbl_to, alignment=Qt.AlignmentFlag.AlignVCenter)
-        pacs_control_layout.addWidget(self.pacs_date_to, alignment=Qt.AlignmentFlag.AlignVCenter)
-        pacs_control_layout.addWidget(self.lbl_server, alignment=Qt.AlignmentFlag.AlignVCenter)
-        pacs_control_layout.addWidget(self.pacs_server_combo, alignment=Qt.AlignmentFlag.AlignVCenter)
-        pacs_control_layout.addWidget(self.pacs_auto_scan_cb, alignment=Qt.AlignmentFlag.AlignVCenter)
-        pacs_control_layout.addStretch(1)
-        pacs_control_layout.addWidget(self.pacs_search_entry, alignment=Qt.AlignmentFlag.AlignVCenter)
-        pacs_control_layout.addWidget(self.send_to_ct_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
-        pacs_control_layout.addWidget(self.settings_btn3, alignment=Qt.AlignmentFlag.AlignVCenter)
-        
-        layout.addLayout(pacs_control_layout)
-        
         self.update_pacs_controls_state()
-        
-        self.tab_widget.addTab(tab, tr_ui("tab_pacs"))
+        self.tab_widget.addTab(self.pacs_tab, tr_ui("tab_pacs"))
 
     def setup_table_properties(self, table):
         # Настройка поведения таблиц
@@ -1412,11 +663,18 @@ class MainWindow(QMainWindow):
 
     def save_table_state(self, table):
         table_name = None
-        if table == self.images_table:
+        if getattr(self, 'images_table', None) == table:
             table_name = "images_table"
-        elif table == self.archive_table:
+        elif getattr(self, 'archive_table', None) == table:
             table_name = "archive_table"
-        elif table == self.pacs_table:
+        elif getattr(self, 'pacs_table', None) == table:
+            table_name = "pacs_table"
+        elif table.columnCount() == 8:
+            if getattr(self, 'images_table', None) is None:
+                table_name = "images_table"
+            else:
+                table_name = "archive_table"
+        elif table.columnCount() == 6:
             table_name = "pacs_table"
             
         if not table_name:
@@ -1444,11 +702,18 @@ class MainWindow(QMainWindow):
 
     def restore_table_state(self, table):
         table_name = None
-        if table == self.images_table:
+        if getattr(self, 'images_table', None) == table:
             table_name = "images_table"
-        elif table == self.archive_table:
+        elif getattr(self, 'archive_table', None) == table:
             table_name = "archive_table"
-        elif table == self.pacs_table:
+        elif getattr(self, 'pacs_table', None) == table:
+            table_name = "pacs_table"
+        elif table.columnCount() == 8:
+            if getattr(self, 'images_table', None) is None:
+                table_name = "images_table"
+            else:
+                table_name = "archive_table"
+        elif table.columnCount() == 6:
             table_name = "pacs_table"
             
         if not table_name:
@@ -3313,44 +2578,12 @@ class MainWindow(QMainWindow):
         self.tab_widget.setTabText(2, self.config.get('custom_tab_name_pacs') or tr_ui("tab_pacs"))
         self.update_tab_badges()
         
-        # Кнопки и плейсхолдеры
-        self.search_images_entry.setPlaceholderText(tr_ui("placeholder_search_patient"))
-        self.search_images_btn.setText(tr_ui("btn_search"))
-        self.move_to_archive_btn.setText(self.get_move_to_archive_text())
-        
-        self.search_entry.setPlaceholderText(tr_ui("placeholder_search_patient"))
-        self.search_btn.setText(tr_ui("btn_search"))
-        self.move_from_archive_btn.setText(self.get_restore_to_ct_text())
-        
-        self.pacs_today_btn.setText(tr_ui("btn_today"))
-        self.pacs_3days_btn.setText(tr_ui("btn_3days"))
-        self.lbl_from.setText(tr_ui("lbl_from"))
-        self.lbl_to.setText(tr_ui("lbl_to"))
-        self.lbl_server.setText(tr_ui("lbl_server"))
-        self.pacs_search_entry.setPlaceholderText(tr_ui("placeholder_search_patient"))
-        self.send_to_ct_btn.setText(self.get_send_to_ct_text())
-        self.pacs_auto_scan_cb.setText(tr_ui("pacs_standby_mode"))
-        
-        self.images_table.set_placeholder_text(tr_ui("placeholder_no_studies_in_folder"))
-        self.archive_table.set_placeholder_text(tr_ui("placeholder_no_studies_in_folder"))
-
-        # Подсказки (tooltips)
-        self.settings_btn1.setToolTip(tr_ui("tooltip_settings_btn"))
-        self.settings_btn2.setToolTip(tr_ui("tooltip_settings_btn"))
-        self.settings_btn3.setToolTip(tr_ui("tooltip_settings_btn"))
-        self.search_images_entry.setToolTip(tr_ui("tooltip_search_images_entry"))
-        self.search_images_btn.setToolTip(tr_ui("tooltip_search_images_btn"))
-        self.move_to_archive_btn.setToolTip(tr_ui("tooltip_move_to_archive"))
-        self.search_entry.setToolTip(tr_ui("tooltip_search_archive_entry"))
-        self.search_btn.setToolTip(tr_ui("tooltip_search_archive_btn"))
-        self.move_from_archive_btn.setToolTip(tr_ui("tooltip_restore_from_archive"))
-        self.pacs_auto_scan_cb.setToolTip(tr_ui("tooltip_pacs_auto_scan"))
-        self.pacs_today_btn.setToolTip(tr_ui("tooltip_pacs_today_btn"))
-        self.pacs_3days_btn.setToolTip(tr_ui("tooltip_pacs_3days_btn"))
-        self.pacs_date_from.setToolTip(tr_ui("tooltip_pacs_date_from"))
-        self.pacs_date_to.setToolTip(tr_ui("tooltip_pacs_date_to"))
-        self.pacs_server_combo.setToolTip(tr_ui("tooltip_pacs_server_combo"))
-        self.pacs_search_entry.setToolTip(tr_ui("tooltip_search_pacs_entry"))
-        self.send_to_ct_btn.setToolTip(tr_ui("tooltip_send_to_ct"))
+        # Делегируем перевод компонентам вкладок
+        if hasattr(self, 'images_tab'):
+            self.images_tab.retranslate_ui()
+        if hasattr(self, 'archive_tab'):
+            self.archive_tab.retranslate_ui()
+        if hasattr(self, 'pacs_tab'):
+            self.pacs_tab.retranslate_ui()
 
 
