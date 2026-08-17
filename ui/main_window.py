@@ -2618,21 +2618,35 @@ class MainWindow(QMainWindow):
             idx = self.tab_widget.indexOf(tab_widget)
             if idx != -1 and should_show:
                 active_indices.add(idx)
+                existing_btn = tab_bar.tabButton(idx, QTabBar.ButtonPosition.RightSide)
                 badge = getattr(tab_widget, 'badge', None)
-                if not badge or badge.parent() != tab_bar:
+                
+                # Если бейдж отсутствует, откреплен или не совпадает с текущей кнопкой - создаем чистый новый
+                if badge is None or existing_btn != badge:
+                    if existing_btn:
+                        tab_bar.setTabButton(idx, QTabBar.ButtonPosition.RightSide, None)
+                    if badge:
+                        try:
+                            badge.deleteLater()
+                        except Exception:
+                            pass
                     badge = TabBadge(tab_bar, idx)
                     tab_widget.badge = badge
+                    tab_bar.setTabButton(idx, QTabBar.ButtonPosition.RightSide, badge)
+                
                 badge.tab_bar = tab_bar
                 badge.tab_index = idx
                 badge.set_count(count, force_update=True)
-                badge.setVisible(True)
                 badge.show()
-                if tab_bar.tabButton(idx, QTabBar.ButtonPosition.RightSide) != badge:
-                    tab_bar.setTabButton(idx, QTabBar.ButtonPosition.RightSide, badge)
                 badge.update()
             else:
-                if hasattr(tab_widget, 'badge') and tab_widget.badge:
-                    tab_widget.badge.setVisible(False)
+                old_badge = getattr(tab_widget, 'badge', None)
+                if old_badge:
+                    try:
+                        old_badge.deleteLater()
+                    except Exception:
+                        pass
+                    tab_widget.badge = None
                 if idx != -1:
                     tab_bar.setTabButton(idx, QTabBar.ButtonPosition.RightSide, None)
 
