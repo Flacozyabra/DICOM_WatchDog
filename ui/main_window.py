@@ -1990,6 +1990,30 @@ class MainWindow(QMainWindow):
         
         menu.exec(self.tab_widget.tabBar().mapToGlobal(pos))
 
+    def get_move_to_archive_text(self):
+        custom = self.config.get('custom_tab_name_archive')
+        if custom:
+            from core.locale_utils import get_current_langs
+            lang, _ = get_current_langs()
+            return f"Переместить в {custom}" if lang == 'ru' else f"Move to {custom}"
+        return tr_ui("btn_move_to_archive")
+
+    def get_restore_to_ct_text(self):
+        custom = self.config.get('custom_tab_name_ct')
+        if custom:
+            from core.locale_utils import get_current_langs
+            lang, _ = get_current_langs()
+            return f"Восстановить в {custom}" if lang == 'ru' else f"Restore to {custom}"
+        return tr_ui("btn_restore_from_archive")
+
+    def get_send_to_ct_text(self):
+        custom = self.config.get('custom_tab_name_ct')
+        if custom:
+            from core.locale_utils import get_current_langs
+            lang, _ = get_current_langs()
+            return f"Отправить в {custom}" if lang == 'ru' else f"Send to {custom}"
+        return tr_ui("btn_send_to_ct")
+
     def rename_tab_dialog(self, index):
         from PyQt6.QtWidgets import QInputDialog
         
@@ -2006,16 +2030,17 @@ class MainWindow(QMainWindow):
         ok = dialog.exec()
         new_name = dialog.textValue()
         
-        if ok and new_name.strip():
+        if ok:
             new_name = new_name.strip()
-            self.tab_widget.setTabText(index, new_name)
-            
-            # Сохраняем в конфиг
             config_keys = {0: 'custom_tab_name_ct', 1: 'custom_tab_name_archive', 2: 'custom_tab_name_pacs'}
             key = config_keys.get(index)
             if key:
-                self.config[key] = new_name
+                if new_name:
+                    self.config[key] = new_name
+                else:
+                    self.config.pop(key, None)
                 self.save_current_config()
+                self.retranslate_ui()
 
     def show_images_context_menu(self, pos):
         # Получаем строку под курсором
@@ -2039,7 +2064,7 @@ class MainWindow(QMainWindow):
         delete_action = QAction(tr_ui("ctx_delete_patient"), self)
         delete_action.triggered.connect(lambda: self.delete_patient_action(patient_id, patient_name))
         
-        archive_action = QAction(tr_ui("ctx_move_to_archive"), self)
+        archive_action = QAction(self.get_move_to_archive_text(), self)
         archive_action.triggered.connect(lambda: self.archive_patient_action(patient_id, patient_name))
         
         clean_str_action = QAction(tr_ui("ctx_delete_str"), self)
@@ -2492,7 +2517,7 @@ class MainWindow(QMainWindow):
         open_folder_action = QAction(tr_ui("ctx_open_folder"), self)
         open_folder_action.triggered.connect(lambda: self.open_patient_folder(patient_id, is_archive=True))
         
-        restore_action = QAction(tr_ui("ctx_restore_from_archive"), self)
+        restore_action = QAction(self.get_restore_to_ct_text(), self)
         restore_action.triggered.connect(self.move_from_archive_cmd)
         
         delete_action = QAction(tr_ui("ctx_delete_archive_patient"), self)
@@ -2975,7 +3000,7 @@ class MainWindow(QMainWindow):
                 color: #ffffff;
             }
         """)
-        action_send = menu.addAction(tr_ui("btn_send_to_ct"))
+        action_send = menu.addAction(self.get_send_to_ct_text())
         action_send.triggered.connect(self.send_to_ct_images_cmd)
         menu.exec(self.pacs_table.viewport().mapToGlobal(pos))
 
@@ -3063,7 +3088,7 @@ class MainWindow(QMainWindow):
             self.download_progress_dialog = None
 
         self.send_to_ct_btn.setEnabled(True)
-        self.send_to_ct_btn.setText(tr_ui("btn_send_to_ct"))
+        self.send_to_ct_btn.setText(self.get_send_to_ct_text())
         log_message(self.output_field, msg)
         
         if success:
@@ -3283,11 +3308,11 @@ class MainWindow(QMainWindow):
         # Кнопки и плейсхолдеры
         self.search_images_entry.setPlaceholderText(tr_ui("placeholder_search_patient"))
         self.search_images_btn.setText(tr_ui("btn_search"))
-        self.move_to_archive_btn.setText(tr_ui("btn_move_to_archive"))
+        self.move_to_archive_btn.setText(self.get_move_to_archive_text())
         
         self.search_entry.setPlaceholderText(tr_ui("placeholder_search_patient"))
         self.search_btn.setText(tr_ui("btn_search"))
-        self.move_from_archive_btn.setText(tr_ui("btn_restore_from_archive"))
+        self.move_from_archive_btn.setText(self.get_restore_to_ct_text())
         
         self.pacs_today_btn.setText(tr_ui("btn_today"))
         self.pacs_3days_btn.setText(tr_ui("btn_3days"))
@@ -3295,7 +3320,7 @@ class MainWindow(QMainWindow):
         self.lbl_to.setText(tr_ui("lbl_to"))
         self.lbl_server.setText(tr_ui("lbl_server"))
         self.pacs_search_entry.setPlaceholderText(tr_ui("placeholder_search_patient"))
-        self.send_to_ct_btn.setText(tr_ui("btn_send_to_ct"))
+        self.send_to_ct_btn.setText(self.get_send_to_ct_text())
         self.pacs_auto_scan_cb.setText(tr_ui("pacs_standby_mode"))
         
         self.images_table.set_placeholder_text(tr_ui("placeholder_no_studies_in_folder"))
