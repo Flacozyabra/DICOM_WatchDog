@@ -12,7 +12,9 @@ class TabBadge(QWidget):
     BADGE_HEIGHT = 16
     WIDGET_HEIGHT = 18
 
-    def __init__(self, tab_index: int, tab_bar: QTabBar, parent=None):
+    def __init__(self, tab_bar: QTabBar = None, tab_index: int = 0, parent=None):
+        if isinstance(tab_bar, int):
+            tab_index, tab_bar = tab_bar, tab_index
         super().__init__(parent or tab_bar)
         self.tab_index = tab_index
         self.tab_bar = tab_bar
@@ -65,7 +67,9 @@ class TabBadge(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
-        is_selected = (self.tab_bar.currentIndex() == self.tab_index)
+        is_selected = False
+        if self.tab_bar and 0 <= self.tab_index < self.tab_bar.count():
+            is_selected = (self.tab_bar.currentIndex() == self.tab_index)
 
         pill_w = self.width() - self.LEFT_MARGIN - self.RIGHT_MARGIN
         badge_y = (self.height() - self.BADGE_HEIGHT) / 2.0

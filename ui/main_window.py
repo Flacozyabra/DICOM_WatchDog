@@ -484,11 +484,9 @@ class MainWindow(QMainWindow):
         self.create_tab_pacs()
         
         # Бейджи со счетчиками исследований на вкладках
-        self.tab_badges = {
-            0: TabBadge(0, self.tab_widget.tabBar()),
-            1: TabBadge(1, self.tab_widget.tabBar()),
-            2: TabBadge(2, self.tab_widget.tabBar())
-        }
+        self.images_tab.badge = TabBadge(self.tab_widget.tabBar(), 0)
+        self.archive_tab.badge = TabBadge(self.tab_widget.tabBar(), 1)
+        self.pacs_tab.badge = TabBadge(self.tab_widget.tabBar(), 2)
         
         # Поле вывода логов в контейнере с верхним отступом от сплиттера
         self.output_container = QWidget()
@@ -2576,14 +2574,14 @@ class MainWindow(QMainWindow):
             self.update_tab_badges()
 
     def update_tab_badges(self):
-        if not hasattr(self, 'tab_badges') or not hasattr(self, 'tab_widget'):
+        if not hasattr(self, 'images_tab') or not hasattr(self, 'archive_tab') or not hasattr(self, 'pacs_tab') or not hasattr(self, 'tab_widget'):
             return
 
         show_badges = self.config.get('show_study_counts', 'True').lower() == 'true'
         auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
         
         current_widget = self.tab_widget.currentWidget()
-        pacs_tab_active = (current_widget == getattr(self, 'pacs_tab', None))
+        pacs_tab_active = (current_widget == self.pacs_tab)
         show_pacs_badge = show_badges and (pacs_tab_active or auto_update_on)
 
         ct_count = len(self.images_cache) if getattr(self, 'images_cache', None) else 0
@@ -2593,31 +2591,34 @@ class MainWindow(QMainWindow):
         tab_bar = self.tab_widget.tabBar()
 
         widget_info = [
-            (getattr(self, 'images_tab', None), 0, show_badges, ct_count),
-            (getattr(self, 'archive_tab', None), 1, show_badges, archive_count),
-            (getattr(self, 'pacs_tab', None), 2, show_pacs_badge, pacs_count)
+            (self.images_tab, show_badges, ct_count),
+            (self.archive_tab, show_badges, archive_count),
+            (self.pacs_tab, show_pacs_badge, pacs_count)
         ]
 
         active_indices = set()
-        for tab_widget, badge_id, should_show, count in widget_info:
+        for tab_widget, should_show, count in widget_info:
             if not tab_widget:
                 continue
-            badge = self.tab_badges.get(badge_id)
-            if not badge:
-                continue
-            
             idx = self.tab_widget.indexOf(tab_widget)
+            badge = getattr(tab_widget, 'badge', None)
+            if not badge:
+                badge = TabBadge(tab_bar, idx if idx != -1 else 0)
+                tab_widget.badge = badge
+            
             if idx != -1 and should_show:
                 active_indices.add(idx)
                 badge.tab_index = idx
-                badge.set_count(count, force_update=True)
                 if tab_bar.tabButton(idx, QTabBar.ButtonPosition.RightSide) != badge:
                     tab_bar.setTabButton(idx, QTabBar.ButtonPosition.RightSide, badge)
+                badge.set_count(count, force_update=True)
                 badge.setVisible(True)
                 badge.show()
                 badge.update()
             else:
                 badge.setVisible(False)
+                if idx != -1 and tab_bar.tabButton(idx, QTabBar.ButtonPosition.RightSide) == badge:
+                    tab_bar.setTabButton(idx, QTabBar.ButtonPosition.RightSide, None)
 
         # Очищаем кнопки на вкладках, где бейдж не должен отображаться
         for i in range(tab_bar.count()):
