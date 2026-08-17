@@ -1,6 +1,6 @@
 {
   "tab_ct_images": "Снимки КТ",
-  "tab_ct_archive": "Архив КТ",
+  "tab_ct_archive": "Архив",
   "tab_pacs": "PACS",
   "btn_send_to_pacs": "Отправить в PACS",
   "btn_send_to_ct": "Скачать в CT Images",

@@ -1,6 +1,6 @@
 {
-  "tab_ct_images": "CT images",
-  "tab_ct_archive": "CT archive",
+  "tab_ct_images": "CT Images",
+  "tab_ct_archive": "Archive",
   "tab_pacs": "PACS",
   "btn_send_to_pacs": "Send to PACS",
   "btn_send_to_ct": "Send to CT images",

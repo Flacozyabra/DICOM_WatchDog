@@ -2,10 +2,10 @@
 """Custom UI Widgets (Tables, Splitters, Delegates) for DICOM WatchDog."""
 
 try:
-    from PyQt6.QtCore import Qt, QRect, QSize, QPointF
+    from PyQt6.QtCore import Qt, QRect, QSize, QPointF, QPoint
     from PyQt6.QtGui import (
         QColor, QPalette, QBrush, QPainter, QLinearGradient, QPen,
-        QPainterPath, QMouseEvent
+        QPainterPath, QMouseEvent, QPolygon
     )
     from PyQt6.QtWidgets import (
         QTableWidget, QWidget, QVBoxLayout, QLabel, QPushButton,
@@ -13,10 +13,10 @@ try:
         QSplitter, QSplitterHandle
     )
 except ImportError:
-    from PyQt5.QtCore import Qt, QRect, QSize, QPointF
+    from PyQt5.QtCore import Qt, QRect, QSize, QPointF, QPoint
     from PyQt5.QtGui import (
         QColor, QPalette, QBrush, QPainter, QLinearGradient, QPen,
-        QPainterPath, QMouseEvent
+        QPainterPath, QMouseEvent, QPolygon
     )
     from PyQt5.QtWidgets import (
         QTableWidget, QWidget, QVBoxLayout, QLabel, QPushButton,
@@ -246,32 +246,120 @@ class CustomSplitterHandle(QSplitterHandle):
         super().leaveEvent(event)
         self.update()
 
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        idx = self.get_handle_index()
+        splitter = self.splitter()
+        if splitter and idx != -1:
+            sizes = splitter.sizes()
+            if len(sizes) >= 2 and idx == 1:
+                self.is_collapsed = (sizes[1] <= 5)
+        self.update()
+
+    def mouseMoveEvent(self, event) -> None:
+        event.ignore()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            idx = self.get_handle_index()
+            if idx != -1:
+                self.toggle_collapse()
+        else:
+            event.ignore()
+
     def paintEvent(self, event) -> None:
+        idx = self.get_handle_index()
+        if idx == -1:
+            return
+
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        rect = self.rect()
-        is_hovered = self.underMouse()
+        line_color = QColor("#3F3F46")
+        if self.underMouse():
+            arrow_color = QColor("#1f538d")
+        else:
+            arrow_color = QColor("#71717A")
 
-        bg_color = QColor("#222222") if not is_hovered else QColor("#2a2a2a")
-        painter.fillRect(rect, bg_color)
+        w = self.width()
+        h = self.height()
+        cx = w // 2
+        cy = h // 2
 
-        dots_color = QColor("#555555") if not is_hovered else QColor("#999999")
-        painter.setBrush(QBrush(dots_color))
-        painter.setPen(Qt.PenStyle.NoPen)
+        poly = QPolygon()
 
         if self.orientation() == Qt.Orientation.Horizontal:
-            cx = rect.center().x()
-            cy = rect.center().y()
-            for dy in [-10, -5, 0, 5, 10]:
-                painter.drawEllipse(QPointF(cx, cy + dy), 1.5, 1.5)
+            painter.setPen(QPen(line_color, 1))
+            painter.drawLine(cx, 0, cx, h)
+
+            if not self.is_collapsed:
+                poly.append(QPoint(cx - 2, cy))
+                poly.append(QPoint(cx + 2, cy - 10))
+                poly.append(QPoint(cx + 2, cy + 10))
+            else:
+                poly.append(QPoint(cx + 2, cy))
+                poly.append(QPoint(cx - 2, cy - 10))
+                poly.append(QPoint(cx - 2, cy + 10))
         else:
-            cx = rect.center().x()
-            cy = rect.center().y()
-            for dx in [-10, -5, 0, 5, 10]:
-                painter.drawEllipse(QPointF(cx + dx, cy), 1.5, 1.5)
+            painter.setPen(QPen(line_color, 1))
+            painter.drawLine(15, cy, w - 15, cy)
+
+            if not self.is_collapsed:
+                poly.append(QPoint(cx, cy + 2))
+                poly.append(QPoint(cx - 10, cy - 2))
+                poly.append(QPoint(cx + 10, cy - 2))
+            else:
+                poly.append(QPoint(cx, cy - 2))
+                poly.append(QPoint(cx - 10, cy + 2))
+                poly.append(QPoint(cx + 10, cy + 2))
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(arrow_color))
+        painter.drawPolygon(poly)
+
+    def toggle_collapse(self) -> None:
+        splitter = self.splitter()
+        if not splitter:
+            return
+
+        sizes = splitter.sizes()
+        idx = self.get_handle_index()
+
+        if splitter.orientation() == Qt.Orientation.Horizontal:
+            if len(sizes) < 2:
+                return
+            if idx == 1:
+                if not self.is_collapsed:
+                    self.saved_width = sizes[0] if sizes[0] > 5 else 385
+                    new_sizes = [0, sizes[1] + sizes[0]]
+                    splitter.setSizes(new_sizes)
+                    self.is_collapsed = True
+                else:
+                    w = getattr(self, 'saved_width', 385)
+                    new_sizes = [w, max(50, sizes[1] + sizes[0] - w)]
+                    splitter.setSizes(new_sizes)
+                    self.is_collapsed = False
+        else:
+            if len(sizes) < 2:
+                return
+            if idx == 1:
+                if not self.is_collapsed:
+                    self.saved_log_height = sizes[1] if sizes[1] > 5 else 150
+                    new_sizes = [sizes[0] + sizes[1], 0]
+                    splitter.setSizes(new_sizes)
+                    self.is_collapsed = True
+                else:
+                    h = getattr(self, 'saved_log_height', 150)
+                    new_sizes = [max(50, sizes[0] + sizes[1] - h), h]
+                    splitter.setSizes(new_sizes)
+                    self.is_collapsed = False
+
+        self.update()
 
 
 class CustomSplitter(QSplitter):
+    def __init__(self, orientation: Qt.Orientation, parent: QWidget = None) -> None:
+        super().__init__(orientation, parent)
+
     def createHandle(self) -> QSplitterHandle:
         return CustomSplitterHandle(self.orientation(), self)
