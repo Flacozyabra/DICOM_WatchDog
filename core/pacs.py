@@ -73,8 +73,18 @@ class BackgroundDicomServer:
 
         try:
             self.server = ae.start_server(('', port), block=False, evt_handlers=handlers)
-        except Exception:
+            if self.server is None:
+                raise RuntimeError(f"Could not bind DICOM SCP to port {port}")
+            return True, ""
+        except Exception as e:
             self.server = None
+            try:
+                from core.config_utils import get_log_path
+                with open(get_log_path(), "a", encoding="utf-8") as log_f:
+                    log_f.write(f"[{datetime.now()}] Failed to start BackgroundDicomServer on port {port}: {e}\n")
+            except Exception:
+                pass
+            return False, str(e)
 
     def stop(self):
         if self.server:

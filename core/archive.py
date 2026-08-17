@@ -26,8 +26,13 @@ def save_cache(cache_data):
     try:
         with open(get_cache_path(), "w", encoding="utf-8") as f:
             json.dump(cache_data, f, ensure_ascii=False, indent=4)
-    except Exception:
-        pass
+    except Exception as e:
+        try:
+            from core.config_utils import get_log_path
+            with open(get_log_path(), "a", encoding="utf-8") as log_f:
+                log_f.write(f"[{datetime.now()}] Failed to save archive cache: {e}\n")
+        except Exception:
+            pass
 
 
 def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False, progress_callback=None):
@@ -103,16 +108,35 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                                 pass
                 else:
                     file = dcm_files[0]
+                    for f in dcm_files:
+                        if not is_structure_file(os.path.join(root, f)):
+                            file = f
+                            break
                     file_path = os.path.join(root, file)
                     try:
                         ds = pydicom.dcmread(file_path, stop_before_pixels=True)
-                        p_id = ds.PatientID
-                        p_name = str(ds.PatientName)
+                        p_id = getattr(ds, 'PatientID', '') or str(ds.get('PatientID', ''))
+                        p_name = getattr(ds, 'PatientName', '') or str(ds.get('PatientName', ''))
+                        if not p_id:
+                            p_id = os.path.basename(root)
+                        if not p_name:
+                            p_name = os.path.basename(root)
                         p_modality = str(ds.get('Modality', 'CT'))
                         
-                        date_time_string = ds.StudyDate + ds.StudyTime
-                        format_string = '%Y%m%d%H%M%S' if '.' not in ds.StudyTime else '%Y%m%d%H%M%S.%f'
-                        study_dt = datetime.strptime(date_time_string, format_string)
+                        folder_dt = datetime.fromtimestamp(max(os.path.getctime(root), os.path.getmtime(root)))
+                        
+                        study_date = str(ds.get('StudyDate', '')).strip()
+                        study_time = str(ds.get('StudyTime', '')).strip()
+                        study_dt = folder_dt
+                        if study_date:
+                            try:
+                                date_time_string = study_date + study_time
+                                study_dt = datetime.strptime(date_time_string[:14], '%Y%m%d%H%M%S')
+                            except Exception:
+                                try:
+                                    study_dt = datetime.strptime(study_date, '%Y%m%d')
+                                except Exception:
+                                    pass
                         
                         body_part = ds.get('BodyPartExamined', '')
                         if not body_part:
@@ -120,8 +144,6 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                         if not body_part:
                             body_part = ds.get('SeriesDescription', '')
                         body_part_str = str(body_part).strip() or "Unknown"
-                        
-                        folder_dt = datetime.fromtimestamp(os.path.getctime(root))
                         
                         str_files = [f for f in os.listdir(root) if is_structure_file(os.path.join(root, f))]
                         str_count = len(str_files)
@@ -138,8 +160,8 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                         slices_cnt = len(slice_files)
 
                         patient_data[rel_path] = {
-                            'patient_id': p_id,
-                            'patient_name': p_name,
+                            'patient_id': str(p_id),
+                            'patient_name': str(p_name),
                             'modality': p_modality,
                             'study_datetime': study_dt,
                             'body_part': body_part_str,
@@ -151,8 +173,8 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                         
                         cache[root] = {
                             'mtime': os.path.getmtime(root),
-                            'patient_id': p_id,
-                            'patient_name': p_name,
+                            'patient_id': str(p_id),
+                            'patient_name': str(p_name),
                             'modality': p_modality,
                             'study_datetime': study_dt.isoformat(),
                             'body_part': body_part_str,
