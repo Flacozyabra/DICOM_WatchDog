@@ -40,6 +40,180 @@ def _play_wav(wav_path: str, volume: float = 1.0) -> None:
 import re
 
 
+def get_rhvoice_from_disk():
+    """Поиск установленных голосов RHVoice напрямую на диске."""
+    voices = []
+    paths = [
+        r"C:\ProgramData\Olga Yakovleva\RHVoice\data\voices",
+        r"C:\ProgramData\rhvoice.org\RHVoice\data\voices",
+        r"C:\Program Files\RHVoice\data\voices",
+        r"C:\Program Files (x86)\RHVoice\data\voices",
+        r"C:\Program Files\rhvoice.org\RHVoice\data\voices",
+        r"C:\Program Files (x86)\rhvoice.org\RHVoice\data\voices",
+        os.path.expandvars(r"%APPDATA%\RHVoice\voices")
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            try:
+                for item in os.listdir(p):
+                    full = os.path.join(p, item)
+                    if os.path.isdir(full) and item.lower() not in ("languages", "dicts", "configs"):
+                        voices.append(item.capitalize())
+            except Exception:
+                pass
+    return list(dict.fromkeys(voices))
+
+
+def get_voices_from_registry():
+    """Чтение установленных голосов SAPI5 напрямую из реестра Windows (HKLM и HKCU)."""
+    if sys.platform != "win32":
+        return []
+    import winreg
+    voices = []
+    reg_paths = [
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Speech\Voices\Tokens"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Speech\Voices\Tokens"),
+        (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Speech\Voices\Tokens"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Speech\Voices\TokenEnums"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Speech\Voices\TokenEnums"),
+        (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Speech\Voices\TokenEnums")
+    ]
+    flags = [winreg.KEY_READ]
+    if hasattr(winreg, 'KEY_WOW64_32KEY'):
+        flags.append(winreg.KEY_READ | winreg.KEY_WOW64_32KEY)
+    if hasattr(winreg, 'KEY_WOW64_64KEY'):
+        flags.append(winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
+
+    for root, rel_path in reg_paths:
+        for flag in flags:
+            try:
+                key = winreg.OpenKey(root, rel_path, 0, flag)
+                count = winreg.QueryInfoKey(key)[0]
+                for i in range(count):
+                    token_name = winreg.EnumKey(key, i)
+                    token_path = f"{rel_path}\\{token_name}"
+                    
+                    sub_tokens = [token_path]
+                    try:
+                        sub_k = winreg.OpenKey(root, token_path, 0, flag)
+                        sub_count = winreg.QueryInfoKey(sub_k)[0]
+                        for j in range(sub_count):
+                            child_name = winreg.EnumKey(sub_k, j)
+                            sub_tokens.append(f"{token_path}\\{child_name}")
+                        winreg.CloseKey(sub_k)
+                    except Exception:
+                        pass
+
+                    for t_path in sub_tokens:
+                        name = None
+                        try:
+                            attr_key = winreg.OpenKey(root, f"{t_path}\\Attributes", 0, flag)
+                            name, _ = winreg.QueryValueEx(attr_key, "Name")
+                            winreg.CloseKey(attr_key)
+                        except Exception:
+                            pass
+                        if not name:
+                            try:
+                                t_key = winreg.OpenKey(root, t_path, 0, flag)
+                                name, _ = winreg.QueryValueEx(t_key, "")
+                                winreg.CloseKey(t_key)
+                            except Exception:
+                                pass
+                        if not name:
+                            try:
+                                t_key = winreg.OpenKey(root, t_path, 0, flag)
+                                name, _ = winreg.QueryValueEx(t_key, "419")
+                                winreg.CloseKey(t_key)
+                            except Exception:
+                                pass
+                        if name and isinstance(name, str):
+                            clean = name.strip()
+                            if clean and clean not in voices:
+                                voices.append(clean)
+                winreg.CloseKey(key)
+            except Exception:
+                pass
+    return list(dict.fromkeys(voices))
+
+
+def format_voice_name(voice_raw):
+    name = voice_raw.replace("Desktop", "")
+    if "-" in name:
+        left, right = name.split("-", 1)
+        left = " ".join(left.split())
+        right_clean = right.replace("(", " ").replace(")", " ")
+        right_words = right_clean.strip().split()
+        lang = right_words[0] if right_words else ""
+        return f"{left} - {lang}"
+    else:
+        return " ".join(name.split())
+
+
+def get_installed_sapi_voices():
+    """Возвращает уникальный список установленных голосов Windows SAPI5 и RHVoice."""
+    if sys.platform != "win32":
+        return []
+    import tempfile
+    import subprocess
+
+    ps_voices = []
+    try:
+        ps_code = """
+$speech = New-Object -ComObject SAPI.SpVoice
+foreach ($v in $speech.GetVoices()) {
+    $d = $v.GetDescription()
+    if ($d) { [Console]::WriteLine($d) }
+}
+"""
+        fd, path = tempfile.mkstemp(suffix=".ps1", text=True)
+        with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
+            f.write(ps_code)
+        
+        creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        raw_bytes = subprocess.check_output(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
+            creationflags=creation_flags,
+            timeout=8
+        )
+        text = None
+        for enc in ["utf-8", "cp1251", "cp866"]:
+            try:
+                decoded = raw_bytes.decode(enc)
+                if decoded and decoded.strip():
+                    text = decoded
+                    break
+            except Exception:
+                pass
+        if not text:
+            text = raw_bytes.decode("utf-8", errors="replace")
+            
+        for line in text.splitlines():
+            line_str = line.strip()
+            if line_str:
+                ps_voices.append(line_str)
+    except Exception as e:
+        pass
+
+    raw_list = ps_voices if ps_voices else get_voices_from_registry()
+    
+    for rh_v in get_rhvoice_from_disk():
+        if not any(rh_v.lower() == x.strip().lower() or rh_v.lower() in x.strip().lower() for x in raw_list):
+            raw_list.append(rh_v)
+
+    seen_formatted = set()
+    unique_voices = []
+    for voice in raw_list:
+        clean_v = voice.strip()
+        if not clean_v:
+            continue
+        fmt = format_voice_name(clean_v).strip().lower()
+        if fmt and fmt not in seen_formatted:
+            seen_formatted.add(fmt)
+            unique_voices.append(clean_v)
+            
+    return unique_voices
+
+
 def preprocess_tts_text(text: str) -> str:
     """
     Преобразует знаки ударения '+' около гласных в удвоенные гласные буквы (например, гам+амед -> гамаамед)
