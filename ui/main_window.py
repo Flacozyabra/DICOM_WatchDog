@@ -2813,7 +2813,8 @@ class MainWindow(QMainWindow):
         for patient_id, data in sorted_items:
             self.pacs_table.insertRow(row_idx)
             
-            id_item = QTableWidgetItem(str(patient_id))
+            p_display_id = str(data.get('study_patient_id', data.get('patient_id', patient_id)))
+            id_item = QTableWidgetItem(p_display_id)
             id_item.setData(Qt.ItemDataRole.UserRole, data.get('study_instance_uid', ''))
             name_item = QTableWidgetItem(str(data['patient_name']))
             modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
@@ -3189,6 +3190,13 @@ class MainWindow(QMainWindow):
         # Останавливаем наблюдатель перед выходом, чтобы не зависал фоновый поток
         self.stop_file_watcher()
         
+        # Отменяем активное скачивание из PACS, если запущено
+        if hasattr(self, 'pacs_download_worker') and self.pacs_download_worker and self.pacs_download_worker.isRunning():
+            try:
+                self.pacs_download_worker.cancel()
+            except Exception:
+                pass
+
         # Останавливаем фоновые таймеры
         for timer_attr in ['pacs_timer', 'system_check_timer', 'net_retry_timer', 'animation_timer']:
             if hasattr(self, timer_attr):

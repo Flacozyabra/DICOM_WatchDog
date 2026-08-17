@@ -142,17 +142,22 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
 
             for (status, identifier) in responses:
                 if status and identifier:
-                    patient_id = identifier.get('PatientID', 'N/A')
-                    pacs_data[patient_id]['study_patient_id'] = patient_id
-                    pacs_data[patient_id]['patient_name'] = identifier.get(
+                    patient_id = str(identifier.get('PatientID', 'N/A')).strip()
+                    study_uid = str(identifier.get('StudyInstanceUID', '')).strip()
+                    study_key = f"{patient_id}_{study_uid}" if study_uid else patient_id
+
+                    pacs_data[study_key]['study_key'] = study_key
+                    pacs_data[study_key]['patient_id'] = patient_id
+                    pacs_data[study_key]['study_patient_id'] = patient_id
+                    pacs_data[study_key]['patient_name'] = identifier.get(
                         'PatientName', 'N/A')
-                    pacs_data[patient_id]['study_time'] = identifier.get(
+                    pacs_data[study_key]['study_time'] = identifier.get(
                         'StudyTime', 'N/A')
-                    pacs_data[patient_id]['study_date'] = identifier.get(
+                    pacs_data[study_key]['study_date'] = identifier.get(
                         'StudyDate', 'N/A')
-                    pacs_data[patient_id]['slices'] = str(identifier.get('NumberOfStudyRelatedInstances', '0'))
-                    pacs_data[patient_id]['modality'] = str(identifier.get('ModalitiesInStudy', 'CT'))
-                    pacs_data[patient_id]['study_instance_uid'] = str(identifier.get('StudyInstanceUID', ''))
+                    pacs_data[study_key]['slices'] = str(identifier.get('NumberOfStudyRelatedInstances', '0'))
+                    pacs_data[study_key]['modality'] = str(identifier.get('ModalitiesInStudy', 'CT'))
+                    pacs_data[study_key]['study_instance_uid'] = study_uid
 
                     # Область сканирования
                     body_part = identifier.get('BodyPartExamined', '')
@@ -161,15 +166,15 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
                     body_part_str = str(body_part).strip()
                     if not body_part_str:
                         body_part_str = "Unknown"
-                    pacs_data[patient_id]['body_part'] = body_part_str
+                    pacs_data[study_key]['body_part'] = body_part_str
 
                     try:
                         # Преобразование времени
-                        format_string = '%H%M%S' if '.' not in pacs_data[patient_id]['study_time'] else '%H%M%S.%f'
-                        time_obj = datetime.strptime(pacs_data[patient_id]['study_time'], format_string)
+                        format_string = '%H%M%S' if '.' not in pacs_data[study_key]['study_time'] else '%H%M%S.%f'
+                        time_obj = datetime.strptime(pacs_data[study_key]['study_time'], format_string)
                         time_formatted = time_obj.strftime('%H:%M')
                         # Преобразование даты
-                        date_obj = datetime.strptime(pacs_data[patient_id]['study_date'], '%Y%m%d')
+                        date_obj = datetime.strptime(pacs_data[study_key]['study_date'], '%Y%m%d')
                         date_formatted = date_obj.strftime('%d.%m.%y')
                         # Комбинирование времени и даты
                         date_time = f"{date_formatted} - {time_formatted}"
@@ -181,8 +186,8 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
                         study_datetime_obj = datetime.now()
                         date_time = study_datetime_obj.strftime('%d.%m.%y - %H:%M')
 
-                    pacs_data[patient_id]['study_datetime_obj'] = study_datetime_obj
-                    pacs_data[patient_id]['study_datetime_str'] = date_time
+                    pacs_data[study_key]['study_datetime_obj'] = study_datetime_obj
+                    pacs_data[study_key]['study_datetime_str'] = date_time
             
             if assoc.is_aborted or assoc.is_rejected:
                 con = False

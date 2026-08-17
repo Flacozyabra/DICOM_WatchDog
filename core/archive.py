@@ -65,7 +65,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                 progress_callback(processed, total_dirs)
 
         if files:
-            dcm_files = [f for f in files if f.endswith('.dcm')]
+            dcm_files = [f for f in files if f.lower().endswith('.dcm')]
             if dcm_files:
                 scanned_paths.add(root)
                 rel_path = os.path.relpath(root, archive_dir).replace('\\', '/')
@@ -105,7 +105,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                     file = dcm_files[0]
                     file_path = os.path.join(root, file)
                     try:
-                        ds = pydicom.dcmread(file_path)
+                        ds = pydicom.dcmread(file_path, stop_before_pixels=True)
                         p_id = ds.PatientID
                         p_name = str(ds.PatientName)
                         p_modality = str(ds.get('Modality', 'CT'))
@@ -257,9 +257,9 @@ def cleanup_old_archive_folders(archive_dir, cleanup_days, output_field):
                 try:
                     patient_name = tr_log("log_patient_unknown")
                     try:
-                        dcm_files = [f for f in os.listdir(path) if f.endswith('.dcm')]
+                        dcm_files = [f for f in os.listdir(path) if f.lower().endswith('.dcm')]
                         if dcm_files:
-                            ds = pydicom.dcmread(os.path.join(path, dcm_files[0]), specific_tags=['PatientName'])
+                            ds = pydicom.dcmread(os.path.join(path, dcm_files[0]), specific_tags=['PatientName'], stop_before_pixels=True)
                             patient_name = str(ds.get('PatientName', tr_log("log_patient_unknown")))
                     except Exception:
                         pass
