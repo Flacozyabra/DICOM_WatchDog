@@ -2568,7 +2568,12 @@ class MainWindow(QMainWindow):
             self.tab_widget.setCurrentIndex(0)
 
         self.tab_widget.blockSignals(False)
-        self.update_tab_badges()
+        
+        # Если вкладка архива включена, но кэш еще не собран - собираем в фоне
+        if show_archive and getattr(self, 'archive_cache', None) is None:
+            self.fill_archive_list(silent=True)
+        else:
+            self.update_tab_badges()
 
     def update_tab_badges(self):
         if not hasattr(self, 'tab_badges') or not hasattr(self, 'tab_widget'):
@@ -2586,8 +2591,6 @@ class MainWindow(QMainWindow):
         pacs_count = len(self.pacs_data) if getattr(self, 'pacs_data', None) else 0
 
         tab_bar = self.tab_widget.tabBar()
-        for i in range(tab_bar.count()):
-            tab_bar.setTabButton(i, QTabBar.ButtonPosition.RightSide, None)
 
         widget_info = [
             (getattr(self, 'images_tab', None), 0, show_badges, ct_count),
@@ -2595,6 +2598,7 @@ class MainWindow(QMainWindow):
             (getattr(self, 'pacs_tab', None), 2, show_pacs_badge, pacs_count)
         ]
 
+        active_indices = set()
         for tab_widget, badge_id, should_show, count in widget_info:
             if not tab_widget:
                 continue
@@ -2604,12 +2608,24 @@ class MainWindow(QMainWindow):
             
             idx = self.tab_widget.indexOf(tab_widget)
             if idx != -1 and should_show:
-                badge.set_count(count)
-                tab_bar.setTabButton(idx, QTabBar.ButtonPosition.RightSide, badge)
+                active_indices.add(idx)
+                badge.tab_index = idx
+                badge.set_count(count, force_update=True)
+                if tab_bar.tabButton(idx, QTabBar.ButtonPosition.RightSide) != badge:
+                    tab_bar.setTabButton(idx, QTabBar.ButtonPosition.RightSide, badge)
                 badge.setVisible(True)
+                badge.show()
                 badge.update()
             else:
                 badge.setVisible(False)
+
+        # Очищаем кнопки на вкладках, где бейдж не должен отображаться
+        for i in range(tab_bar.count()):
+            if i not in active_indices:
+                if tab_bar.tabButton(i, QTabBar.ButtonPosition.RightSide) is not None:
+                    tab_bar.setTabButton(i, QTabBar.ButtonPosition.RightSide, None)
+
+        tab_bar.updateGeometry()
 
     def retranslate_ui(self):
         self.update_tabs_visibility()

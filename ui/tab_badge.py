@@ -24,13 +24,13 @@ class TabBadge(QWidget):
         self.setFixedHeight(self.WIDGET_HEIGHT)
         self.update_geometry()
 
-    def set_count(self, count: int):
+    def set_count(self, count: int, force_update: bool = False):
         self._count = max(0, int(count)) if count is not None else 0
         new_text = str(self._count)
-        if new_text != self._text:
+        if force_update or new_text != self._text:
             self._text = new_text
             self.update_geometry()
-            if self.tab_bar:
+            if self.tab_bar and 0 <= self.tab_index < self.tab_bar.count():
                 try:
                     self.tab_bar.setTabText(self.tab_index, self.tab_bar.tabText(self.tab_index))
                     self.tab_bar.updateGeometry()
