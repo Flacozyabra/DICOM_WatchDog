@@ -489,8 +489,6 @@ class MainWindow(QMainWindow):
             1: TabBadge(1, self.tab_widget.tabBar()),
             2: TabBadge(2, self.tab_widget.tabBar())
         }
-        for idx, badge in self.tab_badges.items():
-            self.tab_widget.tabBar().setTabButton(idx, QTabBar.ButtonPosition.RightSide, badge)
         
         # Поле вывода логов в контейнере с верхним отступом от сплиттера
         self.output_container = QWidget()
@@ -520,7 +518,7 @@ class MainWindow(QMainWindow):
         # Подключаем сигнал изменения вкладок после полной инициализации виджетов
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
         
-        # Обновляем локализацию интерфейса перед отображением
+        # Обновляем видимость и локализацию интерфейса перед отображением
         self.retranslate_ui()
         
         self.stacked_widget.addWidget(main_widget)
@@ -537,7 +535,6 @@ class MainWindow(QMainWindow):
         self.search_images_btn = self.images_tab.search_btn
         self.move_to_archive_btn = self.images_tab.move_to_archive_btn
         self.settings_btn1 = self.images_tab.settings_btn
-        self.tab_widget.addTab(self.images_tab, tr_ui("tab_ct_images"))
 
     def create_tab_ct_archive(self):
         self.archive_tab = ArchiveTab(self)
@@ -546,7 +543,6 @@ class MainWindow(QMainWindow):
         self.search_btn = self.archive_tab.search_btn
         self.move_from_archive_btn = self.archive_tab.move_from_archive_btn
         self.settings_btn2 = self.archive_tab.settings_btn
-        self.tab_widget.addTab(self.archive_tab, tr_ui("tab_ct_archive"))
 
     def create_tab_pacs(self):
         self.pacs_tab = PacsTab(self)
@@ -565,7 +561,6 @@ class MainWindow(QMainWindow):
         self.settings_btn3 = self.pacs_tab.settings_btn
         self.populate_pacs_server_combo()
         self.update_pacs_controls_state()
-        self.tab_widget.addTab(self.pacs_tab, tr_ui("tab_pacs"))
 
     def setup_table_properties(self, table):
         # Настройка поведения таблиц
@@ -747,23 +742,25 @@ class MainWindow(QMainWindow):
 
     def on_tab_changed(self, index):
         # Защитная проверка на случай срабатывания сигнала до инициализации всех таблиц
-        if not hasattr(self, 'archive_table') or not hasattr(self, 'pacs_table') or not hasattr(self, 'images_table'):
+        if not hasattr(self, 'images_tab') or not hasattr(self, 'archive_tab') or not hasattr(self, 'pacs_tab'):
             return
             
         self.update_tab_badges()
         
+        current_widget = self.tab_widget.widget(index)
         pacs_auto_scan_on = self.config.get('auto_update_is', 'off').lower() == 'on'
-        if index == 0:  # CT images
+        
+        if current_widget == self.images_tab:  # CT images
             if not pacs_auto_scan_on:
                 self.pacs_timer.stop()
             self.show_patient_list()
             QTimer.singleShot(0, self.focus_ct_images_search)
-        elif index == 1:  # CT archive
+        elif current_widget == self.archive_tab:  # CT archive
             if not pacs_auto_scan_on:
                 self.pacs_timer.stop()
             self.fill_archive_list()
             QTimer.singleShot(0, self.focus_ct_archive_search)
-        elif index == 2:  # PACS
+        elif current_widget == self.pacs_tab:  # PACS
             self.fill_pacs_list()
             # Запускаем таймер PACS только если включено автообновление
             if pacs_auto_scan_on:
@@ -877,10 +874,12 @@ class MainWindow(QMainWindow):
         prefixes_val = self.config.get('id_prefixes', 'CT_')
         rename_folder_enabled = self.config.get('rename_study_folder_enabled', 'False')
         rename_folder_mode = self.config.get('rename_study_folder_mode', 'id')
-        archive_dir = self.config.get('archive_dir', '')
-        archive_enabled = self.config.get('archive_enabled', 'False')
+        
+        show_archive = self.config.get('show_tab_archive', 'True').lower() == 'true'
+        archive_dir = self.config.get('archive_dir', '') if show_archive else ''
+        archive_enabled = self.config.get('archive_enabled', 'False') if show_archive else 'False'
         archive_days = int(self.config.get('archive_days', 3))
-        archive_cleanup_enabled = self.config.get('archive_cleanup_enabled', 'False')
+        archive_cleanup_enabled = self.config.get('archive_cleanup_enabled', 'False') if show_archive else 'False'
         archive_cleanup_days = int(self.config.get('archive_cleanup_days', 30))
 
         # Если таблица пуста, сразу отображаем статус сканирования
@@ -1349,7 +1348,8 @@ class MainWindow(QMainWindow):
         
         menu.addAction(open_folder_action)
         menu.addAction(delete_action)
-        menu.addAction(archive_action)
+        if self.config.get('show_tab_archive', 'True').lower() == 'true':
+            menu.addAction(archive_action)
         menu.addAction(clean_str_action)
         
         menu.exec(self.images_table.viewport().mapToGlobal(pos))
@@ -2552,43 +2552,109 @@ class MainWindow(QMainWindow):
             # Trigger immediate scan
             self.fill_pacs_list()
 
+    def update_tabs_visibility(self):
+        if not hasattr(self, 'images_tab') or not hasattr(self, 'archive_tab') or not hasattr(self, 'pacs_tab'):
+            return
+
+        show_archive = self.config.get('show_tab_archive', 'True').lower() == 'true'
+        show_pacs = self.config.get('show_tab_pacs', 'True').lower() == 'true'
+
+        current_widget = self.tab_widget.currentWidget()
+        self.tab_widget.blockSignals(True)
+
+        # 1. CT Images Tab (всегда index 0)
+        ct_idx = self.tab_widget.indexOf(self.images_tab)
+        if ct_idx == -1:
+            self.tab_widget.insertTab(0, self.images_tab, self.config.get('custom_tab_name_ct') or tr_ui("tab_ct_images"))
+        else:
+            self.tab_widget.setTabText(ct_idx, self.config.get('custom_tab_name_ct') or tr_ui("tab_ct_images"))
+
+        # 2. Archive Tab
+        archive_idx = self.tab_widget.indexOf(self.archive_tab)
+        if show_archive:
+            if archive_idx == -1:
+                pacs_idx = self.tab_widget.indexOf(self.pacs_tab)
+                insert_pos = pacs_idx if pacs_idx != -1 else 1
+                self.tab_widget.insertTab(insert_pos, self.archive_tab, self.config.get('custom_tab_name_archive') or tr_ui("tab_ct_archive"))
+            else:
+                self.tab_widget.setTabText(archive_idx, self.config.get('custom_tab_name_archive') or tr_ui("tab_ct_archive"))
+            self.images_tab.move_to_archive_btn.setVisible(True)
+        else:
+            if archive_idx != -1:
+                self.tab_widget.removeTab(archive_idx)
+            self.images_tab.move_to_archive_btn.setVisible(False)
+
+        # 3. PACS Tab
+        pacs_idx = self.tab_widget.indexOf(self.pacs_tab)
+        if show_pacs:
+            if pacs_idx == -1:
+                self.tab_widget.addTab(self.pacs_tab, self.config.get('custom_tab_name_pacs') or tr_ui("tab_pacs"))
+            else:
+                self.tab_widget.setTabText(pacs_idx, self.config.get('custom_tab_name_pacs') or tr_ui("tab_pacs"))
+        else:
+            if pacs_idx != -1:
+                self.tab_widget.removeTab(pacs_idx)
+            # При отключении вкладки PACS отключаем автообновление и останавливаем таймер
+            self.config['auto_update_is'] = 'off'
+            if hasattr(self, 'pacs_auto_scan_cb'):
+                self.pacs_auto_scan_cb.blockSignals(True)
+                self.pacs_auto_scan_cb.setChecked(False)
+                self.pacs_auto_scan_cb.blockSignals(False)
+            if hasattr(self, 'pacs_timer'):
+                self.pacs_timer.stop()
+
+        # Восстанавливаем активный виджет
+        if current_widget and self.tab_widget.indexOf(current_widget) != -1:
+            self.tab_widget.setCurrentWidget(current_widget)
+        else:
+            self.tab_widget.setCurrentIndex(0)
+
+        self.tab_widget.blockSignals(False)
+        self.update_tab_badges()
+
     def update_tab_badges(self):
-        if not hasattr(self, 'tab_badges'):
+        if not hasattr(self, 'tab_badges') or not hasattr(self, 'tab_widget'):
             return
 
         show_badges = self.config.get('show_study_counts', 'True').lower() == 'true'
         auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
-        current_tab_idx = self.tab_widget.currentIndex() if hasattr(self, 'tab_widget') else 0
-        pacs_tab_active = (current_tab_idx == 2)
+        
+        current_widget = self.tab_widget.currentWidget()
+        pacs_tab_active = (current_widget == getattr(self, 'pacs_tab', None))
         show_pacs_badge = show_badges and (pacs_tab_active or auto_update_on)
 
         ct_count = len(self.images_cache) if getattr(self, 'images_cache', None) else 0
         archive_count = len(self.archive_cache) if getattr(self, 'archive_cache', None) else 0
         pacs_count = len(self.pacs_data) if getattr(self, 'pacs_data', None) else 0
 
-        counts = {0: ct_count, 1: archive_count, 2: pacs_count}
         tab_bar = self.tab_widget.tabBar()
+        for i in range(tab_bar.count()):
+            tab_bar.setTabButton(i, QTabBar.ButtonPosition.RightSide, None)
 
-        for idx, badge in self.tab_badges.items():
-            should_show = show_pacs_badge if idx == 2 else show_badges
+        widget_info = [
+            (getattr(self, 'images_tab', None), 0, show_badges, ct_count),
+            (getattr(self, 'archive_tab', None), 1, show_badges, archive_count),
+            (getattr(self, 'pacs_tab', None), 2, show_pacs_badge, pacs_count)
+        ]
 
-            if should_show:
-                badge.set_count(counts.get(idx, 0))
-                if tab_bar.tabButton(idx, QTabBar.ButtonPosition.RightSide) != badge:
-                    tab_bar.setTabButton(idx, QTabBar.ButtonPosition.RightSide, badge)
+        for tab_widget, badge_id, should_show, count in widget_info:
+            if not tab_widget:
+                continue
+            badge = self.tab_badges.get(badge_id)
+            if not badge:
+                continue
+            
+            idx = self.tab_widget.indexOf(tab_widget)
+            if idx != -1 and should_show:
+                badge.set_count(count)
+                tab_bar.setTabButton(idx, QTabBar.ButtonPosition.RightSide, badge)
                 badge.setVisible(True)
                 badge.update()
             else:
-                if tab_bar.tabButton(idx, QTabBar.ButtonPosition.RightSide) is not None:
-                    tab_bar.setTabButton(idx, QTabBar.ButtonPosition.RightSide, None)
                 badge.setVisible(False)
 
     def retranslate_ui(self):
-        # Названия вкладок
-        self.tab_widget.setTabText(0, self.config.get('custom_tab_name_ct') or tr_ui("tab_ct_images"))
-        self.tab_widget.setTabText(1, self.config.get('custom_tab_name_archive') or tr_ui("tab_ct_archive"))
-        self.tab_widget.setTabText(2, self.config.get('custom_tab_name_pacs') or tr_ui("tab_pacs"))
-        self.update_tab_badges()
+        self.update_tabs_visibility()
         
         # Делегируем перевод компонентам вкладок
         if hasattr(self, 'images_tab'):

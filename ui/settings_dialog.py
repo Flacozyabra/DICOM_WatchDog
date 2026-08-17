@@ -718,6 +718,19 @@ class SettingsDialog(QDialog):
         archive_layout = QVBoxLayout(archive_widget)
         archive_form = QFormLayout()
         
+        # Включить вкладку архива
+        self.show_tab_archive_cb = ToggleSwitch()
+        self.show_tab_archive_cb.setChecked(self.config.get('show_tab_archive', 'True').lower() == 'true')
+        self.lbl_show_tab_archive = QLabel()
+        archive_form.addRow(self.lbl_show_tab_archive, self.show_tab_archive_cb)
+
+        # Разделитель после мастер-свича архива
+        line_archive = QFrame()
+        line_archive.setFrameShape(QFrame.Shape.HLine)
+        line_archive.setFrameShadow(QFrame.Shadow.Sunken)
+        line_archive.setStyleSheet("background-color: #2d2d2d; margin-top: 6px; margin-bottom: 6px;")
+        archive_form.addRow(line_archive)
+
         # Archive Dir
         self.archive_edit = QLineEdit(self.config['archive_dir'])
         self.btn_archive_browse = QPushButton()
@@ -1166,6 +1179,19 @@ class SettingsDialog(QDialog):
         pacs_form = QFormLayout()
         pacs_form.setContentsMargins(0, 0, 0, 0)
         
+        # Включить вкладку PACS
+        self.show_tab_pacs_cb = ToggleSwitch()
+        self.show_tab_pacs_cb.setChecked(self.config.get('show_tab_pacs', 'True').lower() == 'true')
+        self.lbl_show_tab_pacs = QLabel()
+        pacs_form.addRow(self.lbl_show_tab_pacs, self.show_tab_pacs_cb)
+
+        # Разделитель после мастер-свича PACS
+        line_pacs = QFrame()
+        line_pacs.setFrameShape(QFrame.Shape.HLine)
+        line_pacs.setFrameShadow(QFrame.Shadow.Sunken)
+        line_pacs.setStyleSheet("background-color: #2d2d2d; margin-top: 6px; margin-bottom: 6px;")
+        pacs_form.addRow(line_pacs)
+
         # Выбор сервера PACS
         server_select_layout = QHBoxLayout()
         server_select_layout.setSpacing(10)
@@ -1315,15 +1341,46 @@ class SettingsDialog(QDialog):
                 subprocess.Popen(["xdg-open", app_data_dir])
 
     def update_fields_state(self):
-        archive_active = self.archive_enabled_cb.isChecked()
+        archive_tab_active = self.show_tab_archive_cb.isChecked()
+        self.lbl_archive_dir.setEnabled(archive_tab_active)
+        self.archive_edit.setEnabled(archive_tab_active)
+        self.btn_archive_browse.setEnabled(archive_tab_active)
+        self.lbl_archive_slice.setEnabled(archive_tab_active)
+        self.archive_slice_spin.setEnabled(archive_tab_active)
+        self.lbl_auto_archive_row.setEnabled(archive_tab_active)
+        self.archive_enabled_cb.setEnabled(archive_tab_active)
+        self.lbl_auto_cleanup_row.setEnabled(archive_tab_active)
+        self.archive_cleanup_enabled_cb.setEnabled(archive_tab_active)
+
+        archive_active = archive_tab_active and self.archive_enabled_cb.isChecked()
         self.archive_days_spin.setEnabled(archive_active)
         self.archive_label_through.setEnabled(archive_active)
         self.archive_label_days.setEnabled(archive_active)
 
-        cleanup_active = self.archive_cleanup_enabled_cb.isChecked()
+        cleanup_active = archive_tab_active and self.archive_cleanup_enabled_cb.isChecked()
         self.archive_cleanup_days_spin.setEnabled(cleanup_active)
         self.cleanup_label_through.setEnabled(cleanup_active)
         self.cleanup_label_days.setEnabled(cleanup_active)
+
+        pacs_tab_active = self.show_tab_pacs_cb.isChecked()
+        self.lbl_pacs_server.setEnabled(pacs_tab_active)
+        self.settings_server_combo.setEnabled(pacs_tab_active)
+        self.add_server_btn.setEnabled(pacs_tab_active)
+        self.del_server_btn.setEnabled(pacs_tab_active)
+        self.rename_server_btn.setEnabled(pacs_tab_active)
+        self.lbl_standby_interval.setEnabled(pacs_tab_active)
+        self.pacs_scan_spin.setEnabled(pacs_tab_active)
+        self.lbl_pacs_ip.setEnabled(pacs_tab_active)
+        self.pacs_ip_edit.setEnabled(pacs_tab_active)
+        self.lbl_port.setEnabled(pacs_tab_active)
+        self.pacs_port_spin.setEnabled(pacs_tab_active)
+        self.lbl_pacs_called_aet.setEnabled(pacs_tab_active)
+        self.pacs_called_aet_edit.setEnabled(pacs_tab_active)
+        self.lbl_pacs_calling_aet.setEnabled(pacs_tab_active)
+        self.pacs_calling_aet_edit.setEnabled(pacs_tab_active)
+        self.lbl_dicom_scp_port.setEnabled(pacs_tab_active)
+        self.pacs_local_port_spin.setEnabled(pacs_tab_active)
+        self.ping_btn.setEnabled(pacs_tab_active)
 
         self.id_prefixes_edit.setEnabled(self.fix_patient_id_cb.isChecked())
         
@@ -1397,6 +1454,10 @@ class SettingsDialog(QDialog):
         # Подключаем сигналы изменения виджетов для применения на лету
         self.ct_images_edit.textChanged.connect(self.on_setting_changed)
         self.show_study_counts_cb.toggled.connect(self.on_setting_changed)
+        self.show_tab_archive_cb.toggled.connect(self.update_fields_state)
+        self.show_tab_archive_cb.toggled.connect(self.on_setting_changed)
+        self.show_tab_pacs_cb.toggled.connect(self.update_fields_state)
+        self.show_tab_pacs_cb.toggled.connect(self.on_setting_changed)
         self.rename_study_folder_cb.toggled.connect(self.on_setting_changed)
         self.rename_study_folder_mode_combo.currentIndexChanged.connect(self.on_setting_changed)
         self.pacs_scan_spin.valueChanged.connect(self.on_setting_changed)
@@ -1487,6 +1548,8 @@ class SettingsDialog(QDialog):
         self.config['auto_update_is'] = self.config.get('auto_update_is', 'off')
         self.config['cleanup_structures_enabled'] = 'True' if self.cleanup_str_cb.isChecked() else 'False'
         self.config['show_study_counts'] = 'True' if self.show_study_counts_cb.isChecked() else 'False'
+        self.config['show_tab_archive'] = 'True' if self.show_tab_archive_cb.isChecked() else 'False'
+        self.config['show_tab_pacs'] = 'True' if self.show_tab_pacs_cb.isChecked() else 'False'
         self.config['fix_patient_id_enabled'] = 'True' if self.fix_patient_id_cb.isChecked() else 'False'
         self.config['id_prefixes'] = self.id_prefixes_edit.text()
         self.config['rename_study_folder_enabled'] = 'True' if self.rename_study_folder_cb.isChecked() else 'False'
@@ -1796,6 +1859,9 @@ Copy-VoiceTokens $src $dst32
         self.btn_app_data_open.setText(tr_ui("settings_open"))
         
         # Archive tab
+        self.lbl_show_tab_archive.setText(tr_ui("settings_show_tab_archive"))
+        self.lbl_show_tab_archive.setToolTip(tr_ui("tooltip_show_tab_archive"))
+        self.show_tab_archive_cb.setToolTip(tr_ui("tooltip_show_tab_archive"))
         self.lbl_archive_dir.setText(tr_ui("settings_archive_dir"))
         self.btn_archive_browse.setText(tr_ui("settings_browse"))
         self.lbl_archive_slice.setText(tr_ui("settings_archive_slice"))
@@ -1819,6 +1885,9 @@ Copy-VoiceTokens $src $dst32
         self.lbl_highlight_no_slices.setText(tr_ui("settings_highlight_no_slices"))
         
         # PACS tab
+        self.lbl_show_tab_pacs.setText(tr_ui("settings_show_tab_pacs"))
+        self.lbl_show_tab_pacs.setToolTip(tr_ui("tooltip_show_tab_pacs"))
+        self.show_tab_pacs_cb.setToolTip(tr_ui("tooltip_show_tab_pacs"))
         self.lbl_pacs_server.setText(tr_ui("settings_pacs_server_label"))
         self.lbl_standby_interval.setText(tr_ui("settings_standby_interval"))
         self.lbl_pacs_ip.setText(tr_ui("settings_pacs_ip"))
