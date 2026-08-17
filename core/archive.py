@@ -197,7 +197,7 @@ def move_old_folders_to_archive(ct_images_dir, archive_dir, archive_days, output
         if subdirs:
             for sub in subdirs:
                 try:
-                    folder_date = datetime.fromtimestamp(os.path.getctime(sub))
+                    folder_date = datetime.fromtimestamp(max(os.path.getctime(sub), os.path.getmtime(sub)))
                 except Exception:
                     continue
                 if (now - folder_date).days >= archive_days:
@@ -212,7 +212,7 @@ def move_old_folders_to_archive(ct_images_dir, archive_dir, archive_days, output
                         log_message(output_field, tr_log("log_patient_move_to_archive_error", dir_name, e))
         else:
             try:
-                folder_date = datetime.fromtimestamp(os.path.getctime(patient_folder))
+                folder_date = datetime.fromtimestamp(max(os.path.getctime(patient_folder), os.path.getmtime(patient_folder)))
             except Exception:
                 continue
             if (now - folder_date).days >= archive_days:

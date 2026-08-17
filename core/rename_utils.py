@@ -1,12 +1,35 @@
 import os
 import shutil
 import re
+import time
 from datetime import datetime
 import pydicom
 
 from core.logger import log_message
 from core.locale_utils import tr_log
 from core.dicom_utils import is_structure_file
+
+def touch_folder_tree(path: str):
+    """
+    Обновляет время модификации (mtime) и доступа (atime) для папки и всех ее вложенных файлов и папок на текущее время.
+    """
+    try:
+        now_ts = time.time()
+        if os.path.exists(path):
+            os.utime(path, (now_ts, now_ts))
+            for root, dirs, files in os.walk(path):
+                for d in dirs:
+                    try:
+                        os.utime(os.path.join(root, d), (now_ts, now_ts))
+                    except Exception:
+                        pass
+                for f in files:
+                    try:
+                        os.utime(os.path.join(root, f), (now_ts, now_ts))
+                    except Exception:
+                        pass
+    except Exception:
+        pass
 
 def remove_non_digits(input_string):
     result = ''
@@ -561,12 +584,14 @@ def move_study_folder_hierarchical(src_path: str, dest_root_dir: str, output_fie
         dest_patient_path = os.path.join(dest_root_dir, src_name)
         if not os.path.exists(dest_patient_path):
             shutil.move(src_path, dest_patient_path)
+            touch_folder_tree(dest_patient_path)
             return True
         else:
             if not make_folder_hierarchical(dest_patient_path, output_field):
                 return False
             for sub in immediate_subdirs:
                 move_single_study_folder(sub, dest_patient_path, output_field)
+            touch_folder_tree(dest_patient_path)
             try:
                 if os.path.exists(src_path) and not os.listdir(src_path):
                     os.rmdir(src_path)
@@ -582,6 +607,8 @@ def move_study_folder_hierarchical(src_path: str, dest_root_dir: str, output_fie
 
     dest_patient_path = os.path.join(dest_root_dir, patient_folder_name)
     success = move_single_study_folder(src_path, dest_patient_path, output_field)
+    if success:
+        touch_folder_tree(dest_patient_path)
     
     if src_name.startswith("[") and src_name.endswith("]"):
         try:

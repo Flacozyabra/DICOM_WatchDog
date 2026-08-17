@@ -116,7 +116,7 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
                 # Безопасный разбор времени исследования
                 study_date = str(ds.get('StudyDate', '')).strip()
                 study_time = str(ds.get('StudyTime', '')).strip()
-                folder_ctime = datetime.fromtimestamp(os.path.getctime(root))
+                folder_ctime = datetime.fromtimestamp(max(os.path.getctime(root), os.path.getmtime(root)))
 
                 study_dt = folder_ctime
                 if study_date:
