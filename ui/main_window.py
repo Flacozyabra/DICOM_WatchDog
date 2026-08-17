@@ -243,14 +243,18 @@ class PacsScanWorker(QThread):
 
     def run(self):
         collector = ThreadLogCollector()
-        pacs_dict, con = pacs_dict_create(
-            collector,
-            pacs_ip=self.pacs_ip,
-            pacs_port=self.pacs_port,
-            called_aet=self.called_aet,
-            calling_aet=self.calling_aet,
-            study_date=self.study_date
-        )
+        try:
+            pacs_dict, con = pacs_dict_create(
+                collector,
+                pacs_ip=self.pacs_ip,
+                pacs_port=self.pacs_port,
+                called_aet=self.called_aet,
+                calling_aet=self.calling_aet,
+                study_date=self.study_date
+            )
+        except Exception:
+            from collections import defaultdict
+            pacs_dict, con = defaultdict(dict), False
         self.finished.emit(pacs_dict, con, collector.messages)
 
 
@@ -670,6 +674,9 @@ class MainWindow(QMainWindow):
         
         # Первоначальное заполнение
         self.show_patient_list()
+        self.fill_archive_list(silent=True)
+        if self.config.get('auto_update_is', 'off').lower() == 'on' or self.tab_widget.currentIndex() == 2:
+            self.fill_pacs_list(silent=True)
         
         # Проверка обновлений при запуске
         self.check_for_updates_on_startup()
@@ -976,6 +983,7 @@ class MainWindow(QMainWindow):
             # При включении Standby mode сбрасываем флаг первого сканирования для предотвращения ложных уведомлений
             self.is_first_pacs_scan = True
         
+        self.update_tab_badges()
         self.fill_pacs_list(silent=True)
 
     def init_ui(self):
@@ -3223,6 +3231,10 @@ class MainWindow(QMainWindow):
             return
 
         show_badges = self.config.get('show_study_counts', 'True').lower() == 'true'
+        auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
+        current_tab_idx = self.tab_widget.currentIndex() if hasattr(self, 'tab_widget') else 0
+        pacs_tab_active = (current_tab_idx == 2)
+        show_pacs_badge = show_badges and (pacs_tab_active or auto_update_on)
 
         ct_count = len(self.images_cache) if getattr(self, 'images_cache', None) else 0
         archive_count = len(self.archive_cache) if getattr(self, 'archive_cache', None) else 0
@@ -3232,7 +3244,9 @@ class MainWindow(QMainWindow):
         tab_bar = self.tab_widget.tabBar()
 
         for idx, badge in self.tab_badges.items():
-            if show_badges:
+            should_show = show_pacs_badge if idx == 2 else show_badges
+
+            if should_show:
                 badge.set_count(counts.get(idx, 0))
                 if tab_bar.tabButton(idx, QTabBar.ButtonPosition.RightSide) != badge:
                     tab_bar.setTabButton(idx, QTabBar.ButtonPosition.RightSide, badge)

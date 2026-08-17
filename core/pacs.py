@@ -128,9 +128,13 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
     ds.StudyInstanceUID = ''
 
     # Associate with the peer AE
-    assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet)
+    try:
+        assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet)
+    except Exception as e:
+        log_message(output_field, tr_log("log_failed_connect_pacs"))
+        return pacs_data, False
 
-    if assoc.is_established:
+    if assoc and assoc.is_established:
         con = True
         try:
             # Send the C-FIND request
@@ -189,7 +193,10 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
             con = False
             log_message(output_field, tr_log("log_pacs_cfind_error", e))
         finally:
-            assoc.release()
+            try:
+                assoc.release()
+            except Exception:
+                pass
     else:
         con = False
         log_message(output_field, tr_log("log_failed_connect_pacs"))
