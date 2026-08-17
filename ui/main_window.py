@@ -91,6 +91,7 @@ class MainWindow(QMainWindow):
         self.restored_patient_ids = set()
         self.known_pacs_patient_ids = set()
         self.images_cache = None
+        self.archive_cache = None
         self.pacs_data = {}
         self.tab_badges = {}
         self.previous_pacs_data = {}
@@ -1226,12 +1227,13 @@ class MainWindow(QMainWindow):
         if index < 0:
             return
             
+        widget = self.tab_widget.widget(index)
         menu = QMenu(self)
         
-        # Только для вкладок КТ-снимки (0) и Архив (1) есть пункт "Открыть папку"
-        if index in (0, 1):
+        # Только для вкладок КТ-снимки и Архив есть пункт "Открыть папку"
+        if widget == self.images_tab or widget == self.archive_tab:
             open_folder_action = QAction(tr_ui("ctx_open_folder"), self)
-            path = self.config.get('ct_images_dir', '') if index == 0 else self.config.get('archive_dir', '')
+            path = self.config.get('ct_images_dir', '') if widget == self.images_tab else self.config.get('archive_dir', '')
             
             def open_dir():
                 if path and os.path.exists(path):
@@ -1251,8 +1253,14 @@ class MainWindow(QMainWindow):
         menu.addAction(rename_action)
         
         # Если задано кастомное имя, добавляем пункт "Сбросить название"
-        config_keys = {0: 'custom_tab_name_ct', 1: 'custom_tab_name_archive', 2: 'custom_tab_name_pacs'}
-        key = config_keys.get(index)
+        key = None
+        if widget == self.images_tab:
+            key = 'custom_tab_name_ct'
+        elif widget == self.archive_tab:
+            key = 'custom_tab_name_archive'
+        elif widget == self.pacs_tab:
+            key = 'custom_tab_name_pacs'
+            
         if key and self.config.get(key):
             reset_action = QAction(tr_ui("ctx_reset_tab_name"), self)
             def do_reset():
@@ -1292,6 +1300,7 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QInputDialog
         
         current_name = self.tab_widget.tabText(index)
+        widget = self.tab_widget.widget(index)
         
         dialog = QInputDialog(self)
         dialog.setWindowTitle(tr_ui("dlg_rename_tab_title"))
@@ -1306,8 +1315,14 @@ class MainWindow(QMainWindow):
         
         if ok:
             new_name = new_name.strip()
-            config_keys = {0: 'custom_tab_name_ct', 1: 'custom_tab_name_archive', 2: 'custom_tab_name_pacs'}
-            key = config_keys.get(index)
+            key = None
+            if widget == self.images_tab:
+                key = 'custom_tab_name_ct'
+            elif widget == self.archive_tab:
+                key = 'custom_tab_name_archive'
+            elif widget == self.pacs_tab:
+                key = 'custom_tab_name_pacs'
+                
             if key:
                 if new_name:
                     self.config[key] = new_name
@@ -2570,8 +2585,8 @@ class MainWindow(QMainWindow):
         # Если вкладка архива включена, но кэш еще не собран - собираем в фоне
         if show_archive and getattr(self, 'archive_cache', None) is None:
             self.fill_archive_list(silent=True)
-        else:
-            self.update_tab_badges()
+            
+        self.update_tab_badges()
 
     def update_tab_badges(self):
         if not hasattr(self, 'images_tab') or not hasattr(self, 'archive_tab') or not hasattr(self, 'pacs_tab') or not hasattr(self, 'tab_widget'):
