@@ -1303,6 +1303,12 @@ class SettingsDialog(QDialog):
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         self.button_box.accepted.connect(self.accept_settings)
         self.button_box.rejected.connect(self.reject)
+        save_btn = self.button_box.button(QDialogButtonBox.StandardButton.Save)
+        if save_btn:
+            save_btn.clicked.connect(self.accept_settings)
+        cancel_btn = self.button_box.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_btn:
+            cancel_btn.clicked.connect(self.reject)
         
         # Контейнер для кнопок с правым отступом
         button_layout = QHBoxLayout()
@@ -1399,54 +1405,61 @@ class SettingsDialog(QDialog):
         self.highlight_no_slices_cb.setEnabled(highlighting_active)
 
     def accept_settings(self):
-        # Save active inputs to current server structure
-        self.save_current_fields_to_config()
+        try:
+            # Save active inputs to current server structure
+            self.save_current_fields_to_config()
 
-        ct_text = self.ct_images_edit.text().strip()
-        archive_text = self.archive_edit.text().strip()
-        
-        is_archive_enabled = self.show_tab_archive_cb.isChecked()
-        is_pacs_enabled = self.show_tab_pacs_cb.isChecked()
+            ct_text = self.ct_images_edit.text().strip()
+            archive_text = self.archive_edit.text().strip()
+            
+            is_archive_enabled = self.show_tab_archive_cb.isChecked()
+            is_pacs_enabled = self.show_tab_pacs_cb.isChecked()
 
-        if is_archive_enabled and ct_text and archive_text:
-            ct_dir = os.path.normpath(ct_text)
-            archive_dir = os.path.normpath(archive_text)
-            if ct_dir.lower() == archive_dir.lower():
+            if is_archive_enabled and ct_text and archive_text:
+                ct_dir = os.path.normpath(ct_text)
+                archive_dir = os.path.normpath(archive_text)
+                if ct_dir.lower() == archive_dir.lower():
+                    msg = QMessageBox(self)
+                    msg.setIcon(QMessageBox.Icon.Warning)
+                    msg.setWindowTitle(tr_ui("dlg_error_title"))
+                    msg.setText(tr_ui("dlg_ct_archive_same"))
+                    apply_dark_title_bar(msg)
+                    msg.exec()
+                    return
+
+            if is_archive_enabled and self.archive_enabled_cb.isChecked() and not archive_text:
                 msg = QMessageBox(self)
                 msg.setIcon(QMessageBox.Icon.Warning)
-                msg.setWindowTitle(tr_ui("dlg_error_title"))
-                msg.setText(tr_ui("dlg_ct_archive_same"))
+                msg.setWindowTitle(tr_ui("dlg_warning_title"))
+                msg.setText(tr_ui("dlg_archive_empty_path"))
                 apply_dark_title_bar(msg)
                 msg.exec()
                 return
 
-        if is_archive_enabled and self.archive_enabled_cb.isChecked() and not archive_text:
-            msg = QMessageBox(self)
-            msg.setIcon(QMessageBox.Icon.Warning)
-            msg.setWindowTitle(tr_ui("dlg_warning_title"))
-            msg.setText(tr_ui("dlg_archive_empty_path"))
-            apply_dark_title_bar(msg)
-            msg.exec()
-            return
+            # Валидация AE Title только если PACS включен
+            if is_pacs_enabled:
+                called_aet = self.pacs_called_aet_edit.text().strip()
+                calling_aet = self.pacs_calling_aet_edit.text().strip()
+                if len(called_aet) > 16 or len(calling_aet) > 16:
+                    msg = QMessageBox(self)
+                    msg.setIcon(QMessageBox.Icon.Warning)
+                    msg.setWindowTitle(tr_ui("dlg_error_title"))
+                    msg.setText(tr_ui("dlg_aet_too_long", called_aet, len(called_aet), calling_aet, len(calling_aet)))
+                    apply_dark_title_bar(msg)
+                    msg.exec()
+                    return
 
-        # Валидация AE Title только если PACS включен
-        if is_pacs_enabled:
-            called_aet = self.pacs_called_aet_edit.text().strip()
-            calling_aet = self.pacs_calling_aet_edit.text().strip()
-            if len(called_aet) > 16 or len(calling_aet) > 16:
-                msg = QMessageBox(self)
-                msg.setIcon(QMessageBox.Icon.Warning)
-                msg.setWindowTitle(tr_ui("dlg_error_title"))
-                msg.setText(tr_ui("dlg_aet_too_long", called_aet, len(called_aet), calling_aet, len(calling_aet)))
-                apply_dark_title_bar(msg)
-                msg.exec()
-                return
-
-        # Принудительно синхронизируем все настройки перед сохранением
-        self.on_setting_changed()
-        # Save to file
-        self.save_config()
-        self.accept()
+            # Принудительно синхронизируем все настройки перед сохранением
+            self.on_setting_changed()
+            # Save to file
+            self.save_config()
+            self.initial_config = self.config.copy()
+            self.accept()
+        except Exception as e:
+            print(f"Error in accept_settings: {e}")
+            self.save_config()
+            self.initial_config = self.config.copy()
+            self.accept()
 
     def reject(self):
         # Откатываем настройки в MainWindow назад к исходным

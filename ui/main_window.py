@@ -287,7 +287,9 @@ class MainWindow(QMainWindow):
         self.output_field.setFont(font)
         
         # 3. Синхронизируем чекбокс автообновления и перезапускаем таймеры
+        self.pacs_auto_scan_cb.blockSignals(True)
         self.pacs_auto_scan_cb.setChecked(self.config.get('auto_update_is', 'off').lower() == 'on')
+        self.pacs_auto_scan_cb.blockSignals(False)
         self.update_pacs_controls_state()
         self.restart_timers()
         
