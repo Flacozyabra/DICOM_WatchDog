@@ -3163,6 +3163,22 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         # Останавливаем наблюдатель перед выходом, чтобы не зависал фоновый поток
         self.stop_file_watcher()
+        
+        # Останавливаем фоновые таймеры
+        for timer_attr in ['pacs_timer', 'system_check_timer', 'net_retry_timer', 'animation_timer']:
+            if hasattr(self, timer_attr):
+                try:
+                    getattr(self, timer_attr).stop()
+                except Exception:
+                    pass
+
+        # Освобождаем входящий DICOM-порт и останавливаем сервер C-STORE
+        try:
+            from core.pacs import _global_dicom_server
+            _global_dicom_server.stop()
+        except Exception:
+            pass
+
         super().closeEvent(event)
 
     def check_for_updates_on_startup(self):
