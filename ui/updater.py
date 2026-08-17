@@ -376,7 +376,7 @@ def find_matching_asset(assets, build_type, latest_version=""):
             if "pyqt5" in name_lower and "legacy" not in name_lower:
                 return name, url
         elif build_type in ("pyqt6", "main"):
-            if "legacy" not in name_lower and "pyqt5" not in name_lower and ("pyqt6" in name_lower or "dicom watchdog" in name_lower or "dicom_watchdog" in name_lower):
+            if "legacy" not in name_lower and "pyqt5" not in name_lower and any(k in name_lower for k in ("pyqt6", "dicom_watchdog", "dicom watchdog", "dicom.watchdog")):
                 return name, url
     return None, None
 

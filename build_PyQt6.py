@@ -125,7 +125,7 @@ def build_executable(has_icon):
         "--add-data=src;src",
         "--add-data=themes;themes",
         "--add-data=locales;locales",
-        "--name=DICOM WatchDog",
+        "--name=DICOM_WatchDog",
         "--splash=src/splashscreen_compiled.png",
     ]
 

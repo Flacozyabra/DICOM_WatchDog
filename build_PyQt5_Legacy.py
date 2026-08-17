@@ -123,7 +123,7 @@ def build_executable(has_icon):
         "--add-data=src;src",
         "--add-data=themes;themes",
         "--add-data=locales;locales",
-        "--name=DICOM WatchDog Legacy",
+        "--name=DICOM_WatchDog_Legacy",
     ]
 
     # Явный поиск и добавление vcruntime140.dll для предотвращения ошибок на GitHub Actions
