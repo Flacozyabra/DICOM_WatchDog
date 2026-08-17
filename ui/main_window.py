@@ -3228,18 +3228,20 @@ class MainWindow(QMainWindow):
         archive_count = len(self.archive_cache) if getattr(self, 'archive_cache', None) else 0
         pacs_count = len(self.pacs_data) if getattr(self, 'pacs_data', None) else 0
 
-        if 0 in self.tab_badges:
-            self.tab_badges[0].set_count(ct_count)
-            self.tab_badges[0].setVisible(show_badges)
-        if 1 in self.tab_badges:
-            self.tab_badges[1].set_count(archive_count)
-            self.tab_badges[1].setVisible(show_badges)
-        if 2 in self.tab_badges:
-            self.tab_badges[2].set_count(pacs_count)
-            self.tab_badges[2].setVisible(show_badges)
+        counts = {0: ct_count, 1: archive_count, 2: pacs_count}
+        tab_bar = self.tab_widget.tabBar()
 
-        for badge in self.tab_badges.values():
-            badge.update()
+        for idx, badge in self.tab_badges.items():
+            if show_badges:
+                badge.set_count(counts.get(idx, 0))
+                if tab_bar.tabButton(idx, QTabBar.ButtonPosition.RightSide) != badge:
+                    tab_bar.setTabButton(idx, QTabBar.ButtonPosition.RightSide, badge)
+                badge.setVisible(True)
+                badge.update()
+            else:
+                if tab_bar.tabButton(idx, QTabBar.ButtonPosition.RightSide) is not None:
+                    tab_bar.setTabButton(idx, QTabBar.ButtonPosition.RightSide, None)
+                badge.setVisible(False)
 
     def retranslate_ui(self):
         # Названия вкладок
