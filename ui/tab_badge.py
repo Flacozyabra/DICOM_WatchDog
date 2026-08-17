@@ -1,5 +1,5 @@
 from PyQt6.QtCore import Qt, QRectF, QSize, QPointF
-from PyQt6.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontMetrics
+from PyQt6.QtGui import QPainter, QPen, QBrush, QColor, QFont, QPainterPath
 from PyQt6.QtWidgets import QWidget, QTabBar
 
 
@@ -42,9 +42,10 @@ class TabBadge(QWidget):
         return self._count
 
     def sizeHint(self):
-        fm = QFontMetrics(self._font)
-        text_w = fm.horizontalAdvance(self._text)
-        pill_w = self.BADGE_HEIGHT if len(self._text) <= 1 else max(self.BADGE_HEIGHT, text_w + 8)
+        path = QPainterPath()
+        path.addText(QPointF(0, 0), self._font, self._text)
+        ink_w = path.boundingRect().width()
+        pill_w = self.BADGE_HEIGHT if len(self._text) <= 1 else int(ink_w + 10)
         total_w = self.LEFT_MARGIN + pill_w + self.RIGHT_MARGIN
         return QSize(total_w, self.WIDGET_HEIGHT)
 
@@ -52,17 +53,17 @@ class TabBadge(QWidget):
         return self.sizeHint()
 
     def update_geometry(self):
-        fm = QFontMetrics(self._font)
-        text_w = fm.horizontalAdvance(self._text)
+        path = QPainterPath()
+        path.addText(QPointF(0, 0), self._font, self._text)
+        ink_w = path.boundingRect().width()
         # Single digit circle (width == BADGE_HEIGHT = 16), multi-digit capsule
-        pill_w = self.BADGE_HEIGHT if len(self._text) <= 1 else max(self.BADGE_HEIGHT, text_w + 8)
+        pill_w = self.BADGE_HEIGHT if len(self._text) <= 1 else int(ink_w + 10)
         total_w = self.LEFT_MARGIN + pill_w + self.RIGHT_MARGIN
         self.setFixedSize(total_w, self.WIDGET_HEIGHT)
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
 
         is_selected = (self.tab_bar.currentIndex() == self.tab_index)
 
@@ -87,8 +88,13 @@ class TabBadge(QWidget):
         painter.setBrush(QBrush(bg_color))
         painter.drawRoundedRect(draw_rect, radius, radius)
 
-        painter.setFont(self._font)
-        painter.setPen(text_color)
+        # Математически точное центрирование векторного контура видимых пикселей (QPainterPath)
+        path = QPainterPath()
+        path.addText(QPointF(0, 0), self._font, self._text)
+        br = path.boundingRect()
 
-        text_rect = QRectF(self.LEFT_MARGIN + 0.5, badge_y - 0.5, pill_w, self.BADGE_HEIGHT)
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, self._text)
+        center_x = draw_rect.center().x()
+        center_y = draw_rect.center().y()
+
+        path.translate(center_x - br.center().x(), center_y - br.center().y())
+        painter.fillPath(path, QBrush(text_color))
