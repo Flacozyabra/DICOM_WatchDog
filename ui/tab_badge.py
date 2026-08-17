@@ -71,7 +71,7 @@ class TabBadge(QWidget):
         if self.tab_bar and 0 <= self.tab_index < self.tab_bar.count():
             is_selected = (self.tab_bar.currentIndex() == self.tab_index)
 
-        pill_w = self.width() - self.LEFT_MARGIN - self.RIGHT_MARGIN
+        pill_w = max(self.BADGE_HEIGHT, self.width() - self.LEFT_MARGIN - self.RIGHT_MARGIN)
         badge_y = (self.height() - self.BADGE_HEIGHT) / 2.0
 
         draw_rect = QRectF(self.LEFT_MARGIN + 0.5, badge_y + 0.5, pill_w - 1.0, self.BADGE_HEIGHT - 1.0)

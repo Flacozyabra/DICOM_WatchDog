@@ -2616,23 +2616,24 @@ class MainWindow(QMainWindow):
             if not tab_widget:
                 continue
             idx = self.tab_widget.indexOf(tab_widget)
-            badge = getattr(tab_widget, 'badge', None)
-            if not badge:
-                badge = TabBadge(tab_bar, idx if idx != -1 else 0)
-                tab_widget.badge = badge
-            
             if idx != -1 and should_show:
                 active_indices.add(idx)
+                badge = getattr(tab_widget, 'badge', None)
+                if not badge or badge.parent() != tab_bar:
+                    badge = TabBadge(tab_bar, idx)
+                    tab_widget.badge = badge
+                badge.tab_bar = tab_bar
                 badge.tab_index = idx
-                if tab_bar.tabButton(idx, QTabBar.ButtonPosition.RightSide) != badge:
-                    tab_bar.setTabButton(idx, QTabBar.ButtonPosition.RightSide, badge)
                 badge.set_count(count, force_update=True)
                 badge.setVisible(True)
                 badge.show()
+                if tab_bar.tabButton(idx, QTabBar.ButtonPosition.RightSide) != badge:
+                    tab_bar.setTabButton(idx, QTabBar.ButtonPosition.RightSide, badge)
                 badge.update()
             else:
-                badge.setVisible(False)
-                if idx != -1 and tab_bar.tabButton(idx, QTabBar.ButtonPosition.RightSide) == badge:
+                if hasattr(tab_widget, 'badge') and tab_widget.badge:
+                    tab_widget.badge.setVisible(False)
+                if idx != -1:
                     tab_bar.setTabButton(idx, QTabBar.ButtonPosition.RightSide, None)
 
         # Очищаем кнопки на вкладках, где бейдж не должен отображаться
