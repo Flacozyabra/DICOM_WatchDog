@@ -1,4 +1,4 @@
-from PyQt6.QtCore import Qt, QRectF
+from PyQt6.QtCore import Qt, QRectF, QSize
 from PyQt6.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontMetrics
 from PyQt6.QtWidgets import QWidget, QTabBar
 
@@ -29,10 +29,26 @@ class TabBadge(QWidget):
         if new_text != self._text:
             self._text = new_text
             self.update_geometry()
+            if self.tab_bar:
+                try:
+                    self.tab_bar.setTabText(self.tab_index, self.tab_bar.tabText(self.tab_index))
+                    self.tab_bar.updateGeometry()
+                except Exception:
+                    pass
         self.update()
 
     def count(self) -> int:
         return self._count
+
+    def sizeHint(self):
+        fm = QFontMetrics(self._font)
+        text_w = fm.horizontalAdvance(self._text)
+        pill_w = max(self.BADGE_HEIGHT, text_w + 8)
+        total_w = self.LEFT_MARGIN + pill_w + self.RIGHT_MARGIN
+        return QSize(total_w, self.WIDGET_HEIGHT)
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
 
     def update_geometry(self):
         fm = QFontMetrics(self._font)
