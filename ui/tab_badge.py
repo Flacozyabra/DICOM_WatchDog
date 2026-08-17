@@ -19,7 +19,8 @@ class TabBadge(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._count = 0
         self._text = "0"
-        self._font = QFont("Bahnschrift", 9, QFont.Weight.Bold)
+        self._font = QFont("Segoe UI", 9, QFont.Weight.Bold)
+        self._font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
         self.setFixedHeight(self.WIDGET_HEIGHT)
         self.update_geometry()
 
@@ -60,7 +61,8 @@ class TabBadge(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
 
         is_selected = (self.tab_bar.currentIndex() == self.tab_index)
 
@@ -88,5 +90,5 @@ class TabBadge(QWidget):
         painter.setFont(self._font)
         painter.setPen(text_color)
 
-        text_rect = QRectF(self.LEFT_MARGIN, badge_y - 0.5, pill_w, self.BADGE_HEIGHT)
+        text_rect = QRectF(self.LEFT_MARGIN + 0.5, badge_y - 0.5, pill_w, self.BADGE_HEIGHT)
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, self._text)
