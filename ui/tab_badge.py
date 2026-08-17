@@ -43,7 +43,7 @@ class TabBadge(QWidget):
     def sizeHint(self):
         fm = QFontMetrics(self._font)
         text_w = fm.horizontalAdvance(self._text)
-        pill_w = max(self.BADGE_HEIGHT, text_w + 8)
+        pill_w = self.BADGE_HEIGHT if len(self._text) <= 1 else max(self.BADGE_HEIGHT, text_w + 8)
         total_w = self.LEFT_MARGIN + pill_w + self.RIGHT_MARGIN
         return QSize(total_w, self.WIDGET_HEIGHT)
 
@@ -53,8 +53,8 @@ class TabBadge(QWidget):
     def update_geometry(self):
         fm = QFontMetrics(self._font)
         text_w = fm.horizontalAdvance(self._text)
-        # Single digit circle (width == BADGE_HEIGHT), multi-digit capsule
-        pill_w = max(self.BADGE_HEIGHT, text_w + 8)
+        # Single digit circle (width == BADGE_HEIGHT = 16), multi-digit capsule
+        pill_w = self.BADGE_HEIGHT if len(self._text) <= 1 else max(self.BADGE_HEIGHT, text_w + 8)
         total_w = self.LEFT_MARGIN + pill_w + self.RIGHT_MARGIN
         self.setFixedSize(total_w, self.WIDGET_HEIGHT)
 
@@ -88,13 +88,5 @@ class TabBadge(QWidget):
         painter.setFont(self._font)
         painter.setPen(text_color)
 
-        # Абсолютное оптическое центрирование по реальному контуру пикселей цифры (tightBoundingRect)
-        fm = QFontMetrics(self._font)
-        tight_rect = fm.tightBoundingRect(self._text)
-        center_x = draw_rect.center().x()
-        center_y = draw_rect.center().y()
-
-        baseline_x = center_x - (tight_rect.left() + tight_rect.width() / 2.0)
-        baseline_y = center_y - (tight_rect.top() + tight_rect.height() / 2.0)
-
-        painter.drawText(QPointF(baseline_x, baseline_y), self._text)
+        text_rect = QRectF(self.LEFT_MARGIN, badge_y - 0.5, pill_w, self.BADGE_HEIGHT)
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, self._text)
