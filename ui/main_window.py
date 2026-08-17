@@ -98,6 +98,9 @@ class MainWindow(QMainWindow):
         self.standby_new_patients = {}
         self.pacs_download_worker = None
         
+        from ui.table_context_menus import TableContextMenuManager
+        self.context_menu_mgr = TableContextMenuManager(self)
+        
         # Инициализируем таймеры до создания UI во избежание AttributeError
         self.pacs_timer = QTimer(self)
         self.pacs_timer.timeout.connect(self.auto_update_pacs)
@@ -637,20 +640,7 @@ class MainWindow(QMainWindow):
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
 
     def show_header_context_menu(self, pos, table):
-        header = table.horizontalHeader()
-        menu = QMenu(self)
-        menu.setStyleSheet("QMenu { background-color: #1a1a1a; color: #ffffff; border: 1px solid #3d3d3d; } "
-                           "QMenu::item:selected { background-color: #2b2b2b; }")
-        
-        column_count = table.columnCount()
-        for i in range(column_count):
-            label = table.horizontalHeaderItem(i).text()
-            action = menu.addAction(label)
-            action.setCheckable(True)
-            action.setChecked(not table.isColumnHidden(i))
-            action.toggled.connect(lambda checked, idx=i, t=table: [t.setColumnHidden(idx, not checked), self.save_table_state(t)])
-            
-        menu.exec(header.mapToGlobal(pos))
+        self.context_menu_mgr.show_header_context_menu(pos, table)
 
     def on_section_moved(self, logical, old, new, table):
         self.save_table_state(table)
@@ -1223,54 +1213,7 @@ class MainWindow(QMainWindow):
     # ================= КОНТЕКСТНЫЕ МЕНЮ И ДЕЙСТВИЯ =================
 
     def show_tab_context_menu(self, pos):
-        index = self.tab_widget.tabBar().tabAt(pos)
-        if index < 0:
-            return
-            
-        widget = self.tab_widget.widget(index)
-        menu = QMenu(self)
-        
-        # Только для вкладок КТ-снимки и Архив есть пункт "Открыть папку"
-        if widget == self.images_tab or widget == self.archive_tab:
-            open_folder_action = QAction(tr_ui("ctx_open_folder"), self)
-            path = self.config.get('ct_images_dir', '') if widget == self.images_tab else self.config.get('archive_dir', '')
-            
-            def open_dir():
-                if path and os.path.exists(path):
-                    try:
-                        os.startfile(path)
-                    except Exception as e:
-                        log_message(self.output_field, tr_log("log_failed_open_folder", os.path.basename(path), e))
-            
-            open_folder_action.triggered.connect(open_dir)
-            if not path or not os.path.exists(path):
-                open_folder_action.setEnabled(False)
-            menu.addAction(open_folder_action)
-            
-        # Для всех вкладок есть пункт "Переименовать"
-        rename_action = QAction(tr_ui("ctx_rename"), self)
-        rename_action.triggered.connect(lambda: self.rename_tab_dialog(index))
-        menu.addAction(rename_action)
-        
-        # Если задано кастомное имя, добавляем пункт "Сбросить название"
-        key = None
-        if widget == self.images_tab:
-            key = 'custom_tab_name_ct'
-        elif widget == self.archive_tab:
-            key = 'custom_tab_name_archive'
-        elif widget == self.pacs_tab:
-            key = 'custom_tab_name_pacs'
-            
-        if key and self.config.get(key):
-            reset_action = QAction(tr_ui("ctx_reset_tab_name"), self)
-            def do_reset():
-                self.config.pop(key, None)
-                self.save_current_config()
-                self.retranslate_ui()
-            reset_action.triggered.connect(do_reset)
-            menu.addAction(reset_action)
-        
-        menu.exec(self.tab_widget.tabBar().mapToGlobal(pos))
+        self.context_menu_mgr.show_tab_context_menu(pos)
 
     def get_move_to_archive_text(self):
         custom = self.config.get('custom_tab_name_archive')
@@ -1297,75 +1240,10 @@ class MainWindow(QMainWindow):
         return tr_ui("btn_send_to_ct")
 
     def rename_tab_dialog(self, index):
-        from PyQt6.QtWidgets import QInputDialog
-        
-        current_name = self.tab_widget.tabText(index)
-        widget = self.tab_widget.widget(index)
-        
-        dialog = QInputDialog(self)
-        dialog.setWindowTitle(tr_ui("dlg_rename_tab_title"))
-        dialog.setLabelText(tr_ui("dlg_rename_tab_label", current_name))
-        dialog.setTextValue(current_name)
-        dialog.setInputMode(QInputDialog.InputMode.TextInput)
-        dialog.setStyleSheet(self.styleSheet())
-        apply_dark_title_bar(dialog)
-        
-        ok = dialog.exec()
-        new_name = dialog.textValue()
-        
-        if ok:
-            new_name = new_name.strip()
-            key = None
-            if widget == self.images_tab:
-                key = 'custom_tab_name_ct'
-            elif widget == self.archive_tab:
-                key = 'custom_tab_name_archive'
-            elif widget == self.pacs_tab:
-                key = 'custom_tab_name_pacs'
-                
-            if key:
-                if new_name:
-                    self.config[key] = new_name
-                else:
-                    self.config.pop(key, None)
-                self.save_current_config()
-                self.retranslate_ui()
+        self.context_menu_mgr.rename_tab_dialog(index)
 
     def show_images_context_menu(self, pos):
-        # Получаем строку под курсором
-        index = self.images_table.indexAt(pos)
-        if not index.isValid():
-            return
-            
-        row = index.row()
-        id_item = self.images_table.item(row, 0)
-        patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
-        patient_name = self.images_table.item(row, 1).text()
-        
-        if patient_id in self.active_file_operations:
-            return
-            
-        menu = QMenu(self)
-        
-        open_folder_action = QAction(tr_ui("ctx_open_folder"), self)
-        open_folder_action.triggered.connect(lambda: self.open_patient_folder(patient_id, is_archive=False))
-        
-        delete_action = QAction(tr_ui("ctx_delete_patient"), self)
-        delete_action.triggered.connect(lambda: self.delete_patient_action(patient_id, patient_name))
-        
-        archive_action = QAction(self.get_move_to_archive_text(), self)
-        archive_action.triggered.connect(lambda: self.archive_patient_action(patient_id, patient_name))
-        
-        clean_str_action = QAction(tr_ui("ctx_delete_str"), self)
-        clean_str_action.triggered.connect(lambda: self.clean_str_action(patient_id))
-        
-        menu.addAction(open_folder_action)
-        menu.addAction(delete_action)
-        if self.config.get('show_tab_archive', 'True').lower() == 'true':
-            menu.addAction(archive_action)
-        menu.addAction(clean_str_action)
-        
-        menu.exec(self.images_table.viewport().mapToGlobal(pos))
+        self.context_menu_mgr.show_images_context_menu(pos)
 
     def delete_patient_action(self, patient_id, patient_name):
         if patient_id in self.active_file_operations:
@@ -1790,34 +1668,7 @@ class MainWindow(QMainWindow):
         self.update_archive_table_ui()
 
     def show_archive_context_menu(self, pos):
-        index = self.archive_table.indexAt(pos)
-        if not index.isValid():
-            return
-            
-        row = index.row()
-        id_item = self.archive_table.item(row, 0)
-        patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
-        patient_name = self.archive_table.item(row, 1).text()
-        
-        if patient_id in self.active_file_operations:
-            return
-            
-        menu = QMenu(self)
-        
-        open_folder_action = QAction(tr_ui("ctx_open_folder"), self)
-        open_folder_action.triggered.connect(lambda: self.open_patient_folder(patient_id, is_archive=True))
-        
-        restore_action = QAction(self.get_restore_to_ct_text(), self)
-        restore_action.triggered.connect(self.move_from_archive_cmd)
-        
-        delete_action = QAction(tr_ui("ctx_delete_archive_patient"), self)
-        delete_action.triggered.connect(lambda: self.delete_archive_patient_action(patient_id, patient_name))
-        
-        menu.addAction(open_folder_action)
-        menu.addAction(restore_action)
-        menu.addAction(delete_action)
-        
-        menu.exec(self.archive_table.viewport().mapToGlobal(pos))
+        self.context_menu_mgr.show_archive_context_menu(pos)
 
     def delete_archive_patient_action(self, patient_id, patient_name):
         if patient_id in self.active_file_operations:
@@ -2223,36 +2074,7 @@ class MainWindow(QMainWindow):
         self.send_to_ct_btn.setEnabled(has_selection)
 
     def show_pacs_context_menu(self, pos):
-        item = self.pacs_table.itemAt(pos)
-        if not item:
-            return
-        row = item.row()
-        self.pacs_table.selectRow(row)
-        
-        from PyQt6.QtWidgets import QMenu
-        menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #1f1f1f;
-                color: #ffffff;
-                border: 1px solid #3d3d3d;
-                border-radius: 4px;
-                padding: 4px;
-                font-family: 'Segoe UI';
-                font-size: 13px;
-            }
-            QMenu::item {
-                padding: 6px 16px;
-                border-radius: 3px;
-            }
-            QMenu::item:selected {
-                background-color: #1f538d;
-                color: #ffffff;
-            }
-        """)
-        action_send = menu.addAction(self.get_send_to_ct_text())
-        action_send.triggered.connect(self.send_to_ct_images_cmd)
-        menu.exec(self.pacs_table.viewport().mapToGlobal(pos))
+        self.context_menu_mgr.show_pacs_context_menu(pos)
 
     def pacs_set_today(self):
         self.pacs_date_from.blockSignals(True)
