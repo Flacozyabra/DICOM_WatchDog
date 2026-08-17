@@ -55,8 +55,8 @@ class TabBadge(QWidget):
         radius = (self.BADGE_HEIGHT - 1.0) / 2.0
 
         if is_selected:
-            # Active tab (background #1f538d): contrast deep navy pill with bright border
-            bg_color = QColor("#0e2e50")
+            # Active tab (background #1f538d): dark graphite pill with bright blue border
+            bg_color = QColor("#181818")
             border_color = QColor("#569cd6")
             text_color = QColor("#ffffff")
         else:
@@ -72,5 +72,6 @@ class TabBadge(QWidget):
         painter.setFont(self._font)
         painter.setPen(text_color)
 
-        text_rect = QRectF(self.LEFT_MARGIN, badge_y, pill_w, self.BADGE_HEIGHT)
+        # Оптическая компенсация вертикального выравнивания для цифр (Segoe UI)
+        text_rect = QRectF(self.LEFT_MARGIN, badge_y - 1.0, pill_w, self.BADGE_HEIGHT)
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, self._text)
