@@ -90,6 +90,8 @@
   "settings_auto_archive_row": "Автоматическое архивирование:",
   "settings_auto_cleanup_row": "Автоочистка архива:",
   "settings_cleanup_str": "Автоудаление дубликатов структур:",
+  "settings_show_study_counts": "Количество исследований во вкладках:",
+  "tooltip_show_study_counts": "Отображать кружок с количеством исследований в заголовках вкладок",
   "settings_fix_id_label": "Исправление ID:",
   "settings_id_prefixes_label": "Префиксы для удаления:",
   "settings_id_prefixes_placeholder": "Например: CT_, PT_",

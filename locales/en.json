@@ -90,6 +90,8 @@
   "settings_auto_archive_row": "Auto archive:",
   "settings_auto_cleanup_row": "Auto cleanup:",
   "settings_cleanup_str": "Auto cleanup duplicate structures:",
+  "settings_show_study_counts": "Study counts in tab titles:",
+  "tooltip_show_study_counts": "Show circle badge with study count in tab titles",
   "settings_fix_id_label": "Fix Patient ID:",
   "settings_id_prefixes_label": "ID prefixes to remove:",
   "settings_id_prefixes_placeholder": "E.g.: CT_, PT_",

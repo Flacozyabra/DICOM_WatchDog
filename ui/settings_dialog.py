@@ -652,6 +652,12 @@ class SettingsDialog(QDialog):
         self.lbl_cleanup_str = QLabel()
         general_form.addRow(self.lbl_cleanup_str, self.cleanup_str_cb)
 
+        # Отображение количества исследований на вкладках
+        self.show_study_counts_cb = ToggleSwitch()
+        self.show_study_counts_cb.setChecked(self.config.get('show_study_counts', 'True').lower() == 'true')
+        self.lbl_show_study_counts = QLabel()
+        general_form.addRow(self.lbl_show_study_counts, self.show_study_counts_cb)
+
         # Fix Patient ID
         self.fix_patient_id_cb = ToggleSwitch()
         self.fix_patient_id_cb.setChecked(self.config.get('fix_patient_id_enabled', 'False').lower() == 'true')
@@ -1390,16 +1396,7 @@ class SettingsDialog(QDialog):
     def setup_dynamic_updates(self):
         # Подключаем сигналы изменения виджетов для применения на лету
         self.ct_images_edit.textChanged.connect(self.on_setting_changed)
-        self.rename_study_folder_cb.toggled.connect(self.on_setting_changed)
-        self.rename_study_folder_mode_combo.currentIndexChanged.connect(self.on_setting_changed)
-        self.pacs_scan_spin.valueChanged.connect(self.on_setting_changed)
-        self.archive_slice_spin.valueChanged.connect(self.on_setting_changed)
-        self.font_size_spin.valueChanged.connect(self.on_setting_changed)
-        self.patient_font_spin.valueChanged.connect(self.on_setting_changed)
-        self.patient_weight_combo.currentTextChanged.connect(self.on_setting_changed)
-    def setup_dynamic_updates(self):
-        # Подключаем сигналы изменения виджетов для применения на лету
-        self.ct_images_edit.textChanged.connect(self.on_setting_changed)
+        self.show_study_counts_cb.toggled.connect(self.on_setting_changed)
         self.rename_study_folder_cb.toggled.connect(self.on_setting_changed)
         self.rename_study_folder_mode_combo.currentIndexChanged.connect(self.on_setting_changed)
         self.pacs_scan_spin.valueChanged.connect(self.on_setting_changed)
@@ -1489,6 +1486,7 @@ class SettingsDialog(QDialog):
         self.config['check_updates_at_startup'] = 'on' if self.check_updates_cb.isChecked() else 'off'
         self.config['auto_update_is'] = self.config.get('auto_update_is', 'off')
         self.config['cleanup_structures_enabled'] = 'True' if self.cleanup_str_cb.isChecked() else 'False'
+        self.config['show_study_counts'] = 'True' if self.show_study_counts_cb.isChecked() else 'False'
         self.config['fix_patient_id_enabled'] = 'True' if self.fix_patient_id_cb.isChecked() else 'False'
         self.config['id_prefixes'] = self.id_prefixes_edit.text()
         self.config['rename_study_folder_enabled'] = 'True' if self.rename_study_folder_cb.isChecked() else 'False'
@@ -1766,6 +1764,9 @@ Copy-VoiceTokens $src $dst32
         self.pacs_sound_combo.setItemText(0, tr_ui("settings_sound_default"))
         self.btn_unlock_voices.setText(tr_ui("settings_btn_unlock_voices"))
         self.lbl_cleanup_str.setText(tr_ui("settings_cleanup_str"))
+        self.lbl_show_study_counts.setText(tr_ui("settings_show_study_counts"))
+        self.lbl_show_study_counts.setToolTip(tr_ui("tooltip_show_study_counts"))
+        self.show_study_counts_cb.setToolTip(tr_ui("tooltip_show_study_counts"))
         self.lbl_fix_id.setText(tr_ui("settings_fix_id_label"))
         self.lbl_id_prefixes.setText(tr_ui("settings_id_prefixes_label"))
         self.id_prefixes_edit.setPlaceholderText(tr_ui("settings_id_prefixes_placeholder"))

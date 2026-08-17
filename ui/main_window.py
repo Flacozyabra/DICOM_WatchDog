@@ -25,6 +25,7 @@ from core.locale_utils import tr_ui, tr_log, set_current_langs
 from ui.settings_dialog import SettingsDialog, apply_dark_title_bar
 from ui.toggle_switch import ToggleSwitch
 from ui.centered_date_edit import CenteredDateEdit
+from ui.tab_badge import TabBadge
 from themes.theme_manager import load_theme
 from ui.dicom_viewer import DicomViewerPanel
 
@@ -126,77 +127,6 @@ class ToggleTableWidget(QTableWidget):
             self.setFocus()
         else:
             super().mousePressEvent(event)
-
-
-class TabBadge(QWidget):
-    """
-    A circular / capsule badge widget displaying study count in tab titles.
-    """
-    def __init__(self, tab_index: int, tab_bar: QTabBar, parent=None):
-        super().__init__(parent or tab_bar)
-        self.tab_index = tab_index
-        self.tab_bar = tab_bar
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self._count = 0
-        self._text = "0"
-        self._font = QFont("Segoe UI", 9, QFont.Weight.Bold)
-        self.setFixedHeight(18)
-        self.update_geometry()
-
-    def set_count(self, count: int):
-        self._count = max(0, int(count)) if count is not None else 0
-        new_text = str(self._count)
-        if new_text != self._text:
-            self._text = new_text
-            self.update_geometry()
-        self.update()
-
-    def count(self) -> int:
-        return self._count
-
-    def update_geometry(self):
-        fm = QFontMetrics(self._font)
-        text_w = fm.horizontalAdvance(self._text)
-        badge_h = 16
-        # Circle if single digit (width == height), capsule/pill if multi-digit
-        pill_w = max(badge_h, text_w + 8)
-        left_margin = 6
-        self.setFixedSize(pill_w + left_margin, 18)
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        is_selected = (self.tab_bar.currentIndex() == self.tab_index)
-
-        left_margin = 6
-        badge_h = 16
-        pill_w = self.width() - left_margin
-        badge_y = (self.height() - badge_h) / 2.0
-
-        draw_rect = QRectF(left_margin + 0.5, badge_y + 0.5, pill_w - 1.0, badge_h - 1.0)
-        radius = (badge_h - 1.0) / 2.0
-
-        if is_selected:
-            # Active tab (background #1f538d): contrast deep navy pill with bright border
-            bg_color = QColor("#0e2e50")
-            border_color = QColor("#569cd6")
-            text_color = QColor("#ffffff")
-        else:
-            # Inactive tab (background #464646): button color #1f538d with subtle border
-            bg_color = QColor("#1f538d")
-            border_color = QColor("#3370b3")
-            text_color = QColor("#ffffff")
-
-        painter.setPen(QPen(border_color, 1))
-        painter.setBrush(QBrush(bg_color))
-        painter.drawRoundedRect(draw_rect, radius, radius)
-
-        painter.setFont(self._font)
-        painter.setPen(text_color)
-
-        text_rect = QRectF(left_margin, badge_y - 0.5, pill_w, badge_h)
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, self._text)
 
 
 class WatchdogHandler(QObject, FileSystemEventHandler):
@@ -3292,16 +3222,21 @@ class MainWindow(QMainWindow):
         if not hasattr(self, 'tab_badges'):
             return
 
+        show_badges = self.config.get('show_study_counts', 'True').lower() == 'true'
+
         ct_count = len(self.images_cache) if getattr(self, 'images_cache', None) else 0
         archive_count = len(self.archive_cache) if getattr(self, 'archive_cache', None) else 0
         pacs_count = len(self.pacs_data) if getattr(self, 'pacs_data', None) else 0
 
         if 0 in self.tab_badges:
             self.tab_badges[0].set_count(ct_count)
+            self.tab_badges[0].setVisible(show_badges)
         if 1 in self.tab_badges:
             self.tab_badges[1].set_count(archive_count)
+            self.tab_badges[1].setVisible(show_badges)
         if 2 in self.tab_badges:
             self.tab_badges[2].set_count(pacs_count)
+            self.tab_badges[2].setVisible(show_badges)
 
         for badge in self.tab_badges.values():
             badge.update()
