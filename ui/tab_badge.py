@@ -1,4 +1,4 @@
-from PyQt6.QtCore import Qt, QRectF, QSize
+from PyQt6.QtCore import Qt, QRectF, QSize, QPointF
 from PyQt6.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontMetrics
 from PyQt6.QtWidgets import QWidget, QTabBar
 
@@ -19,7 +19,7 @@ class TabBadge(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._count = 0
         self._text = "0"
-        self._font = QFont("Segoe UI", 9, QFont.Weight.Bold)
+        self._font = QFont("Bahnschrift", 9, QFont.Weight.Bold)
         self.setFixedHeight(self.WIDGET_HEIGHT)
         self.update_geometry()
 
@@ -88,6 +88,13 @@ class TabBadge(QWidget):
         painter.setFont(self._font)
         painter.setPen(text_color)
 
-        # Оптическая компенсация вертикального выравнивания для цифр (Segoe UI)
-        text_rect = QRectF(self.LEFT_MARGIN, badge_y - 1.0, pill_w, self.BADGE_HEIGHT)
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, self._text)
+        # Абсолютное оптическое центрирование по реальному контуру пикселей цифры (tightBoundingRect)
+        fm = QFontMetrics(self._font)
+        tight_rect = fm.tightBoundingRect(self._text)
+        center_x = draw_rect.center().x()
+        center_y = draw_rect.center().y()
+
+        baseline_x = center_x - (tight_rect.left() + tight_rect.width() / 2.0)
+        baseline_y = center_y - (tight_rect.top() + tight_rect.height() / 2.0)
+
+        painter.drawText(QPointF(baseline_x, baseline_y), self._text)
