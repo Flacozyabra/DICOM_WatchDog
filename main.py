@@ -30,6 +30,9 @@ if USE_PYQT5:
             if not hasattr(PyQt5.QtWidgets.QAbstractItemView, name):
                 setattr(PyQt5.QtWidgets.QAbstractItemView, name, PyQt5.QtWidgets.QAbstractItemView)
 
+        if not hasattr(PyQt5.QtWidgets.QTabBar, 'ButtonPosition'):
+            setattr(PyQt5.QtWidgets.QTabBar, 'ButtonPosition', PyQt5.QtWidgets.QTabBar)
+
         if not hasattr(PyQt5.QtGui.QFont, 'Weight'):
             setattr(PyQt5.QtGui.QFont, 'Weight', PyQt5.QtGui.QFont)
             

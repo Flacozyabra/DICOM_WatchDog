@@ -3,9 +3,9 @@ import sys
 import shutil
 from datetime import datetime, timedelta
 
-from PyQt6.QtCore import Qt, QTimer, QSize, QThread, pyqtSignal, QObject, QDate, QPoint
-from PyQt6.QtGui import QColor, QAction, QIcon, QFont, QPainter, QPen, QBrush, QPolygon, QPalette, QLinearGradient
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, 
+from PyQt6.QtCore import Qt, QTimer, QSize, QThread, pyqtSignal, QObject, QDate, QPoint, QRectF
+from PyQt6.QtGui import QColor, QAction, QIcon, QFont, QFontMetrics, QPainter, QPen, QBrush, QPolygon, QPalette, QLinearGradient
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QTabBar, QWidget, 
                              QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, 
                              QPlainTextEdit, QPushButton, QMessageBox, 
                              QHeaderView, QMenu, QAbstractItemView, QLineEdit, QLabel,
@@ -126,6 +126,77 @@ class ToggleTableWidget(QTableWidget):
             self.setFocus()
         else:
             super().mousePressEvent(event)
+
+
+class TabBadge(QWidget):
+    """
+    A circular / capsule badge widget displaying study count in tab titles.
+    """
+    def __init__(self, tab_index: int, tab_bar: QTabBar, parent=None):
+        super().__init__(parent or tab_bar)
+        self.tab_index = tab_index
+        self.tab_bar = tab_bar
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._count = 0
+        self._text = "0"
+        self._font = QFont("Segoe UI", 9, QFont.Weight.Bold)
+        self.setFixedHeight(18)
+        self.update_geometry()
+
+    def set_count(self, count: int):
+        self._count = max(0, int(count)) if count is not None else 0
+        new_text = str(self._count)
+        if new_text != self._text:
+            self._text = new_text
+            self.update_geometry()
+        self.update()
+
+    def count(self) -> int:
+        return self._count
+
+    def update_geometry(self):
+        fm = QFontMetrics(self._font)
+        text_w = fm.horizontalAdvance(self._text)
+        badge_h = 16
+        # Circle if single digit (width == height), capsule/pill if multi-digit
+        pill_w = max(badge_h, text_w + 8)
+        left_margin = 6
+        self.setFixedSize(pill_w + left_margin, 18)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        is_selected = (self.tab_bar.currentIndex() == self.tab_index)
+
+        left_margin = 6
+        badge_h = 16
+        pill_w = self.width() - left_margin
+        badge_y = (self.height() - badge_h) / 2.0
+
+        draw_rect = QRectF(left_margin + 0.5, badge_y + 0.5, pill_w - 1.0, badge_h - 1.0)
+        radius = (badge_h - 1.0) / 2.0
+
+        if is_selected:
+            # Active tab (background #1f538d): contrast deep navy pill with bright border
+            bg_color = QColor("#0e2e50")
+            border_color = QColor("#569cd6")
+            text_color = QColor("#ffffff")
+        else:
+            # Inactive tab (background #464646): button color #1f538d with subtle border
+            bg_color = QColor("#1f538d")
+            border_color = QColor("#3370b3")
+            text_color = QColor("#ffffff")
+
+        painter.setPen(QPen(border_color, 1))
+        painter.setBrush(QBrush(bg_color))
+        painter.drawRoundedRect(draw_rect, radius, radius)
+
+        painter.setFont(self._font)
+        painter.setPen(text_color)
+
+        text_rect = QRectF(left_margin, badge_y - 0.5, pill_w, badge_h)
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, self._text)
 
 
 class WatchdogHandler(QObject, FileSystemEventHandler):
@@ -614,6 +685,8 @@ class MainWindow(QMainWindow):
         self.restored_patient_ids = set()
         self.known_pacs_patient_ids = set()
         self.images_cache = None
+        self.pacs_data = {}
+        self.tab_badges = {}
         self.previous_pacs_data = {}
         self.standby_new_patients = {}
         self.pacs_download_worker = None
@@ -999,6 +1072,15 @@ class MainWindow(QMainWindow):
         self.create_tab_ct_images()
         self.create_tab_ct_archive()
         self.create_tab_pacs()
+        
+        # Бейджи со счетчиками исследований на вкладках
+        self.tab_badges = {
+            0: TabBadge(0, self.tab_widget.tabBar()),
+            1: TabBadge(1, self.tab_widget.tabBar()),
+            2: TabBadge(2, self.tab_widget.tabBar())
+        }
+        for idx, badge in self.tab_badges.items():
+            self.tab_widget.tabBar().setTabButton(idx, QTabBar.ButtonPosition.RightSide, badge)
         
         # Поле вывода логов в контейнере с верхним отступом от сплиттера
         self.output_container = QWidget()
@@ -1465,6 +1547,8 @@ class MainWindow(QMainWindow):
         if not hasattr(self, 'archive_table') or not hasattr(self, 'pacs_table') or not hasattr(self, 'images_table'):
             return
             
+        self.update_tab_badges()
+        
         pacs_auto_scan_on = self.config.get('auto_update_is', 'off').lower() == 'on'
         if index == 0:  # CT images
             if not pacs_auto_scan_on:
@@ -1535,6 +1619,8 @@ class MainWindow(QMainWindow):
                 button_callback=self.browse_ct_images_dir
             )
             self.images_table.update_placeholder_visibility()
+            self.images_cache = None
+            self.update_tab_badges()
             return
 
         if not os.path.exists(ct_dir):
@@ -1552,6 +1638,8 @@ class MainWindow(QMainWindow):
                 self.images_table.update_placeholder_visibility()
                 if not self.net_retry_timer.isActive():
                     self.net_retry_timer.start()
+                self.images_cache = None
+                self.update_tab_badges()
                 return
             else:
                 self.net_retry_timer.stop()
@@ -1563,6 +1651,8 @@ class MainWindow(QMainWindow):
                     button_callback=self.browse_ct_images_dir
                 )
                 self.images_table.update_placeholder_visibility()
+                self.images_cache = None
+                self.update_tab_badges()
                 return
         else:
             if self.net_retry_timer.isActive() or self.net_retry_count > 0:
@@ -1680,6 +1770,7 @@ class MainWindow(QMainWindow):
         self.restored_patient_ids.clear()
 
         self.update_images_table_ui()
+        self.update_tab_badges()
 
     def update_images_table_ui(self):
         if not hasattr(self, 'images_cache') or self.images_cache is None:
@@ -2153,6 +2244,8 @@ class MainWindow(QMainWindow):
                 button_callback=self.browse_archive_dir
             )
             self.archive_table.update_placeholder_visibility()
+            self.archive_cache = None
+            self.update_tab_badges()
             return
             
         if not silent:
@@ -2206,6 +2299,7 @@ class MainWindow(QMainWindow):
             log_message(self.output_field, tr_log("log_archive_loaded"), replace_suffix=tr_log("log_loading_archive"))
         self.archive_cache = archive_dict
         self.update_archive_table_ui()
+        self.update_tab_badges()
 
     def update_archive_table_ui(self):
         if not hasattr(self, 'archive_cache') or self.archive_cache is None:
@@ -2703,7 +2797,9 @@ class MainWindow(QMainWindow):
                 self.previous_pacs_data = display_dict.copy()
                 self.render_pacs_table()
             else:
+                self.pacs_data = display_dict.copy()
                 self.pacs_table.update_placeholder_visibility()
+            self.update_tab_badges()
 
         elif not con and not has_fail_msg:
             if not silent:
@@ -2719,6 +2815,8 @@ class MainWindow(QMainWindow):
                 self.previous_pacs_data = {}
             else:
                 self.pacs_table.update_placeholder_visibility()
+            self.pacs_data = {}
+            self.update_tab_badges()
 
     def search_patient_pacs(self):
         self.render_pacs_table()
@@ -3190,11 +3288,30 @@ class MainWindow(QMainWindow):
             # Trigger immediate scan
             self.fill_pacs_list()
 
+    def update_tab_badges(self):
+        if not hasattr(self, 'tab_badges'):
+            return
+
+        ct_count = len(self.images_cache) if getattr(self, 'images_cache', None) else 0
+        archive_count = len(self.archive_cache) if getattr(self, 'archive_cache', None) else 0
+        pacs_count = len(self.pacs_data) if getattr(self, 'pacs_data', None) else 0
+
+        if 0 in self.tab_badges:
+            self.tab_badges[0].set_count(ct_count)
+        if 1 in self.tab_badges:
+            self.tab_badges[1].set_count(archive_count)
+        if 2 in self.tab_badges:
+            self.tab_badges[2].set_count(pacs_count)
+
+        for badge in self.tab_badges.values():
+            badge.update()
+
     def retranslate_ui(self):
         # Названия вкладок
         self.tab_widget.setTabText(0, self.config.get('custom_tab_name_ct') or tr_ui("tab_ct_images"))
         self.tab_widget.setTabText(1, self.config.get('custom_tab_name_archive') or tr_ui("tab_ct_archive"))
         self.tab_widget.setTabText(2, self.config.get('custom_tab_name_pacs') or tr_ui("tab_pacs"))
+        self.update_tab_badges()
         
         # Кнопки и плейсхолдеры
         self.search_images_entry.setPlaceholderText(tr_ui("placeholder_search_patient"))
