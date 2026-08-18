@@ -886,6 +886,7 @@ class MainWindow(QMainWindow):
         self.scan_worker.log_emitted.connect(lambda msg: log_message(self.output_field, msg))
         self.scan_worker.status_changed.connect(self.on_scan_status_changed)
         self.scan_worker.progress.connect(self.on_scan_progress)
+        self.scan_worker.count_updated.connect(self.on_images_scan_count_updated)
         
         if show_progress:
             from ui.loading_dialog import LoadingProgressDialog
@@ -905,6 +906,12 @@ class MainWindow(QMainWindow):
         if self.images_table.rowCount() == 0:
             self.images_table.set_placeholder_state(status_text, show_button=False)
             self.images_table.update_placeholder_visibility()
+
+    def on_images_scan_count_updated(self, current_count):
+        if hasattr(self, 'images_tab') and hasattr(self.images_tab, 'badge') and self.images_tab.badge:
+            show_badges = self.config.get('show_study_counts', 'True').lower() == 'true'
+            if show_badges:
+                self.images_tab.badge.set_count(current_count)
 
     def on_scan_progress(self, current, total):
         if self.images_table.rowCount() == 0 and total > 0:
@@ -1400,6 +1407,7 @@ class MainWindow(QMainWindow):
         self.archive_worker = ArchiveScanWorker(archive_dir, cleanup_str_val)
         self.archive_worker.finished.connect(lambda ad, lm: self.on_archive_scan_finished(ad, lm, silent))
         self.archive_worker.progress.connect(self.on_archive_scan_progress)
+        self.archive_worker.count_updated.connect(self.on_archive_scan_count_updated)
         if not silent:
             self.archive_worker.log_emitted.connect(lambda msg: log_message(self.output_field, msg))
         
@@ -1415,6 +1423,12 @@ class MainWindow(QMainWindow):
             self.archive_progress_dialog.exec()
         else:
             self.archive_worker.start()
+
+    def on_archive_scan_count_updated(self, current_count):
+        if hasattr(self, 'archive_tab') and hasattr(self.archive_tab, 'badge') and self.archive_tab.badge:
+            show_badges = self.config.get('show_study_counts', 'True').lower() == 'true'
+            if show_badges:
+                self.archive_tab.badge.set_count(current_count)
 
     def on_archive_scan_progress(self, current, total):
         if self.archive_table.rowCount() == 0 and total > 0:

@@ -35,7 +35,7 @@ def save_cache(cache_data):
             pass
 
 
-def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False, progress_callback=None):
+def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False, progress_callback=None, count_callback=None):
     """
     Создает словарь пациентов для архива, используя кэширование метаданных в файл JSON.
     Это предотвращает повторное чтение DICOM-файлов при больших архивах.
@@ -93,6 +93,8 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                         'slices': cached_item.get('slices', len([f for f in dcm_files if not is_structure_file(os.path.join(root, f))])),
                         'folder_name': rel_path
                     }
+                    if count_callback:
+                        count_callback(len(patient_data))
                     
                     # Если Fix Switch включен, проверяем/удаляем лишние STR
                     if is_cleanup_on and cached_item['str'] > 1:
@@ -170,6 +172,8 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                             'slices': slices_cnt,
                             'folder_name': rel_path
                         }
+                        if count_callback:
+                            count_callback(len(patient_data))
                         
                         cache[root] = {
                             'mtime': os.path.getmtime(root),

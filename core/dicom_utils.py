@@ -65,7 +65,7 @@ def delete_redundant_str(patient_dir, output_field=None):
                 
     return deleted_count
 
-def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, progress_callback=None):
+def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, progress_callback=None, count_callback=None):
     patient_data = defaultdict(dict)
 
     is_cleanup_on = False
@@ -159,6 +159,9 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
                     # Пересчитываем количество файлов структур
                     str_files = [f for f in os.listdir(root) if is_structure_file(os.path.join(root, f))]
                     patient_data[rel_path]['str'] = len(str_files)
+
+                if count_callback:
+                    count_callback(len(patient_data))
 
             except Exception as e:
                 log_message(output_field, tr_log("log_dcm_read_error", os.path.join(root, file), e))

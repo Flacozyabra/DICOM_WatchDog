@@ -35,6 +35,7 @@ class ThreadLogCollector:
 class FolderScanWorker(QThread):
     finished = pyqtSignal(dict, list)
     progress = pyqtSignal(int, int)  # (current, total)
+    count_updated = pyqtSignal(int)
     status_changed = pyqtSignal(str) # (status_text)
     log_emitted = pyqtSignal(str)
 
@@ -110,7 +111,8 @@ class FolderScanWorker(QThread):
         patient_dict = dict_create(
             self.ct_images_dir, collector,
             cleanup_structures=is_cleanup_struct_on,
-            progress_callback=self.progress.emit
+            progress_callback=self.progress.emit,
+            count_callback=self.count_updated.emit
         )
         self.finished.emit(patient_dict, collector.messages)
 
@@ -146,6 +148,7 @@ class PacsScanWorker(QThread):
 class ArchiveScanWorker(QThread):
     finished = pyqtSignal(dict, list)
     progress = pyqtSignal(int, int)  # (current, total)
+    count_updated = pyqtSignal(int)
     log_emitted = pyqtSignal(str)
 
     def __init__(self, archive_dir, cleanup_structures_enabled):
@@ -160,7 +163,8 @@ class ArchiveScanWorker(QThread):
         d = archive_dict_create(
             self.archive_dir, collector,
             cleanup_structures=is_cleanup_struct_on,
-            progress_callback=self.progress.emit
+            progress_callback=self.progress.emit,
+            count_callback=self.count_updated.emit
         )
         self.finished.emit(d, collector.messages)
 
