@@ -531,7 +531,8 @@ class MainWindow(QMainWindow):
         self.stacked_widget.addWidget(self.viewer_panel)
 
     def create_tab_ct_images(self):
-        self.images_tab = ImagesTab(self)
+        self.images_tab = ImagesTab(self, self.tab_widget)
+        self.images_tab.hide()
         self.images_table = self.images_tab.table
         self.search_images_entry = self.images_tab.search_entry
         self.search_images_btn = self.images_tab.search_btn
@@ -539,7 +540,8 @@ class MainWindow(QMainWindow):
         self.settings_btn1 = self.images_tab.settings_btn
 
     def create_tab_ct_archive(self):
-        self.archive_tab = ArchiveTab(self)
+        self.archive_tab = ArchiveTab(self, self.tab_widget)
+        self.archive_tab.hide()
         self.archive_table = self.archive_tab.table
         self.search_entry = self.archive_tab.search_entry
         self.search_btn = self.archive_tab.search_btn
@@ -547,7 +549,8 @@ class MainWindow(QMainWindow):
         self.settings_btn2 = self.archive_tab.settings_btn
 
     def create_tab_pacs(self):
-        self.pacs_tab = PacsTab(self)
+        self.pacs_tab = PacsTab(self, self.tab_widget)
+        self.pacs_tab.hide()
         self.pacs_table = self.pacs_tab.table
         self.pacs_today_btn = self.pacs_tab.today_btn
         self.pacs_3days_btn = self.pacs_tab.last_3days_btn
@@ -2375,6 +2378,7 @@ class MainWindow(QMainWindow):
             self.tab_widget.insertTab(0, self.images_tab, self.config.get('custom_tab_name_ct') or tr_ui("tab_ct_images"))
         else:
             self.tab_widget.setTabText(ct_idx, self.config.get('custom_tab_name_ct') or tr_ui("tab_ct_images"))
+        self.images_tab.show()
 
         # 2. Archive Tab
         archive_idx = self.tab_widget.indexOf(self.archive_tab)
@@ -2385,10 +2389,12 @@ class MainWindow(QMainWindow):
                 self.tab_widget.insertTab(insert_pos, self.archive_tab, self.config.get('custom_tab_name_archive') or tr_ui("tab_ct_archive"))
             else:
                 self.tab_widget.setTabText(archive_idx, self.config.get('custom_tab_name_archive') or tr_ui("tab_ct_archive"))
+            self.archive_tab.show()
             self.images_tab.move_to_archive_btn.setVisible(True)
         else:
             if archive_idx != -1:
                 self.tab_widget.removeTab(archive_idx)
+            self.archive_tab.hide()
             self.images_tab.move_to_archive_btn.setVisible(False)
 
         # 3. PACS Tab
@@ -2398,9 +2404,11 @@ class MainWindow(QMainWindow):
                 self.tab_widget.addTab(self.pacs_tab, self.config.get('custom_tab_name_pacs') or tr_ui("tab_pacs"))
             else:
                 self.tab_widget.setTabText(pacs_idx, self.config.get('custom_tab_name_pacs') or tr_ui("tab_pacs"))
+            self.pacs_tab.show()
         else:
             if pacs_idx != -1:
                 self.tab_widget.removeTab(pacs_idx)
+            self.pacs_tab.hide()
             # При отключении вкладки PACS отключаем автообновление и останавливаем таймер
             self.config['auto_update_is'] = 'off'
             if hasattr(self, 'pacs_auto_scan_cb'):
