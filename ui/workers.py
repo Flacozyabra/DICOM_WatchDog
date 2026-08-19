@@ -2,6 +2,7 @@
 """Background Worker Threads for DICOM WatchDog."""
 
 import os
+from datetime import datetime
 from watchdog.events import FileSystemEventHandler
 
 try:
@@ -9,7 +10,9 @@ try:
 except ImportError:
     from PyQt5.QtCore import QThread, pyqtSignal, QObject
 
-from core.dicom_utils import dict_create, process_patient_folder
+from core.logger import log_message
+from core.dicom_utils import dict_create
+from core.rename_utils import process_patient_folder, move_study_folder_hierarchical, get_folder_study_info
 from core.pacs import pacs_dict_create, download_patient_from_pacs
 from core.locale_utils import tr_log, tr_ui
 
@@ -75,28 +78,6 @@ class FolderScanWorker(QThread):
             except Exception:
                 pass
 
-        total_folders = len(patient_folders)
-
-        # 1. Фаза исправления ID и переименования папок
-        if (is_fix_id_on or is_rename_folder_on) and total_folders > 0:
-            self.status_changed.emit(tr_ui("loading_fixing_folders_status"))
-            for i, path in enumerate(patient_folders):
-                if self.isInterruptionRequested():
-                    return
-                self.progress.emit(i, total_folders)
-                process_patient_folder(
-                    path, collector,
-                    fix_patient_id=is_fix_id_on,
-                    prefixes=prefixes_list,
-                    rename_folder=is_rename_folder_on,
-                    rename_mode=self.rename_study_folder_mode
-                )
-            self.progress.emit(total_folders, total_folders)
-            
-        if self.isInterruptionRequested():
-            return
-
-        # 2. Фаза архивации
         if is_archive_on and not self.archive_dir:
             collector.appendPlainText(tr_log("log_warn_auto_archive_not_configured"))
 
@@ -125,7 +106,7 @@ class FolderScanWorker(QThread):
         if needs_prep and total_folders > 0:
             self.status_changed.emit(tr_ui("loading_fixing_folders_status"))
             now = datetime.now()
-            from core.archive import move_study_folder_hierarchical, get_folder_study_info
+            from core.rename_utils import move_study_folder_hierarchical, get_folder_study_info
             
             for i, path in enumerate(patient_folders):
                 if self.isInterruptionRequested():

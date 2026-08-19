@@ -310,6 +310,8 @@ class MainWindow(QMainWindow):
         self.watcher_observer = None
         self.watcher_handler = None
         self.currently_watched_dir = None
+        self.is_scanning_active = False
+        self.last_scan_finished_time = 0
         
         # Создаем таймер дебаунса (debounce)
         self.debounce_timer = QTimer(self)
@@ -391,6 +393,14 @@ class MainWindow(QMainWindow):
         self.last_timer_timestamp = time.time()
 
     def trigger_debounce(self):
+        # Игнорируем события во время сканирования и кулдауна после него (1.5 сек)
+        if getattr(self, 'is_scanning_active', False):
+            return
+        if hasattr(self, 'scan_worker') and self.scan_worker and self.scan_worker.isRunning():
+            return
+        import time
+        if time.time() - getattr(self, 'last_scan_finished_time', 0) < 1.5:
+            return
         # 2 секунды задержки, чтобы дождаться окончания записи
         self.debounce_timer.start(2000)
 
@@ -908,6 +918,10 @@ class MainWindow(QMainWindow):
         self.scan_worker.progress.connect(self.on_scan_progress)
         self.scan_worker.count_updated.connect(self.on_images_scan_count_updated)
         
+        self.is_scanning_active = True
+        if hasattr(self, 'debounce_timer') and self.debounce_timer:
+            self.debounce_timer.stop()
+
         if show_progress:
             from ui.loading_dialog import LoadingProgressDialog
             self.scan_progress_dialog = LoadingProgressDialog(
@@ -927,6 +941,11 @@ class MainWindow(QMainWindow):
             self.scan_worker.start()
 
     def cancel_folder_scan(self):
+        self.is_scanning_active = False
+        import time
+        self.last_scan_finished_time = time.time()
+        if hasattr(self, 'debounce_timer') and self.debounce_timer:
+            self.debounce_timer.stop()
         if hasattr(self, 'scan_worker') and self.scan_worker and self.scan_worker.isRunning():
             self.scan_worker.requestInterruption()
             self.scan_worker.wait(1000)
@@ -955,9 +974,12 @@ class MainWindow(QMainWindow):
             self.images_table.update_placeholder_visibility()
 
     def on_folder_scan_finished(self, patient_dict, log_messages):
-        self.images_cache = patient_dict
+        self.is_scanning_active = False
+        import time
+        self.last_scan_finished_time = time.time()
         if hasattr(self, 'debounce_timer') and self.debounce_timer:
             self.debounce_timer.stop()
+        self.images_cache = patient_dict
 
         # Собираем существующие ID пациентов для сравнения
         existing_ids = set()
