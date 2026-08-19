@@ -940,10 +940,8 @@ class MainWindow(QMainWindow):
 
     def on_folder_scan_finished(self, patient_dict, log_messages):
         self.images_cache = patient_dict
-        self.is_first_scan = False
         if hasattr(self, 'debounce_timer') and self.debounce_timer:
             self.debounce_timer.stop()
-        self.update_tab_badges()
 
         # Собираем существующие ID пациентов для сравнения
         existing_ids = set()
