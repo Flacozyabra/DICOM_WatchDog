@@ -66,6 +66,13 @@ class ImagesTab(QWidget):
         self.search_entry = QLineEdit(self)
         self.search_entry.setPlaceholderText("Введите имя пациента для поиска")
         self.search_entry.setFixedHeight(30)
+        self.clear_action = self.search_entry.addAction(
+            QIcon(get_resource_path("themes/clear.svg")), 
+            QLineEdit.ActionPosition.TrailingPosition
+        )
+        self.clear_action.setVisible(False)
+        self.clear_action.triggered.connect(self.search_entry.clear)
+        self.search_entry.textChanged.connect(lambda t: self.clear_action.setVisible(bool(t)))
         if self.main_window:
             self.search_entry.textChanged.connect(self.main_window.search_patient_images)
         control_layout.addWidget(self.search_entry, stretch=1, alignment=Qt.AlignmentFlag.AlignVCenter)
