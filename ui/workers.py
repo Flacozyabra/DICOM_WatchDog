@@ -100,25 +100,100 @@ class FolderScanWorker(QThread):
         if is_archive_on and not self.archive_dir:
             collector.appendPlainText(tr_log("log_warn_auto_archive_not_configured"))
 
-        if self.archive_dir and is_archive_on and os.path.exists(self.ct_images_dir):
-            if self.isInterruptionRequested():
-                return
-            self.status_changed.emit(tr_ui("loading_archiving_status"))
-            from core.archive import move_old_folders_to_archive
-            move_old_folders_to_archive(self.ct_images_dir, self.archive_dir, self.archive_days, collector)
-
-        # 3. Фаза очистки архива
+        # 1. Быстрая автоочистка старых файлов архива (если включена)
         if self.archive_dir and is_cleanup_on:
             if self.isInterruptionRequested():
                 return
-            self.status_changed.emit(tr_ui("loading_cleanup_status"))
             from core.archive import cleanup_old_archive_folders
             cleanup_old_archive_folders(self.archive_dir, self.archive_cleanup_days, collector)
 
         if self.isInterruptionRequested():
             return
 
-        # 4. Фаза сканирования папок для таблицы
+        # 2. Единая фаза подготовки: исправление ID, переименование и архивация в один проход
+        patient_folders = []
+        if os.path.exists(self.ct_images_dir):
+            try:
+                patient_folders = [os.path.join(self.ct_images_dir, d) for d in os.listdir(self.ct_images_dir)
+                                   if os.path.isdir(os.path.join(self.ct_images_dir, d))]
+            except Exception:
+                pass
+
+        total_folders = len(patient_folders)
+        needs_prep = (is_fix_id_on or is_rename_folder_on or (self.archive_dir and is_archive_on))
+
+        if needs_prep and total_folders > 0:
+            self.status_changed.emit(tr_ui("loading_fixing_folders_status"))
+            now = datetime.now()
+            from core.archive import move_study_folder_hierarchical, get_folder_study_info
+            
+            for i, path in enumerate(patient_folders):
+                if self.isInterruptionRequested():
+                    return
+                self.progress.emit(i, total_folders)
+                
+                if not os.path.exists(path):
+                    continue
+
+                # 2a. Исправление ID и переименование
+                if is_fix_id_on or is_rename_folder_on:
+                    process_patient_folder(
+                        path, collector,
+                        fix_patient_id=is_fix_id_on,
+                        prefixes=prefixes_list,
+                        rename_folder=is_rename_folder_on,
+                        rename_mode=self.rename_study_folder_mode
+                    )
+
+                # 2b. Автоархивация для текущего пациента (если включена)
+                if self.archive_dir and is_archive_on and os.path.exists(self.ct_images_dir):
+                    target_folder = path
+                    if not os.path.exists(target_folder):
+                        continue
+                    try:
+                        subdirs = [os.path.join(target_folder, s) for s in os.listdir(target_folder)
+                                   if os.path.isdir(os.path.join(target_folder, s))]
+                    except Exception:
+                        subdirs = []
+
+                    if subdirs:
+                        for sub in subdirs:
+                            try:
+                                folder_date = datetime.fromtimestamp(os.path.getmtime(sub))
+                            except Exception:
+                                continue
+                            if (now - folder_date).days >= self.archive_days:
+                                try:
+                                    patient_name = tr_log("log_patient_unknown")
+                                    info = get_folder_study_info(sub)
+                                    if info and info.get('patient_name'):
+                                        patient_name = str(info['patient_name'])
+                                    move_study_folder_hierarchical(sub, self.archive_dir, collector)
+                                    log_message(collector, tr_log("log_patient_moved_to_archive", patient_name, os.path.basename(target_folder)))
+                                except Exception as e:
+                                    log_message(collector, tr_log("log_patient_move_to_archive_error", os.path.basename(target_folder), e))
+                    else:
+                        try:
+                            folder_date = datetime.fromtimestamp(os.path.getmtime(target_folder))
+                        except Exception:
+                            continue
+                        if (now - folder_date).days >= self.archive_days:
+                            try:
+                                patient_name = tr_log("log_patient_unknown")
+                                info = get_folder_study_info(target_folder)
+                                if info and info.get('patient_name'):
+                                    patient_name = str(info['patient_name'])
+                                move_study_folder_hierarchical(target_folder, self.archive_dir, collector)
+                                log_message(collector, tr_log("log_patient_moved_to_archive", patient_name, os.path.basename(target_folder)))
+                            except Exception as e:
+                                log_message(collector, tr_log("log_patient_move_to_archive_error", os.path.basename(target_folder), e))
+
+            self.progress.emit(total_folders, total_folders)
+
+        if self.isInterruptionRequested():
+            return
+
+        # 3. Построение списка исследований для таблицы
         self.status_changed.emit(tr_ui("loading_scanning_folders_status"))
         patient_dict = dict_create(
             self.ct_images_dir, collector,
