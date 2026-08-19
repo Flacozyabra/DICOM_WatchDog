@@ -2054,9 +2054,12 @@ class MainWindow(QMainWindow):
         dir_path = QFileDialog.getExistingDirectory(self, "Выберите папку архива", current_dir)
         if dir_path:
             norm_path = os.path.normpath(dir_path)
-            self.config['archive_dir'] = norm_path
-            self.save_current_config()
-            self.fill_archive_list(show_progress=True)
+            if norm_path != current_dir:
+                self.config['archive_dir'] = norm_path
+                self.save_current_config()
+                self.archive_cache = None
+                current_widget = self.tab_widget.currentWidget()
+                self.fill_archive_list(silent=(current_widget != self.archive_tab), show_progress=(current_widget == self.archive_tab))
 
     def open_settings_cmd(self):
         old_ct_dir = self.config.get('ct_images_dir', '')
@@ -2082,14 +2085,28 @@ class MainWindow(QMainWindow):
             ct_changed = (old_ct_dir != new_ct_dir)
             archive_changed = (old_archive_dir != new_archive_dir)
             
-            # Обновляем текущую вкладку
+            show_archive = self.config.get('show_tab_archive', 'True').lower() == 'true'
             current_widget = self.tab_widget.currentWidget()
-            if current_widget == self.images_tab:
-                self.start_folder_scan(show_progress=ct_changed)
-            elif current_widget == self.archive_tab:
-                self.fill_archive_list(show_progress=archive_changed)
-            else:
-                self.on_tab_changed(self.tab_widget.currentIndex())
+
+            if archive_changed:
+                self.archive_cache = None
+                if show_archive:
+                    self.fill_archive_list(silent=(current_widget != self.archive_tab), show_progress=(current_widget == self.archive_tab))
+
+            if ct_changed:
+                self.images_cache = None
+                self.update_watcher_path()
+                self.start_folder_scan(show_progress=(current_widget == self.images_tab))
+            elif not archive_changed:
+                if current_widget == self.images_tab:
+                    self.start_folder_scan(show_progress=False)
+                elif current_widget == self.archive_tab:
+                    if self.archive_cache is None:
+                        self.fill_archive_list(show_progress=False)
+                    else:
+                        self.update_archive_table_ui()
+                else:
+                    self.on_tab_changed(self.tab_widget.currentIndex())
 
     def on_pacs_selection_changed(self):
         has_selection = len(self.pacs_table.selectedRanges()) > 0
