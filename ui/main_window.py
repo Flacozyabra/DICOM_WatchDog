@@ -796,9 +796,25 @@ class MainWindow(QMainWindow):
         else:
             self.start_folder_scan()
 
-    def start_folder_scan(self, show_progress=False):
+    def start_folder_scan(self, show_progress=False, force=False):
         if self.scan_worker and self.scan_worker.isRunning():
-            return
+            if force:
+                try:
+                    self.scan_worker.finished.disconnect()
+                except Exception:
+                    pass
+                self.scan_worker.requestInterruption()
+                self.scan_worker.quit()
+                self.scan_worker.wait(500)
+                self.scan_worker = None
+            else:
+                return
+
+        if force:
+            self.images_cache = None
+            self.images_table.setRowCount(0)
+            if hasattr(self, 'images_tab') and hasattr(self.images_tab, 'badge') and self.images_tab.badge:
+                self.images_tab.badge.set_count(0)
 
         ct_dir = self.config.get('ct_images_dir', '')
         if not ct_dir:
@@ -1384,9 +1400,25 @@ class MainWindow(QMainWindow):
 
     # ================= ЛОГИКА ТАБЛИЦЫ CT ARCHIVE =================
 
-    def fill_archive_list(self, silent=False, show_progress=False):
+    def fill_archive_list(self, silent=False, show_progress=False, force=False):
         if self.archive_worker and self.archive_worker.isRunning():
-            return
+            if force:
+                try:
+                    self.archive_worker.finished.disconnect()
+                except Exception:
+                    pass
+                self.archive_worker.requestInterruption()
+                self.archive_worker.quit()
+                self.archive_worker.wait(500)
+                self.archive_worker = None
+            else:
+                return
+
+        if force:
+            self.archive_cache = None
+            self.archive_table.setRowCount(0)
+            if hasattr(self, 'archive_tab') and hasattr(self.archive_tab, 'badge') and self.archive_tab.badge:
+                self.archive_tab.badge.set_count(0)
 
         archive_dir = self.config.get('archive_dir', '')
         if not archive_dir or not os.path.exists(archive_dir):
@@ -2067,7 +2099,7 @@ class MainWindow(QMainWindow):
             self.save_current_config()
             self.update_watcher_path()
             self.is_first_scan = True
-            self.start_folder_scan(show_progress=True)
+            self.start_folder_scan(show_progress=True, force=True)
 
     def browse_archive_dir(self):
         current_dir = self.config.get('archive_dir', '')
@@ -2079,7 +2111,7 @@ class MainWindow(QMainWindow):
                 self.save_current_config()
                 self.archive_cache = None
                 current_widget = self.tab_widget.currentWidget()
-                self.fill_archive_list(silent=(current_widget != self.archive_tab), show_progress=(current_widget == self.archive_tab))
+                self.fill_archive_list(silent=(current_widget != self.archive_tab), show_progress=(current_widget == self.archive_tab), force=True)
 
     def open_settings_cmd(self):
         old_ct_dir = self.config.get('ct_images_dir', '')
@@ -2111,12 +2143,13 @@ class MainWindow(QMainWindow):
             if archive_changed:
                 self.archive_cache = None
                 if show_archive:
-                    self.fill_archive_list(silent=(current_widget != self.archive_tab), show_progress=(current_widget == self.archive_tab))
+                    self.fill_archive_list(silent=(current_widget != self.archive_tab), show_progress=(current_widget == self.archive_tab), force=True)
 
             if ct_changed:
                 self.images_cache = None
+                self.is_first_scan = True
                 self.update_watcher_path()
-                self.start_folder_scan(show_progress=(current_widget == self.images_tab))
+                self.start_folder_scan(show_progress=(current_widget == self.images_tab), force=True)
             elif not archive_changed:
                 if current_widget == self.images_tab:
                     self.start_folder_scan(show_progress=False)
