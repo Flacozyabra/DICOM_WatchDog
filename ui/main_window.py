@@ -750,7 +750,10 @@ class MainWindow(QMainWindow):
         elif current_widget == self.archive_tab:  # CT archive
             if not pacs_auto_scan_on:
                 self.pacs_timer.stop()
-            self.fill_archive_list()
+            if not hasattr(self, 'archive_cache') or self.archive_cache is None:
+                self.fill_archive_list()
+            else:
+                self.update_archive_table_ui()
             QTimer.singleShot(0, self.focus_ct_archive_search)
         elif current_widget == self.pacs_tab:  # PACS
             self.fill_pacs_list()
@@ -914,7 +917,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'images_tab') and hasattr(self.images_tab, 'badge') and self.images_tab.badge:
             show_badges = self.config.get('show_study_counts', 'True').lower() == 'true'
             if show_badges:
-                self.images_tab.badge.set_count(current_count)
+                if not hasattr(self, 'images_cache') or self.images_cache is None:
+                    self.images_tab.badge.set_count(current_count)
 
     def on_scan_progress(self, current, total):
         if self.images_table.rowCount() == 0 and total > 0:
@@ -1431,7 +1435,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'archive_tab') and hasattr(self.archive_tab, 'badge') and self.archive_tab.badge:
             show_badges = self.config.get('show_study_counts', 'True').lower() == 'true'
             if show_badges:
-                self.archive_tab.badge.set_count(current_count)
+                if not hasattr(self, 'archive_cache') or self.archive_cache is None:
+                    self.archive_tab.badge.set_count(current_count)
 
     def on_archive_scan_progress(self, current, total):
         if self.archive_table.rowCount() == 0 and total > 0:
