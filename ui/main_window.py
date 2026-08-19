@@ -811,6 +811,7 @@ class MainWindow(QMainWindow):
                 return
 
         if force:
+            self.is_first_scan = True
             self.images_cache = None
             self.images_table.setRowCount(0)
             if hasattr(self, 'images_tab') and hasattr(self.images_tab, 'badge') and self.images_tab.badge:
@@ -974,9 +975,11 @@ class MainWindow(QMainWindow):
             icon_path = get_resource_path("src/folder_notification.png")
 
         # Проверяем на появление новых файлов до фильтрации
+        # Оповещения срабатывают только в режиме фонового мониторинга при непустой таблице
+        can_notify = (not self.is_first_scan) and (len(existing_ids) > 0)
         for patient_id, data in patient_dict.items():
             if 'patient_name' in data and 'study_datetime' in data and 'folder_datetime' in data and 'str' in data:
-                if not self.is_first_scan and patient_id not in existing_ids and patient_id not in self.restored_patient_ids:
+                if can_notify and patient_id not in existing_ids and patient_id not in self.restored_patient_ids:
                     if master_enabled and (ct_toast_on or ct_sound_on):
                         try:
                             show_notification(
