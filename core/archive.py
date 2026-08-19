@@ -258,7 +258,8 @@ def move_old_folders_to_archive(ct_images_dir, archive_dir, archive_days, output
 
 def cleanup_old_archive_folders(archive_dir, cleanup_days, output_field):
     """
-    Удаляет из архива папки исследований, которые были изменены более cleanup_days дней назад.
+    Удаляет из архива папки исследований, которые находятся в архиве более cleanup_days дней.
+    Поддерживает как плоскую, так и иерархическую структуру исследований пациента.
     """
     if not os.path.exists(archive_dir) or cleanup_days <= 0:
         return
@@ -273,11 +274,55 @@ def cleanup_old_archive_folders(archive_dir, cleanup_days, output_field):
         return
 
     for item in items:
-        path = os.path.join(archive_dir, item)
-        if os.path.isdir(path):
+        patient_path = os.path.join(archive_dir, item)
+        if not os.path.isdir(patient_path):
+            continue
+
+        try:
+            subdirs = [os.path.join(patient_path, s) for s in os.listdir(patient_path)
+                       if os.path.isdir(os.path.join(patient_path, s)) and s.startswith("[") and s.endswith("]")]
+        except Exception:
+            subdirs = []
+
+        if subdirs:
+            # Иерархическая структура: проверяем каждое отдельное исследование
+            for study_sub in subdirs:
+                try:
+                    folder_ts = os.path.getmtime(study_sub)
+                    folder_date = datetime.fromtimestamp(folder_ts)
+                except Exception:
+                    continue
+
+                days_old = (now - folder_date).days
+                if days_old >= cleanup_days:
+                    try:
+                        patient_name = tr_log("log_patient_unknown")
+                        try:
+                            dcm_files = [f for f in os.listdir(study_sub) if f.lower().endswith('.dcm')]
+                            if dcm_files:
+                                ds = pydicom.dcmread(os.path.join(study_sub, dcm_files[0]), specific_tags=['PatientName'], stop_before_pixels=True)
+                                patient_name = str(ds.get('PatientName', tr_log("log_patient_unknown")))
+                        except Exception:
+                            pass
+
+                        shutil.rmtree(study_sub)
+                        deleted_count += 1
+                        display_name = f"{item}/{os.path.basename(study_sub)}"
+                        log_message(output_field, tr_log("log_archive_cleanup_success", patient_name, display_name, days_old))
+                    except Exception as e:
+                        log_message(output_field, tr_log("log_archive_cleanup_error", os.path.basename(study_sub), e))
+
+            # Если после удаления исследований папка пациента пуста - удаляем ее
             try:
-                mtime = os.path.getmtime(path)
-                folder_date = datetime.fromtimestamp(mtime)
+                if os.path.exists(patient_path) and not os.listdir(patient_path):
+                    os.rmdir(patient_path)
+            except Exception:
+                pass
+        else:
+            # Одиночное исследование в корне папки пациента
+            try:
+                folder_ts = os.path.getmtime(patient_path)
+                folder_date = datetime.fromtimestamp(folder_ts)
             except Exception:
                 continue
 
@@ -286,14 +331,14 @@ def cleanup_old_archive_folders(archive_dir, cleanup_days, output_field):
                 try:
                     patient_name = tr_log("log_patient_unknown")
                     try:
-                        dcm_files = [f for f in os.listdir(path) if f.lower().endswith('.dcm')]
+                        dcm_files = [f for f in os.listdir(patient_path) if f.lower().endswith('.dcm')]
                         if dcm_files:
-                            ds = pydicom.dcmread(os.path.join(path, dcm_files[0]), specific_tags=['PatientName'], stop_before_pixels=True)
+                            ds = pydicom.dcmread(os.path.join(patient_path, dcm_files[0]), specific_tags=['PatientName'], stop_before_pixels=True)
                             patient_name = str(ds.get('PatientName', tr_log("log_patient_unknown")))
                     except Exception:
                         pass
 
-                    shutil.rmtree(path)
+                    shutil.rmtree(patient_path)
                     deleted_count += 1
                     log_message(output_field, tr_log("log_archive_cleanup_success", patient_name, item, days_old))
                 except Exception as e:

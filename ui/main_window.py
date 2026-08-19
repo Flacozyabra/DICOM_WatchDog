@@ -916,6 +916,7 @@ class MainWindow(QMainWindow):
             self.scan_worker.wait(1000)
 
     def on_scan_status_changed(self, status_text):
+        self.current_scan_phase_text = status_text
         if self.images_table.rowCount() == 0:
             self.images_table.set_placeholder_state(status_text, show_button=False)
             self.images_table.update_placeholder_visibility()
@@ -931,14 +932,18 @@ class MainWindow(QMainWindow):
         if self.images_table.rowCount() == 0 and total > 0:
             curr_capped = min(current, total)
             percent = int((curr_capped / total) * 100)
-            base_text = tr_ui("placeholder_scanning_folder")
-            is_ru = (base_text == "Выполняется сканирование папки...")
+            base_text = getattr(self, 'current_scan_phase_text', '') or tr_ui("placeholder_scanning_folder")
+            is_ru = (tr_ui("placeholder_scanning_folder") == "Выполняется сканирование папки...")
             suffix = f"{percent}% ({curr_capped} из {total})" if is_ru else f"{percent}% ({curr_capped} of {total})"
             self.images_table.set_placeholder_state(f"{base_text} {suffix}", show_button=False)
             self.images_table.update_placeholder_visibility()
 
     def on_folder_scan_finished(self, patient_dict, log_messages):
-        pass
+        self.images_cache = patient_dict
+        self.is_first_scan = False
+        if hasattr(self, 'debounce_timer') and self.debounce_timer:
+            self.debounce_timer.stop()
+        self.update_tab_badges()
 
         # Собираем существующие ID пациентов для сравнения
         existing_ids = set()
