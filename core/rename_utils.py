@@ -66,15 +66,23 @@ def safe_merge_folders(src, dest, new_id):
     shutil.rmtree(src)
 
 def safe_update_patient_ids(folder_path, new_id, output_field=None):
+    if not new_id:
+        return
     for dirpath, dirnames, filenames in os.walk(folder_path):
         for filename in filenames:
             if filename.lower().endswith('.dcm') or is_structure_file(os.path.join(dirpath, filename)):
                 src_file = os.path.join(dirpath, filename)
                 try:
+                    # Сначала читаем только заголовок без пикселей для сверхбыстрой проверки
+                    ds_header = pydicom.dcmread(src_file, stop_before_pixels=True)
+                    current_id = getattr(ds_header, 'PatientID', '') or str(ds_header.get('PatientID', ''))
+                    if current_id == str(new_id):
+                        continue
+                    
+                    # Только если ID действительно отличается - загружаем полностью и перезаписываем
                     ds_file = pydicom.dcmread(src_file)
-                    if ds_file.PatientID != new_id:
-                        ds_file.PatientID = new_id
-                        ds_file.save_as(src_file)
+                    ds_file.PatientID = str(new_id)
+                    ds_file.save_as(src_file)
                 except Exception as e:
                     if output_field:
                         log_message(output_field, tr_log("log_dcm_update_id_warning", filename, e))
@@ -393,8 +401,8 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
                     time.sleep(0.2)
             
             if success:
-                safe_update_patient_ids(parent_path, new_patient_id, output_field)
                 if id_changed:
+                    safe_update_patient_ids(parent_path, new_patient_id, output_field)
                     log_message(output_field, tr_log("log_folder_renamed_success_with_id", patient_folder, target_folder_name, new_patient_id))
                 else:
                     log_message(output_field, tr_log("log_folder_renamed_success", patient_folder, target_folder_name))
@@ -404,7 +412,8 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
         else:
             # Папка пациента уже существует.
             if os.path.normcase(os.path.abspath(path)) == os.path.normcase(os.path.abspath(parent_path)):
-                safe_update_patient_ids(path, new_patient_id, output_field)
+                if fix_patient_id and id_changed:
+                    safe_update_patient_ids(path, new_patient_id, output_field)
                 auto_heal_split_patient_folders(parent_path, new_patient_id, output_field)
                 return
 
