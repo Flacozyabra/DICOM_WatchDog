@@ -20,7 +20,7 @@ def is_structure_file(file_path):
         return True
     if filename.startswith('STR') or filename.startswith('RS') or filename.startswith('RTSTRUCT'):
         return True
-    if file_path.lower().endswith('.dcm'):
+    if file_path.lower().endswith('.dcm') or (not os.path.splitext(file_path)[1] and os.path.getsize(file_path) < 500 * 1024):
         try:
             # Файлы RTSTRUCT обычно не имеют пиксельных данных и весят мало (< 250 КБ)
             if os.path.getsize(file_path) < 250 * 1024 or filename.startswith('RT'):
@@ -30,6 +30,30 @@ def is_structure_file(file_path):
         except Exception:
             pass
     return False
+
+def is_dicom_file(file_path):
+    """
+    Определяет, является ли файл валидным DICOM файлом.
+    Поддерживает как файлы с расширением .dcm, так и файлы без расширения (IM000001 и т.д.).
+    Игнорирует индексные файлы DICOMDIR.
+    """
+    if not os.path.isfile(file_path):
+        return False
+    bname = os.path.basename(file_path).upper()
+    if bname == 'DICOMDIR':
+        return False
+    if file_path.lower().endswith('.dcm'):
+        return True
+    if is_structure_file(file_path):
+        return True
+    try:
+        if os.path.getsize(file_path) < 132:
+            return False
+        with open(file_path, 'rb') as f:
+            f.seek(128)
+            return f.read(4) == b'DICM'
+    except Exception:
+        return False
 
 def delete_redundant_str(patient_dir, output_field=None):
     """
@@ -89,7 +113,7 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
             if progress_callback and total_dirs > 0:
                 progress_callback(min(processed, total_dirs), total_dirs)
 
-        dcm_candidates = [f for f in files if f.lower().endswith('.dcm')]
+        dcm_candidates = [f for f in files if is_dicom_file(os.path.join(root, f))]
         if dcm_candidates:
             # Сначала ищем файл КТ-среза (не RTSTRUCT)
             file = dcm_candidates[0]
@@ -150,8 +174,8 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
                 str_count = len(str_files)
                 patient_data[rel_path]['str'] = str_count
 
-                # считаем количество файлов срезов (файлов .dcm, исключая файлы структур)
-                slice_files = [f for f in files if f.lower().endswith('.dcm') and not is_structure_file(os.path.join(root, f))]
+                # считаем количество файлов срезов (файлов DICOM, исключая файлы структур)
+                slice_files = [f for f in files if is_dicom_file(os.path.join(root, f)) and not is_structure_file(os.path.join(root, f))]
                 patient_data[rel_path]['slices'] = len(slice_files)
 
                 if is_cleanup_on and str_count > 1:

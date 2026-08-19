@@ -8,7 +8,7 @@ from collections import defaultdict
 from core.logger import log_message
 from core.config_utils import get_cache_path
 from core.locale_utils import tr_log
-from core.dicom_utils import is_structure_file
+from core.dicom_utils import is_structure_file, is_dicom_file
 
 
 def load_cache():
@@ -73,7 +73,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                 progress_callback(processed, total_dirs)
 
         if files:
-            dcm_files = [f for f in files if f.lower().endswith('.dcm')]
+            dcm_files = [f for f in files if is_dicom_file(os.path.join(root, f))]
             if dcm_files:
                 scanned_paths.add(root)
                 rel_path = os.path.relpath(root, archive_dir).replace('\\', '/')
@@ -298,7 +298,7 @@ def cleanup_old_archive_folders(archive_dir, cleanup_days, output_field):
                     try:
                         patient_name = tr_log("log_patient_unknown")
                         try:
-                            dcm_files = [f for f in os.listdir(study_sub) if f.lower().endswith('.dcm')]
+                            dcm_files = [f for f in os.listdir(study_sub) if is_dicom_file(os.path.join(study_sub, f))]
                             if dcm_files:
                                 ds = pydicom.dcmread(os.path.join(study_sub, dcm_files[0]), specific_tags=['PatientName'], stop_before_pixels=True)
                                 patient_name = str(ds.get('PatientName', tr_log("log_patient_unknown")))
@@ -331,7 +331,7 @@ def cleanup_old_archive_folders(archive_dir, cleanup_days, output_field):
                 try:
                     patient_name = tr_log("log_patient_unknown")
                     try:
-                        dcm_files = [f for f in os.listdir(patient_path) if f.lower().endswith('.dcm')]
+                        dcm_files = [f for f in os.listdir(patient_path) if is_dicom_file(os.path.join(patient_path, f))]
                         if dcm_files:
                             ds = pydicom.dcmread(os.path.join(patient_path, dcm_files[0]), specific_tags=['PatientName'], stop_before_pixels=True)
                             patient_name = str(ds.get('PatientName', tr_log("log_patient_unknown")))

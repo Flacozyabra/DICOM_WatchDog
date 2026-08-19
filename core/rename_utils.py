@@ -7,7 +7,7 @@ import pydicom
 
 from core.logger import log_message
 from core.locale_utils import tr_log
-from core.dicom_utils import is_structure_file
+from core.dicom_utils import is_structure_file, is_dicom_file
 
 def touch_folder_tree(path: str):
     """
@@ -54,7 +54,7 @@ def safe_merge_folders(src, dest, new_id):
             os.makedirs(dest_dir, exist_ok=True)
             dest_file = os.path.join(dest_dir, filename)
             
-            if filename.lower().endswith('.dcm') or is_structure_file(src_file):
+            if is_dicom_file(src_file) or is_structure_file(src_file):
                 try:
                     ds_file = pydicom.dcmread(src_file)
                     ds_file.PatientID = new_id
@@ -70,8 +70,8 @@ def safe_update_patient_ids(folder_path, new_id, output_field=None):
         return
     for dirpath, dirnames, filenames in os.walk(folder_path):
         for filename in filenames:
-            if filename.lower().endswith('.dcm') or is_structure_file(os.path.join(dirpath, filename)):
-                src_file = os.path.join(dirpath, filename)
+            src_file = os.path.join(dirpath, filename)
+            if is_dicom_file(src_file) or is_structure_file(src_file):
                 try:
                     # Сначала читаем только заголовок без пикселей для сверхбыстрой проверки
                     ds_header = pydicom.dcmread(src_file, stop_before_pixels=True)
@@ -101,7 +101,7 @@ def get_folder_study_info(folder_path):
         for root, dirs, files in os.walk(folder_path):
             for f in files:
                 f_path = os.path.join(root, f)
-                if f.lower().endswith('.dcm') or is_structure_file(f_path):
+                if is_dicom_file(f_path) or is_structure_file(f_path):
                     dcm_files.append(f_path)
     except Exception:
         pass
@@ -183,7 +183,7 @@ def is_structure_only_folder(folder_path):
             fpath = os.path.join(root, f)
             if is_structure_file(fpath):
                 has_struct = True
-            elif f.lower().endswith('.dcm'):
+            elif is_dicom_file(fpath):
                 has_slices = True
     return has_struct and not has_slices
 
