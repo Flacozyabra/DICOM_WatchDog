@@ -915,10 +915,9 @@ class MainWindow(QMainWindow):
                 show_cancel=True, 
                 on_cancel=self.cancel_folder_scan
             )
-            self.scan_progress_dialog.label.setText("Подготовка к сканированию DICOM-файлов...")
             self.scan_progress_dialog.progress.setRange(0, 100)
             self.scan_worker.progress.connect(self.scan_progress_dialog.set_scan_progress)
-            self.scan_worker.status_changed.connect(self.scan_progress_dialog.label.setText)
+            self.scan_worker.status_changed.connect(self.scan_progress_dialog.set_status_text)
             self.scan_worker.finished.connect(self.scan_progress_dialog.accept)
             
             self.scan_worker.start()
@@ -1468,7 +1467,7 @@ class MainWindow(QMainWindow):
                 show_cancel=True, 
                 on_cancel=self.cancel_archive_scan
             )
-            self.archive_progress_dialog.label.setText("Подготовка к сканированию файлов архива...")
+            self.archive_progress_dialog.set_status_text(tr_ui("log_loading_archive"))
             self.archive_progress_dialog.progress.setRange(0, 100)
             self.archive_worker.progress.connect(self.archive_progress_dialog.set_scan_progress)
             self.archive_worker.finished.connect(self.archive_progress_dialog.accept)

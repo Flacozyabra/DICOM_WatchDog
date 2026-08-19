@@ -109,6 +109,12 @@ class LoadingProgressDialog(QDialog):
     def _handle_cancel(self):
         self.reject()
         
+    def set_status_text(self, text):
+        """Update current phase text and label."""
+        self.current_phase_text = text
+        self.label.setText(text)
+        QCoreApplication.processEvents()
+
     def set_progress(self, current, total):
         if total <= 0:
             return
@@ -118,12 +124,17 @@ class LoadingProgressDialog(QDialog):
         QCoreApplication.processEvents()
 
     def set_scan_progress(self, current, total):
-        """Update progress bar during folder scanning: shows percent + 'X из N папок'."""
+        """Update progress bar during folder scanning: shows current phase text + percent + 'X из N'."""
         if total <= 0:
             return
-        percent = int((current / total) * 100)
+        curr_capped = min(current, total)
+        percent = int((curr_capped / total) * 100)
         self.progress.setValue(percent)
-        self.label.setText(tr_ui("loading_scanning_folders", current, total, percent))
+        
+        base_text = getattr(self, 'current_phase_text', '') or tr_ui("placeholder_scanning_folder")
+        is_ru = (tr_ui("placeholder_scanning_folder") == "Выполняется сканирование папки...")
+        suffix = f"{percent}% ({curr_capped} из {total})" if is_ru else f"{percent}% ({curr_capped} of {total})"
+        self.label.setText(f"{base_text} {suffix}")
         QCoreApplication.processEvents()
 
     def set_custom_progress(self, current: int, total: int, text: str):
