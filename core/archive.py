@@ -35,7 +35,7 @@ def save_cache(cache_data):
             pass
 
 
-def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False, progress_callback=None, count_callback=None):
+def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False, progress_callback=None, count_callback=None, is_interrupted=None):
     """
     Создает словарь пациентов для архива, используя кэширование метаданных в файл JSON.
     Это предотвращает повторное чтение DICOM-файлов при больших архивах.
@@ -63,6 +63,9 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
     processed = 0
 
     for root, dirs, files in os.walk(archive_dir):
+        if is_interrupted and is_interrupted():
+            return patient_data
+
         # Track progress at the top level only
         if os.path.dirname(root) == archive_dir or root == archive_dir:
             processed += 1

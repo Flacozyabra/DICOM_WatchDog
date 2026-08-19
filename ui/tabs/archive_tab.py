@@ -23,8 +23,7 @@ from core.locale_utils import tr_ui
 class ArchiveTab(QWidget):
     """Виджет вкладки «Архив КТ»."""
     def __init__(self, main_window=None, parent=None):
-        qwidget_parent = parent if parent is not None else (getattr(main_window, 'tab_widget', None) if main_window else None)
-        super().__init__(qwidget_parent)
+        super().__init__(parent)
         self.main_window = main_window
         self.init_ui()
 

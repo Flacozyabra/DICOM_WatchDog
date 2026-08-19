@@ -531,8 +531,7 @@ class MainWindow(QMainWindow):
         self.stacked_widget.addWidget(self.viewer_panel)
 
     def create_tab_ct_images(self):
-        self.images_tab = ImagesTab(self, self.tab_widget)
-        self.images_tab.hide()
+        self.images_tab = ImagesTab(self)
         self.images_table = self.images_tab.table
         self.search_images_entry = self.images_tab.search_entry
         self.search_images_btn = self.images_tab.search_btn
@@ -540,8 +539,7 @@ class MainWindow(QMainWindow):
         self.settings_btn1 = self.images_tab.settings_btn
 
     def create_tab_ct_archive(self):
-        self.archive_tab = ArchiveTab(self, self.tab_widget)
-        self.archive_tab.hide()
+        self.archive_tab = ArchiveTab(self)
         self.archive_table = self.archive_tab.table
         self.search_entry = self.archive_tab.search_entry
         self.search_btn = self.archive_tab.search_btn
@@ -549,8 +547,7 @@ class MainWindow(QMainWindow):
         self.settings_btn2 = self.archive_tab.settings_btn
 
     def create_tab_pacs(self):
-        self.pacs_tab = PacsTab(self, self.tab_widget)
-        self.pacs_tab.hide()
+        self.pacs_tab = PacsTab(self)
         self.pacs_table = self.pacs_tab.table
         self.pacs_today_btn = self.pacs_tab.today_btn
         self.pacs_3days_btn = self.pacs_tab.last_3days_btn
@@ -896,7 +893,12 @@ class MainWindow(QMainWindow):
         
         if show_progress:
             from ui.loading_dialog import LoadingProgressDialog
-            self.scan_progress_dialog = LoadingProgressDialog(self, title="Сканирование")
+            self.scan_progress_dialog = LoadingProgressDialog(
+                self, 
+                title=tr_ui("loading_title_data"), 
+                show_cancel=True, 
+                on_cancel=self.cancel_folder_scan
+            )
             self.scan_progress_dialog.label.setText("Подготовка к сканированию DICOM-файлов...")
             self.scan_progress_dialog.progress.setRange(0, 100)
             self.scan_worker.progress.connect(self.scan_progress_dialog.set_scan_progress)
@@ -907,6 +909,11 @@ class MainWindow(QMainWindow):
             self.scan_progress_dialog.exec()
         else:
             self.scan_worker.start()
+
+    def cancel_folder_scan(self):
+        if hasattr(self, 'scan_worker') and self.scan_worker and self.scan_worker.isRunning():
+            self.scan_worker.requestInterruption()
+            self.scan_worker.wait(1000)
 
     def on_scan_status_changed(self, status_text):
         if self.images_table.rowCount() == 0:
@@ -1420,7 +1427,12 @@ class MainWindow(QMainWindow):
         
         if show_progress:
             from ui.loading_dialog import LoadingProgressDialog
-            self.archive_progress_dialog = LoadingProgressDialog(self, title="Сканирование")
+            self.archive_progress_dialog = LoadingProgressDialog(
+                self, 
+                title=tr_ui("loading_title_data"), 
+                show_cancel=True, 
+                on_cancel=self.cancel_archive_scan
+            )
             self.archive_progress_dialog.label.setText("Подготовка к сканированию файлов архива...")
             self.archive_progress_dialog.progress.setRange(0, 100)
             self.archive_worker.progress.connect(self.archive_progress_dialog.set_scan_progress)
@@ -1430,6 +1442,11 @@ class MainWindow(QMainWindow):
             self.archive_progress_dialog.exec()
         else:
             self.archive_worker.start()
+
+    def cancel_archive_scan(self):
+        if hasattr(self, 'archive_worker') and self.archive_worker and self.archive_worker.isRunning():
+            self.archive_worker.requestInterruption()
+            self.archive_worker.wait(1000)
 
     def on_archive_scan_count_updated(self, current_count):
         if hasattr(self, 'archive_tab') and hasattr(self.archive_tab, 'badge') and self.archive_tab.badge:
@@ -2400,7 +2417,6 @@ class MainWindow(QMainWindow):
             self.tab_widget.insertTab(0, self.images_tab, self.config.get('custom_tab_name_ct') or tr_ui("tab_ct_images"))
         else:
             self.tab_widget.setTabText(ct_idx, self.config.get('custom_tab_name_ct') or tr_ui("tab_ct_images"))
-        self.images_tab.show()
 
         # 2. Archive Tab
         archive_idx = self.tab_widget.indexOf(self.archive_tab)
@@ -2411,11 +2427,11 @@ class MainWindow(QMainWindow):
                 self.tab_widget.insertTab(insert_pos, self.archive_tab, self.config.get('custom_tab_name_archive') or tr_ui("tab_ct_archive"))
             else:
                 self.tab_widget.setTabText(archive_idx, self.config.get('custom_tab_name_archive') or tr_ui("tab_ct_archive"))
-            self.archive_tab.show()
             self.images_tab.move_to_archive_btn.setVisible(True)
         else:
             if archive_idx != -1:
                 self.tab_widget.removeTab(archive_idx)
+            self.archive_tab.setParent(None)
             self.archive_tab.hide()
             self.images_tab.move_to_archive_btn.setVisible(False)
 
@@ -2426,10 +2442,10 @@ class MainWindow(QMainWindow):
                 self.tab_widget.addTab(self.pacs_tab, self.config.get('custom_tab_name_pacs') or tr_ui("tab_pacs"))
             else:
                 self.tab_widget.setTabText(pacs_idx, self.config.get('custom_tab_name_pacs') or tr_ui("tab_pacs"))
-            self.pacs_tab.show()
         else:
             if pacs_idx != -1:
                 self.tab_widget.removeTab(pacs_idx)
+            self.pacs_tab.setParent(None)
             self.pacs_tab.hide()
             # При отключении вкладки PACS отключаем автообновление и останавливаем таймер
             self.config['auto_update_is'] = 'off'

@@ -81,6 +81,8 @@ class FolderScanWorker(QThread):
         if (is_fix_id_on or is_rename_folder_on) and total_folders > 0:
             self.status_changed.emit(tr_ui("loading_fixing_folders_status"))
             for i, path in enumerate(patient_folders):
+                if self.isInterruptionRequested():
+                    return
                 self.progress.emit(i, total_folders)
                 process_patient_folder(
                     path, collector,
@@ -91,20 +93,30 @@ class FolderScanWorker(QThread):
                 )
             self.progress.emit(total_folders, total_folders)
             
+        if self.isInterruptionRequested():
+            return
+
         # 2. Фаза архивации
         if is_archive_on and not self.archive_dir:
             collector.appendPlainText(tr_log("log_warn_auto_archive_not_configured"))
 
         if self.archive_dir and is_archive_on and os.path.exists(self.ct_images_dir):
+            if self.isInterruptionRequested():
+                return
             self.status_changed.emit(tr_ui("loading_archiving_status"))
             from core.archive import move_old_folders_to_archive
             move_old_folders_to_archive(self.ct_images_dir, self.archive_dir, self.archive_days, collector)
 
         # 3. Фаза очистки архива
         if self.archive_dir and is_cleanup_on:
+            if self.isInterruptionRequested():
+                return
             self.status_changed.emit(tr_ui("loading_cleanup_status"))
             from core.archive import cleanup_old_archive_folders
             cleanup_old_archive_folders(self.archive_dir, self.archive_cleanup_days, collector)
+
+        if self.isInterruptionRequested():
+            return
 
         # 4. Фаза сканирования папок для таблицы
         self.status_changed.emit(tr_ui("loading_scanning_folders_status"))
@@ -114,7 +126,8 @@ class FolderScanWorker(QThread):
             progress_callback=self.progress.emit,
             count_callback=self.count_updated.emit
         )
-        self.finished.emit(patient_dict, collector.messages)
+        if not self.isInterruptionRequested():
+            self.finished.emit(patient_dict, collector.messages)
 
 
 class PacsScanWorker(QThread):
@@ -164,9 +177,11 @@ class ArchiveScanWorker(QThread):
             self.archive_dir, collector,
             cleanup_structures=is_cleanup_struct_on,
             progress_callback=self.progress.emit,
-            count_callback=self.count_updated.emit
+            count_callback=self.count_updated.emit,
+            is_interrupted=self.isInterruptionRequested
         )
-        self.finished.emit(d, collector.messages)
+        if not self.isInterruptionRequested():
+            self.finished.emit(d, collector.messages)
 
 
 class BackgroundFileWorker(QThread):
