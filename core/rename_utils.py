@@ -359,8 +359,10 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
         if not new_patient_id.isdigit():
             new_patient_id = remove_non_digits(new_patient_id)
 
-    # 2. Если ID изменился в процессе фиксации, обновляем его во всех DICOM-файлах
-    if fix_patient_id and new_patient_id != raw_patient_id:
+    id_changed = fix_patient_id and (new_patient_id != raw_patient_id)
+
+    # 2. Если ID изменился в процессе фиксации, обновляем его во всех DICOM-файлах строго один раз
+    if id_changed:
         safe_update_patient_ids(path, new_patient_id, output_field)
 
     # 3. Если включено переименование папки исследования (rename_folder)
@@ -384,7 +386,6 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
         date_only_str = info['date_only_str']
 
         parent_path = os.path.join(os.path.dirname(path), target_folder_name)
-        id_changed = (new_patient_id != raw_patient_id)
 
         if not os.path.exists(parent_path):
             # Первое исследование пациента, переименовываем в базовую папку без вложенности
@@ -402,7 +403,6 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
             
             if success:
                 if id_changed:
-                    safe_update_patient_ids(parent_path, new_patient_id, output_field)
                     log_message(output_field, tr_log("log_folder_renamed_success_with_id", patient_folder, target_folder_name, new_patient_id))
                 else:
                     log_message(output_field, tr_log("log_folder_renamed_success", patient_folder, target_folder_name))
@@ -412,8 +412,6 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
         else:
             # Папка пациента уже существует.
             if os.path.normcase(os.path.abspath(path)) == os.path.normcase(os.path.abspath(parent_path)):
-                if fix_patient_id and id_changed:
-                    safe_update_patient_ids(path, new_patient_id, output_field)
                 auto_heal_split_patient_folders(parent_path, new_patient_id, output_field)
                 return
 
@@ -481,7 +479,6 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
                         time.sleep(0.2)
                 
                 if success:
-                    safe_update_patient_ids(target_sub, new_patient_id, output_field)
                     if id_changed:
                         log_message(output_field, tr_log("log_folder_renamed_success_with_id", patient_folder, f"{target_folder_name}/{os.path.basename(target_sub)}", new_patient_id))
                     else:
