@@ -218,7 +218,7 @@
   "loading_fixing_folders_status": "Fixing Patient ID and renaming folders...",
   "loading_archiving_status": "Archiving old studies...",
   "loading_cleanup_status": "Cleaning up old archive folders...",
-  "loading_scanning_folders_status": "Building patient list...",
+  "loading_scanning_folders_status": "Processing studies...",
   "loading_viewer_title": "Loading study",
   "loading_dicom_files": "Reading DICOM files ({} of {})...",
   "loading_rtstruct_data": "Loading RTSTRUCT structure contours...",

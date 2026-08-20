@@ -218,7 +218,7 @@
   "loading_fixing_folders_status": "Исправление Patient ID и переименование папок...",
   "loading_archiving_status": "Архивирование старых исследований...",
   "loading_cleanup_status": "Очистка старых папок архива...",
-  "loading_scanning_folders_status": "Построение списка пациентов...",
+  "loading_scanning_folders_status": "Обработка исследований...",
   "loading_viewer_title": "Загрузка исследования",
   "loading_dicom_files": "Чтение файлов DICOM ({} из {})...",
   "loading_rtstruct_data": "Загрузка контуров структур RTSTRUCT...",
