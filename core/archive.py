@@ -67,10 +67,10 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
             return patient_data
 
         # Track progress at the top level only
-        if os.path.dirname(root) == archive_dir or root == archive_dir:
+        if os.path.dirname(root) == archive_dir:
             processed += 1
             if progress_callback and total_dirs > 0:
-                progress_callback(processed, total_dirs)
+                progress_callback(min(processed, total_dirs), total_dirs)
 
         if files:
             dcm_files = [f for f in files if is_dicom_file(os.path.join(root, f))]

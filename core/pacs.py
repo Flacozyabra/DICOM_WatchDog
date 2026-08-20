@@ -374,56 +374,57 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
 
     last_error_details = []
 
-    # Пробуем варианты C-MOVE
-    for query_ds, move_sop_class in query_datasets:
-        if (count_downloaded_files() > initial_files or count_downloaded_files() > 0) or (is_cancelled_callback and is_cancelled_callback()):
-            break
-        try:
-            assoc_move = ae_move.associate(pacs_ip, pacs_port, ae_title=called_aet)
-            if assoc_move.is_established:
-                responses = assoc_move.send_c_move(query_ds, calling_aet, move_sop_class)
-                for (status, identifier) in responses:
-                    if is_cancelled_callback and is_cancelled_callback():
-                        try:
-                            assoc_move.abort()
-                        except Exception:
-                            pass
-                        break
-                    if status:
-                        st_code = getattr(status, 'Status', None)
-                        if st_code is not None and st_code not in (0x0000, 0xFF00, 0xFF01):
-                            hex_st = f"0x{st_code:04X}"
-                            if st_code == 0xA801:
-                                last_error_details.append(f"Код {hex_st} (AET '{calling_aet}' не прописан в базе назначения C-MOVE сервера PACS)")
-                            elif st_code in (0xA701, 0xA702):
-                                last_error_details.append(f"Код {hex_st} (PACS отказал в C-STORE)")
-                            elif st_code == 0xA900:
-                                last_error_details.append(f"Код {hex_st} (Неверный формат параметров C-MOVE)")
-                            elif st_code == 0xC000:
-                                last_error_details.append(f"Код {hex_st} (Сервер не принял параметры запроса C-MOVE)")
-                            else:
-                                last_error_details.append(f"Код {hex_st}")
-                        if progress_callback:
-                            completed = getattr(status, 'NumberOfCompletedSuboperations', 0)
-                            remaining = getattr(status, 'NumberOfRemainingSuboperations', 0)
-                            failed = getattr(status, 'NumberOfFailedSuboperations', 0)
-                            completed_val = completed.value if hasattr(completed, 'value') else int(completed or 0)
-                            remaining_val = remaining.value if hasattr(remaining, 'value') else int(remaining or 0)
-                            failed_val = failed.value if hasattr(failed, 'value') else int(failed or 0)
-                            total_val = completed_val + remaining_val + failed_val
-                            if total_val > 0:
-                                progress_callback(completed_val, total_val)
-                assoc_move.release()
-            else:
-                last_error_details.append("PACS отклонил C-MOVE ассоциацию")
-        except Exception as e:
-            last_error_details.append(f"Ошибка C-MOVE: {e}")
-
-    for srv in scp_servers:
-        try:
-            srv.shutdown()
-        except Exception:
-            pass
+    try:
+        # Пробуем варианты C-MOVE
+        for query_ds, move_sop_class in query_datasets:
+            if (count_downloaded_files() > initial_files or count_downloaded_files() > 0) or (is_cancelled_callback and is_cancelled_callback()):
+                break
+            try:
+                assoc_move = ae_move.associate(pacs_ip, pacs_port, ae_title=called_aet)
+                if assoc_move.is_established:
+                    responses = assoc_move.send_c_move(query_ds, calling_aet, move_sop_class)
+                    for (status, identifier) in responses:
+                        if is_cancelled_callback and is_cancelled_callback():
+                            try:
+                                assoc_move.abort()
+                            except Exception:
+                                pass
+                            break
+                        if status:
+                            st_code = getattr(status, 'Status', None)
+                            if st_code is not None and st_code not in (0x0000, 0xFF00, 0xFF01):
+                                hex_st = f"0x{st_code:04X}"
+                                if st_code == 0xA801:
+                                    last_error_details.append(f"Код {hex_st} (AET '{calling_aet}' не прописан в базе назначения C-MOVE сервера PACS)")
+                                elif st_code in (0xA701, 0xA702):
+                                    last_error_details.append(f"Код {hex_st} (PACS отказал в C-STORE)")
+                                elif st_code == 0xA900:
+                                    last_error_details.append(f"Код {hex_st} (Неверный формат параметров C-MOVE)")
+                                elif st_code == 0xC000:
+                                    last_error_details.append(f"Код {hex_st} (Сервер не принял параметры запроса C-MOVE)")
+                                else:
+                                    last_error_details.append(f"Код {hex_st}")
+                            if progress_callback:
+                                completed = getattr(status, 'NumberOfCompletedSuboperations', 0)
+                                remaining = getattr(status, 'NumberOfRemainingSuboperations', 0)
+                                failed = getattr(status, 'NumberOfFailedSuboperations', 0)
+                                completed_val = completed.value if hasattr(completed, 'value') else int(completed or 0)
+                                remaining_val = remaining.value if hasattr(remaining, 'value') else int(remaining or 0)
+                                failed_val = failed.value if hasattr(failed, 'value') else int(failed or 0)
+                                total_val = completed_val + remaining_val + failed_val
+                                if total_val > 0:
+                                    progress_callback(completed_val, total_val)
+                    assoc_move.release()
+                else:
+                    last_error_details.append("PACS отклонил C-MOVE ассоциацию")
+            except Exception as e:
+                last_error_details.append(f"Ошибка C-MOVE: {e}")
+    finally:
+        for srv in scp_servers:
+            try:
+                srv.shutdown()
+            except Exception:
+                pass
 
     if is_cancelled_callback and is_cancelled_callback():
         if created_patient_dir[0] and os.path.exists(created_patient_dir[0]):

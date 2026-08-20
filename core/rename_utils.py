@@ -63,7 +63,17 @@ def safe_merge_folders(src, dest, new_id):
                     shutil.copy2(src_file, dest_file)
             else:
                 shutil.copy2(src_file, dest_file)
-    shutil.rmtree(src)
+    for attempt in range(5):
+        try:
+            shutil.rmtree(src)
+            break
+        except Exception:
+            time.sleep(0.15)
+    else:
+        try:
+            shutil.rmtree(src, ignore_errors=True)
+        except Exception:
+            pass
 
 def safe_update_patient_ids(folder_path, new_id, output_field=None):
     if not new_id:
