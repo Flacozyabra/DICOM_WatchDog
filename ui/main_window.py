@@ -1257,6 +1257,7 @@ class MainWindow(QMainWindow):
         self.images_table.update_placeholder_visibility()
         self.images_table.blockSignals(False)
         self.images_table.setUpdatesEnabled(True)
+        self.on_images_selection_changed()
 
     def search_patient_images(self):
         if not hasattr(self, 'images_cache') or self.images_cache is None:
@@ -1422,6 +1423,8 @@ class MainWindow(QMainWindow):
         id_item = self.images_table.item(row, 0)
         patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
         patient_name = self.images_table.item(row, 1).text()
+        self.images_table.clearSelection()
+        self.move_to_archive_btn.setEnabled(False)
         self.archive_patient_action(patient_id, patient_name)
 
     # ================= ЛОГИКА ТАБЛИЦЫ CT ARCHIVE =================
@@ -1760,6 +1763,7 @@ class MainWindow(QMainWindow):
         self.archive_table.update_placeholder_visibility()
         self.archive_table.blockSignals(False)
         self.archive_table.setUpdatesEnabled(True)
+        self.on_archive_selection_changed()
 
     def search_patient_archive(self):
         if not hasattr(self, 'archive_cache') or self.archive_cache is None:
@@ -1831,6 +1835,8 @@ class MainWindow(QMainWindow):
         if dest_parent:
             os.makedirs(dest_parent, exist_ok=True)
             
+        self.archive_table.clearSelection()
+        self.move_from_archive_btn.setEnabled(False)
         self.active_file_operations[patient_id] = {'op': 'restore'}
         self.archive_table.viewport().update()
         
@@ -2113,6 +2119,7 @@ class MainWindow(QMainWindow):
         self.pacs_table.update_placeholder_visibility()
         self.pacs_table.blockSignals(False)
         self.pacs_table.setUpdatesEnabled(True)
+        self.on_pacs_selection_changed()
 
     # ================= УПРАВЛЕНИЕ НАСТРОЙКАМИ =================
 
