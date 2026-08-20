@@ -757,7 +757,7 @@ class MainWindow(QMainWindow):
         elif current_widget == self.archive_tab:  # CT archive
             if not pacs_auto_scan_on:
                 self.pacs_timer.stop()
-            if not hasattr(self, 'archive_cache') or self.archive_cache is None:
+            if not hasattr(self, 'archive_cache') or self.archive_cache is None or not self.archive_cache:
                 self.fill_archive_list()
             else:
                 self.update_archive_table_ui()
@@ -1027,6 +1027,13 @@ class MainWindow(QMainWindow):
         self.update_images_table_ui()
         self.update_tab_badges()
 
+        # Если включена вкладка архива и настроена папка архива, обновляем список архива в фоне
+        if self.config.get('show_tab_archive', 'True').lower() == 'true':
+            archive_dir = self.config.get('archive_dir', '')
+            if archive_dir and os.path.exists(archive_dir):
+                self.archive_cache = None
+                self.fill_archive_list(silent=True)
+
     def update_images_table_ui(self):
         if not hasattr(self, 'images_cache') or self.images_cache is None:
             return
@@ -1259,20 +1266,15 @@ class MainWindow(QMainWindow):
 
     def open_current_folder_cmd(self, row, column):
         id_item = self.images_table.item(row, 0)
+        name_item = self.images_table.item(row, 1)
         patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
         if not patient_id or not str(patient_id).strip() or str(patient_id).strip() in ('.', '/', '\\'):
             return
-        base_dir = self.config.get('ct_images_dir', '')
-        if not base_dir:
-            return
-        path = os.path.normpath(os.path.join(base_dir, patient_id))
-        if os.path.normcase(path) == os.path.normcase(os.path.normpath(base_dir)):
-            return
-        if os.path.exists(path):
-            try:
-                os.startfile(path)
-            except Exception as e:
-                log_message(self.output_field, tr_log("log_failed_open_folder", patient_id, e))
+        is_child_row = bool(name_item and name_item.text().startswith("  ↳"))
+        folder_to_open = str(patient_id)
+        if not is_child_row and ('/' in folder_to_open or '\\' in folder_to_open):
+            folder_to_open = folder_to_open.replace('\\', '/').split('/')[0]
+        self.open_patient_folder(folder_to_open, is_archive=False)
 
     # ================= КОНТЕКСТНЫЕ МЕНЮ И ДЕЙСТВИЯ =================
 
@@ -2301,11 +2303,13 @@ class MainWindow(QMainWindow):
             return
         if not patient_id or not str(patient_id).strip() or str(patient_id).strip() in ('.', '/', '\\'):
             return
-        cache = self.archive_cache if is_archive else self.images_cache
-        folder_name = cache[patient_id].get('folder_name', patient_id) if (cache and patient_id in cache) else patient_id
-        if not folder_name or not str(folder_name).strip() or str(folder_name).strip() in ('.', '/', '\\'):
-            return
+        folder_name = str(patient_id)
         path = os.path.normpath(os.path.join(base_dir, folder_name))
+        if not os.path.exists(path):
+            cache = self.archive_cache if is_archive else self.images_cache
+            if cache and patient_id in cache:
+                folder_name = cache[patient_id].get('folder_name', folder_name)
+                path = os.path.normpath(os.path.join(base_dir, folder_name))
         if os.path.normcase(path) == os.path.normcase(os.path.normpath(base_dir)):
             return
         if os.path.exists(path):

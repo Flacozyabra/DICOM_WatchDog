@@ -136,16 +136,22 @@ class TableContextMenuManager:
 
         row = index.row()
         id_item = self.mw.images_table.item(row, 0)
+        name_item = self.mw.images_table.item(row, 1)
         patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
-        patient_name = self.mw.images_table.item(row, 1).text()
+        patient_name = name_item.text() if name_item else ""
 
         if patient_id in self.mw.active_file_operations:
             return
 
+        is_child_row = bool(name_item and name_item.text().startswith("  ↳"))
+        folder_to_open = patient_id
+        if not is_child_row and ('/' in str(patient_id) or '\\' in str(patient_id)):
+            folder_to_open = str(patient_id).replace('\\', '/').split('/')[0]
+
         menu = QMenu(self.mw)
 
         open_folder_action = QAction(tr_ui("ctx_open_folder"), self.mw)
-        open_folder_action.triggered.connect(lambda: self.mw.open_patient_folder(patient_id, is_archive=False))
+        open_folder_action.triggered.connect(lambda: self.mw.open_patient_folder(folder_to_open, is_archive=False))
 
         delete_action = QAction(tr_ui("ctx_delete_patient"), self.mw)
         delete_action.triggered.connect(lambda: self.mw.delete_patient_action(patient_id, patient_name))
@@ -171,16 +177,22 @@ class TableContextMenuManager:
 
         row = index.row()
         id_item = self.mw.archive_table.item(row, 0)
+        name_item = self.mw.archive_table.item(row, 1)
         patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
-        patient_name = self.mw.archive_table.item(row, 1).text()
+        patient_name = name_item.text() if name_item else ""
 
         if patient_id in self.mw.active_file_operations:
             return
 
+        is_child_row = bool(name_item and name_item.text().startswith("  ↳"))
+        folder_to_open = patient_id
+        if not is_child_row and ('/' in str(patient_id) or '\\' in str(patient_id)):
+            folder_to_open = str(patient_id).replace('\\', '/').split('/')[0]
+
         menu = QMenu(self.mw)
 
         open_folder_action = QAction(tr_ui("ctx_open_folder"), self.mw)
-        open_folder_action.triggered.connect(lambda: self.mw.open_patient_folder(patient_id, is_archive=True))
+        open_folder_action.triggered.connect(lambda: self.mw.open_patient_folder(folder_to_open, is_archive=True))
 
         restore_action = QAction(self.mw.get_restore_to_ct_text(), self.mw)
         restore_action.triggered.connect(self.mw.move_from_archive_cmd)

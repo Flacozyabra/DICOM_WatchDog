@@ -62,5 +62,6 @@
   "log_folder_renamed_success": "Renamed: {} -> {}",
   "log_folder_renamed_success_with_id": "Renamed: {} -> {} (new PatientID: {})",
   "log_folder_rename_error": "Error renaming {}: {}",
-  "log_failed_make_hierarchical": "Failed to structure files for patient {}: a file is locked by another process: {}"
+  "log_failed_make_hierarchical": "Failed to structure files for patient {}: a file is locked by another process: {}",
+  "log_system_resumed_from_sleep": "System resumed from sleep mode. Refreshing status..."
 }
