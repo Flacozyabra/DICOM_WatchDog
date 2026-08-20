@@ -89,8 +89,14 @@ def delete_redundant_str(patient_dir, output_field=None):
                 
     return deleted_count
 
-def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, progress_callback=None, count_callback=None):
-    patient_data = defaultdict(dict)
+def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, cleanup_structures=False):
+    """
+    Сканирует одну конкретную папку пациента (включая возможные подпапки исследований)
+    и возвращает словарь исследований для таблицы.
+    """
+    patient_data = {}
+    if not os.path.exists(patient_dir):
+        return patient_data
 
     is_cleanup_on = False
     if hasattr(cleanup_structures, 'get'):
@@ -98,21 +104,7 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
     else:
         is_cleanup_on = (cleanup_structures == 'on' or cleanup_structures is True)
 
-    # Pre-count top-level subdirectories for accurate progress reporting
-    try:
-        top_dirs = [d for d in os.listdir(ct_images_dir) if os.path.isdir(os.path.join(ct_images_dir, d))]
-        total_dirs = len(top_dirs)
-    except Exception:
-        total_dirs = 0
-    processed = 0
-
-    for root, dirs, files in os.walk(ct_images_dir):
-        # Track progress at top-level patient directories only
-        if os.path.dirname(root) == ct_images_dir:
-            processed += 1
-            if progress_callback and total_dirs > 0:
-                progress_callback(min(processed, total_dirs), total_dirs)
-
+    for root, dirs, files in os.walk(patient_dir):
         dcm_candidates = [f for f in files if is_dicom_file(os.path.join(root, f))]
         if dcm_candidates:
             # Сначала ищем файл КТ-среза (не RTSTRUCT)
@@ -132,10 +124,12 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
                 if not patient_name:
                     patient_name = os.path.basename(root)
 
-                patient_data[rel_path]['patient_id'] = str(patient_id)
-                patient_data[rel_path]['patient_name'] = str(patient_name)
-                patient_data[rel_path]['modality'] = str(ds.get('Modality', 'CT'))
-                patient_data[rel_path]['folder_name'] = rel_path
+                study_entry = {
+                    'patient_id': str(patient_id),
+                    'patient_name': str(patient_name),
+                    'modality': str(ds.get('Modality', 'CT')),
+                    'folder_name': rel_path
+                }
 
                 # Безопасный разбор времени исследования
                 study_date = str(ds.get('StudyDate', '')).strip()
@@ -153,7 +147,7 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
                         except Exception:
                             pass
 
-                patient_data[rel_path]['study_datetime'] = study_dt
+                study_entry['study_datetime'] = study_dt
 
                 # область сканирования (BodyPartExamined / StudyDescription / SeriesDescription)
                 body_part = ds.get('BodyPartExamined', '')
@@ -165,30 +159,51 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
                 body_part_str = str(body_part).strip()
                 if not body_part_str:
                     body_part_str = "Unknown"
-                patient_data[rel_path]['body_part'] = body_part_str
+                study_entry['body_part'] = body_part_str
 
                 # время создания папки
-                patient_data[rel_path]['folder_datetime'] = folder_ctime
+                study_entry['folder_datetime'] = folder_ctime
                 # считаем количество файлов структур
                 str_files = [f for f in os.listdir(root) if is_structure_file(os.path.join(root, f))]
                 str_count = len(str_files)
-                patient_data[rel_path]['str'] = str_count
+                study_entry['str'] = str_count
 
                 # считаем количество файлов срезов (файлов DICOM, исключая файлы структур)
                 slice_files = [f for f in files if is_dicom_file(os.path.join(root, f)) and not is_structure_file(os.path.join(root, f))]
-                patient_data[rel_path]['slices'] = len(slice_files)
+                study_entry['slices'] = len(slice_files)
 
                 if is_cleanup_on and str_count > 1:
                     delete_redundant_str(root, output_field)
                     # Пересчитываем количество файлов структур
                     str_files = [f for f in os.listdir(root) if is_structure_file(os.path.join(root, f))]
-                    patient_data[rel_path]['str'] = len(str_files)
+                    study_entry['str'] = len(str_files)
 
-                if count_callback:
-                    count_callback(len(patient_data))
+                patient_data[rel_path] = study_entry
 
             except Exception as e:
                 log_message(output_field, tr_log("log_dcm_read_error", os.path.join(root, file), e))
+
+    return patient_data
+
+def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, progress_callback=None, count_callback=None):
+    patient_data = defaultdict(dict)
+    if not os.path.exists(ct_images_dir):
+        return patient_data
+
+    try:
+        top_dirs = [os.path.join(ct_images_dir, d) for d in os.listdir(ct_images_dir)
+                    if os.path.isdir(os.path.join(ct_images_dir, d))]
+        total_dirs = len(top_dirs)
+    except Exception:
+        total_dirs = 0
+
+    for i, p_dir in enumerate(top_dirs):
+        if progress_callback and total_dirs > 0:
+            progress_callback(i + 1, total_dirs)
+        studies = collect_patient_studies(p_dir, ct_images_dir, output_field, cleanup_structures)
+        patient_data.update(studies)
+        if count_callback:
+            count_callback(len(patient_data))
 
     return patient_data
 

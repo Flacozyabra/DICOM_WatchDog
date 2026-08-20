@@ -388,7 +388,6 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
         parent_path = os.path.join(os.path.dirname(path), target_folder_name)
 
         if not os.path.exists(parent_path):
-            # Первое исследование пациента, переименовываем в базовую папку без вложенности
             success = False
             last_error = None
             for attempt in range(5):
@@ -406,14 +405,16 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
                     log_message(output_field, tr_log("log_folder_renamed_success_with_id", patient_folder, target_folder_name, new_patient_id))
                 else:
                     log_message(output_field, tr_log("log_folder_renamed_success", patient_folder, target_folder_name))
+                return parent_path
             else:
                 log_message(output_field, tr_log("log_folder_rename_error", patient_folder, last_error))
+                return path
 
         else:
             # Папка пациента уже существует.
             if os.path.normcase(os.path.abspath(path)) == os.path.normcase(os.path.abspath(parent_path)):
                 auto_heal_split_patient_folders(parent_path, new_patient_id, output_field)
-                return
+                return parent_path
 
             incoming_uid = info.get('study_instance_uid', '')
             is_incoming_struct_only = is_structure_only_folder(path)
@@ -434,11 +435,11 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
                             log_message(output_field, tr_log("log_files_merged_success", os.path.basename(parent_path), patient_folder))
                     except Exception as e:
                         log_message(output_field, tr_log("log_folders_merge_error", patient_folder, os.path.basename(parent_path), e))
-                    return
+                    return parent_path
 
             # Если целевая папка плоская, переведем её в иерархическую структуру
             if not make_folder_hierarchical(parent_path, output_field):
-                return
+                return path
                 
             # Ищем подпапку исследования для совпадения по StudyInstanceUID (или по дате)
             matching_sub = find_matching_study_subfolder(parent_path, incoming_uid, date_only_str, study_date_str)
@@ -488,6 +489,8 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
 
             # Автолечение на случай ранее разделенных папок
             auto_heal_split_patient_folders(parent_path, new_patient_id, output_field)
+            return parent_path
+    return path
 
 
 def move_single_study_folder(src_study_path: str, dest_patient_path: str, output_field=None) -> bool:

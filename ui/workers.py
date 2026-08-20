@@ -11,7 +11,7 @@ except ImportError:
     from PyQt5.QtCore import QThread, pyqtSignal, QObject
 
 from core.logger import log_message
-from core.dicom_utils import dict_create
+from core.dicom_utils import dict_create, collect_patient_studies
 from core.rename_utils import process_patient_folder, move_study_folder_hierarchical, get_folder_study_info
 from core.pacs import pacs_dict_create, download_patient_from_pacs
 from core.locale_utils import tr_log, tr_ui
@@ -70,14 +70,6 @@ class FolderScanWorker(QThread):
         if self.id_prefixes:
             prefixes_list = [p.strip() for p in self.id_prefixes.split(',') if p.strip()]
 
-        patient_folders = []
-        if os.path.exists(self.ct_images_dir):
-            try:
-                patient_folders = [os.path.join(self.ct_images_dir, d) for d in os.listdir(self.ct_images_dir)
-                                   if os.path.isdir(os.path.join(self.ct_images_dir, d))]
-            except Exception:
-                pass
-
         if is_archive_on and not self.archive_dir:
             collector.appendPlainText(tr_log("log_warn_auto_archive_not_configured"))
 
@@ -91,20 +83,20 @@ class FolderScanWorker(QThread):
         if self.isInterruptionRequested():
             return
 
-        # 2. Единая фаза подготовки: исправление ID, переименование и архивация в один проход
+        # 2. Единый проход: исправление ID, переименование, автоархивация и построение таблицы
         patient_folders = []
         if os.path.exists(self.ct_images_dir):
             try:
                 patient_folders = [os.path.join(self.ct_images_dir, d) for d in os.listdir(self.ct_images_dir)
                                    if os.path.isdir(os.path.join(self.ct_images_dir, d))]
             except Exception:
-                pass
+                patient_folders = []
 
         total_folders = len(patient_folders)
-        needs_prep = (is_fix_id_on or is_rename_folder_on or (self.archive_dir and is_archive_on))
+        patient_dict = {}
 
-        if needs_prep and total_folders > 0:
-            self.status_changed.emit(tr_ui("loading_fixing_folders_status"))
+        if total_folders > 0:
+            self.status_changed.emit(tr_ui("loading_scanning_folders_status"))
             now = datetime.now()
             from core.rename_utils import move_study_folder_hierarchical, get_folder_study_info
             
@@ -116,21 +108,24 @@ class FolderScanWorker(QThread):
                 if not os.path.exists(path):
                     continue
 
+                active_path = path
+
                 # 2a. Исправление ID и переименование
                 if is_fix_id_on or is_rename_folder_on:
-                    process_patient_folder(
+                    res_path = process_patient_folder(
                         path, collector,
                         fix_patient_id=is_fix_id_on,
                         prefixes=prefixes_list,
                         rename_folder=is_rename_folder_on,
                         rename_mode=self.rename_study_folder_mode
                     )
+                    if res_path and os.path.exists(res_path):
+                        active_path = res_path
 
-                # 2b. Автоархивация для текущего пациента (если включена)
-                if self.archive_dir and is_archive_on and os.path.exists(self.ct_images_dir):
-                    target_folder = path
-                    if not os.path.exists(target_folder):
-                        continue
+                # 2b. Автоархивация (если включена)
+                is_fully_archived = False
+                if self.archive_dir and is_archive_on and os.path.exists(active_path):
+                    target_folder = active_path
                     try:
                         subdirs = [os.path.join(target_folder, s) for s in os.listdir(target_folder)
                                    if os.path.isdir(os.path.join(target_folder, s))]
@@ -157,7 +152,7 @@ class FolderScanWorker(QThread):
                         try:
                             folder_date = datetime.fromtimestamp(os.path.getmtime(target_folder))
                         except Exception:
-                            continue
+                            folder_date = now
                         if (now - folder_date).days >= self.archive_days:
                             try:
                                 patient_name = tr_log("log_patient_unknown")
@@ -166,22 +161,21 @@ class FolderScanWorker(QThread):
                                     patient_name = str(info['patient_name'])
                                 move_study_folder_hierarchical(target_folder, self.archive_dir, collector)
                                 log_message(collector, tr_log("log_patient_moved_to_archive", patient_name, os.path.basename(target_folder)))
+                                is_fully_archived = True
                             except Exception as e:
                                 log_message(collector, tr_log("log_patient_move_to_archive_error", os.path.basename(target_folder), e))
 
+                # 2c. Считывание исследования сразу в patient_dict
+                if not is_fully_archived and os.path.exists(active_path):
+                    studies = collect_patient_studies(
+                        active_path, self.ct_images_dir, collector,
+                        cleanup_structures=is_cleanup_struct_on
+                    )
+                    patient_dict.update(studies)
+                    self.count_updated.emit(len(patient_dict))
+
             self.progress.emit(total_folders, total_folders)
 
-        if self.isInterruptionRequested():
-            return
-
-        # 3. Построение списка исследований для таблицы
-        self.status_changed.emit(tr_ui("loading_scanning_folders_status"))
-        patient_dict = dict_create(
-            self.ct_images_dir, collector,
-            cleanup_structures=is_cleanup_struct_on,
-            progress_callback=self.progress.emit,
-            count_callback=self.count_updated.emit
-        )
         if not self.isInterruptionRequested():
             self.finished.emit(patient_dict, collector.messages)
 
