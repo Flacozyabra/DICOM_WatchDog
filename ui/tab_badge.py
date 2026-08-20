@@ -30,11 +30,12 @@ class TabBadge(QWidget):
         self._count = max(0, int(count)) if count is not None else 0
         new_text = str(self._count)
         if force_update or new_text != self._text:
+            old_w = self.width()
             self._text = new_text
             self.update_geometry()
-            if self.tab_bar and 0 <= self.tab_index < self.tab_bar.count():
+            new_w = self.width()
+            if (old_w != new_w or force_update) and self.tab_bar and 0 <= self.tab_index < self.tab_bar.count():
                 try:
-                    self.tab_bar.setTabText(self.tab_index, self.tab_bar.tabText(self.tab_index))
                     self.tab_bar.updateGeometry()
                 except Exception:
                     pass

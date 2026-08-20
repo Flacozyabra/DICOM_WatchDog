@@ -185,21 +185,18 @@ class MainWindow(QMainWindow):
         if op_type == 'archive':
             log_message(self.output_field, tr_log("log_patient_archived", result))
             self.show_patient_list()
-            self.archive_cache = None
-            self.fill_archive_list(silent=True)
+            self.fill_archive_list(silent=True, force=True)
         elif op_type == 'delete':
             log_message(self.output_field, tr_log("log_patient_deleted", result))
             self.show_patient_list()
-            self.archive_cache = None
-            self.fill_archive_list(silent=True)
+            self.fill_archive_list(silent=True, force=True)
         elif op_type == 'clean_str':
             deleted, folder_desc = result
             log_message(self.output_field, tr_log("log_cleaned_str_files", deleted, folder_desc))
             self.show_patient_list()
         elif op_type == 'restore':
             log_message(self.output_field, tr_log("log_patient_restored_from_archive", result))
-            self.archive_cache = None
-            self.fill_archive_list(silent=True)
+            self.fill_archive_list(silent=True, force=True)
             self.restored_patient_ids.add(patient_id)
             self.show_patient_list()
 
@@ -755,13 +752,18 @@ class MainWindow(QMainWindow):
         if current_widget == self.images_tab:  # CT images
             if not pacs_auto_scan_on:
                 self.pacs_timer.stop()
-            self.show_patient_list()
+            if not hasattr(self, 'images_cache') or self.images_cache is None:
+                if not self.scan_worker or not self.scan_worker.isRunning():
+                    self.show_patient_list()
+            else:
+                self.update_images_table_ui()
             QTimer.singleShot(0, self.focus_ct_images_search)
         elif current_widget == self.archive_tab:  # CT archive
             if not pacs_auto_scan_on:
                 self.pacs_timer.stop()
-            if not hasattr(self, 'archive_cache') or self.archive_cache is None or not self.archive_cache:
-                self.fill_archive_list()
+            if not hasattr(self, 'archive_cache') or self.archive_cache is None:
+                if not self.archive_worker or not self.archive_worker.isRunning():
+                    self.fill_archive_list()
             else:
                 self.update_archive_table_ui()
             QTimer.singleShot(0, self.focus_ct_archive_search)
@@ -1014,12 +1016,12 @@ class MainWindow(QMainWindow):
         self.update_images_table_ui()
         self.update_tab_badges()
 
-        # Если включена вкладка архива и настроена папка архива, обновляем список архива в фоне
+        # Если включена вкладка архива и настроена папка архива, подгружаем если еще не загружен
         if self.config.get('show_tab_archive', 'True').lower() == 'true':
             archive_dir = self.config.get('archive_dir', '')
             if archive_dir and os.path.exists(archive_dir):
-                self.archive_cache = None
-                self.fill_archive_list(silent=True)
+                if getattr(self, 'archive_cache', None) is None and (not self.archive_worker or not self.archive_worker.isRunning()):
+                    self.fill_archive_list(silent=True)
 
     def update_images_table_ui(self):
         if not hasattr(self, 'images_cache') or self.images_cache is None:
@@ -2326,8 +2328,20 @@ class MainWindow(QMainWindow):
         pacs_tab_active = (current_widget == self.pacs_tab)
         show_pacs_badge = show_badges and (pacs_tab_active or auto_update_on)
 
-        ct_count = len(self.images_cache) if getattr(self, 'images_cache', None) else 0
-        archive_count = len(self.archive_cache) if getattr(self, 'archive_cache', None) else 0
+        if getattr(self, 'images_cache', None) is not None:
+            ct_count = len(self.images_cache)
+        elif hasattr(self, 'images_tab') and getattr(self.images_tab, 'badge', None):
+            ct_count = self.images_tab.badge.count()
+        else:
+            ct_count = 0
+
+        if getattr(self, 'archive_cache', None) is not None:
+            archive_count = len(self.archive_cache)
+        elif hasattr(self, 'archive_tab') and getattr(self.archive_tab, 'badge', None):
+            archive_count = self.archive_tab.badge.count()
+        else:
+            archive_count = 0
+
         pacs_count = len(self.pacs_data) if getattr(self, 'pacs_data', None) else 0
 
         tab_bar = self.tab_widget.tabBar()
@@ -2363,7 +2377,7 @@ class MainWindow(QMainWindow):
                 
                 badge.tab_bar = tab_bar
                 badge.tab_index = idx
-                badge.set_count(count, force_update=True)
+                badge.set_count(count, force_update=False)
                 badge.show()
                 badge.update()
             else:
