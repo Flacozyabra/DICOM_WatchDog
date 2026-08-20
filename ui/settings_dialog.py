@@ -1,230 +1,35 @@
+# -*- coding: utf-8 -*-
+"""Settings Dialog for DICOM WatchDog."""
+
 import os
 import sys
 import json
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QFont, QPixmap
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QLineEdit, QPushButton, QFileDialog, QFormLayout, 
-                             QSpinBox, QDialogButtonBox, QMessageBox,
-                             QComboBox, QListWidget, QStackedWidget, QWidget, QFrame, QSlider)
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QMessageBox,
+                             QListWidget, QStackedWidget, QDialogButtonBox, QWidget)
 
-from ui.toggle_switch import ToggleSwitch
-from core.config_utils import get_config_path, get_app_data_dir, get_resource_path
+from core.config_utils import get_config_path, get_app_data_dir, VERSION
 from core.locale_utils import tr_ui, set_current_langs
-
-
 from core.notifier import (
-    get_rhvoice_from_disk,
-    get_voices_from_registry,
     get_installed_sapi_voices as get_system_voices,
-    format_voice_name
+    format_voice_name,
+    get_perceptual_volume,
+    preprocess_tts_text,
+    speak_sapi_tts,
+    _play_wav
 )
-
-
-def find_matching_voice_index(combo, sound_name):
-    if not sound_name or sound_name == 'default':
-        return 0
-    # 1. Точное совпадение по значению
-    idx = combo.findData(sound_name)
-    if idx >= 0:
-        return idx
-        
-    # 2. Совпадение по очищенной/нормализованной строке (с поддержкой кириллицы и alexandr/aleksandr)
-    clean_target = sound_name.replace("Microsoft", "").replace("Desktop", "").replace("OneCore", "").replace("RHVoice", "").strip().lower()
-    clean_target_norm = (clean_target
-                         .replace("alexandr", "aleksandr")
-                         .replace("александр", "aleksandr")
-                         .replace("анна", "anna")
-                         .replace("елена", "elena")
-                         .replace("ирина", "irina")
-                         .replace("павел", "pavel"))
-    for i in range(combo.count()):
-        data = combo.itemData(i)
-        if data and data not in ('default', 'sound_chime', 'sound_ping', 'sound_pop', 'sound_soft'):
-            data_clean = data.replace("Microsoft", "").replace("Desktop", "").replace("OneCore", "").replace("RHVoice", "").strip().lower()
-            data_clean_norm = (data_clean
-                               .replace("alexandr", "aleksandr")
-                               .replace("александр", "aleksandr")
-                               .replace("анна", "anna")
-                               .replace("елена", "elena")
-                               .replace("ирина", "irina")
-                               .replace("павел", "pavel"))
-            if (clean_target == data_clean or clean_target in data_clean or data_clean in clean_target or
-                clean_target_norm == data_clean_norm or clean_target_norm in data_clean_norm or data_clean_norm in clean_target_norm):
-                return i
-                
-    # 3. Совпадение по первому ключу (имени диктора)
-    words = [w for w in clean_target_norm.replace("-", " ").replace("(", " ").replace(")", " ").split() if len(w) > 1]
-    if words:
-        main_word = words[0]
-        for i in range(combo.count()):
-            data = combo.itemData(i)
-            if data and data not in ('default', 'sound_chime', 'sound_ping', 'sound_pop', 'sound_soft'):
-                data_clean = data.replace("Microsoft", "").replace("Desktop", "").replace("OneCore", "").replace("RHVoice", "").strip().lower()
-                data_clean_norm = (data_clean
-                                   .replace("alexandr", "aleksandr")
-                                   .replace("александр", "aleksandr")
-                                   .replace("анна", "anna")
-                                   .replace("елена", "elena")
-                                   .replace("ирина", "irina")
-                                   .replace("павел", "pavel"))
-                if main_word in data_clean_norm:
-                    return i
-    return -1
-
-
-def are_onecore_voices_locked():
-    import winreg
-    import sys
-    if sys.platform != "win32":
-        return False
-    try:
-        onecore_path = r"SOFTWARE\Microsoft\Speech_OneCore\Voices\Tokens"
-        onecore_key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, onecore_path)
-        onecore_count = winreg.QueryInfoKey(onecore_key)[0]
-        onecore_names = set()
-        for i in range(onecore_count):
-            onecore_names.add(winreg.EnumKey(onecore_key, i))
-        winreg.CloseKey(onecore_key)
-        
-        if not onecore_names:
-            return False
-            
-        sapi5_path = r"SOFTWARE\Microsoft\Speech\Voices\Tokens"
-        sapi5_key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, sapi5_path)
-        sapi5_count = winreg.QueryInfoKey(sapi5_key)[0]
-        sapi5_names = set()
-        for i in range(sapi5_count):
-            sapi5_names.add(winreg.EnumKey(sapi5_key, i))
-        winreg.CloseKey(sapi5_key)
-        
-        missing = onecore_names - sapi5_names
-        return len(missing) > 0
-    except Exception:
-        return False
-
-
-def apply_dark_title_bar(widget):
-    if sys.platform == "win32":
-        import ctypes
-        try:
-            hwnd = int(widget.winId())
-            # Immersive Dark Mode
-            ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                hwnd, 20, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
-            )
-        except Exception:
-            try:
-                ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                    hwnd, 19, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
-                )
-            except Exception:
-                pass
-        try:
-            hwnd = int(widget.winId())
-            # Caption Color (#2b2b2b)
-            ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                hwnd, 35, ctypes.byref(ctypes.c_int(0x002b2b2b)), ctypes.sizeof(ctypes.c_int)
-            )
-            # Text Color (White)
-            ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                hwnd, 36, ctypes.byref(ctypes.c_int(0x00ffffff)), ctypes.sizeof(ctypes.c_int)
-            )
-        except Exception:
-            pass
-
-
-class PacsPingWorker(QThread):
-    finished = pyqtSignal(bool, str)
-
-    def __init__(self, pacs_ip, pacs_port, called_aet, calling_aet):
-        super().__init__()
-        self.pacs_ip = pacs_ip
-        self.pacs_port = pacs_port
-        self.called_aet = called_aet
-        self.calling_aet = calling_aet
-
-    def run(self):
-        from core.pacs import ping_pacs
-        success, msg = ping_pacs(self.pacs_ip, self.pacs_port, self.called_aet, self.calling_aet)
-        self.finished.emit(success, msg)
-
-
-from ui.updater import UpdateCheckWorker
-
-
-class LanguageSwitch(QFrame):
-    """Кастомный горизонтальный переключатель языков с флагами."""
-
-    def __init__(self, parent: QWidget, command=None, current_lang: str = "ru") -> None:
-        super().__init__(parent)
-        self.command = command
-        self.lang = current_lang
-        
-        self.setFixedSize(76, 30)
-        self.setStyleSheet("""
-            QFrame {
-                background-color: #2D2D2D;
-                border: 1px solid #4B5563;
-                border-radius: 15px;
-            }
-        """)
-
-        # Загружаем картинки флагов
-        self.px_ru = QPixmap(get_resource_path("themes/ru_flag.png"))
-        self.px_gb = QPixmap(get_resource_path("themes/gb_flag.png"))
-
-        # Метка RU флага (слева)
-        self.lbl_ru = QLabel(self)
-        self.lbl_ru.setPixmap(self.px_ru)
-        self.lbl_ru.setScaledContents(True)
-        self.lbl_ru.setFixedSize(24, 16)
-        self.lbl_ru.move(9, 7)
-        self.lbl_ru.setStyleSheet("background: transparent; border: none;")
-
-        # Метка GB флага (справа)
-        self.lbl_gb = QLabel(self)
-        self.lbl_gb.setPixmap(self.px_gb)
-        self.lbl_gb.setScaledContents(True)
-        self.lbl_gb.setFixedSize(24, 16)
-        self.lbl_gb.move(43, 7)
-        self.lbl_gb.setStyleSheet("background: transparent; border: none;")
-
-        # Ползунок (slider)
-        self.slider = QFrame(self)
-        self.slider.setFixedSize(36, 24)
-        self.slider.setStyleSheet("""
-            QFrame {
-                background-color: #4B5563;
-                border: none;
-                border-radius: 12px;
-            }
-        """)
-
-        self.slider_img = QLabel(self.slider)
-        self.slider_img.setScaledContents(True)
-        self.slider_img.setFixedSize(24, 16)
-        self.slider_img.move(6, 4)
-        self.slider_img.setStyleSheet("background: transparent; border: none;")
-
-        self.update_slider_position()
-
-    def update_slider_position(self) -> None:
-        if self.lang == "ru":
-            self.slider.move(3, 3)
-            self.slider_img.setPixmap(self.px_ru)
-        else:
-            self.slider.move(37, 3)
-            self.slider_img.setPixmap(self.px_gb)
-
-    def mousePressEvent(self, event) -> None:
-        if self.lang == "ru":
-            self.lang = "en"
-        else:
-            self.lang = "ru"
-        self.update_slider_position()
-        if self.command:
-            self.command(self.lang)
+from ui.updater import UpdateCheckWorker, is_newer_version, run_auto_update
+from ui.settings_tabs.settings_utils import (
+    find_matching_voice_index,
+    are_onecore_voices_locked,
+    apply_dark_title_bar,
+    LanguageSwitch
+)
+from ui.settings_tabs.general_tab import build_general_tab, retranslate_general_tab
+from ui.settings_tabs.archive_tab import build_archive_tab, retranslate_archive_tab
+from ui.settings_tabs.ui_tab import build_ui_tab, retranslate_ui_tab
+from ui.settings_tabs.notifications_tab import build_notifications_tab, retranslate_notifications_tab
+from ui.settings_tabs.pacs_tab import build_pacs_tab, retranslate_pacs_tab, PacsPingWorker
 
 
 class SettingsDialog(QDialog):
@@ -233,36 +38,7 @@ class SettingsDialog(QDialog):
         self.setWindowTitle(tr_ui("settings_title"))
         self.setMinimumWidth(650)
         
-        # Темная рамка окна Windows и цвет заголовка
-        if sys.platform == "win32":
-            import ctypes
-            try:
-                hwnd = int(self.winId())
-                # Включение темного режима (Immersive Dark Mode)
-                ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                    hwnd, 20, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
-                )
-            except Exception:
-                try:
-                    ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                        hwnd, 19, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
-                    )
-                except Exception:
-                    pass
-
-            # Установка точного серого цвета #2b2b2b (BGR: 0x002b2b2b) для Windows 11
-            try:
-                hwnd = int(self.winId())
-                # DWMWA_CAPTION_COLOR = 35
-                ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                    hwnd, 35, ctypes.byref(ctypes.c_int(0x002b2b2b)), ctypes.sizeof(ctypes.c_int)
-                )
-                # DWMWA_TEXT_COLOR = 36 (белый текст заголовка)
-                ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                    hwnd, 36, ctypes.byref(ctypes.c_int(0x00ffffff)), ctypes.sizeof(ctypes.c_int)
-                )
-            except Exception:
-                pass
+        apply_dark_title_bar(self)
 
         self.config = self.load_config()
         self.initial_config = self.config.copy()
@@ -360,10 +136,10 @@ class SettingsDialog(QDialog):
                     if len(lines) > 7: config['client_dir'] = lines[7].strip()
                     if len(lines) > 10: config['archive_slice'] = int(lines[10].strip() or "0")
                     if len(lines) > 16:
-                          config['x'] = int(lines[13].strip() or "1000")
-                          config['y'] = int(lines[14].strip() or "600")
-                          config['dx'] = int(lines[15].strip() or "350")
-                          config['dy'] = int(lines[16].strip() or "100")
+                        config['x'] = int(lines[13].strip() or "1000")
+                        config['y'] = int(lines[14].strip() or "600")
+                        config['dx'] = int(lines[15].strip() or "350")
+                        config['dy'] = int(lines[16].strip() or "100")
                     if len(lines) > 19: config['log_font_size'] = int(lines[19].strip() or "12")
                     if len(lines) > 22: config['folder_scan_time'] = int(lines[22].strip() or "10000")
                     if len(lines) > 25: config['notification_is'] = lines[25].strip()
@@ -439,681 +215,29 @@ class SettingsDialog(QDialog):
         self.stacked_widget = QStackedWidget()
         self.stacked_widget.setStyleSheet("QStackedWidget { background-color: #141414; padding: 15px; }")
         
-        # 1. Вкладка General
-        general_widget = QWidget()
-        general_layout = QVBoxLayout(general_widget)
-        general_form = QFormLayout()
-        
-        # CT Images Dir
-        self.ct_images_edit = QLineEdit(self.config.get('ct_images_dir', ''))
-        self.btn_ct_images_browse = QPushButton()
-        self.btn_ct_images_browse.clicked.connect(lambda: self.browse_folder(self.ct_images_edit, tr_ui("settings_ct_images_folder").rstrip(":")))
-        h_layout_ct = QHBoxLayout()
-        h_layout_ct.addWidget(self.ct_images_edit)
-        h_layout_ct.addWidget(self.btn_ct_images_browse)
-        self.lbl_ct_folder = QLabel()
-        general_form.addRow(self.lbl_ct_folder, h_layout_ct)
-
-        # App Settings Dir
-        self.app_data_edit = QLineEdit(get_app_data_dir())
-        self.app_data_edit.setReadOnly(True)
-        self.app_data_edit.setStyleSheet(
-            "QLineEdit { background-color: #1e1e1e; color: #888888; border: 1px solid #2d2d2d; padding: 4px; border-radius: 4px; }"
-        )
-        self.btn_app_data_open = QPushButton()
-        self.btn_app_data_open.clicked.connect(self.open_app_data_folder)
-        h_layout_app = QHBoxLayout()
-        h_layout_app.addWidget(self.app_data_edit)
-        h_layout_app.addWidget(self.btn_app_data_open)
-        self.lbl_settings_folder = QLabel()
-        general_form.addRow(self.lbl_settings_folder, h_layout_app)
-
-        # Разделитель
-        line_ct = QFrame()
-        line_ct.setFrameShape(QFrame.Shape.HLine)
-        line_ct.setFrameShadow(QFrame.Shadow.Sunken)
-        line_ct.setStyleSheet("background-color: #2d2d2d; margin-top: 10px; margin-bottom: 10px;")
-        general_form.addRow(line_ct)
-
-        # Автоудаление дубликатов структур
-        self.cleanup_str_cb = ToggleSwitch()
-        self.cleanup_str_cb.setChecked(self.config.get('cleanup_structures_enabled', 'False').lower() == 'true')
-        self.lbl_cleanup_str = QLabel()
-        general_form.addRow(self.lbl_cleanup_str, self.cleanup_str_cb)
-
-        # Отображение количества исследований на вкладках
-        self.show_study_counts_cb = ToggleSwitch()
-        self.show_study_counts_cb.setChecked(self.config.get('show_study_counts', 'True').lower() == 'true')
-        self.lbl_show_study_counts = QLabel()
-        general_form.addRow(self.lbl_show_study_counts, self.show_study_counts_cb)
-
-        # Fix Patient ID
-        self.fix_patient_id_cb = ToggleSwitch()
-        self.fix_patient_id_cb.setChecked(self.config.get('fix_patient_id_enabled', 'False').lower() == 'true')
-        self.lbl_fix_id = QLabel()
-        general_form.addRow(self.lbl_fix_id, self.fix_patient_id_cb)
-
-        # ID prefixes field
-        self.id_prefixes_edit = QLineEdit(self.config.get('id_prefixes', 'CT_'))
-        self.id_prefixes_edit.setStyleSheet(
-            "QLineEdit { background-color: #1e1e1e; color: #ffffff; border: 1px solid #2d2d2d; padding: 4px; border-radius: 4px; }"
-            "QLineEdit:disabled { background-color: #141414; color: #808080; border: 1px solid #1a1a1a; }"
-        )
-        self.lbl_id_prefixes = QLabel()
-        general_form.addRow(self.lbl_id_prefixes, self.id_prefixes_edit)
-
-        # Rename Study Folder
-        self.rename_study_folder_cb = ToggleSwitch()
-        self.rename_study_folder_cb.setChecked(self.config.get('rename_study_folder_enabled', 'False').lower() == 'true')
-        self.lbl_rename_folder = QLabel()
-        general_form.addRow(self.lbl_rename_folder, self.rename_study_folder_cb)
-
-        # Rename Study Folder Mode
-        self.rename_study_folder_mode_combo = QComboBox()
-        self.lbl_rename_folder_mode = QLabel()
-        general_form.addRow(self.lbl_rename_folder_mode, self.rename_study_folder_mode_combo)
-
-        # Разделитель под префиксами
-        line_updates = QFrame()
-        line_updates.setFrameShape(QFrame.Shape.HLine)
-        line_updates.setFrameShadow(QFrame.Shadow.Sunken)
-        line_updates.setStyleSheet("background-color: #2d2d2d; margin-top: 15px; margin-bottom: 10px;")
-        general_form.addRow(line_updates)
-
-        # Контейнер для проверки обновлений и свитча
-        updates_layout = QHBoxLayout()
-        updates_layout.setContentsMargins(0, 5, 0, 5)
-        updates_layout.setSpacing(10)
-        
-        self.check_updates_cb = ToggleSwitch()
-        self.check_updates_cb.setChecked(self.config.get('check_updates_at_startup', 'on').lower() == 'on')
-        
-        self.btn_check_updates = QPushButton()
-        self.btn_check_updates.setFixedHeight(30)
-        self.btn_check_updates.setMinimumWidth(180)
-        self.btn_check_updates.clicked.connect(self.manual_check_updates)
-        
-        updates_layout.addWidget(self.check_updates_cb)
-        updates_layout.addStretch()
-        updates_layout.addWidget(self.btn_check_updates)
-        general_form.addRow(updates_layout)
-        
-        general_layout.addLayout(general_form)
-        general_layout.addStretch()
+        # 1. Вкладка General & Scanning
+        general_widget = build_general_tab(self)
         self.stacked_widget.addWidget(general_widget)
         
         # 2. Вкладка Archive
-        archive_widget = QWidget()
-        archive_layout = QVBoxLayout(archive_widget)
-        archive_form = QFormLayout()
-        
-        # Включить вкладку архива
-        self.show_tab_archive_cb = ToggleSwitch()
-        self.show_tab_archive_cb.setChecked(self.config.get('show_tab_archive', 'True').lower() == 'true')
-        self.lbl_show_tab_archive = QLabel()
-        archive_form.addRow(self.lbl_show_tab_archive, self.show_tab_archive_cb)
-
-        # Разделитель после мастер-свича архива
-        line_archive = QFrame()
-        line_archive.setFrameShape(QFrame.Shape.HLine)
-        line_archive.setFrameShadow(QFrame.Shadow.Sunken)
-        line_archive.setStyleSheet("background-color: #2d2d2d; margin-top: 6px; margin-bottom: 6px;")
-        archive_form.addRow(line_archive)
-
-        # Archive Dir
-        self.archive_edit = QLineEdit(self.config['archive_dir'])
-        self.btn_archive_browse = QPushButton()
-        self.btn_archive_browse.clicked.connect(lambda: self.browse_folder(self.archive_edit, tr_ui("settings_archive_dir").rstrip(":")))
-        h_layout2 = QHBoxLayout()
-        h_layout2.addWidget(self.archive_edit)
-        h_layout2.addWidget(self.btn_archive_browse)
-        self.lbl_archive_dir = QLabel()
-        archive_form.addRow(self.lbl_archive_dir, h_layout2)
-        
-        # Archive Slice (Max visible rows)
-        self.archive_slice_spin = QSpinBox()
-        self.archive_slice_spin.setRange(0, 1000)
-        self.archive_slice_spin.setValue(self.config['archive_slice'])
-        self.lbl_archive_slice = QLabel()
-        archive_form.addRow(self.lbl_archive_slice, self.archive_slice_spin)
-
-        # Автоматическое архивирование (свич и количество дней в одной строке)
-        self.archive_enabled_cb = ToggleSwitch()
-        self.archive_enabled_cb.setChecked(self.config.get('archive_enabled', 'False').lower() == 'true')
-        
-        self.archive_days_spin = QSpinBox()
-        self.archive_days_spin.setRange(1, 365)
-        self.archive_days_spin.setValue(int(self.config.get('archive_days', 3)))
-        self.archive_days_spin.setFixedWidth(60)
-        self.archive_days_spin.setStyleSheet(
-            "QSpinBox { background-color: #1e1e1e; color: #ffffff; border: 1px solid #2d2d2d; padding: 2px; border-radius: 4px; }"
-            "QSpinBox:disabled { background-color: #141414; color: #666666; border: 1px solid #1c1c1c; }"
-        )
-
-        self.archive_label_through = QLabel(tr_ui("lbl_archive_through"))
-        self.archive_label_through.setStyleSheet(
-            "QLabel { color: #aaaaaa; }"
-            "QLabel:disabled { color: #444444; }"
-        )
-        self.archive_label_days = QLabel(tr_ui("lbl_archive_days"))
-        self.archive_label_days.setStyleSheet(
-            "QLabel { color: #aaaaaa; }"
-            "QLabel:disabled { color: #444444; }"
-        )
-
-        archive_row_layout = QHBoxLayout()
-        archive_row_layout.addWidget(self.archive_enabled_cb)
-        archive_row_layout.addStretch()
-        archive_row_layout.addWidget(self.archive_label_through)
-        archive_row_layout.addSpacing(8)
-        archive_row_layout.addWidget(self.archive_days_spin)
-        archive_row_layout.addWidget(self.archive_label_days)
-
-        self.lbl_auto_archive_row = QLabel()
-        archive_form.addRow(self.lbl_auto_archive_row, archive_row_layout)
-
-        # Автоочистка архива (свич и количество дней в одной строке)
-        self.archive_cleanup_enabled_cb = ToggleSwitch()
-        self.archive_cleanup_enabled_cb.setChecked(self.config.get('archive_cleanup_enabled', 'False').lower() == 'true')
-        
-        self.archive_cleanup_days_spin = QSpinBox()
-        self.archive_cleanup_days_spin.setRange(1, 365)
-        self.archive_cleanup_days_spin.setValue(int(self.config.get('archive_cleanup_days', 30)))
-        self.archive_cleanup_days_spin.setFixedWidth(60)
-        self.archive_cleanup_days_spin.setStyleSheet(
-            "QSpinBox { background-color: #1e1e1e; color: #ffffff; border: 1px solid #2d2d2d; padding: 2px; border-radius: 4px; }"
-            "QSpinBox:disabled { background-color: #141414; color: #666666; border: 1px solid #1c1c1c; }"
-        )
-
-        self.cleanup_label_through = QLabel(tr_ui("lbl_archive_through"))
-        self.cleanup_label_through.setStyleSheet(
-            "QLabel { color: #aaaaaa; }"
-            "QLabel:disabled { color: #444444; }"
-        )
-        self.cleanup_label_days = QLabel(tr_ui("lbl_archive_days"))
-        self.cleanup_label_days.setStyleSheet(
-            "QLabel { color: #aaaaaa; }"
-            "QLabel:disabled { color: #444444; }"
-        )
-
-        cleanup_row_layout = QHBoxLayout()
-        cleanup_row_layout.addWidget(self.archive_cleanup_enabled_cb)
-        cleanup_row_layout.addStretch()
-        cleanup_row_layout.addWidget(self.cleanup_label_through)
-        cleanup_row_layout.addSpacing(8)
-        cleanup_row_layout.addWidget(self.archive_cleanup_days_spin)
-        cleanup_row_layout.addWidget(self.cleanup_label_days)
-
-        self.lbl_auto_cleanup_row = QLabel()
-        archive_form.addRow(self.lbl_auto_cleanup_row, cleanup_row_layout)
-        
-        archive_layout.addLayout(archive_form)
-        archive_layout.addStretch()
+        archive_widget = build_archive_tab(self)
         self.stacked_widget.addWidget(archive_widget)
         
-        # 3. Вкладка UI Settings
-        ui_widget = QWidget()
-        ui_layout = QVBoxLayout(ui_widget)
-        ui_form = QFormLayout()
-        
-        # Язык интерфейса
-        self.interface_lang_switch = LanguageSwitch(self, command=self.on_interface_lang_changed, current_lang=self.config.get('interface_lang', 'en'))
-        self.lbl_interface_lang = QLabel()
-        ui_form.addRow(self.lbl_interface_lang, self.interface_lang_switch)
-        
-        # Язык лога
-        self.log_lang_switch = LanguageSwitch(self, command=self.on_log_lang_changed, current_lang=self.config.get('log_lang', 'en'))
-        self.lbl_log_lang = QLabel()
-        ui_form.addRow(self.lbl_log_lang, self.log_lang_switch)
-
-        # Разделитель под языками
-        lang_line = QFrame()
-        lang_line.setFrameShape(QFrame.Shape.HLine)
-        lang_line.setFrameShadow(QFrame.Shadow.Sunken)
-        lang_line.setStyleSheet("background-color: #2d2d2d; margin-top: 10px; margin-bottom: 10px;")
-        ui_form.addRow(lang_line)
-
-        # Patient Font Size
-        self.patient_font_spin = QSpinBox()
-        self.patient_font_spin.setRange(8, 36)
-        self.patient_font_spin.setValue(self.config.get('patient_font_size', 16))
-        self.lbl_patient_font = QLabel()
-        ui_form.addRow(self.lbl_patient_font, self.patient_font_spin)
-        
-        # Patient Font Weight
-        self.patient_weight_combo = QComboBox()
-        self.patient_weight_combo.addItems(["Regular", "Semibold", "Bold"])
-        self.patient_weight_combo.setCurrentText(self.config.get('patient_weight', 'Semibold'))
-        self.lbl_patient_weight = QLabel()
-        ui_form.addRow(self.lbl_patient_weight, self.patient_weight_combo)
-        
-        # Font size (logs)
-        self.font_size_spin = QSpinBox()
-        self.font_size_spin.setRange(8, 24)
-        self.font_size_spin.setValue(self.config['log_font_size'])
-        self.lbl_log_font = QLabel()
-        ui_form.addRow(self.lbl_log_font, self.font_size_spin)
-        
-        # Разделитель
-        ui_line = QFrame()
-        ui_line.setFrameShape(QFrame.Shape.HLine)
-        ui_line.setFrameShadow(QFrame.Shadow.Sunken)
-        ui_line.setStyleSheet("background-color: #2d2d2d; margin-top: 10px; margin-bottom: 10px;")
-        ui_form.addRow(ui_line)
-        
-        # Основной свич подсветки
-        self.highlighting_cb = ToggleSwitch()
-        self.highlighting_cb.setChecked(self.config.get('highlighting_enabled', 'False').lower() == 'true')
-        self.lbl_highlighting = QLabel()
-        ui_form.addRow(self.lbl_highlighting, self.highlighting_cb)
-        
-        self.lbl_highlight_new = QLabel()
-        self.lbl_highlight_new.setStyleSheet("QLabel { padding-left: 30px; }")
-        self.highlight_new_cb = ToggleSwitch()
-        self.highlight_new_cb.setChecked(self.config.get('highlight_new_enabled', 'False').lower() == 'true')
-        ui_form.addRow(self.lbl_highlight_new, self.highlight_new_cb)
-        
-        self.lbl_highlight_today = QLabel()
-        self.lbl_highlight_today.setStyleSheet("QLabel { padding-left: 30px; }")
-        self.highlight_today_cb = ToggleSwitch()
-        self.highlight_today_cb.setChecked(self.config.get('highlight_today_enabled', 'False').lower() == 'true')
-        ui_form.addRow(self.lbl_highlight_today, self.highlight_today_cb)
-        
-        self.lbl_highlight_no_str = QLabel()
-        self.lbl_highlight_no_str.setStyleSheet("QLabel { padding-left: 30px; }")
-        self.highlight_no_str_cb = ToggleSwitch()
-        self.highlight_no_str_cb.setChecked(self.config.get('highlight_no_str_enabled', 'False').lower() == 'true')
-        ui_form.addRow(self.lbl_highlight_no_str, self.highlight_no_str_cb)
-        
-        self.lbl_highlight_no_slices = QLabel()
-        self.lbl_highlight_no_slices.setStyleSheet("QLabel { padding-left: 30px; }")
-        self.highlight_no_slices_cb = ToggleSwitch()
-        self.highlight_no_slices_cb.setChecked(self.config.get('highlight_no_slices_enabled', 'False').lower() == 'true')
-        ui_form.addRow(self.lbl_highlight_no_slices, self.highlight_no_slices_cb)
-        
-        ui_layout.addLayout(ui_form)
-        ui_layout.addStretch()
+        # 3. Вкладка UI & Appearance
+        ui_widget = build_ui_tab(self)
         self.stacked_widget.addWidget(ui_widget)
         
-        # 4. Вкладка Notifications
-        notifications_widget = QWidget()
-        notifications_layout = QVBoxLayout(notifications_widget)
-        notifications_form = QFormLayout()
-
-        # Глобальный мастер-свич "Оповещения"
-        self.notifications_enabled_cb = ToggleSwitch()
-        self.notifications_enabled_cb.setChecked(self.config.get('notifications_enabled', 'False').lower() == 'true')
-        self.lbl_notifications_enabled = QLabel()
-        notifications_form.addRow(self.lbl_notifications_enabled, self.notifications_enabled_cb)
-
-        # Разделитель после мастер-свича
-        line_master = QFrame()
-        line_master.setFrameShape(QFrame.Shape.HLine)
-        line_master.setFrameShadow(QFrame.Shadow.Sunken)
-        line_master.setStyleSheet("background-color: #2d2d2d; margin-top: 10px; margin-bottom: 10px;")
-        notifications_form.addRow(line_master)
-
-        # РАЗДЕЛ: КТ-уведомления
-        self.lbl_ct_section = QLabel()
-        self.lbl_ct_section.setStyleSheet("font-weight: bold; font-size: 14px; color: #1f538d; margin-top: 5px; margin-bottom: 5px;")
-        notifications_form.addRow(self.lbl_ct_section)
-
-        # КТ Оповещения Windows
-        self.ct_toast_cb = ToggleSwitch()
-        self.ct_toast_cb.setChecked(self.config.get('ct_notification_toast_enabled', 'True').lower() == 'true')
-        self.lbl_ct_toast = QLabel()
-        notifications_form.addRow(self.lbl_ct_toast, self.ct_toast_cb)
-
-        # КТ Длительность показа
-        self.ct_toast_duration_combo = QComboBox()
-        self.lbl_ct_toast_duration = QLabel()
-        notifications_form.addRow(self.lbl_ct_toast_duration, self.ct_toast_duration_combo)
-
-        # КТ Расположение на экране
-        self.ct_toast_position_combo = QComboBox()
-        self.lbl_ct_toast_position = QLabel()
-        notifications_form.addRow(self.lbl_ct_toast_position, self.ct_toast_position_combo)
-
-        # КТ Звуковые оповещения
-        self.ct_sound_cb = ToggleSwitch()
-        self.ct_sound_cb.setChecked(self.config.get('ct_notification_sound_enabled', 'False').lower() == 'true')
-        self.lbl_ct_sound_enabled = QLabel()
-        notifications_form.addRow(self.lbl_ct_sound_enabled, self.ct_sound_cb)
-
-        # Селектор звука КТ
-        self.ct_sound_combo = QComboBox()
-        self.lbl_ct_sound = QLabel()
-        notifications_form.addRow(self.lbl_ct_sound, self.ct_sound_combo)
-
-        slider_qss = """
-        QSlider::groove:horizontal {
-            border: 1px solid #3d3d3d;
-            height: 6px;
-            background: #1a1a1a;
-            margin: 0px;
-            border-radius: 3px;
-        }
-        QSlider::sub-page:horizontal {
-            background: #1f538d;
-            border-radius: 3px;
-        }
-        QSlider::add-page:horizontal {
-            background: #2b2b2b;
-            border-radius: 3px;
-        }
-        QSlider::handle:horizontal {
-            background: #3a8ee6;
-            border: 1px solid #1f538d;
-            width: 14px;
-            height: 14px;
-            margin: -4px 0;
-            border-radius: 7px;
-        }
-        QSlider::handle:horizontal:hover {
-            background: #52a5ff;
-            border: 1px solid #3a8ee6;
-        }
-        QSlider::handle:horizontal:disabled {
-            background: #444444;
-            border: 1px solid #333333;
-        }
-        """
-
-        # Громкость уведомлений КТ
-        self.ct_volume_slider = QSlider(Qt.Orientation.Horizontal)
-        self.ct_volume_slider.setStyleSheet(slider_qss)
-        self.ct_volume_slider.setRange(0, 100)
-        ct_vol_val = int(self.config.get('ct_notification_volume', 100))
-        self.ct_volume_slider.setValue(ct_vol_val)
-        self.ct_volume_label_val = QLabel(f"{ct_vol_val}%")
-        self.ct_volume_label_val.setFixedWidth(40)
-        self.ct_volume_label_val.setStyleSheet("font-weight: bold; color: #3a8ee6;")
-        ct_vol_layout = QHBoxLayout()
-        ct_vol_layout.addWidget(self.ct_volume_slider)
-        ct_vol_layout.addWidget(self.ct_volume_label_val)
-        self.ct_volume_slider.valueChanged.connect(lambda v: self.ct_volume_label_val.setText(f"{v}%"))
-        self.ct_volume_slider.sliderReleased.connect(lambda: self.play_sound_preview(self.ct_sound_combo))
-        self.lbl_ct_volume = QLabel(tr_ui("settings_ct_volume_label"))
-        notifications_form.addRow(self.lbl_ct_volume, ct_vol_layout)
-
-        # Текст голосового оповещения КТ
-        self.ct_voice_text_edit = QLineEdit(self.config.get('ct_voice_text', ''))
-        self.lbl_ct_voice_text = QLabel()
-        notifications_form.addRow(self.lbl_ct_voice_text, self.ct_voice_text_edit)
-
-        # Заполняем ct_sound_combo
-        self._populate_sound_combo(self.ct_sound_combo, self.config.get('ct_notification_sound', 'default'))
-        self.ct_sound_combo.activated.connect(lambda: self.play_sound_preview(self.ct_sound_combo))
-
-        # Разделитель после КТ
-        line_notif = QFrame()
-        line_notif.setFrameShape(QFrame.Shape.HLine)
-        line_notif.setFrameShadow(QFrame.Shadow.Sunken)
-        line_notif.setStyleSheet("background-color: #2d2d2d; margin-top: 10px; margin-bottom: 10px;")
-        notifications_form.addRow(line_notif)
-
-        # РАЗДЕЛ: PACS-уведомления
-        self.lbl_pacs_section = QLabel()
-        self.lbl_pacs_section.setStyleSheet("font-weight: bold; font-size: 14px; color: #1f538d; margin-top: 5px; margin-bottom: 5px;")
-        notifications_form.addRow(self.lbl_pacs_section)
-
-        # PACS Оповещения Windows
-        self.pacs_toast_cb = ToggleSwitch()
-        self.pacs_toast_cb.setChecked(self.config.get('pacs_notification_toast_enabled', 'False').lower() == 'true')
-        self.lbl_pacs_toast = QLabel()
-        notifications_form.addRow(self.lbl_pacs_toast, self.pacs_toast_cb)
-
-        # PACS Длительность показа
-        self.pacs_toast_duration_combo = QComboBox()
-        self.lbl_pacs_toast_duration = QLabel()
-        notifications_form.addRow(self.lbl_pacs_toast_duration, self.pacs_toast_duration_combo)
-
-        # PACS Расположение на экране
-        self.pacs_toast_position_combo = QComboBox()
-        self.lbl_pacs_toast_position = QLabel()
-        notifications_form.addRow(self.lbl_pacs_toast_position, self.pacs_toast_position_combo)
-
-        # PACS Звуковые оповещения
-        self.pacs_sound_cb = ToggleSwitch()
-        self.pacs_sound_cb.setChecked(self.config.get('pacs_notification_sound_enabled', 'False').lower() == 'true')
-        self.lbl_pacs_sound_enabled = QLabel()
-        notifications_form.addRow(self.lbl_pacs_sound_enabled, self.pacs_sound_cb)
-
-        # Селектор звука PACS
-        self.pacs_sound_combo = QComboBox()
-        self.lbl_pacs_sound = QLabel()
-        notifications_form.addRow(self.lbl_pacs_sound, self.pacs_sound_combo)
-
-        # Громкость уведомлений PACS
-        self.pacs_volume_slider = QSlider(Qt.Orientation.Horizontal)
-        self.pacs_volume_slider.setStyleSheet(slider_qss)
-        self.pacs_volume_slider.setRange(0, 100)
-        pacs_vol_val = int(self.config.get('pacs_notification_volume', 100))
-        self.pacs_volume_slider.setValue(pacs_vol_val)
-        self.pacs_volume_label_val = QLabel(f"{pacs_vol_val}%")
-        self.pacs_volume_label_val.setFixedWidth(40)
-        self.pacs_volume_label_val.setStyleSheet("font-weight: bold; color: #3a8ee6;")
-        pacs_vol_layout = QHBoxLayout()
-        pacs_vol_layout.addWidget(self.pacs_volume_slider)
-        pacs_vol_layout.addWidget(self.pacs_volume_label_val)
-        self.pacs_volume_slider.valueChanged.connect(lambda v: self.pacs_volume_label_val.setText(f"{v}%"))
-        self.pacs_volume_slider.sliderReleased.connect(lambda: self.play_sound_preview(self.pacs_sound_combo))
-        self.lbl_pacs_volume = QLabel(tr_ui("settings_pacs_volume_label"))
-        notifications_form.addRow(self.lbl_pacs_volume, pacs_vol_layout)
-
-        # Текст голосового оповещения PACS
-        self.pacs_voice_text_edit = QLineEdit(self.config.get('pacs_voice_text', ''))
-        self.lbl_pacs_voice_text = QLabel()
-        notifications_form.addRow(self.lbl_pacs_voice_text, self.pacs_voice_text_edit)
-
-        # Заполняем pacs_sound_combo
-        self._populate_sound_combo(self.pacs_sound_combo, self.config.get('pacs_notification_sound', 'default'))
-        self.pacs_sound_combo.activated.connect(lambda: self.play_sound_preview(self.pacs_sound_combo))
-
-        # Разблокировка голосов Windows OneCore
-        self.btn_unlock_voices = QPushButton()
-        self.btn_unlock_voices.setFixedHeight(32)
-        self.btn_unlock_voices.clicked.connect(self.unlock_system_voices)
-        
-        if are_onecore_voices_locked():
-            notifications_form.addRow(self.btn_unlock_voices)
-        else:
-            self.btn_unlock_voices.setVisible(False)
-
-        # Интерактивная логика связывания переключателей
-        def update_notification_states():
-            is_master_on = self.notifications_enabled_cb.isChecked()
-            ct_toast_on = is_master_on and self.ct_toast_cb.isChecked()
-            ct_sound_on = is_master_on and self.ct_sound_cb.isChecked()
-            pacs_toast_on = is_master_on and self.pacs_toast_cb.isChecked()
-            pacs_sound_on = is_master_on and self.pacs_sound_cb.isChecked()
-            
-            # Активируем/деактивируем КТ виджеты
-            self.ct_toast_cb.setEnabled(is_master_on)
-            self.lbl_ct_toast.setEnabled(is_master_on)
-            self.ct_toast_duration_combo.setEnabled(ct_toast_on)
-            self.lbl_ct_toast_duration.setEnabled(ct_toast_on)
-            self.ct_toast_position_combo.setEnabled(ct_toast_on)
-            self.lbl_ct_toast_position.setEnabled(ct_toast_on)
-
-            self.ct_sound_cb.setEnabled(is_master_on)
-            self.lbl_ct_sound_enabled.setEnabled(is_master_on)
-            self.ct_sound_combo.setEnabled(ct_sound_on)
-            self.lbl_ct_sound.setEnabled(ct_sound_on)
-            self.ct_volume_slider.setEnabled(ct_sound_on)
-            self.lbl_ct_volume.setEnabled(ct_sound_on)
-            self.ct_volume_label_val.setEnabled(ct_sound_on)
-            self.ct_voice_text_edit.setEnabled(ct_sound_on)
-            self.lbl_ct_voice_text.setEnabled(ct_sound_on)
-
-            # Активируем/деактивируем PACS виджеты
-            self.pacs_toast_cb.setEnabled(is_master_on)
-            self.lbl_pacs_toast.setEnabled(is_master_on)
-            self.pacs_toast_duration_combo.setEnabled(pacs_toast_on)
-            self.lbl_pacs_toast_duration.setEnabled(pacs_toast_on)
-            self.pacs_toast_position_combo.setEnabled(pacs_toast_on)
-            self.lbl_pacs_toast_position.setEnabled(pacs_toast_on)
-
-            self.pacs_sound_cb.setEnabled(is_master_on)
-            self.lbl_pacs_sound_enabled.setEnabled(is_master_on)
-            self.pacs_sound_combo.setEnabled(pacs_sound_on)
-            self.lbl_pacs_sound.setEnabled(pacs_sound_on)
-            self.pacs_volume_slider.setEnabled(pacs_sound_on)
-            self.lbl_pacs_volume.setEnabled(pacs_sound_on)
-            self.pacs_volume_label_val.setEnabled(pacs_sound_on)
-            self.pacs_voice_text_edit.setEnabled(pacs_sound_on)
-            self.lbl_pacs_voice_text.setEnabled(pacs_sound_on)
-
-        def on_master_toggled(checked):
-            if not checked:
-                self.ct_toast_cb.blockSignals(True)
-                self.ct_sound_cb.blockSignals(True)
-                self.pacs_toast_cb.blockSignals(True)
-                self.pacs_sound_cb.blockSignals(True)
-                
-                self.ct_toast_cb.setChecked(False)
-                self.pacs_toast_cb.setChecked(False)
-                self.ct_sound_cb.setChecked(False)
-                self.pacs_sound_cb.setChecked(False)
-                
-                self.ct_toast_cb.blockSignals(False)
-                self.ct_sound_cb.blockSignals(False)
-                self.pacs_toast_cb.blockSignals(False)
-                self.pacs_sound_cb.blockSignals(False)
-                
-            update_notification_states()
-            self.on_setting_changed()
-
-        def on_sub_toggled(checked):
-            update_notification_states()
-
-        self.notifications_enabled_cb.toggled.connect(on_master_toggled)
-        self.ct_toast_cb.toggled.connect(on_sub_toggled)
-        self.ct_sound_cb.toggled.connect(on_sub_toggled)
-        self.pacs_toast_cb.toggled.connect(on_sub_toggled)
-        self.pacs_sound_cb.toggled.connect(on_sub_toggled)
-        
-        # Начальная инициализация
-        update_notification_states()
-
-        notifications_layout.addLayout(notifications_form)
-        notifications_layout.addStretch()
+        # 4. Вкладка Notifications & Sound
+        notifications_widget = build_notifications_tab(self)
         self.stacked_widget.addWidget(notifications_widget)
         
         # 5. Вкладка PACS
-        pacs_widget = QWidget()
-        pacs_layout = QVBoxLayout(pacs_widget)
-        pacs_layout.setSpacing(12)
-        
-        pacs_form = QFormLayout()
-        pacs_form.setContentsMargins(0, 0, 0, 0)
-        
-        # Включить вкладку PACS
-        self.show_tab_pacs_cb = ToggleSwitch()
-        self.show_tab_pacs_cb.setChecked(self.config.get('show_tab_pacs', 'True').lower() == 'true')
-        self.lbl_show_tab_pacs = QLabel()
-        pacs_form.addRow(self.lbl_show_tab_pacs, self.show_tab_pacs_cb)
-
-        # Разделитель после мастер-свича PACS
-        line_pacs = QFrame()
-        line_pacs.setFrameShape(QFrame.Shape.HLine)
-        line_pacs.setFrameShadow(QFrame.Shadow.Sunken)
-        line_pacs.setStyleSheet("background-color: #2d2d2d; margin-top: 6px; margin-bottom: 6px;")
-        pacs_form.addRow(line_pacs)
-
-        # Выбор сервера PACS
-        server_select_layout = QHBoxLayout()
-        server_select_layout.setSpacing(10)
-        
-        self.settings_server_combo = QComboBox()
-        self.settings_server_combo.setFixedHeight(30)
-        
-        self.add_server_btn = QPushButton("Add")
-        self.add_server_btn.setFixedWidth(60)
-        self.add_server_btn.setFixedHeight(30)
-        self.add_server_btn.clicked.connect(self.add_server_action)
-        
-        self.del_server_btn = QPushButton("Del")
-        self.del_server_btn.setFixedWidth(60)
-        self.del_server_btn.setFixedHeight(30)
-        self.del_server_btn.clicked.connect(self.del_server_action)
-
-        self.rename_server_btn = QPushButton("Rename")
-        self.rename_server_btn.setFixedWidth(80)
-        self.rename_server_btn.setFixedHeight(30)
-        self.rename_server_btn.clicked.connect(self.rename_server_action)
-
-        server_select_layout.addWidget(self.settings_server_combo, stretch=1)
-        server_select_layout.addWidget(self.add_server_btn)
-        server_select_layout.addWidget(self.del_server_btn)
-        server_select_layout.addWidget(self.rename_server_btn)
-        
-        self.lbl_pacs_server = QLabel()
-        pacs_form.addRow(self.lbl_pacs_server, server_select_layout)
-        
-        # PACS Scan Interval (sec)
-        self.pacs_scan_spin = QSpinBox()
-        self.pacs_scan_spin.setRange(1, 300)
-        self.pacs_scan_spin.setValue(self.config['pacs_scan_time'] // 1000)
-        self.lbl_standby_interval = QLabel()
-        pacs_form.addRow(self.lbl_standby_interval, self.pacs_scan_spin)
-
-        # IP PACS and Port on same row
-        ip_port_layout = QHBoxLayout()
-        ip_port_layout.setSpacing(10)
-        
-        self.pacs_ip_edit = QLineEdit(self.config.get('pacs_ip', '127.0.0.1'))
-        
-        self.lbl_port = QLabel("Port:")
-        self.pacs_port_spin = QSpinBox()
-        self.pacs_port_spin.setRange(1, 65535)
-        self.pacs_port_spin.setValue(int(self.config.get('pacs_port', 11112)))
-        
-        ip_port_layout.addWidget(self.pacs_ip_edit, stretch=1)
-        ip_port_layout.addWidget(self.lbl_port)
-        ip_port_layout.addWidget(self.pacs_port_spin)
-        
-        self.lbl_pacs_ip = QLabel()
-        pacs_form.addRow(self.lbl_pacs_ip, ip_port_layout)
-
-        # AET Remote
-        self.pacs_called_aet_edit = QLineEdit(self.config.get('pacs_called_aet', 'ANY-SCP'))
-        self.pacs_called_aet_edit.setMaxLength(16)
-        self.lbl_pacs_called_aet = QLabel()
-        pacs_form.addRow(self.lbl_pacs_called_aet, self.pacs_called_aet_edit)
-
-        # AET Local
-        self.pacs_calling_aet_edit = QLineEdit(self.config.get('pacs_calling_aet', 'ECHOSCU'))
-        self.pacs_calling_aet_edit.setMaxLength(16)
-        self.lbl_pacs_calling_aet = QLabel()
-        pacs_form.addRow(self.lbl_pacs_calling_aet, self.pacs_calling_aet_edit)
-        
-        # DICOM SCP Server (Local Port)
-        self.pacs_local_port_spin = QSpinBox()
-        self.pacs_local_port_spin.setRange(1, 65535)
-        self.pacs_local_port_spin.setValue(int(self.config.get('pacs_local_port', 11112)))
-        self.pacs_local_port_spin.setToolTip(tr_ui("tooltip_dicom_scp_port"))
-        self.lbl_dicom_scp_port = QLabel(tr_ui("settings_dicom_scp_port_label"))
-        self.lbl_dicom_scp_port.setToolTip(tr_ui("tooltip_dicom_scp_port"))
-        pacs_form.addRow(self.lbl_dicom_scp_port, self.pacs_local_port_spin)
-        
-        pacs_layout.addLayout(pacs_form)
-
-        # Кнопка Ping
-        self.ping_btn = QPushButton("Ping")
-        self.ping_btn.setFixedHeight(30)
-        self.ping_btn.clicked.connect(self.ping_pacs_action)
-        
-        pacs_layout.addSpacing(10)
-        pacs_layout.addWidget(self.ping_btn)
-        
-        pacs_layout.addStretch()
+        pacs_widget = build_pacs_tab(self)
         self.stacked_widget.addWidget(pacs_widget)
 
         # Инициализация списка серверов
         self.populate_server_combo()
         self.settings_server_combo.currentIndexChanged.connect(self.on_settings_server_changed)
-
         
         # Подключаем сигналы переключения меню к QStackedWidget
         self.sidebar.currentRowChanged.connect(self.stacked_widget.setCurrentIndex)
@@ -1160,6 +284,7 @@ class SettingsDialog(QDialog):
         self.setup_dynamic_updates()
 
     def browse_folder(self, line_edit, title):
+        from PyQt6.QtWidgets import QFileDialog
         dir_path = QFileDialog.getExistingDirectory(self, title, line_edit.text())
         if dir_path:
             line_edit.setText(os.path.normpath(dir_path))
@@ -1432,7 +557,6 @@ class SettingsDialog(QDialog):
             MainWindow.instance.apply_settings_dynamic(self.config)
 
     def _populate_sound_combo(self, combo, current_val):
-        from core.locale_utils import tr_ui
         combo.blockSignals(True)
         combo.clear()
         combo.addItem(tr_ui("settings_sound_default"), "default")
@@ -1464,7 +588,6 @@ class SettingsDialog(QDialog):
         elif combo == getattr(self, 'pacs_sound_combo', None):
             vol = self.pacs_volume_slider.value()
 
-        from core.notifier import get_perceptual_volume
         vol_float, vol_int = get_perceptual_volume(vol)
         if vol_int <= 0:
             return
@@ -1478,7 +601,6 @@ class SettingsDialog(QDialog):
         }
         if sound_setting in sound_map:
             from core.config_utils import get_resource_path
-            from core.notifier import _play_wav
             wav_path = get_resource_path(sound_map[sound_setting])
             _play_wav(wav_path, volume=vol_float)
         elif sys.platform == "win32":
@@ -1489,18 +611,13 @@ class SettingsDialog(QDialog):
                 custom_text = self.ct_voice_text_edit.text().strip()
             elif combo == self.pacs_sound_combo:
                 custom_text = self.pacs_voice_text_edit.text().strip()
-            from core.notifier import preprocess_tts_text, speak_sapi_tts
             raw_text = custom_text if custom_text else default_text
             text_to_speak = preprocess_tts_text(raw_text)
             speak_sapi_tts(sound_setting, text_to_speak, vol_int)
 
     def unlock_system_voices(self):
         import subprocess
-        import sys
-        import os
         import tempfile
-        from PyQt6.QtWidgets import QMessageBox
-        from core.locale_utils import tr_ui
 
         ps_code = """
 $src = "HKLM:\\SOFTWARE\\Microsoft\\Speech_OneCore\\Voices\\Tokens"
@@ -1579,172 +696,13 @@ Copy-VoiceTokens $src $dst32
 
     def retranslate_ui(self):
         self.setWindowTitle(tr_ui("settings_title"))
-        
-        # Sidebar
         self.retranslate_sidebar()
         
-        # Labels in Form Layouts:
-        self.lbl_ct_folder.setText(tr_ui("settings_ct_images_folder"))
-        self.lbl_settings_folder.setText(tr_ui("settings_settings_folder"))
-        self.lbl_notifications_enabled.setText(tr_ui("settings_notifications_enabled"))
-        self.lbl_ct_section.setText(tr_ui("settings_ct_section_title"))
-        self.lbl_ct_toast.setText(tr_ui("settings_notifications_toast_enabled"))
-        self.lbl_ct_toast_duration.setText(tr_ui("settings_toast_duration_label"))
-        self.lbl_ct_toast_position.setText(tr_ui("settings_toast_position_label"))
-
-        # Populate ct_toast_duration_combo items
-        self.ct_toast_duration_combo.blockSignals(True)
-        cur_dur_ct = self.ct_toast_duration_combo.currentData()
-        if not cur_dur_ct:
-            cur_dur_ct = str(self.config.get('ct_toast_duration', self.config.get('toast_duration', '5')))
-        self.ct_toast_duration_combo.clear()
-        self.ct_toast_duration_combo.addItem(tr_ui("settings_toast_dur_3s"), "3")
-        self.ct_toast_duration_combo.addItem(tr_ui("settings_toast_dur_5s"), "5")
-        self.ct_toast_duration_combo.addItem(tr_ui("settings_toast_dur_8s"), "8")
-        self.ct_toast_duration_combo.addItem(tr_ui("settings_toast_dur_15s"), "15")
-        self.ct_toast_duration_combo.addItem(tr_ui("settings_toast_dur_manual"), "manual")
-        idx_dur_ct = self.ct_toast_duration_combo.findData(cur_dur_ct)
-        self.ct_toast_duration_combo.setCurrentIndex(idx_dur_ct if idx_dur_ct >= 0 else 1)
-        self.ct_toast_duration_combo.blockSignals(False)
-
-        # Populate ct_toast_position_combo items
-        self.ct_toast_position_combo.blockSignals(True)
-        cur_pos_ct = self.ct_toast_position_combo.currentData()
-        if not cur_pos_ct:
-            cur_pos_ct = str(self.config.get('ct_toast_position', self.config.get('toast_position', 'bottom_right')))
-        self.ct_toast_position_combo.clear()
-        self.ct_toast_position_combo.addItem(tr_ui("settings_toast_pos_bottom_right"), "bottom_right")
-        self.ct_toast_position_combo.addItem(tr_ui("settings_toast_pos_bottom_left"), "bottom_left")
-        self.ct_toast_position_combo.addItem(tr_ui("settings_toast_pos_top_right"), "top_right")
-        self.ct_toast_position_combo.addItem(tr_ui("settings_toast_pos_top_left"), "top_left")
-        idx_pos_ct = self.ct_toast_position_combo.findData(cur_pos_ct)
-        self.ct_toast_position_combo.setCurrentIndex(idx_pos_ct if idx_pos_ct >= 0 else 0)
-        self.ct_toast_position_combo.blockSignals(False)
-
-        self.lbl_ct_sound_enabled.setText(tr_ui("settings_notifications_sound_enabled"))
-        self.lbl_ct_sound.setText(tr_ui("settings_ct_sound_label"))
-        self.lbl_ct_voice_text.setText(tr_ui("settings_ct_voice_text_label"))
-        self.ct_voice_text_edit.setPlaceholderText(tr_ui("settings_ct_voice_text_placeholder"))
-        self.lbl_ct_voice_text.setToolTip(tr_ui("tooltip_voice_text_hint"))
-        self.ct_voice_text_edit.setToolTip(tr_ui("tooltip_voice_text_hint"))
-
-        # PACS Section Labels and Comboboxes
-        self.lbl_pacs_section.setText(tr_ui("settings_pacs_section_title"))
-        self.lbl_pacs_toast.setText(tr_ui("settings_notifications_toast_enabled"))
-        self.lbl_pacs_toast_duration.setText(tr_ui("settings_toast_duration_label"))
-        self.lbl_pacs_toast_position.setText(tr_ui("settings_toast_position_label"))
-
-        # Populate pacs_toast_duration_combo items
-        self.pacs_toast_duration_combo.blockSignals(True)
-        cur_dur_pacs = self.pacs_toast_duration_combo.currentData()
-        if not cur_dur_pacs:
-            cur_dur_pacs = str(self.config.get('pacs_toast_duration', self.config.get('toast_duration', '5')))
-        self.pacs_toast_duration_combo.clear()
-        self.pacs_toast_duration_combo.addItem(tr_ui("settings_toast_dur_3s"), "3")
-        self.pacs_toast_duration_combo.addItem(tr_ui("settings_toast_dur_5s"), "5")
-        self.pacs_toast_duration_combo.addItem(tr_ui("settings_toast_dur_8s"), "8")
-        self.pacs_toast_duration_combo.addItem(tr_ui("settings_toast_dur_15s"), "15")
-        self.pacs_toast_duration_combo.addItem(tr_ui("settings_toast_dur_manual"), "manual")
-        idx_dur_pacs = self.pacs_toast_duration_combo.findData(cur_dur_pacs)
-        self.pacs_toast_duration_combo.setCurrentIndex(idx_dur_pacs if idx_dur_pacs >= 0 else 1)
-        self.pacs_toast_duration_combo.blockSignals(False)
-
-        # Populate pacs_toast_position_combo items
-        self.pacs_toast_position_combo.blockSignals(True)
-        cur_pos_pacs = self.pacs_toast_position_combo.currentData()
-        if not cur_pos_pacs:
-            cur_pos_pacs = str(self.config.get('pacs_toast_position', self.config.get('toast_position', 'bottom_right')))
-        self.pacs_toast_position_combo.clear()
-        self.pacs_toast_position_combo.addItem(tr_ui("settings_toast_pos_bottom_right"), "bottom_right")
-        self.pacs_toast_position_combo.addItem(tr_ui("settings_toast_pos_bottom_left"), "bottom_left")
-        self.pacs_toast_position_combo.addItem(tr_ui("settings_toast_pos_top_right"), "top_right")
-        self.pacs_toast_position_combo.addItem(tr_ui("settings_toast_pos_top_left"), "top_left")
-        idx_pos_pacs = self.pacs_toast_position_combo.findData(cur_pos_pacs)
-        self.pacs_toast_position_combo.setCurrentIndex(idx_pos_pacs if idx_pos_pacs >= 0 else 0)
-        self.pacs_toast_position_combo.blockSignals(False)
-        self.lbl_pacs_toast.setText(tr_ui("settings_notifications_toast_enabled"))
-        self.lbl_pacs_sound_enabled.setText(tr_ui("settings_notifications_sound_enabled"))
-        self.lbl_pacs_sound.setText(tr_ui("settings_pacs_sound_label"))
-        self.lbl_pacs_voice_text.setText(tr_ui("settings_pacs_voice_text_label"))
-        self.pacs_voice_text_edit.setPlaceholderText(tr_ui("settings_pacs_voice_text_placeholder"))
-        self.lbl_pacs_voice_text.setToolTip(tr_ui("tooltip_voice_text_hint"))
-        self.pacs_voice_text_edit.setToolTip(tr_ui("tooltip_voice_text_hint"))
-        self.ct_sound_combo.setItemText(0, tr_ui("settings_sound_default"))
-        self.pacs_sound_combo.setItemText(0, tr_ui("settings_sound_default"))
-        self.btn_unlock_voices.setText(tr_ui("settings_btn_unlock_voices"))
-        self.lbl_cleanup_str.setText(tr_ui("settings_cleanup_str"))
-        self.lbl_show_study_counts.setText(tr_ui("settings_show_study_counts"))
-        self.lbl_show_study_counts.setToolTip(tr_ui("tooltip_show_study_counts"))
-        self.show_study_counts_cb.setToolTip(tr_ui("tooltip_show_study_counts"))
-        self.lbl_fix_id.setText(tr_ui("settings_fix_id_label"))
-        self.lbl_id_prefixes.setText(tr_ui("settings_id_prefixes_label"))
-        self.id_prefixes_edit.setPlaceholderText(tr_ui("settings_id_prefixes_placeholder"))
-        self.lbl_rename_folder.setText(tr_ui("settings_rename_folder_label"))
-        self.lbl_rename_folder_mode.setText(tr_ui("settings_rename_folder_mode_label"))
-        
-        # Populate rename folder mode combo
-        self.rename_study_folder_mode_combo.blockSignals(True)
-        current_idx = self.rename_study_folder_mode_combo.currentIndex()
-        if current_idx < 0:
-            current_mode = self.config.get('rename_study_folder_mode', 'id')
-            mode_map = {'id': 0, 'name': 1, 'name_id': 2, 'id_name': 3}
-            current_idx = mode_map.get(current_mode, 0)
-        self.rename_study_folder_mode_combo.clear()
-        self.rename_study_folder_mode_combo.addItem(tr_ui("settings_rename_folder_mode_id"))
-        self.rename_study_folder_mode_combo.addItem(tr_ui("settings_rename_folder_mode_name"))
-        self.rename_study_folder_mode_combo.addItem(tr_ui("settings_rename_folder_mode_name_id"))
-        self.rename_study_folder_mode_combo.addItem(tr_ui("settings_rename_folder_mode_id_name"))
-        self.rename_study_folder_mode_combo.setCurrentIndex(current_idx)
-        self.rename_study_folder_mode_combo.blockSignals(False)
-        
-        self.check_updates_cb.setText(tr_ui("settings_check_updates_toggle"))
-        self.btn_check_updates.setText(tr_ui("settings_check_updates_btn"))
-        
-        # Browse/open buttons in General tab
-        self.btn_ct_images_browse.setText(tr_ui("settings_browse"))
-        self.btn_app_data_open.setText(tr_ui("settings_open"))
-        
-        # Archive tab
-        self.lbl_show_tab_archive.setText(tr_ui("settings_show_tab_archive"))
-        self.lbl_show_tab_archive.setToolTip(tr_ui("tooltip_show_tab_archive"))
-        self.show_tab_archive_cb.setToolTip(tr_ui("tooltip_show_tab_archive"))
-        self.lbl_archive_dir.setText(tr_ui("settings_archive_dir"))
-        self.btn_archive_browse.setText(tr_ui("settings_browse"))
-        self.lbl_archive_slice.setText(tr_ui("settings_archive_slice"))
-        self.lbl_auto_archive_row.setText(tr_ui("settings_auto_archive_row"))
-        self.archive_label_through.setText(tr_ui("lbl_archive_through"))
-        self.archive_label_days.setText(tr_ui("lbl_archive_days"))
-        self.lbl_auto_cleanup_row.setText(tr_ui("settings_auto_cleanup_row"))
-        self.cleanup_label_through.setText(tr_ui("lbl_archive_through"))
-        self.cleanup_label_days.setText(tr_ui("lbl_archive_days"))
-        
-        # UI tab
-        self.lbl_interface_lang.setText(tr_ui("settings_interface_lang"))
-        self.lbl_log_lang.setText(tr_ui("settings_log_lang"))
-        self.lbl_patient_font.setText(tr_ui("settings_patient_font"))
-        self.lbl_patient_weight.setText(tr_ui("settings_patient_weight"))
-        self.lbl_log_font.setText(tr_ui("settings_log_font"))
-        self.lbl_highlighting.setText(tr_ui("settings_highlighting"))
-        self.lbl_highlight_new.setText(tr_ui("settings_highlight_new"))
-        self.lbl_highlight_today.setText(tr_ui("settings_highlight_today"))
-        self.lbl_highlight_no_str.setText(tr_ui("settings_highlight_no_str"))
-        self.lbl_highlight_no_slices.setText(tr_ui("settings_highlight_no_slices"))
-        
-        # PACS tab
-        self.lbl_show_tab_pacs.setText(tr_ui("settings_show_tab_pacs"))
-        self.lbl_show_tab_pacs.setToolTip(tr_ui("tooltip_show_tab_pacs"))
-        self.show_tab_pacs_cb.setToolTip(tr_ui("tooltip_show_tab_pacs"))
-        self.lbl_pacs_server.setText(tr_ui("settings_pacs_server_label"))
-        self.lbl_standby_interval.setText(tr_ui("settings_standby_interval"))
-        self.lbl_pacs_ip.setText(tr_ui("settings_pacs_ip"))
-        self.lbl_pacs_called_aet.setText(tr_ui("settings_pacs_called_aet"))
-        self.lbl_pacs_calling_aet.setText(tr_ui("settings_pacs_calling_aet"))
-        self.lbl_dicom_scp_port.setText(tr_ui("settings_dicom_scp_port_label"))
-        self.lbl_dicom_scp_port.setToolTip(tr_ui("tooltip_dicom_scp_port"))
-        self.pacs_local_port_spin.setToolTip(tr_ui("tooltip_dicom_scp_port"))
-        self.add_server_btn.setText(tr_ui("settings_btn_add"))
-        self.del_server_btn.setText(tr_ui("settings_btn_del"))
-        self.rename_server_btn.setText(tr_ui("settings_btn_rename"))
+        retranslate_general_tab(self)
+        retranslate_archive_tab(self)
+        retranslate_ui_tab(self)
+        retranslate_notifications_tab(self)
+        retranslate_pacs_tab(self)
         
         # Standard buttons Save/Cancel
         save_btn = self.button_box.button(QDialogButtonBox.StandardButton.Save)
@@ -1755,31 +713,6 @@ Copy-VoiceTokens $src $dst32
         if cancel_btn:
             cancel_btn.setText(tr_ui("btn_cancel"))
             cancel_btn.setToolTip(tr_ui("tooltip_settings_cancel"))
-
-        # Подсказки (tooltips)
-        self.btn_ct_images_browse.setToolTip(tr_ui("tooltip_settings_ct_browse"))
-        self.btn_app_data_open.setToolTip(tr_ui("tooltip_settings_app_data"))
-        self.btn_check_updates.setToolTip(tr_ui("tooltip_settings_check_updates"))
-        self.btn_archive_browse.setToolTip(tr_ui("tooltip_settings_archive_browse"))
-        self.add_server_btn.setToolTip(tr_ui("tooltip_settings_add_server"))
-        self.del_server_btn.setToolTip(tr_ui("tooltip_settings_del_server"))
-        self.rename_server_btn.setToolTip(tr_ui("tooltip_settings_rename_server"))
-        self.ping_btn.setToolTip(tr_ui("tooltip_settings_ping_server"))
-        
-        self.notifications_enabled_cb.setToolTip(tr_ui("tooltip_switch_notify"))
-        self.ct_toast_cb.setToolTip(tr_ui("tooltip_switch_notify"))
-        self.pacs_toast_cb.setToolTip(tr_ui("tooltip_switch_pacs_notify"))
-        self.cleanup_str_cb.setToolTip(tr_ui("tooltip_switch_cleanup_str"))
-        self.fix_patient_id_cb.setToolTip(tr_ui("tooltip_switch_fix_id"))
-        self.rename_study_folder_cb.setToolTip(tr_ui("tooltip_switch_rename_folder"))
-        self.check_updates_cb.setToolTip(tr_ui("tooltip_switch_check_updates"))
-        self.archive_enabled_cb.setToolTip(tr_ui("tooltip_switch_archive_enabled"))
-        self.archive_cleanup_enabled_cb.setToolTip(tr_ui("tooltip_switch_archive_cleanup"))
-        self.highlighting_cb.setToolTip(tr_ui("tooltip_switch_highlighting"))
-        self.highlight_new_cb.setToolTip(tr_ui("tooltip_switch_highlight_new"))
-        self.highlight_today_cb.setToolTip(tr_ui("tooltip_switch_highlight_today"))
-        self.highlight_no_str_cb.setToolTip(tr_ui("tooltip_switch_highlight_no_str"))
-        self.highlight_no_slices_cb.setToolTip(tr_ui("tooltip_switch_highlight_no_slices"))
 
     def ping_pacs_action(self):
         pacs_ip = self.pacs_ip_edit.text().strip()
@@ -1839,10 +772,7 @@ Copy-VoiceTokens $src $dst32
             msg.exec()
             return
             
-        from core.config_utils import VERSION
-        from ui.updater import is_newer_version
         if is_newer_version(VERSION, latest_version):
-            from ui.updater import run_auto_update
             run_auto_update(self, latest_version, assets)
         else:
             msg = QMessageBox(self)
@@ -2005,4 +935,3 @@ Copy-VoiceTokens $src $dst32
                 servers[idx]['name'] = name
                 self.config['pacs_current_server_name'] = name
                 self.populate_server_combo()
-
