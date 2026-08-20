@@ -182,23 +182,73 @@ class MainWindow(QMainWindow):
         self.images_table.viewport().update()
         self.archive_table.viewport().update()
             
+        import time
+        self.last_scan_finished_time = time.time()
+        if hasattr(self, 'debounce_timer') and self.debounce_timer:
+            self.debounce_timer.stop()
+
         if op_type == 'archive':
             log_message(self.output_field, tr_log("log_patient_archived", result))
-            self.show_patient_list()
-            self.fill_archive_list(silent=True, force=True)
+            patient_entry = None
+            if self.images_cache and patient_id in self.images_cache:
+                patient_entry = self.images_cache.pop(patient_id, None)
+            if self.archive_cache is not None and patient_entry:
+                self.archive_cache[patient_id] = patient_entry
+                try:
+                    from core.archive import save_cache
+                    save_cache(self.archive_cache)
+                except Exception:
+                    pass
+            self.update_images_table_ui()
+            self.update_archive_table_ui()
+            self.update_tab_badges()
+
         elif op_type == 'delete':
             log_message(self.output_field, tr_log("log_patient_deleted", result))
-            self.show_patient_list()
-            self.fill_archive_list(silent=True, force=True)
+            if self.images_cache and patient_id in self.images_cache:
+                self.images_cache.pop(patient_id, None)
+            if self.archive_cache is not None and patient_id in self.archive_cache:
+                self.archive_cache.pop(patient_id, None)
+                try:
+                    from core.archive import save_cache
+                    save_cache(self.archive_cache)
+                except Exception:
+                    pass
+            self.update_images_table_ui()
+            self.update_archive_table_ui()
+            self.update_tab_badges()
+
         elif op_type == 'clean_str':
             deleted, folder_desc = result
             log_message(self.output_field, tr_log("log_cleaned_str_files", deleted, folder_desc))
-            self.show_patient_list()
+            if self.images_cache and patient_id in self.images_cache:
+                self.images_cache[patient_id]['str'] = False
+            if self.archive_cache and patient_id in self.archive_cache:
+                self.archive_cache[patient_id]['str'] = False
+                try:
+                    from core.archive import save_cache
+                    save_cache(self.archive_cache)
+                except Exception:
+                    pass
+            self.update_images_table_ui()
+            self.update_archive_table_ui()
+
         elif op_type == 'restore':
             log_message(self.output_field, tr_log("log_patient_restored_from_archive", result))
-            self.fill_archive_list(silent=True, force=True)
+            patient_entry = None
+            if self.archive_cache is not None and patient_id in self.archive_cache:
+                patient_entry = self.archive_cache.pop(patient_id, None)
+                try:
+                    from core.archive import save_cache
+                    save_cache(self.archive_cache)
+                except Exception:
+                    pass
+            if self.images_cache is not None and patient_entry:
+                self.images_cache[patient_id] = patient_entry
             self.restored_patient_ids.add(patient_id)
-            self.show_patient_list()
+            self.update_images_table_ui()
+            self.update_archive_table_ui()
+            self.update_tab_badges()
 
     def on_background_action_error(self, patient_id, op_type, err_msg, err_title):
         if patient_id in self.active_file_operations:
