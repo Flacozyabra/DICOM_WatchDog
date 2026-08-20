@@ -806,7 +806,7 @@ class MainWindow(QMainWindow):
         else:
             self.start_folder_scan()
 
-    def start_folder_scan(self, show_progress=False, force=False):
+    def start_folder_scan(self, force=False):
         if self.scan_worker and self.scan_worker.isRunning():
             if force:
                 try:
@@ -922,23 +922,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'debounce_timer') and self.debounce_timer:
             self.debounce_timer.stop()
 
-        if show_progress:
-            from ui.loading_dialog import LoadingProgressDialog
-            self.scan_progress_dialog = LoadingProgressDialog(
-                self, 
-                title=tr_ui("loading_title_data"), 
-                show_cancel=True, 
-                on_cancel=self.cancel_folder_scan
-            )
-            self.scan_progress_dialog.progress.setRange(0, 100)
-            self.scan_worker.progress.connect(self.scan_progress_dialog.set_scan_progress)
-            self.scan_worker.status_changed.connect(self.scan_progress_dialog.set_status_text)
-            self.scan_worker.finished.connect(self.scan_progress_dialog.accept)
-            
-            self.scan_worker.start()
-            self.scan_progress_dialog.exec()
-        else:
-            self.scan_worker.start()
+        self.scan_worker.start()
 
     def cancel_folder_scan(self):
         self.is_scanning_active = False
@@ -1429,7 +1413,7 @@ class MainWindow(QMainWindow):
 
     # ================= ЛОГИКА ТАБЛИЦЫ CT ARCHIVE =================
 
-    def fill_archive_list(self, silent=False, show_progress=False, force=False):
+    def fill_archive_list(self, silent=False, force=False):
         if self.archive_worker and self.archive_worker.isRunning():
             if force:
                 try:
@@ -1489,23 +1473,7 @@ class MainWindow(QMainWindow):
         if not silent:
             self.archive_worker.log_emitted.connect(lambda msg: log_message(self.output_field, msg))
         
-        if show_progress:
-            from ui.loading_dialog import LoadingProgressDialog
-            self.archive_progress_dialog = LoadingProgressDialog(
-                self, 
-                title=tr_ui("loading_title_data"), 
-                show_cancel=True, 
-                on_cancel=self.cancel_archive_scan
-            )
-            self.archive_progress_dialog.set_status_text(tr_ui("log_loading_archive"))
-            self.archive_progress_dialog.progress.setRange(0, 100)
-            self.archive_worker.progress.connect(self.archive_progress_dialog.set_scan_progress)
-            self.archive_worker.finished.connect(self.archive_progress_dialog.accept)
-            
-            self.archive_worker.start()
-            self.archive_progress_dialog.exec()
-        else:
-            self.archive_worker.start()
+        self.archive_worker.start()
 
     def cancel_archive_scan(self):
         if hasattr(self, 'archive_worker') and self.archive_worker and self.archive_worker.isRunning():
@@ -2132,7 +2100,7 @@ class MainWindow(QMainWindow):
             self.save_current_config()
             self.update_watcher_path()
             self.is_first_scan = True
-            self.start_folder_scan(show_progress=True, force=True)
+            self.start_folder_scan(force=True)
 
     def browse_archive_dir(self):
         current_dir = self.config.get('archive_dir', '')
@@ -2144,7 +2112,7 @@ class MainWindow(QMainWindow):
                 self.save_current_config()
                 self.archive_cache = None
                 current_widget = self.tab_widget.currentWidget()
-                self.fill_archive_list(silent=(current_widget != self.archive_tab), show_progress=(current_widget == self.archive_tab), force=True)
+                self.fill_archive_list(silent=(current_widget != self.archive_tab), force=True)
 
     def open_settings_cmd(self):
         old_ct_dir = self.config.get('ct_images_dir', '')
@@ -2176,19 +2144,19 @@ class MainWindow(QMainWindow):
             if archive_changed:
                 self.archive_cache = None
                 if show_archive:
-                    self.fill_archive_list(silent=(current_widget != self.archive_tab), show_progress=(current_widget == self.archive_tab), force=True)
+                    self.fill_archive_list(silent=(current_widget != self.archive_tab), force=True)
 
             if ct_changed:
                 self.images_cache = None
                 self.is_first_scan = True
                 self.update_watcher_path()
-                self.start_folder_scan(show_progress=(current_widget == self.images_tab), force=True)
+                self.start_folder_scan(force=True)
             elif not archive_changed:
                 if current_widget == self.images_tab:
-                    self.start_folder_scan(show_progress=False)
+                    self.start_folder_scan()
                 elif current_widget == self.archive_tab:
                     if self.archive_cache is None:
-                        self.fill_archive_list(show_progress=False)
+                        self.fill_archive_list()
                     else:
                         self.update_archive_table_ui()
                 else:
