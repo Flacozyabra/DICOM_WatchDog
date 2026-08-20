@@ -101,6 +101,9 @@ class MainWindow(QMainWindow):
         from ui.table_context_menus import TableContextMenuManager
         self.context_menu_mgr = TableContextMenuManager(self)
         
+        from ui.patient_operations import PatientOperationsManager
+        self.patient_ops = PatientOperationsManager(self)
+        
         # Инициализируем таймеры до создания UI во избежание AttributeError
         self.pacs_timer = QTimer(self)
         self.pacs_timer.timeout.connect(self.auto_update_pacs)
@@ -1250,16 +1253,7 @@ class MainWindow(QMainWindow):
             self.update_images_table_ui()
 
     def open_current_folder_cmd(self, row, column):
-        id_item = self.images_table.item(row, 0)
-        name_item = self.images_table.item(row, 1)
-        patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
-        if not patient_id or not str(patient_id).strip() or str(patient_id).strip() in ('.', '/', '\\'):
-            return
-        is_child_row = bool(name_item and name_item.text().startswith("  ↳"))
-        folder_to_open = str(patient_id)
-        if not is_child_row and ('/' in folder_to_open or '\\' in folder_to_open):
-            folder_to_open = folder_to_open.replace('\\', '/').split('/')[0]
-        self.open_patient_folder(folder_to_open, is_archive=False)
+        self.patient_ops.open_current_folder_cmd(row, column)
 
     # ================= КОНТЕКСТНЫЕ МЕНЮ И ДЕЙСТВИЯ =================
 
@@ -1297,98 +1291,13 @@ class MainWindow(QMainWindow):
         self.context_menu_mgr.show_images_context_menu(pos)
 
     def delete_patient_action(self, patient_id, patient_name):
-        if patient_id in self.active_file_operations:
-            return
-            
-        folder_name = self.images_cache[patient_id].get('folder_name', patient_id) if (self.images_cache and patient_id in self.images_cache) else patient_id
-        path = os.path.join(self.config.get('ct_images_dir', ''), folder_name)
-        if not os.path.exists(path):
-            log_message(self.output_field, tr_log("log_path_not_exist", path))
-            return
-
-        _dlg = QMessageBox(self)
-        _dlg.setIcon(QMessageBox.Icon.Question)
-        _dlg.setWindowTitle(tr_ui("dlg_confirm_delete_title"))
-        _dlg.setText(tr_ui("dlg_confirm_delete_msg", patient_name, patient_id))
-        _dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        _dlg.setDefaultButton(QMessageBox.StandardButton.No)
-        apply_dark_title_bar(_dlg)
-        reply = _dlg.exec()
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            self.active_file_operations[patient_id] = {'op': 'delete'}
-            self.images_table.viewport().update()
-            
-            def run_delete():
-                shutil.rmtree(path)
-                return self.get_folder_desc(patient_id, patient_name)
-                
-            worker = BackgroundFileWorker(patient_id, 'delete', run_delete)
-            worker.finished.connect(self.on_background_action_finished)
-            worker.error.connect(self.on_background_action_error)
-            op_key = f"worker_{patient_id}"
-            setattr(self, op_key, worker)
-            worker.start()
+        self.patient_ops.delete_patient_action(patient_id, patient_name)
 
     def archive_patient_action(self, patient_id, patient_name=None):
-        if patient_id in self.active_file_operations:
-            return
-            
-        folder_name = self.images_cache[patient_id].get('folder_name', patient_id) if (self.images_cache and patient_id in self.images_cache) else patient_id
-        path = os.path.join(self.config.get('ct_images_dir', ''), folder_name)
-        archive_dir = self.config.get('archive_dir', '')
-        
-        if not os.path.exists(path):
-            log_message(self.output_field, tr_log("log_path_not_exist", path))
-            return
-            
-        if not os.path.exists(archive_dir):
-            os.makedirs(archive_dir, exist_ok=True)
-
-        dest_path = os.path.join(archive_dir, folder_name)
-        dest_parent = os.path.dirname(dest_path)
-        if dest_parent:
-            os.makedirs(dest_parent, exist_ok=True)
-
-        self.active_file_operations[patient_id] = {'op': 'archive'}
-        self.images_table.viewport().update()
-        
-        def run_archive():
-            from core.rename_utils import move_study_folder_hierarchical
-            move_study_folder_hierarchical(path, archive_dir, self.output_field)
-            return self.get_folder_desc(patient_id, patient_name)
-            
-        worker = BackgroundFileWorker(patient_id, 'archive', run_archive)
-        worker.finished.connect(self.on_background_action_finished)
-        worker.error.connect(self.on_background_action_error)
-        op_key = f"worker_{patient_id}"
-        setattr(self, op_key, worker)
-        worker.start()
+        self.patient_ops.archive_patient_action(patient_id, patient_name)
 
     def clean_str_action(self, patient_id):
-        if patient_id in self.active_file_operations:
-            return
-            
-        folder_name = self.images_cache[patient_id].get('folder_name', patient_id) if (self.images_cache and patient_id in self.images_cache) else patient_id
-        path = os.path.join(self.config.get('ct_images_dir', ''), folder_name)
-        if os.path.exists(path):
-            self.active_file_operations[patient_id] = {'op': 'clean_str'}
-            self.images_table.viewport().update()
-            
-            def run_clean():
-                deleted = delete_redundant_str(path, None)
-                patient_name = ""
-                if self.images_cache and patient_id in self.images_cache:
-                    patient_name = self.images_cache[patient_id].get('patient_name', '')
-                folder_desc = self.get_folder_desc(patient_id, patient_name)
-                return deleted, folder_desc
-                
-            worker = BackgroundFileWorker(patient_id, 'clean_str', run_clean)
-            worker.finished.connect(self.on_background_action_finished)
-            worker.error.connect(self.on_background_action_error)
-            op_key = f"worker_{patient_id}"
-            setattr(self, op_key, worker)
-            worker.start()
+        self.patient_ops.clean_str_action(patient_id)
 
     def on_images_selection_changed(self):
         has_selection = len(self.images_table.selectedRanges()) > 0
@@ -1399,17 +1308,7 @@ class MainWindow(QMainWindow):
         self.move_from_archive_btn.setEnabled(has_selection)
 
     def move_to_archive_cmd(self):
-        selected_ranges = self.images_table.selectedRanges()
-        if not selected_ranges:
-            return
-            
-        row = selected_ranges[0].topRow()
-        id_item = self.images_table.item(row, 0)
-        patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
-        patient_name = self.images_table.item(row, 1).text()
-        self.images_table.clearSelection()
-        self.move_to_archive_btn.setEnabled(False)
-        self.archive_patient_action(patient_id, patient_name)
+        self.patient_ops.move_to_archive_cmd()
 
     # ================= ЛОГИКА ТАБЛИЦЫ CT ARCHIVE =================
 
@@ -1743,82 +1642,10 @@ class MainWindow(QMainWindow):
         self.context_menu_mgr.show_archive_context_menu(pos)
 
     def delete_archive_patient_action(self, patient_id, patient_name):
-        if patient_id in self.active_file_operations:
-            return
-            
-        folder_name = self.archive_cache[patient_id].get('folder_name', patient_id) if (self.archive_cache and patient_id in self.archive_cache) else patient_id
-        path = os.path.join(self.config.get('archive_dir', ''), folder_name)
-        if not os.path.exists(path):
-            log_message(self.output_field, tr_log("log_path_not_exist", path))
-            return
-
-        _dlg = QMessageBox(self)
-        _dlg.setIcon(QMessageBox.Icon.Question)
-        _dlg.setWindowTitle(tr_ui("dlg_confirm_delete_title"))
-        _dlg.setText(tr_ui("dlg_confirm_delete_archive_msg", patient_name, patient_id))
-        _dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        _dlg.setDefaultButton(QMessageBox.StandardButton.No)
-        apply_dark_title_bar(_dlg)
-        reply = _dlg.exec()
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            self.active_file_operations[patient_id] = {'op': 'delete'}
-            self.archive_table.viewport().update()
-            
-            def run_delete():
-                shutil.rmtree(path)
-                return self.get_folder_desc(patient_id, patient_name)
-                
-            worker = BackgroundFileWorker(patient_id, 'delete', run_delete)
-            worker.finished.connect(self.on_background_action_finished)
-            worker.error.connect(self.on_background_action_error)
-            op_key = f"worker_{patient_id}"
-            setattr(self, op_key, worker)
-            worker.start()
+        self.patient_ops.delete_archive_patient_action(patient_id, patient_name)
 
     def move_from_archive_cmd(self):
-        selected_ranges = self.archive_table.selectedRanges()
-        if not selected_ranges:
-            return
-            
-        row = selected_ranges[0].topRow()
-        id_item = self.archive_table.item(row, 0)
-        patient_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else ""
-        patient_name = self.archive_table.item(row, 1).text()
-        
-        if patient_id in self.active_file_operations:
-            return
-            
-        archive_dir = self.config.get('archive_dir', '')
-        ct_images_dir = self.config.get('ct_images_dir', '')
-        
-        folder_name = self.archive_cache[patient_id].get('folder_name', patient_id) if (self.archive_cache and patient_id in self.archive_cache) else patient_id
-        path = os.path.join(archive_dir, folder_name)
-        if not os.path.exists(path):
-            log_message(self.output_field, tr_log("log_patient_not_found_in_archive", patient_id, patient_name))
-            return
-            
-        dest_path = os.path.join(ct_images_dir, folder_name)
-        dest_parent = os.path.dirname(dest_path)
-        if dest_parent:
-            os.makedirs(dest_parent, exist_ok=True)
-            
-        self.archive_table.clearSelection()
-        self.move_from_archive_btn.setEnabled(False)
-        self.active_file_operations[patient_id] = {'op': 'restore'}
-        self.archive_table.viewport().update()
-        
-        def run_restore():
-            from core.rename_utils import move_study_folder_hierarchical
-            move_study_folder_hierarchical(path, ct_images_dir, self.output_field)
-            return self.get_folder_desc(patient_id, patient_name)
-            
-        worker = BackgroundFileWorker(patient_id, 'restore', run_restore)
-        worker.finished.connect(self.on_background_action_finished)
-        worker.error.connect(self.on_background_action_error)
-        op_key = f"worker_{patient_id}"
-        setattr(self, op_key, worker)
-        worker.start()
+        self.patient_ops.move_from_archive_cmd()
 
     # ================= ЛОГИКА ТАБЛИЦЫ PACS =================
 
@@ -2272,28 +2099,7 @@ class MainWindow(QMainWindow):
         save_config(self.config)
 
     def open_patient_folder(self, patient_id, is_archive=False):
-        dir_key = 'archive_dir' if is_archive else 'ct_images_dir'
-        base_dir = self.config.get(dir_key, '')
-        if not base_dir or not os.path.exists(base_dir):
-            return
-        if not patient_id or not str(patient_id).strip() or str(patient_id).strip() in ('.', '/', '\\'):
-            return
-        folder_name = str(patient_id)
-        path = os.path.normpath(os.path.join(base_dir, folder_name))
-        if not os.path.exists(path):
-            cache = self.archive_cache if is_archive else self.images_cache
-            if cache and patient_id in cache:
-                folder_name = cache[patient_id].get('folder_name', folder_name)
-                path = os.path.normpath(os.path.join(base_dir, folder_name))
-        if os.path.normcase(path) == os.path.normcase(os.path.normpath(base_dir)):
-            return
-        if os.path.exists(path):
-            try:
-                os.startfile(path)
-            except Exception as e:
-                log_message(self.output_field, tr_log("log_failed_open_folder", folder_name, e))
-        else:
-            log_message(self.output_field, tr_log("log_path_not_exist", path))
+        self.patient_ops.open_patient_folder(patient_id, is_archive=is_archive)
 
     def on_images_double_clicked(self, row, column):
         id_item = self.images_table.item(row, 0)
