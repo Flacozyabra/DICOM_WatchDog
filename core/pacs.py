@@ -22,15 +22,8 @@ class BackgroundDicomServer:
         if self.server:
             self.stop()
 
-        from pynetdicom import AE, evt, ALL_TRANSFER_SYNTAXES
+        from pynetdicom import AE, evt, ALL_TRANSFER_SYNTAXES, AllStoragePresentationContexts
         VerificationSOPClass = '1.2.840.10008.1.1'
-        from pynetdicom.sop_class import (
-            CTImageStorage,
-            MRImageStorage,
-            RTStructureSetStorage,
-            SecondaryCaptureImageStorage,
-            PositronEmissionTomographyImageStorage
-        )
         import os
 
         self.port = port
@@ -67,9 +60,10 @@ class BackgroundDicomServer:
 
         ae = AE(ae_title=ae_title)
         ae.require_called_aet = False
+        ae.supported_contexts = AllStoragePresentationContexts
         ae.add_supported_context(VerificationSOPClass, ALL_TRANSFER_SYNTAXES)
-        for sop in [CTImageStorage, MRImageStorage, RTStructureSetStorage, SecondaryCaptureImageStorage, PositronEmissionTomographyImageStorage]:
-            ae.add_supported_context(sop, ALL_TRANSFER_SYNTAXES)
+        for varian_sop in ['1.2.246.352.70.1.70', '1.2.246.352.70.1.71', '1.2.246.352.70.1.72']:
+            ae.add_supported_context(varian_sop, ALL_TRANSFER_SYNTAXES)
 
         try:
             self.server = ae.start_server(('', port), block=False, evt_handlers=handlers)
@@ -256,17 +250,12 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
         return False, tr_ui("ping_aet_remote_too_long", called_aet)
 
     from pydicom.dataset import Dataset
-    from pynetdicom import AE, evt, build_role, ALL_TRANSFER_SYNTAXES
+    from pynetdicom import AE, evt, build_role, ALL_TRANSFER_SYNTAXES, AllStoragePresentationContexts
     from pynetdicom.sop_class import (
         PatientRootQueryRetrieveInformationModelMove,
         StudyRootQueryRetrieveInformationModelMove,
         PatientRootQueryRetrieveInformationModelGet,
-        StudyRootQueryRetrieveInformationModelGet,
-        CTImageStorage,
-        MRImageStorage,
-        RTStructureSetStorage,
-        SecondaryCaptureImageStorage,
-        PositronEmissionTomographyImageStorage
+        StudyRootQueryRetrieveInformationModelGet
     )
     import os
     import shutil
@@ -299,14 +288,6 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
 
     handlers = [(evt.EVT_C_STORE, handle_store, [target_dir])]
 
-    storage_classes = [
-        CTImageStorage,
-        MRImageStorage,
-        RTStructureSetStorage,
-        SecondaryCaptureImageStorage,
-        PositronEmissionTomographyImageStorage
-    ]
-
     # Подготавливаем локальные серверы C-STORE SCP на портах (local_port, pacs_port, 11112, 104)
     scp_servers = []
     ports_to_try = []
@@ -323,8 +304,11 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     ae_move.add_requested_context(PatientRootQueryRetrieveInformationModelMove)
     ae_move.add_requested_context(StudyRootQueryRetrieveInformationModelMove)
 
-    for sop_class in storage_classes:
-        ae_move.add_requested_context(sop_class, ALL_TRANSFER_SYNTAXES)
+    ae_move.supported_contexts = AllStoragePresentationContexts
+    ae_move.add_supported_context('1.2.840.10008.1.1', ALL_TRANSFER_SYNTAXES)
+    for varian_sop in ['1.2.246.352.70.1.70', '1.2.246.352.70.1.71', '1.2.246.352.70.1.72']:
+        ae_move.add_supported_context(varian_sop, ALL_TRANSFER_SYNTAXES)
+        ae_move.add_requested_context(varian_sop, ALL_TRANSFER_SYNTAXES)
 
     for p in ports_to_try:
         try:
@@ -451,9 +435,12 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     ae_get.add_requested_context(StudyRootQueryRetrieveInformationModelGet)
 
     roles = []
-    for sop_class in storage_classes:
-        ae_get.add_requested_context(sop_class, ALL_TRANSFER_SYNTAXES)
-        roles.append(build_role(sop_class, scp_role=True))
+    for cx in AllStoragePresentationContexts:
+        ae_get.add_requested_context(cx.abstract_syntax, ALL_TRANSFER_SYNTAXES)
+        roles.append(build_role(cx.abstract_syntax, scp_role=True))
+    for varian_sop in ['1.2.246.352.70.1.70', '1.2.246.352.70.1.71', '1.2.246.352.70.1.72']:
+        ae_get.add_requested_context(varian_sop, ALL_TRANSFER_SYNTAXES)
+        roles.append(build_role(varian_sop, scp_role=True))
 
     get_datasets = []
     if clean_uid:

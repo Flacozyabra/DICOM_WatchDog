@@ -11,22 +11,22 @@ def is_structure_file(file_path):
     """
     Определяет, является ли файл файлом структур (RTSTRUCT).
     Поддерживает расширение .str, префиксы STR, RS, RTSTRUCT, 
-    а также проверку Modality в DICOM-файлах небольшого размера.
+    а также быструю проверку Modality в DICOM-файлах без ограничения по размеру.
     """
     if not os.path.exists(file_path):
         return False
     filename = os.path.basename(file_path).upper()
     if filename.endswith('.STR'):
         return True
-    if filename.startswith('STR') or filename.startswith('RS') or filename.startswith('RTSTRUCT'):
+    if filename.startswith(('STR', 'RS', 'RTSTRUCT', 'RT_STRUCT', 'STRUCTURES')):
         return True
-    if file_path.lower().endswith('.dcm') or (not os.path.splitext(file_path)[1] and os.path.getsize(file_path) < 500 * 1024):
+    if file_path.lower().endswith('.dcm') or not os.path.splitext(file_path)[1]:
         try:
-            # Файлы RTSTRUCT обычно не имеют пиксельных данных и весят мало (< 250 КБ)
-            if os.path.getsize(file_path) < 250 * 1024 or filename.startswith('RT'):
-                ds = pydicom.dcmread(file_path, stop_before_pixels=True)
-                if ds.get('Modality') == 'RTSTRUCT':
-                    return True
+            ds = pydicom.dcmread(file_path, stop_before_pixels=True, specific_tags=['Modality', 'SOPClassUID'])
+            mod = str(getattr(ds, 'Modality', ''))
+            sop = str(getattr(ds, 'SOPClassUID', ''))
+            if mod == 'RTSTRUCT' or sop == '1.2.840.10008.5.1.4.1.1.481.3':
+                return True
         except Exception:
             pass
     return False
