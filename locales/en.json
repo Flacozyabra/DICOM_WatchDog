@@ -278,5 +278,10 @@
   "viewer_no_dose_available": "No isodoses available",
   "viewer_rx_dose": "Prescription",
   "viewer_max_dose": "Max dose",
-  "viewer_point_dose": "Point dose"
+  "viewer_point_dose": "Point dose",
+  "viewer_preset_default": "Default",
+  "viewer_preset_soft": "Soft tissue",
+  "viewer_preset_bone": "Bone",
+  "viewer_preset_lung": "Lung",
+  "viewer_preset_brain": "Brain"
 }

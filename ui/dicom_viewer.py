@@ -2215,12 +2215,15 @@ class DicomViewerPanel(QWidget):
 
     def retranslate_ui(self) -> None:
         self.cb_presets.blockSignals(True)
+        cur_idx = self.cb_presets.currentIndex()
         self.cb_presets.clear()
-        self.cb_presets.addItem("По умолчанию (DICOM)", "dicom")
-        self.cb_presets.addItem("Мягкие ткани", "soft")
-        self.cb_presets.addItem("Кости", "bone")
-        self.cb_presets.addItem("Легкие", "lung")
-        self.cb_presets.addItem("Мозг", "brain")
+        self.cb_presets.addItem(tr_ui("viewer_preset_default"), "dicom")
+        self.cb_presets.addItem(tr_ui("viewer_preset_soft"), "soft")
+        self.cb_presets.addItem(tr_ui("viewer_preset_bone"), "bone")
+        self.cb_presets.addItem(tr_ui("viewer_preset_lung"), "lung")
+        self.cb_presets.addItem(tr_ui("viewer_preset_brain"), "brain")
+        if cur_idx >= 0:
+            self.cb_presets.setCurrentIndex(cur_idx)
         self.cb_presets.blockSignals(False)
 
         self.cb_dose.blockSignals(True)
