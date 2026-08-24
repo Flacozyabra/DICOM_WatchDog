@@ -173,14 +173,14 @@ def load_rtdose(filepath: str, plan_files: list[str] = None) -> dict:
             rx_dose = max_dose if max_dose > 0 else 1.0
 
         default_levels = [
-            {"pct": 107, "color": QColor("#DC2626"), "name": "107%"},
+            {"pct": 107, "color": QColor("#D946EF"), "name": "107%"},
             {"pct": 100, "color": QColor("#EF4444"), "name": "100%"},
             {"pct": 95,  "color": QColor("#F97316"), "name": "95%"},
-            {"pct": 90,  "color": QColor("#FBBF24"), "name": "90%"},
+            {"pct": 90,  "color": QColor("#EAB308"), "name": "90%"},
             {"pct": 80,  "color": QColor("#84CC16"), "name": "80%"},
-            {"pct": 70,  "color": QColor("#06B6D4"), "name": "70%"},
-            {"pct": 50,  "color": QColor("#3B82F6"), "name": "50%"},
-            {"pct": 30,  "color": QColor("#A855F7"), "name": "30%"},
+            {"pct": 70,  "color": QColor("#22C55E"), "name": "70%"},
+            {"pct": 50,  "color": QColor("#06B6D4"), "name": "50%"},
+            {"pct": 30,  "color": QColor("#3B82F6"), "name": "30%"},
         ]
 
         levels = []
