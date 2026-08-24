@@ -829,8 +829,8 @@ class DicomViewerWidget(QWidget):
         # Изодозы RTDOSE
         self.dose_data = {}
         self.enabled_isodose_levels = set()
-        self.show_isodoses_globally = True
-        self.show_dose_gradient = False
+        self.show_isodoses_globally = False
+        self.show_dose_gradient = True
 
         self.setMouseTracking(True)
         self.setStyleSheet("background-color: #000000;")
@@ -909,7 +909,8 @@ class DicomViewerWidget(QWidget):
         self.contour_z_index = []
         self.dose_data = {}
         self.enabled_isodose_levels.clear()
-        self.show_isodoses_globally = True
+        self.show_isodoses_globally = False
+        self.show_dose_gradient = True
         self.update()
 
     def mousePressEvent(self, event) -> None:
@@ -1734,12 +1735,12 @@ class DicomViewerPanel(QWidget):
         dose_layout.setSpacing(8)
 
         self.cb_show_isodoses = ToggleSwitch(tr_ui("viewer_show_isodoses"), page_isodoses)
-        self.cb_show_isodoses.setChecked(True)
+        self.cb_show_isodoses.setChecked(False)
         self.cb_show_isodoses.stateChanged.connect(self.on_global_isodoses_changed)
         dose_layout.addWidget(self.cb_show_isodoses)
 
         self.cb_dose_gradient = ToggleSwitch(tr_ui("viewer_show_dose_gradient"), page_isodoses)
-        self.cb_dose_gradient.setChecked(False)
+        self.cb_dose_gradient.setChecked(True)
         self.cb_dose_gradient.stateChanged.connect(self.on_dose_gradient_changed)
         dose_layout.addWidget(self.cb_dose_gradient)
 
