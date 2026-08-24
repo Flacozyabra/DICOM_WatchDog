@@ -1637,13 +1637,22 @@ class DicomViewerPanel(QWidget):
         self.setup_ui()
 
     def setup_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
+        root_layout = QHBoxLayout(self)
+        root_layout.setContentsMargins(10, 10, 10, 10)
+        root_layout.setSpacing(10)
 
-        # 1. Верхняя панель управления
+        # 1. Панель структур и изодоз слева (растянута на всю высоту)
+        self.setup_left_panel()
+        root_layout.addWidget(self.structures_panel)
+
+        # 2. Правая область (Верхняя панель + Холст со шкалой HU + Слайдер)
+        right_layout = QVBoxLayout()
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(8)
+
+        # Верхняя панель управления
         top_layout = QHBoxLayout()
-        top_layout.setSpacing(10)
+        top_layout.setSpacing(6)
         
         self.lbl_info = QLabel(self)
         self.lbl_info.setStyleSheet("font-size: 13px; font-weight: bold; color: #FFFFFF;")
@@ -1654,7 +1663,7 @@ class DicomViewerPanel(QWidget):
 
         # Выпадающий список для выбора файла дозы RTDOSE
         self.cb_dose = QComboBox(self)
-        self.cb_dose.setFixedWidth(220)
+        self.cb_dose.setFixedWidth(160)
         self.cb_dose.setStyleSheet("""
             QComboBox {
                 background-color: #2A2A2A;
@@ -1679,7 +1688,7 @@ class DicomViewerPanel(QWidget):
 
         # Выпадающий список для выбора набора структур RTSTRUCT
         self.cb_structures = QComboBox(self)
-        self.cb_structures.setFixedWidth(220)
+        self.cb_structures.setFixedWidth(160)
         self.cb_structures.setStyleSheet("""
             QComboBox {
                 background-color: #2A2A2A;
@@ -1704,7 +1713,7 @@ class DicomViewerPanel(QWidget):
 
         # Выпадающий список пресетов HU
         self.cb_presets = QComboBox(self)
-        self.cb_presets.setFixedWidth(200)
+        self.cb_presets.setFixedWidth(160)
         self.cb_presets.setStyleSheet("""
             QComboBox {
                 background-color: #2A2A2A;
@@ -1778,28 +1787,25 @@ class DicomViewerPanel(QWidget):
         self.btn_close.clicked.connect(self.close_requested.emit)
         top_layout.addWidget(self.btn_close)
         
-        layout.addLayout(top_layout)
+        right_layout.addLayout(top_layout)
 
-        # 2. Центральная область (Изображение, структуры/изодозы слева, шкала HU справа)
-        main_layout = QHBoxLayout()
-        main_layout.setSpacing(15)
-
-        # Панель структур и изодоз слева (с переключаемыми вкладками)
-        self.setup_left_panel()
-        main_layout.addWidget(self.structures_panel)
+        # Центральная область (Холст просмотра + шкала HU справа)
+        center_layout = QHBoxLayout()
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(10)
 
         self.viewer = DicomViewerWidget(self)
         self.viewer.slice_scrolled.connect(self.on_slice_scrolled)
         self.viewer.window_changed.connect(self.on_window_changed)
-        main_layout.addWidget(self.viewer, stretch=1)
+        center_layout.addWidget(self.viewer, stretch=1)
 
         # Создаем и добавляем шкалу HU справа
         self.setup_hu_panel()
-        main_layout.addWidget(self.hu_panel)
+        center_layout.addWidget(self.hu_panel)
 
-        layout.addLayout(main_layout)
+        right_layout.addLayout(center_layout, stretch=1)
 
-        # 2.5 Горизонтальный слайдер срезов снизу
+        # Горизонтальный слайдер срезов снизу
         self.slider = QSlider(Qt.Orientation.Horizontal, self)
         self.slider.valueChanged.connect(self.on_slider_changed)
         self.slider.setStyleSheet("""
@@ -1819,7 +1825,9 @@ class DicomViewerPanel(QWidget):
                 background: #60A5FA;
             }
         """)
-        layout.addWidget(self.slider)
+        right_layout.addWidget(self.slider)
+
+        root_layout.addLayout(right_layout, stretch=1)
 
         self.retranslate_ui()
         self.cb_dose.currentIndexChanged.connect(self.on_dose_file_changed)
