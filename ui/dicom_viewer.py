@@ -10,7 +10,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QRect, QPointF, QThread
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
     QPushButton, QComboBox, QSlider, QApplication, QSplitter, QSplitterHandle,
-    QListWidget, QListWidgetItem, QCheckBox
+    QListWidget, QListWidgetItem, QCheckBox, QTabWidget
 )
 from PyQt6.QtGui import (
     QIcon, QFont, QPixmap, QBrush, QColor, QPainter,
@@ -56,7 +56,7 @@ def load_rtstruct(filepath):
     structures = {}
     try:
         ds = safe_dcmread(filepath)
-        if ds.Modality != "RTSTRUCT":
+        if getattr(ds, "Modality", "") != "RTSTRUCT":
             return structures
             
         roi_names = {}
@@ -110,6 +110,226 @@ def load_rtstruct(filepath):
     return structures
 
 
+def load_rtdose(filepath: str, plan_files: list[str] = None) -> dict:
+    """
+    Парсит файл RTDOSE и связывает его с RTPLAN (если передан) для получения предписанной дозы.
+    """
+    dose_data = {}
+    try:
+        ds = safe_dcmread(filepath)
+        if getattr(ds, "Modality", "") != "RTDOSE":
+            return dose_data
+
+        dose_scaling = float(getattr(ds, "DoseGridScaling", 1.0))
+        dose_units = str(getattr(ds, "DoseUnits", "Gy"))
+        if dose_units.upper() == "GY":
+            dose_units = "Gy"
+
+        pixel_arr = ds.pixel_array
+        dose_grid = pixel_arr.astype(np.float32) * dose_scaling
+        if dose_grid.ndim == 2:
+            dose_grid = dose_grid[np.newaxis, ...]
+
+        ipp = [float(x) for x in getattr(ds, "ImagePositionPatient", [0.0, 0.0, 0.0])]
+        iop = [float(x) for x in getattr(ds, "ImageOrientationPatient", [1.0, 0.0, 0.0, 0.0, 1.0, 0.0])]
+        pixel_spacing = [float(x) for x in getattr(ds, "PixelSpacing", [1.0, 1.0])]
+
+        grid_frame_offset = getattr(ds, "GridFrameOffsetVector", None)
+        if grid_frame_offset is not None and len(grid_frame_offset) > 0:
+            z_positions = [ipp[2] + float(off) for off in grid_frame_offset]
+        else:
+            slice_thickness = float(getattr(ds, "SliceThickness", 1.0))
+            z_positions = [ipp[2] + i * slice_thickness for i in range(dose_grid.shape[0])]
+
+        max_dose = float(np.max(dose_grid)) if dose_grid.size > 0 else 0.0
+        rx_dose = 0.0
+        plan_label = ""
+
+        ref_plan_uid = None
+        if hasattr(ds, "ReferencedRTPlanSequence") and len(ds.ReferencedRTPlanSequence) > 0:
+            ref_plan_uid = str(getattr(ds.ReferencedRTPlanSequence[0], "ReferencedSOPInstanceUID", ""))
+
+        if plan_files:
+            for pf in plan_files:
+                try:
+                    ds_plan = safe_dcmread(pf, stop_before_pixels=True)
+                    plan_sop = str(getattr(ds_plan, "SOPInstanceUID", ""))
+                    if (ref_plan_uid and plan_sop == ref_plan_uid) or not ref_plan_uid:
+                        plan_label = str(getattr(ds_plan, "RTPlanLabel", getattr(ds_plan, "RTPlanName", "")))
+                        if hasattr(ds_plan, "DoseReferenceSequence"):
+                            for dref in ds_plan.DoseReferenceSequence:
+                                if hasattr(dref, "TargetPrescriptionDose"):
+                                    rx_dose = float(dref.TargetPrescriptionDose)
+                                    break
+                                elif hasattr(dref, "DeliveryMaximumDose"):
+                                    rx_dose = float(dref.DeliveryMaximumDose)
+                                    break
+                        if rx_dose > 0:
+                            break
+                except Exception:
+                    pass
+
+        if rx_dose <= 0:
+            rx_dose = max_dose if max_dose > 0 else 1.0
+
+        default_levels = [
+            {"pct": 107, "color": QColor("#DC2626"), "name": "107%"},
+            {"pct": 100, "color": QColor("#EF4444"), "name": "100%"},
+            {"pct": 95,  "color": QColor("#F97316"), "name": "95%"},
+            {"pct": 90,  "color": QColor("#FBBF24"), "name": "90%"},
+            {"pct": 80,  "color": QColor("#84CC16"), "name": "80%"},
+            {"pct": 70,  "color": QColor("#06B6D4"), "name": "70%"},
+            {"pct": 50,  "color": QColor("#3B82F6"), "name": "50%"},
+            {"pct": 30,  "color": QColor("#A855F7"), "name": "30%"},
+        ]
+
+        levels = []
+        for item in default_levels:
+            pct = item["pct"]
+            val = round(rx_dose * (pct / 100.0), 2)
+            levels.append({
+                "name": item["name"],
+                "pct": pct,
+                "val": val,
+                "color": item["color"],
+                "enabled": True
+            })
+
+        dose_data = {
+            "filepath": filepath,
+            "dose_grid": dose_grid,
+            "z_positions": np.array(z_positions, dtype=np.float32),
+            "ipp": ipp,
+            "iop": iop,
+            "pixel_spacing": pixel_spacing,
+            "max_dose": max_dose,
+            "rx_dose": rx_dose,
+            "dose_units": dose_units,
+            "plan_label": plan_label,
+            "levels": levels
+        }
+    except Exception as e:
+        print(f"Error parsing RTDOSE {filepath}: {e}")
+
+    return dose_data
+
+
+def marching_squares_2d(grid: np.ndarray, threshold: float) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+    """
+    Быстрый 2D Marching Squares для поиска сегментов изолиний (изодоз) на скалярной сетке.
+    Возвращает список пар координат ((c1, r1), (c2, r2)) в пространстве индексов ячеек сетки.
+    """
+    if grid.shape[0] < 2 or grid.shape[1] < 2:
+        return []
+
+    v0 = grid[:-1, :-1]  # TL
+    v1 = grid[:-1, 1:]   # TR
+    v2 = grid[1:, 1:]    # BR
+    v3 = grid[1:, :-1]   # BL
+
+    b0 = v0 >= threshold
+    b1 = v1 >= threshold
+    b2 = v2 >= threshold
+    b3 = v3 >= threshold
+
+    case_index = (b0.astype(np.uint8) * 1 +
+                  b1.astype(np.uint8) * 2 +
+                  b2.astype(np.uint8) * 4 +
+                  b3.astype(np.uint8) * 8)
+
+    active = (case_index > 0) & (case_index < 15)
+    if not np.any(active):
+        return []
+
+    rows, cols = np.where(active)
+    cases = case_index[rows, cols]
+
+    r_f = rows.astype(np.float32)
+    c_f = cols.astype(np.float32)
+
+    v0_a = v0[rows, cols]
+    v1_a = v1[rows, cols]
+    v2_a = v2[rows, cols]
+    v3_a = v3[rows, cols]
+
+    eps = 1e-7
+    c_top = c_f + (threshold - v0_a) / (v1_a - v0_a + eps)
+    r_top = r_f
+
+    c_right = c_f + 1.0
+    r_right = r_f + (threshold - v1_a) / (v2_a - v1_a + eps)
+
+    c_bot = c_f + (threshold - v3_a) / (v2_a - v3_a + eps)
+    r_bot = r_f + 1.0
+
+    c_left = c_f
+    r_left = r_f + (threshold - v0_a) / (v3_a - v0_a + eps)
+
+    segments = []
+    for idx, case in enumerate(cases):
+        p_top = (float(c_top[idx]), float(r_top[idx]))
+        p_right = (float(c_right[idx]), float(r_right[idx]))
+        p_bot = (float(c_bot[idx]), float(r_bot[idx]))
+        p_left = (float(c_left[idx]), float(r_left[idx]))
+
+        if case == 1 or case == 14:
+            segments.append((p_left, p_top))
+        elif case == 2 or case == 13:
+            segments.append((p_top, p_right))
+        elif case == 3 or case == 12:
+            segments.append((p_left, p_right))
+        elif case == 4 or case == 11:
+            segments.append((p_right, p_bot))
+        elif case == 5:
+            segments.append((p_left, p_top))
+            segments.append((p_right, p_bot))
+        elif case == 6 or case == 9:
+            segments.append((p_top, p_bot))
+        elif case == 7 or case == 8:
+            segments.append((p_left, p_bot))
+        elif case == 10:
+            segments.append((p_left, p_bot))
+            segments.append((p_top, p_right))
+
+    return segments
+
+
+def get_dose_slice_at_z(dose_data: dict, target_z: float) -> np.ndarray | None:
+    """
+    Возвращает 2D срез сетки дозы для заданной Z-координаты КТ-среза (линейная интерполяция по Z).
+    """
+    if not dose_data or "dose_grid" not in dose_data:
+        return None
+    z_pos = dose_data.get("z_positions")
+    grid = dose_data.get("dose_grid")
+    if z_pos is None or grid is None or len(z_pos) == 0:
+        return None
+    if len(z_pos) == 1:
+        if abs(target_z - z_pos[0]) < 5.0:
+            return grid[0]
+        return None
+
+    z_min, z_max = min(z_pos[0], z_pos[-1]), max(z_pos[0], z_pos[-1])
+    if target_z < z_min - 3.0 or target_z > z_max + 3.0:
+        return None
+
+    if z_pos[1] >= z_pos[0]:
+        idx = int(np.searchsorted(z_pos, target_z)) - 1
+    else:
+        idx = int(np.searchsorted(-z_pos, -target_z)) - 1
+
+    idx = max(0, min(len(z_pos) - 2, idx))
+    z0 = z_pos[idx]
+    z1 = z_pos[idx + 1]
+    dz = z1 - z0
+    if abs(dz) < 1e-5:
+        return grid[idx]
+
+    t = (target_z - z0) / dz
+    t = max(0.0, min(1.0, float(t)))
+    return (1.0 - t) * grid[idx] + t * grid[idx + 1]
+
+
 class PatientSeriesLoaderWorker(QThread):
     progress_signal = pyqtSignal(int, int, str)
     finished_signal = pyqtSignal(dict)
@@ -132,8 +352,10 @@ class PatientSeriesLoaderWorker(QThread):
             total_files = len(self.files)
             series_dir = os.path.dirname(self.files[0])
             
-            # 1. Поиск файлов RTSTRUCT
+            # 1. Поиск файлов RTSTRUCT, RTDOSE и RTPLAN
             struct_files = []
+            dose_files = []
+            plan_files = []
             if os.path.exists(series_dir):
                 dir_contents = os.listdir(series_dir)
                 for f in dir_contents:
@@ -141,13 +363,26 @@ class PatientSeriesLoaderWorker(QThread):
                         return
                     f_path = os.path.join(series_dir, f)
                     if os.path.isfile(f_path):
-                        if f.upper().startswith("STR"):
+                        f_up = f.upper()
+                        if f_up.startswith("STR"):
                             struct_files.append(f_path)
+                        elif f_up.startswith("RD") or f_up.startswith("DOSE"):
+                            dose_files.append(f_path)
+                        elif f_up.startswith("RP") or f_up.startswith("PLAN"):
+                            plan_files.append(f_path)
                         elif f.lower().endswith(".dcm"):
                             try:
                                 ds_meta = safe_dcmread(f_path, stop_before_pixels=True)
-                                if getattr(ds_meta, "Modality", "") == "RTSTRUCT":
-                                    struct_files.append(f_path)
+                                mod = getattr(ds_meta, "Modality", "")
+                                if mod == "RTSTRUCT":
+                                    if f_path not in struct_files:
+                                        struct_files.append(f_path)
+                                elif mod == "RTDOSE":
+                                    if f_path not in dose_files:
+                                        dose_files.append(f_path)
+                                elif mod == "RTPLAN":
+                                    if f_path not in plan_files:
+                                        plan_files.append(f_path)
                             except Exception:
                                 pass
 
@@ -161,7 +396,7 @@ class PatientSeriesLoaderWorker(QThread):
                     status = tr_ui("loading_dicom_files", idx + 1, total_files)
                     self.progress_signal.emit(idx + 1, total_files, status)
 
-                if filename.startswith("STR"):
+                if filename.startswith("STR") or filename.startswith("RD") or filename.startswith("RP"):
                     continue
 
                 try:
@@ -213,6 +448,19 @@ class PatientSeriesLoaderWorker(QThread):
                 self.progress_signal.emit(total_files, total_files, tr_ui("loading_rtstruct_data"))
                 parsed_structures = load_rtstruct(latest_file)
 
+            # 4. Выбор и предпарсинг наиболее свежего файла RTDOSE
+            selected_dose_idx = -1
+            parsed_dose = {}
+            if dose_files:
+                if self._is_cancelled:
+                    return
+                dose_files.sort(key=lambda x: os.path.basename(x))
+                latest_dose_file = max(dose_files, key=lambda x: os.path.getmtime(x))
+                selected_dose_idx = dose_files.index(latest_dose_file) + 1
+
+                self.progress_signal.emit(total_files, total_files, tr_ui("loading_rtdose_data"))
+                parsed_dose = load_rtdose(latest_dose_file, plan_files)
+
             if self._is_cancelled:
                 return
 
@@ -220,6 +468,10 @@ class PatientSeriesLoaderWorker(QThread):
                 "struct_files": struct_files,
                 "selected_struct_idx": selected_struct_idx,
                 "parsed_structures": parsed_structures,
+                "dose_files": dose_files,
+                "selected_dose_idx": selected_dose_idx,
+                "parsed_dose": parsed_dose,
+                "plan_files": plan_files,
                 "sorted_files": sorted_files
             }
             self.finished_signal.emit(result)
@@ -244,6 +496,26 @@ class StructureLoaderWorker(QThread):
                 return
             parsed = load_rtstruct(self.sf_path)
             self.finished_signal.emit(self.sf_path, parsed)
+        except Exception as e:
+            self.error_signal.emit(str(e))
+
+
+class DoseLoaderWorker(QThread):
+    finished_signal = pyqtSignal(str, dict)
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, dose_path: str, plan_files: list[str] = None) -> None:
+        super().__init__()
+        self.dose_path = dose_path
+        self.plan_files = plan_files or []
+
+    def run(self) -> None:
+        try:
+            if not self.dose_path or not os.path.exists(self.dose_path):
+                self.finished_signal.emit(self.dose_path, {})
+                return
+            parsed = load_rtdose(self.dose_path, self.plan_files)
+            self.finished_signal.emit(self.dose_path, parsed)
         except Exception as e:
             self.error_signal.emit(str(e))
 
@@ -501,8 +773,18 @@ class DicomViewerWidget(QWidget):
         self.contour_sop_index = {}
         self.contour_z_index = []
 
+        # Изодозы RTDOSE
+        self.dose_data = {}
+        self.enabled_isodose_levels = set()
+        self.show_isodoses_globally = True
+
         self.setMouseTracking(True)
         self.setStyleSheet("background-color: #000000;")
+
+    def set_dose_data(self, dose_data: dict) -> None:
+        self.dose_data = dose_data or {}
+        self.enabled_isodose_levels = {lvl["name"] for lvl in self.dose_data.get("levels", []) if lvl.get("enabled", True)}
+        self.update()
 
     def rebuild_contour_index(self) -> None:
         self.contour_sop_index = {}
@@ -571,6 +853,9 @@ class DicomViewerWidget(QWidget):
         self.show_structures_globally = True
         self.contour_sop_index = {}
         self.contour_z_index = []
+        self.dose_data = {}
+        self.enabled_isodose_levels.clear()
+        self.show_isodoses_globally = True
         self.update()
 
     def mousePressEvent(self, event) -> None:
@@ -734,6 +1019,74 @@ class DicomViewerWidget(QWidget):
                             
                         if not poly.isEmpty():
                             painter.drawPolygon(poly)
+
+            # Отрисовка изодоз RTDOSE поверх изображения
+            if self.show_isodoses_globally and self.dose_data:
+                ipp = getattr(self.current_dataset, "ImagePositionPatient", None)
+                iop = getattr(self.current_dataset, "ImageOrientationPatient", None)
+                pixel_spacing = getattr(self.current_dataset, "PixelSpacing", None)
+                
+                if ipp is not None and iop is not None and pixel_spacing is not None and len(ipp) >= 3 and len(iop) >= 6 and len(pixel_spacing) >= 2:
+                    ipp_x, ipp_y, ipp_z = float(ipp[0]), float(ipp[1]), float(ipp[2])
+                    xr, yr, zr = float(iop[0]), float(iop[1]), float(iop[2])
+                    xc, yc, zc = float(iop[3]), float(iop[4]), float(iop[5])
+                    dy, dx = float(pixel_spacing[0]), float(pixel_spacing[1])
+                    
+                    rows = getattr(self.current_dataset, "Rows", 512)
+                    cols = getattr(self.current_dataset, "Columns", 512)
+                    
+                    scale_x = view_w / cols
+                    scale_y = view_h / rows
+
+                    slice_grid = get_dose_slice_at_z(self.dose_data, ipp_z)
+                    if slice_grid is not None:
+                        d_ipp = self.dose_data.get("ipp", [0.0, 0.0, 0.0])
+                        d_iop = self.dose_data.get("iop", [1.0, 0.0, 0.0, 0.0, 1.0, 0.0])
+                        d_dy, d_dx = self.dose_data.get("pixel_spacing", [1.0, 1.0])
+                        
+                        xr_d, yr_d, zr_d = float(d_iop[0]), float(d_iop[1]), float(d_iop[2])
+                        xc_d, yc_d, zc_d = float(d_iop[3]), float(d_iop[4]), float(d_iop[5])
+                        
+                        for lvl in self.dose_data.get("levels", []):
+                            if lvl["name"] not in self.enabled_isodose_levels:
+                                continue
+                            val = float(lvl["val"])
+                            segments = marching_squares_2d(slice_grid, val)
+                            if not segments:
+                                continue
+                            
+                            pen = QPen(lvl["color"], 2, Qt.PenStyle.SolidLine)
+                            painter.setPen(pen)
+                            
+                            for p1, p2 in segments:
+                                c1, r1 = p1
+                                c2, r2 = p2
+                                
+                                x1_p = d_ipp[0] + c1 * d_dx * xr_d + r1 * d_dy * xc_d
+                                y1_p = d_ipp[1] + c1 * d_dx * yr_d + r1 * d_dy * yc_d
+                                z1_p = ipp_z
+                                
+                                dp1_x = x1_p - ipp_x
+                                dp1_y = y1_p - ipp_y
+                                dp1_z = z1_p - ipp_z
+                                px1 = (dp1_x * xr + dp1_y * yr + dp1_z * zr) / dx
+                                py1 = (dp1_x * xc + dp1_y * yc + dp1_z * zc) / dy
+                                wx1 = offset_x + px1 * scale_x
+                                wy1 = offset_y + py1 * scale_y
+                                
+                                x2_p = d_ipp[0] + c2 * d_dx * xr_d + r2 * d_dy * xc_d
+                                y2_p = d_ipp[1] + c2 * d_dx * yr_d + r2 * d_dy * yc_d
+                                z2_p = ipp_z
+                                
+                                dp2_x = x2_p - ipp_x
+                                dp2_y = y2_p - ipp_y
+                                dp2_z = z2_p - ipp_z
+                                px2 = (dp2_x * xr + dp2_y * yr + dp2_z * zr) / dx
+                                py2 = (dp2_x * xc + dp2_y * yc + dp2_z * zc) / dy
+                                wx2 = offset_x + px2 * scale_x
+                                wy2 = offset_y + py2 * scale_y
+                                
+                                painter.drawLine(QPointF(wx1, wy1), QPointF(wx2, wy2))
 
             # Отрисовка измерительной линейки
             if self.ruler_active and self.start_pos and self.current_pos:
@@ -938,17 +1291,21 @@ class DicomViewerWidget(QWidget):
 
 
 class DicomViewerPanel(QWidget):
-    """Панель управления просмотром DICOM серий с поддержкой RTSTRUCT."""
+    """Панель управления просмотром DICOM серий с поддержкой RTSTRUCT и RTDOSE/RTPLAN."""
     close_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
         self.parent_app = parent
         self.sorted_files = []
+        self.struct_files = []
+        self.dose_files = []
+        self.plan_files = []
         self.current_index = -1
         self.is_loading = False
         self.loader_worker = None
         self.struct_worker = None
+        self.dose_worker = None
         self.progress_dialog = None
         self.pixmap_cache = {}
 
@@ -975,7 +1332,31 @@ class DicomViewerPanel(QWidget):
 
         top_layout.addStretch()
 
-        # Выпадающий список для выбора набора структур
+        # Выпадающий список для выбора файла дозы RTDOSE
+        self.cb_dose = QComboBox(self)
+        self.cb_dose.setFixedWidth(220)
+        self.cb_dose.setStyleSheet("""
+            QComboBox {
+                background-color: #2A2A2A;
+                border: 1px solid #374151;
+                border-radius: 4px;
+                color: #FFFFFF;
+                padding: 0px 8px;
+                font-size: 12px;
+                min-height: 28px;
+                max-height: 28px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1A1A1A;
+                border: 1px solid #374151;
+                color: #FFFFFF;
+                selection-background-color: #3B82F6;
+            }
+        """)
+        self.cb_dose.hide()
+        top_layout.addWidget(self.cb_dose)
+
+        # Выпадающий список для выбора набора структур RTSTRUCT
         self.cb_structures = QComboBox(self)
         self.cb_structures.setFixedWidth(220)
         self.cb_structures.setStyleSheet("""
@@ -1066,12 +1447,12 @@ class DicomViewerPanel(QWidget):
         
         layout.addLayout(top_layout)
 
-        # 2. Центральная область (Изображение, структуры слева, шкала HU справа)
+        # 2. Центральная область (Изображение, структуры/изодозы слева, шкала HU справа)
         main_layout = QHBoxLayout()
         main_layout.setSpacing(15)
 
-        # Панель структур слева
-        self.setup_structures_panel()
+        # Панель структур и изодоз слева (с переключаемыми вкладками)
+        self.setup_left_panel()
         main_layout.addWidget(self.structures_panel)
 
         self.viewer = DicomViewerWidget(self)
@@ -1108,30 +1489,53 @@ class DicomViewerPanel(QWidget):
         layout.addWidget(self.slider)
 
         self.retranslate_ui()
+        self.cb_dose.currentIndexChanged.connect(self.on_dose_file_changed)
         self.cb_structures.currentIndexChanged.connect(self.on_structure_file_changed)
         self.cb_presets.currentIndexChanged.connect(self.apply_preset)
         self.update_buttons_style()
 
-    def setup_structures_panel(self) -> None:
+    def setup_left_panel(self) -> None:
         self.structures_panel = QFrame(self)
-        self.structures_panel.setFixedWidth(205)
+        self.structures_panel.setFixedWidth(220)
         
         eye_path = get_resource_path("themes/eye.png").replace(os.sep, "/")
-        style = """
-            QFrame {
-                background-color: #141414;
+        panel_layout = QVBoxLayout(self.structures_panel)
+        panel_layout.setContentsMargins(4, 4, 4, 4)
+        panel_layout.setSpacing(6)
+
+        # Вкладки Структуры / Изодозы
+        self.tab_panel = QTabWidget(self.structures_panel)
+        
+        tab_style = f"""
+            QTabWidget::pane {{
                 border: 1px solid #282828;
+                background-color: #141414;
                 border-radius: 6px;
-            }
-            QLabel {
-                border: none;
-                background: transparent;
-                color: #FFFFFF;
-                font-size: 13px;
+                top: -1px;
+            }}
+            QTabBar::tab {{
+                background-color: #1F2937;
+                color: #9CA3AF;
+                border: 1px solid #374151;
+                border-bottom: none;
+                border-top-left-radius: 5px;
+                border-top-right-radius: 5px;
+                padding: 6px 12px;
                 font-weight: bold;
-                font-family: "Segoe UI", -apple-system, Roboto, sans-serif;
-            }
-            QListWidget {
+                font-size: 11px;
+                min-width: 80px;
+            }}
+            QTabBar::tab:selected {{
+                background-color: #141414;
+                color: #3B82F6;
+                border-color: #282828;
+                border-bottom: 1px solid #141414;
+            }}
+            QTabBar::tab:hover:!selected {{
+                background-color: #374151;
+                color: #FFFFFF;
+            }}
+            QListWidget {{
                 background-color: #0f0f0f;
                 border: 1px solid #282828;
                 border-radius: 6px;
@@ -1139,54 +1543,79 @@ class DicomViewerPanel(QWidget):
                 outline: 0;
                 font-family: "Segoe UI", -apple-system, Roboto, sans-serif;
                 font-size: 12px;
-            }
-            QListWidget::item {
-                padding: 6px 10px;
+            }}
+            QListWidget::item {{
+                padding: 5px 8px;
                 border-radius: 4px;
                 margin: 2px 2px;
-            }
-            QListWidget::item:hover {
+            }}
+            QListWidget::item:hover {{
                 background-color: #222222;
-            }
-            QListWidget::item:selected {
+            }}
+            QListWidget::item:selected {{
                 background-color: #1f538d;
                 color: #FFFFFF;
-            }
-            QListWidget::indicator {
+            }}
+            QListWidget::indicator {{
                 width: 14px;
                 height: 14px;
                 border: 1px solid #3d3d3d;
                 border-radius: 3px;
                 background-color: #0f0f0f;
-            }
-            QListWidget::indicator:hover {
+            }}
+            QListWidget::indicator:hover {{
                 border-color: #1f538d;
                 background-color: #151515;
-            }
-            QListWidget::indicator:checked {
-                image: url(themes/eye.png);
+            }}
+            QListWidget::indicator:checked {{
+                image: url({eye_path});
                 border: 1px solid #1f538d;
                 border-radius: 3px;
                 background-color: #1f538d;
-            }
+            }}
         """
-        style = style.replace("url(themes/eye.png)", f"url({eye_path})")
-        self.structures_panel.setStyleSheet(style)
-        panel_layout = QVBoxLayout(self.structures_panel)
-        panel_layout.setContentsMargins(4, 5, 4, 5)
-        panel_layout.setSpacing(8)
+        self.tab_panel.setStyleSheet(tab_style)
 
-        lbl_title = QLabel("Структуры", self.structures_panel)
-        panel_layout.addWidget(lbl_title)
+        # 1. Вкладка "Структуры"
+        tab_structs = QWidget()
+        struct_layout = QVBoxLayout(tab_structs)
+        struct_layout.setContentsMargins(4, 6, 4, 4)
+        struct_layout.setSpacing(6)
 
-        self.cb_show_structures = ToggleSwitch("Показывать структуры", self.structures_panel)
+        self.cb_show_structures = ToggleSwitch(tr_ui("viewer_show_structures"), tab_structs)
         self.cb_show_structures.setChecked(True)
         self.cb_show_structures.stateChanged.connect(self.on_global_structures_changed)
-        panel_layout.addWidget(self.cb_show_structures)
+        struct_layout.addWidget(self.cb_show_structures)
 
-        self.list_structures = QListWidget(self.structures_panel)
+        self.list_structures = QListWidget(tab_structs)
         self.list_structures.itemChanged.connect(self.on_structure_item_changed)
-        panel_layout.addWidget(self.list_structures)
+        struct_layout.addWidget(self.list_structures)
+
+        self.tab_panel.addTab(tab_structs, tr_ui("viewer_tab_structures"))
+
+        # 2. Вкладка "Изодозы"
+        tab_isodoses = QWidget()
+        dose_layout = QVBoxLayout(tab_isodoses)
+        dose_layout.setContentsMargins(4, 6, 4, 4)
+        dose_layout.setSpacing(6)
+
+        self.cb_show_isodoses = ToggleSwitch(tr_ui("viewer_show_isodoses"), tab_isodoses)
+        self.cb_show_isodoses.setChecked(True)
+        self.cb_show_isodoses.stateChanged.connect(self.on_global_isodoses_changed)
+        dose_layout.addWidget(self.cb_show_isodoses)
+
+        self.lbl_dose_info = QLabel(tab_isodoses)
+        self.lbl_dose_info.setStyleSheet("color: #9CA3AF; font-size: 10px; font-weight: bold; padding: 0px 2px;")
+        self.lbl_dose_info.setWordWrap(True)
+        dose_layout.addWidget(self.lbl_dose_info)
+
+        self.list_isodoses = QListWidget(tab_isodoses)
+        self.list_isodoses.itemChanged.connect(self.on_isodose_item_changed)
+        dose_layout.addWidget(self.list_isodoses)
+
+        self.tab_panel.addTab(tab_isodoses, tr_ui("viewer_tab_isodoses"))
+
+        panel_layout.addWidget(self.tab_panel)
 
     def on_global_structures_changed(self, state: int) -> None:
         self.viewer.show_structures_globally = (state == 2)
@@ -1252,6 +1681,74 @@ class DicomViewerPanel(QWidget):
         if current_sf == sf_path:
             self.apply_structures(parsed)
 
+    def on_global_isodoses_changed(self, state: int) -> None:
+        self.viewer.show_isodoses_globally = (state == 2)
+        self.viewer.update()
+
+    def on_isodose_item_changed(self, item: QListWidgetItem) -> None:
+        name = item.data(Qt.ItemDataRole.UserRole)
+        checked = (item.checkState() == Qt.CheckState.Checked)
+        if checked:
+            self.viewer.enabled_isodose_levels.add(name)
+        else:
+            self.viewer.enabled_isodose_levels.discard(name)
+        self.viewer.update()
+
+    def apply_dose_data(self, dose_data: dict) -> None:
+        self.viewer.set_dose_data(dose_data)
+        
+        self.list_isodoses.blockSignals(True)
+        self.list_isodoses.clear()
+        
+        if not dose_data or "levels" not in dose_data:
+            self.lbl_dose_info.setText("")
+            self.list_isodoses.blockSignals(False)
+            return
+
+        rx = dose_data.get("rx_dose", 0.0)
+        mx = dose_data.get("max_dose", 0.0)
+        units = dose_data.get("dose_units", "Gy")
+        self.lbl_dose_info.setText(f"{tr_ui('viewer_rx_dose')}: {rx:.2f} {units} | {tr_ui('viewer_max_dose')}: {mx:.2f} {units}")
+
+        for lvl in dose_data.get("levels", []):
+            name = lvl["name"]
+            val = lvl["val"]
+            col = lvl["color"]
+
+            item_text = f"{name} — {val:.2f} {units}"
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.ItemDataRole.UserRole, name)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked if lvl.get("enabled", True) else Qt.CheckState.Unchecked)
+            item.setForeground(QBrush(col))
+            self.list_isodoses.addItem(item)
+
+        self.list_isodoses.blockSignals(False)
+
+    def on_dose_file_changed(self, index: int) -> None:
+        self.viewer.set_dose_data({})
+        self.list_isodoses.blockSignals(True)
+        self.list_isodoses.clear()
+        self.list_isodoses.blockSignals(False)
+        self.lbl_dose_info.setText("")
+        self.viewer.update()
+
+        if index >= 0:
+            dose_path = self.cb_dose.itemData(index)
+            if dose_path and os.path.exists(dose_path):
+                if self.dose_worker is not None and self.dose_worker.isRunning():
+                    self.dose_worker.quit()
+                    self.dose_worker.wait()
+
+                self.dose_worker = DoseLoaderWorker(dose_path, self.plan_files)
+                self.dose_worker.finished_signal.connect(self._on_dose_loaded)
+                self.dose_worker.start()
+
+    def _on_dose_loaded(self, dose_path: str, parsed: dict) -> None:
+        current_path = self.cb_dose.currentData()
+        if current_path == dose_path:
+            self.apply_dose_data(parsed)
+
     def setup_hu_panel(self) -> None:
         self.hu_panel = QFrame(self)
         self.hu_panel.setFixedWidth(70)
@@ -1309,13 +1806,30 @@ class DicomViewerPanel(QWidget):
         self.cb_presets.addItem("Мозг", "brain")
         self.cb_presets.blockSignals(False)
 
+        self.cb_dose.blockSignals(True)
+        if not getattr(self, "dose_files", []):
+            self.cb_dose.clear()
+            self.cb_dose.addItem(tr_ui("viewer_no_dose_available"), None)
+        else:
+            self.cb_dose.setItemText(0, tr_ui("viewer_no_dose"))
+        self.cb_dose.blockSignals(False)
+
         self.cb_structures.blockSignals(True)
         if not getattr(self, "struct_files", []):
             self.cb_structures.clear()
-            self.cb_structures.addItem("Нет структур", None)
+            self.cb_structures.addItem(tr_ui("viewer_no_structures_available"), None)
         else:
-            self.cb_structures.setItemText(0, "Без структур")
+            self.cb_structures.setItemText(0, tr_ui("viewer_no_structures"))
         self.cb_structures.blockSignals(False)
+
+        if hasattr(self, "tab_panel"):
+            self.tab_panel.setTabText(0, tr_ui("viewer_tab_structures"))
+            self.tab_panel.setTabText(1, tr_ui("viewer_tab_isodoses"))
+
+        if hasattr(self, "cb_show_structures"):
+            self.cb_show_structures.setText(tr_ui("viewer_show_structures"))
+        if hasattr(self, "cb_show_isodoses"):
+            self.cb_show_isodoses.setText(tr_ui("viewer_show_isodoses"))
 
         self.btn_ruler.setToolTip("Линейка")
         self.btn_hu.setToolTip("Настройка окна HU")
@@ -1346,6 +1860,7 @@ class DicomViewerPanel(QWidget):
             }}
         """
         self.cb_presets.setStyleSheet(style_combo)
+        self.cb_dose.setStyleSheet(style_combo)
         self.cb_structures.setStyleSheet(style_combo)
         
         self.hu_panel.setStyleSheet(f"""
@@ -1361,25 +1876,73 @@ class DicomViewerPanel(QWidget):
             }}
         """)
 
-        self.structures_panel.setStyleSheet(f"""
-            QFrame {{
-                background-color: {palette['PANEL_BG']};
+        eye_path = get_resource_path("themes/eye.png").replace(os.sep, "/")
+        self.tab_panel.setStyleSheet(f"""
+            QTabWidget::pane {{
                 border: 1px solid {palette['BORDER_COLOR']};
+                background-color: {palette['PANEL_BG']};
                 border-radius: 6px;
+                top: -1px;
             }}
-            QLabel {{
-                border: none;
-                background: transparent;
-                color: {palette['TEXT_COLOR']};
+            QTabBar::tab {{
+                background-color: {palette.get('WINDOW_BG', '#1F2937')};
+                color: {palette.get('TEXT_MUTED', '#9CA3AF')};
+                border: 1px solid {palette['BORDER_COLOR']};
+                border-bottom: none;
+                border-top-left-radius: 5px;
+                border-top-right-radius: 5px;
+                padding: 6px 12px;
+                font-weight: bold;
+                font-size: 11px;
+                min-width: 80px;
             }}
-            QCheckBox {{
-                color: {palette['TEXT_COLOR']};
+            QTabBar::tab:selected {{
+                background-color: {palette['PANEL_BG']};
+                color: {palette['ACCENT_COLOR']};
+                border-color: {palette['BORDER_COLOR']};
+                border-bottom: 1px solid {palette['PANEL_BG']};
+            }}
+            QTabBar::tab:hover:!selected {{
+                background-color: {palette.get('BUTTON_BG', '#374151')};
+                color: #FFFFFF;
             }}
             QListWidget {{
                 background-color: {palette.get('WINDOW_BG', '#111827')};
                 border: 1px solid {palette['BORDER_COLOR']};
-                border-radius: 4px;
+                border-radius: 6px;
                 color: {palette['TEXT_COLOR']};
+                outline: 0;
+                font-family: "Segoe UI", -apple-system, Roboto, sans-serif;
+                font-size: 12px;
+            }}
+            QListWidget::item {{
+                padding: 5px 8px;
+                border-radius: 4px;
+                margin: 2px 2px;
+            }}
+            QListWidget::item:hover {{
+                background-color: {palette.get('HOVER_BG', '#222222')};
+            }}
+            QListWidget::item:selected {{
+                background-color: {palette['ACCENT_COLOR']};
+                color: #FFFFFF;
+            }}
+            QListWidget::indicator {{
+                width: 14px;
+                height: 14px;
+                border: 1px solid {palette.get('BORDER_COLOR_ALT', '#3d3d3d')};
+                border-radius: 3px;
+                background-color: {palette.get('WINDOW_BG', '#0f0f0f')};
+            }}
+            QListWidget::indicator:hover {{
+                border-color: {palette['ACCENT_COLOR']};
+                background-color: {palette.get('PANEL_BG', '#151515')};
+            }}
+            QListWidget::indicator:checked {{
+                image: url({eye_path});
+                border: 1px solid {palette['ACCENT_COLOR']};
+                border-radius: 3px;
+                background-color: {palette['ACCENT_COLOR']};
             }}
         """)
 
@@ -1528,11 +2091,20 @@ class DicomViewerPanel(QWidget):
         if self.struct_worker is not None and self.struct_worker.isRunning():
             self.struct_worker.quit()
             self.struct_worker.wait()
+        if self.dose_worker is not None and self.dose_worker.isRunning():
+            self.dose_worker.quit()
+            self.dose_worker.wait()
 
         self.viewer.clear_viewer()
         self.pixmap_cache.clear()
         self.sorted_files.clear()
         self.struct_files.clear()
+        self.dose_files.clear()
+        self.plan_files.clear()
+
+        self.cb_dose.blockSignals(True)
+        self.cb_dose.clear()
+        self.cb_dose.blockSignals(False)
 
         self.cb_structures.blockSignals(True)
         self.cb_structures.clear()
@@ -1542,6 +2114,11 @@ class DicomViewerPanel(QWidget):
         self.list_structures.clear()
         self.list_structures.blockSignals(False)
 
+        self.list_isodoses.blockSignals(True)
+        self.list_isodoses.clear()
+        self.list_isodoses.blockSignals(False)
+
+        self.lbl_dose_info.setText("")
         self.lbl_info.setText("")
         self.current_index = -1
         self.is_loading = False
@@ -1560,9 +2137,14 @@ class DicomViewerPanel(QWidget):
         self.cb_presets.setCurrentIndex(0)
         self.cb_presets.blockSignals(False)
 
+        self.cb_dose.blockSignals(True)
+        self.cb_dose.clear()
+        self.dose_files = []
+
         self.cb_structures.blockSignals(True)
         self.cb_structures.clear()
         self.struct_files = []
+        self.plan_files = []
 
         if self.loader_worker is not None and self.loader_worker.isRunning():
             self.loader_worker.quit()
@@ -1605,13 +2187,45 @@ class DicomViewerPanel(QWidget):
             self.progress_dialog = None
 
         self.struct_files = result.get("struct_files", [])
+        self.dose_files = result.get("dose_files", [])
+        self.plan_files = result.get("plan_files", [])
+        
         selected_struct_idx = result.get("selected_struct_idx", -1)
         parsed_structures = result.get("parsed_structures", {})
+        
+        selected_dose_idx = result.get("selected_dose_idx", -1)
+        parsed_dose = result.get("parsed_dose", {})
+        
         self.sorted_files = result.get("sorted_files", [])
 
+        # Настройка выпадающего списка RTDOSE
+        self.cb_dose.blockSignals(True)
+        if self.dose_files:
+            self.cb_dose.addItem(tr_ui("viewer_no_dose"), None)
+            for df in self.dose_files:
+                display_name = os.path.basename(df)
+                if df == parsed_dose.get("filepath") and parsed_dose.get("plan_label"):
+                    display_name = f"Dose: {parsed_dose['plan_label']}"
+                self.cb_dose.addItem(display_name, df)
+
+            if selected_dose_idx > 0:
+                self.cb_dose.setCurrentIndex(selected_dose_idx)
+            else:
+                self.cb_dose.setCurrentIndex(0)
+
+            self.cb_dose.setEnabled(True)
+            self.cb_dose.show()
+        else:
+            self.cb_dose.addItem(tr_ui("viewer_no_dose_available"), None)
+            self.cb_dose.setCurrentIndex(0)
+            self.cb_dose.setEnabled(False)
+            self.cb_dose.hide()
+        self.cb_dose.blockSignals(False)
+
+        # Настройка выпадающего списка RTSTRUCT
         self.cb_structures.blockSignals(True)
         if self.struct_files:
-            self.cb_structures.addItem("Без структур", None)
+            self.cb_structures.addItem(tr_ui("viewer_no_structures"), None)
             for sf in self.struct_files:
                 self.cb_structures.addItem(os.path.basename(sf), sf)
 
@@ -1623,15 +2237,17 @@ class DicomViewerPanel(QWidget):
             self.cb_structures.setEnabled(True)
             self.cb_structures.show()
         else:
-            self.cb_structures.addItem("Нет структур", None)
+            self.cb_structures.addItem(tr_ui("viewer_no_structures_available"), None)
             self.cb_structures.setCurrentIndex(0)
             self.cb_structures.setEnabled(False)
             self.cb_structures.hide()
-
         self.cb_structures.blockSignals(False)
 
         self.apply_structures(parsed_structures)
         self.viewer.show_structures_globally = self.cb_show_structures.isChecked()
+
+        self.apply_dose_data(parsed_dose)
+        self.viewer.show_isodoses_globally = self.cb_show_isodoses.isChecked()
 
         if not self.sorted_files:
             self.lbl_info.setText("Серия не содержит корректных DICOM файлов.")

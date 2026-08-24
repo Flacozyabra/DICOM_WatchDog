@@ -265,5 +265,16 @@
   "log_system_resumed_from_sleep": "Система вышла из спящего режима. Обновление состояния...",
   "log_system_session_unlocked": "Обнаружена разблокировка сессии пользователя. Обновляю состояние...",
   "tooltip_voice_text_hint": "Форматирование произношения:\n• Знак '+' перед/после гласной указывает ударение\n• Дефис разделяет слоги",
-  "ctx_reset_tab_name": "Сбросить название"
+  "ctx_reset_tab_name": "Сбросить название",
+  "loading_rtdose_data": "Загрузка дозного распределения RTDOSE...",
+  "viewer_tab_structures": "Структуры",
+  "viewer_tab_isodoses": "Изодозы",
+  "viewer_show_structures": "Показывать структуры",
+  "viewer_show_isodoses": "Показывать изодозы",
+  "viewer_no_structures": "Без структур",
+  "viewer_no_structures_available": "Нет структур",
+  "viewer_no_dose": "Без изодоз",
+  "viewer_no_dose_available": "Нет изодоз",
+  "viewer_rx_dose": "Предписание",
+  "viewer_max_dose": "Макс. доза"
 }
