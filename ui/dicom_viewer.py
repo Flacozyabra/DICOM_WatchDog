@@ -1650,7 +1650,8 @@ class DicomViewerPanel(QWidget):
                 selection-background-color: #3B82F6;
             }
         """)
-        self.cb_dose.hide()
+        self.cb_dose.addItem(tr_ui("viewer_no_dose_available"), None)
+        self.cb_dose.setEnabled(False)
         top_layout.addWidget(self.cb_dose)
 
         # Выпадающий список для выбора набора структур RTSTRUCT
@@ -1674,7 +1675,8 @@ class DicomViewerPanel(QWidget):
                 selection-background-color: #3B82F6;
             }
         """)
-        self.cb_structures.hide()
+        self.cb_structures.addItem(tr_ui("viewer_no_structures_available"), None)
+        self.cb_structures.setEnabled(False)
         top_layout.addWidget(self.cb_structures)
 
         # Выпадающий список пресетов HU
@@ -2037,8 +2039,13 @@ class DicomViewerPanel(QWidget):
         self.viewer.update()
 
     def on_structure_file_changed(self, index: int) -> None:
+        if self.struct_worker is not None and self.struct_worker.isRunning():
+            self.struct_worker.quit()
+            self.struct_worker.wait()
+
         self.viewer.structures.clear()
         self.viewer.enabled_structures.clear()
+        self.viewer.rebuild_contour_index()
         
         self.list_structures.blockSignals(True)
         self.list_structures.clear()
@@ -2048,10 +2055,6 @@ class DicomViewerPanel(QWidget):
         if index >= 0:
             sf_path = self.cb_structures.itemData(index)
             if sf_path and os.path.exists(sf_path):
-                if self.struct_worker is not None and self.struct_worker.isRunning():
-                    self.struct_worker.quit()
-                    self.struct_worker.wait()
-                
                 self.struct_worker = StructureLoaderWorker(sf_path)
                 self.struct_worker.finished_signal.connect(self._on_structure_loaded)
                 self.struct_worker.start()
@@ -2113,20 +2116,16 @@ class DicomViewerPanel(QWidget):
         self.list_isodoses.blockSignals(False)
 
     def on_dose_file_changed(self, index: int) -> None:
-        self.viewer.set_dose_data({})
-        self.list_isodoses.blockSignals(True)
-        self.list_isodoses.clear()
-        self.list_isodoses.blockSignals(False)
-        self.lbl_dose_info.setText("")
+        if self.dose_worker is not None and self.dose_worker.isRunning():
+            self.dose_worker.quit()
+            self.dose_worker.wait()
+
+        self.apply_dose_data({})
         self.viewer.update()
 
         if index >= 0:
             dose_path = self.cb_dose.itemData(index)
             if dose_path and os.path.exists(dose_path):
-                if self.dose_worker is not None and self.dose_worker.isRunning():
-                    self.dose_worker.quit()
-                    self.dose_worker.wait()
-
                 self.dose_worker = DoseLoaderWorker(dose_path, self.plan_files)
                 self.dose_worker.finished_signal.connect(self._on_dose_loaded)
                 self.dose_worker.start()
@@ -2630,6 +2629,7 @@ class DicomViewerPanel(QWidget):
 
         # Настройка выпадающего списка RTDOSE
         self.cb_dose.blockSignals(True)
+        self.cb_dose.clear()
         if self.dose_files:
             self.cb_dose.addItem(tr_ui("viewer_no_dose"), None)
             for df in self.dose_files:
@@ -2644,16 +2644,16 @@ class DicomViewerPanel(QWidget):
                 self.cb_dose.setCurrentIndex(0)
 
             self.cb_dose.setEnabled(True)
-            self.cb_dose.show()
         else:
             self.cb_dose.addItem(tr_ui("viewer_no_dose_available"), None)
             self.cb_dose.setCurrentIndex(0)
             self.cb_dose.setEnabled(False)
-            self.cb_dose.hide()
+        self.cb_dose.show()
         self.cb_dose.blockSignals(False)
 
         # Настройка выпадающего списка RTSTRUCT
         self.cb_structures.blockSignals(True)
+        self.cb_structures.clear()
         if self.struct_files:
             self.cb_structures.addItem(tr_ui("viewer_no_structures"), None)
             for sf in self.struct_files:
@@ -2665,12 +2665,11 @@ class DicomViewerPanel(QWidget):
                 self.cb_structures.setCurrentIndex(0)
 
             self.cb_structures.setEnabled(True)
-            self.cb_structures.show()
         else:
             self.cb_structures.addItem(tr_ui("viewer_no_structures_available"), None)
             self.cb_structures.setCurrentIndex(0)
             self.cb_structures.setEnabled(False)
-            self.cb_structures.hide()
+        self.cb_structures.show()
         self.cb_structures.blockSignals(False)
 
         self.apply_structures(parsed_structures)
