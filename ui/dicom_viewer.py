@@ -6,7 +6,7 @@ import os
 import numpy as np
 import pydicom
 
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QRect, QPointF, QThread
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QRect, QRectF, QPointF, QThread
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
     QPushButton, QComboBox, QSlider, QApplication, QSplitter, QSplitterHandle,
@@ -1079,7 +1079,7 @@ class DicomViewerWidget(QWidget):
                             wx_br = offset_x + px_br * scale_x
                             wy_br = offset_y + py_br * scale_y
 
-                            target_rect = QRectF(QPointF(wx_tl, wy_tl), QPointF(wx_br, wy_br))
+                            target_rect = QRectF(QPointF(wx_tl, wy_tl), QPointF(wx_br, wy_br)).normalized()
                             
                             self._temp_dose_rgba = np.ascontiguousarray(rgba)
                             qimg_dose = QImage(self._temp_dose_rgba.data, cols_d, rows_d, cols_d * 4, QImage.Format.Format_RGBA8888)
