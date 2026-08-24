@@ -271,6 +271,7 @@
   "viewer_tab_isodoses": "Isodoses",
   "viewer_show_structures": "Show structures",
   "viewer_show_isodoses": "Show isodoses",
+  "viewer_show_dose_gradient": "Dose gradient",
   "viewer_no_structures": "No structures",
   "viewer_no_structures_available": "No structures available",
   "viewer_no_dose": "No isodoses",

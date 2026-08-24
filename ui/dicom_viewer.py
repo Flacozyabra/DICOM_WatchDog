@@ -330,6 +330,59 @@ def get_dose_slice_at_z(dose_data: dict, target_z: float) -> np.ndarray | None:
     return (1.0 - t) * grid[idx] + t * grid[idx + 1]
 
 
+def create_dose_colormap_lut(alpha_base: int = 110) -> np.ndarray:
+    """Создает 256x4 RGBA lookup table для гладкого медицинского цветового градиента дозы (Colorwash)."""
+    # Опорные точки лучевой терапии: 0 -> 30% Rx, 64 -> 50% Rx, 128 -> 70% Rx, 160 -> 80% Rx, 195 -> 90% Rx, 215 -> 95% Rx, 235 -> 100% Rx, 255 -> 107%+ Rx
+    ctrl_pts = np.array([
+        [0,   0,   80,  255, alpha_base],
+        [64,  0,   220, 255, alpha_base + 15],
+        [128, 0,   230, 0,   alpha_base + 25],
+        [160, 180, 255, 0,   alpha_base + 35],
+        [195, 255, 220, 0,   alpha_base + 45],
+        [215, 255, 120, 0,   alpha_base + 55],
+        [235, 240, 0,   0,   alpha_base + 65],
+        [255, 255, 0,   220, alpha_base + 75]
+    ], dtype=np.float32)
+
+    indices = np.arange(256, dtype=np.float32)
+    lut = np.zeros((256, 4), dtype=np.uint8)
+    for ch in range(4):
+        lut[:, ch] = np.clip(np.interp(indices, ctrl_pts[:, 0], ctrl_pts[:, ch + 1]), 0, 255).astype(np.uint8)
+    return lut
+
+
+_DOSE_LUT = create_dose_colormap_lut(110)
+
+
+def dose_slice_to_rgba(slice_grid: np.ndarray, rx_dose: float, max_dose: float) -> np.ndarray | None:
+    """
+    Преобразует 2D срез дозы в полупрозрачное RGBA-изображение (H, W, 4).
+    Значения ниже 30% от предписанной дозы полностью прозрачны (Alpha = 0).
+    """
+    if slice_grid is None or slice_grid.size == 0:
+        return None
+
+    rx = rx_dose if rx_dose > 0 else (max_dose * 0.9 if max_dose > 0 else 1.0)
+    d_min = rx * 0.30
+    d_max = max(rx * 1.07, max_dose if max_dose > 0 else rx)
+
+    if d_max <= d_min:
+        d_max = d_min + 1.0
+
+    h, w = slice_grid.shape
+    rgba = np.zeros((h, w, 4), dtype=np.uint8)
+
+    mask = slice_grid >= d_min
+    if not np.any(mask):
+        return rgba
+
+    t = (slice_grid[mask] - d_min) / (d_max - d_min)
+    lut_indices = np.clip(t * 255.0, 0, 255).astype(np.int32)
+    rgba[mask] = _DOSE_LUT[lut_indices]
+
+    return rgba
+
+
 class PatientSeriesLoaderWorker(QThread):
     progress_signal = pyqtSignal(int, int, str)
     finished_signal = pyqtSignal(dict)
@@ -777,6 +830,7 @@ class DicomViewerWidget(QWidget):
         self.dose_data = {}
         self.enabled_isodose_levels = set()
         self.show_isodoses_globally = True
+        self.show_dose_gradient = False
 
         self.setMouseTracking(True)
         self.setStyleSheet("background-color: #000000;")
@@ -972,6 +1026,69 @@ class DicomViewerWidget(QWidget):
 
             self.image_rect = QRect(offset_x, offset_y, view_w, view_h)
             painter.drawPixmap(self.image_rect, self.current_pixmap)
+
+            # Отрисовка цветового градиента дозы (Dose Colorwash)
+            if self.show_dose_gradient and self.dose_data:
+                ipp = getattr(self.current_dataset, "ImagePositionPatient", None)
+                iop = getattr(self.current_dataset, "ImageOrientationPatient", None)
+                pixel_spacing = getattr(self.current_dataset, "PixelSpacing", None)
+                
+                if ipp is not None and iop is not None and pixel_spacing is not None and len(ipp) >= 3 and len(iop) >= 6 and len(pixel_spacing) >= 2:
+                    ipp_x, ipp_y, ipp_z = float(ipp[0]), float(ipp[1]), float(ipp[2])
+                    xr, yr, zr = float(iop[0]), float(iop[1]), float(iop[2])
+                    xc, yc, zc = float(iop[3]), float(iop[4]), float(iop[5])
+                    dy, dx = float(pixel_spacing[0]), float(pixel_spacing[1])
+                    
+                    rows = getattr(self.current_dataset, "Rows", 512)
+                    cols = getattr(self.current_dataset, "Columns", 512)
+                    
+                    scale_x = view_w / cols
+                    scale_y = view_h / rows
+
+                    slice_grid = get_dose_slice_at_z(self.dose_data, ipp_z)
+                    if slice_grid is not None:
+                        rx = float(self.dose_data.get("rx_dose", 0.0))
+                        mx = float(self.dose_data.get("max_dose", 0.0))
+                        rgba = dose_slice_to_rgba(slice_grid, rx, mx)
+                        if rgba is not None:
+                            d_ipp = self.dose_data.get("ipp", [0.0, 0.0, 0.0])
+                            d_iop = self.dose_data.get("iop", [1.0, 0.0, 0.0, 0.0, 1.0, 0.0])
+                            d_dy, d_dx = self.dose_data.get("pixel_spacing", [1.0, 1.0])
+                            
+                            xr_d, yr_d, zr_d = float(d_iop[0]), float(d_iop[1]), float(d_iop[2])
+                            xc_d, yc_d, zc_d = float(d_iop[3]), float(d_iop[4]), float(d_iop[5])
+                            
+                            rows_d, cols_d = slice_grid.shape
+                            
+                            # Угловые точки сетки дозы в координатах холста
+                            dp_tl_x = d_ipp[0] - ipp_x
+                            dp_tl_y = d_ipp[1] - ipp_y
+                            dp_tl_z = ipp_z - ipp_z
+                            px_tl = (dp_tl_x * xr + dp_tl_y * yr + dp_tl_z * zr) / dx
+                            py_tl = (dp_tl_x * xc + dp_tl_y * yc + dp_tl_z * zc) / dy
+                            wx_tl = offset_x + px_tl * scale_x
+                            wy_tl = offset_y + py_tl * scale_y
+
+                            x_br = d_ipp[0] + cols_d * d_dx * xr_d + rows_d * d_dy * xc_d
+                            y_br = d_ipp[1] + cols_d * d_dx * yr_d + rows_d * d_dy * yc_d
+                            dp_br_x = x_br - ipp_x
+                            dp_br_y = y_br - ipp_y
+                            dp_br_z = ipp_z - ipp_z
+                            px_br = (dp_br_x * xr + dp_br_y * yr + dp_br_z * zr) / dx
+                            py_br = (dp_br_x * xc + dp_br_y * yc + dp_br_z * zc) / dy
+                            wx_br = offset_x + px_br * scale_x
+                            wy_br = offset_y + py_br * scale_y
+
+                            target_rect = QRectF(QPointF(wx_tl, wy_tl), QPointF(wx_br, wy_br))
+                            
+                            self._temp_dose_rgba = np.ascontiguousarray(rgba)
+                            qimg_dose = QImage(self._temp_dose_rgba.data, cols_d, rows_d, cols_d * 4, QImage.Format.Format_RGBA8888)
+                            
+                            prev_smooth = painter.renderHints() & QPainter.RenderHint.SmoothPixmapTransform
+                            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+                            painter.drawImage(target_rect, qimg_dose)
+                            if not prev_smooth:
+                                painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
 
             # Отрисовка RTSTRUCT-структур поверх изображения
             if self.show_structures_globally and (self.contour_sop_index or self.contour_z_index):
@@ -1621,6 +1738,11 @@ class DicomViewerPanel(QWidget):
         self.cb_show_isodoses.stateChanged.connect(self.on_global_isodoses_changed)
         dose_layout.addWidget(self.cb_show_isodoses)
 
+        self.cb_dose_gradient = ToggleSwitch(tr_ui("viewer_show_dose_gradient"), page_isodoses)
+        self.cb_dose_gradient.setChecked(False)
+        self.cb_dose_gradient.stateChanged.connect(self.on_dose_gradient_changed)
+        dose_layout.addWidget(self.cb_dose_gradient)
+
         self.lbl_dose_info = QLabel(page_isodoses)
         self.lbl_dose_info.setStyleSheet("color: #9CA3AF; font-size: 10px; font-weight: bold; padding: 0px 2px; border: none;")
         self.lbl_dose_info.setWordWrap(True)
@@ -1639,6 +1761,10 @@ class DicomViewerPanel(QWidget):
     def on_tab_button_clicked(self, tab_id: int) -> None:
         self.stack_panel.setCurrentIndex(tab_id)
         self.update_tab_buttons_style()
+
+    def on_dose_gradient_changed(self, state: int) -> None:
+        self.viewer.show_dose_gradient = (state == 2)
+        self.viewer.update()
 
     def update_tab_buttons_style(self) -> None:
         palette = self.parent_app.THEMES[self.parent_app.current_theme] if hasattr(self.parent_app, "current_theme") and hasattr(self.parent_app, "THEMES") else {
@@ -1894,6 +2020,8 @@ class DicomViewerPanel(QWidget):
             self.cb_show_structures.setText(tr_ui("viewer_show_structures"))
         if hasattr(self, "cb_show_isodoses"):
             self.cb_show_isodoses.setText(tr_ui("viewer_show_isodoses"))
+        if hasattr(self, "cb_dose_gradient"):
+            self.cb_dose_gradient.setText(tr_ui("viewer_show_dose_gradient"))
 
         self.btn_ruler.setToolTip("Линейка")
         self.btn_hu.setToolTip("Настройка окна HU")
@@ -2311,6 +2439,7 @@ class DicomViewerPanel(QWidget):
 
         self.apply_dose_data(parsed_dose)
         self.viewer.show_isodoses_globally = self.cb_show_isodoses.isChecked()
+        self.viewer.show_dose_gradient = self.cb_dose_gradient.isChecked()
 
         if not self.sorted_files:
             self.lbl_info.setText("Серия не содержит корректных DICOM файлов.")

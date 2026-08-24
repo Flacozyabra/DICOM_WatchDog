@@ -271,6 +271,7 @@
   "viewer_tab_isodoses": "Изодозы",
   "viewer_show_structures": "Показывать структуры",
   "viewer_show_isodoses": "Показывать изодозы",
+  "viewer_show_dose_gradient": "Градиент дозы",
   "viewer_no_structures": "Без структур",
   "viewer_no_structures_available": "Нет структур",
   "viewer_no_dose": "Без изодоз",
