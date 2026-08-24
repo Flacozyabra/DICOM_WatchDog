@@ -10,7 +10,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QRect, QPointF, QThread
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
     QPushButton, QComboBox, QSlider, QApplication, QSplitter, QSplitterHandle,
-    QListWidget, QListWidgetItem, QCheckBox, QTabWidget
+    QListWidget, QListWidgetItem, QCheckBox, QTabWidget, QButtonGroup, QStackedWidget, QSizePolicy
 )
 from PyQt6.QtGui import (
     QIcon, QFont, QPixmap, QBrush, QColor, QPainter,
@@ -1496,45 +1496,60 @@ class DicomViewerPanel(QWidget):
 
     def setup_left_panel(self) -> None:
         self.structures_panel = QFrame(self)
-        self.structures_panel.setFixedWidth(220)
+        self.structures_panel.setFixedWidth(225)
         
         eye_path = get_resource_path("themes/eye.png").replace(os.sep, "/")
-        panel_layout = QVBoxLayout(self.structures_panel)
-        panel_layout.setContentsMargins(4, 4, 4, 4)
-        panel_layout.setSpacing(6)
-
-        # Вкладки Структуры / Изодозы
-        self.tab_panel = QTabWidget(self.structures_panel)
-        
-        tab_style = f"""
-            QTabWidget::pane {{
+        self.structures_panel.setStyleSheet("""
+            QFrame {
+                background-color: #141414;
                 border: 1px solid #282828;
-                background-color: #141414;
                 border-radius: 6px;
-                top: -1px;
-            }}
-            QTabBar::tab {{
-                background-color: #1F2937;
-                color: #9CA3AF;
-                border: 1px solid #374151;
-                border-bottom: none;
-                border-top-left-radius: 5px;
-                border-top-right-radius: 5px;
-                padding: 6px 12px;
-                font-weight: bold;
-                font-size: 11px;
-                min-width: 80px;
-            }}
-            QTabBar::tab:selected {{
-                background-color: #141414;
-                color: #3B82F6;
-                border-color: #282828;
-                border-bottom: 1px solid #141414;
-            }}
-            QTabBar::tab:hover:!selected {{
-                background-color: #374151;
-                color: #FFFFFF;
-            }}
+            }
+        """)
+        panel_layout = QVBoxLayout(self.structures_panel)
+        panel_layout.setContentsMargins(6, 6, 6, 6)
+        panel_layout.setSpacing(8)
+
+        # 1. Сегментированный переключатель вкладок
+        self.segmented_frame = QFrame(self.structures_panel)
+        self.segmented_frame.setStyleSheet("""
+            QFrame {
+                background-color: #1A1A1A;
+                border: 1px solid #282828;
+                border-radius: 6px;
+            }
+        """)
+        seg_layout = QHBoxLayout(self.segmented_frame)
+        seg_layout.setContentsMargins(2, 2, 2, 2)
+        seg_layout.setSpacing(2)
+
+        self.btn_tab_structs = QPushButton(tr_ui("viewer_tab_structures"), self.segmented_frame)
+        self.btn_tab_structs.setCheckable(True)
+        self.btn_tab_structs.setChecked(True)
+        self.btn_tab_structs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.btn_tab_structs.setFixedHeight(26)
+        seg_layout.addWidget(self.btn_tab_structs)
+
+        self.btn_tab_isodoses = QPushButton(tr_ui("viewer_tab_isodoses"), self.segmented_frame)
+        self.btn_tab_isodoses.setCheckable(True)
+        self.btn_tab_isodoses.setChecked(False)
+        self.btn_tab_isodoses.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.btn_tab_isodoses.setFixedHeight(26)
+        seg_layout.addWidget(self.btn_tab_isodoses)
+
+        self.tab_btn_group = QButtonGroup(self.structures_panel)
+        self.tab_btn_group.setExclusive(True)
+        self.tab_btn_group.addButton(self.btn_tab_structs, 0)
+        self.tab_btn_group.addButton(self.btn_tab_isodoses, 1)
+        self.tab_btn_group.idClicked.connect(self.on_tab_button_clicked)
+
+        panel_layout.addWidget(self.segmented_frame)
+
+        # 2. Стек содержимого вкладок
+        self.stack_panel = QStackedWidget(self.structures_panel)
+        self.stack_panel.setStyleSheet("QStackedWidget { background: transparent; border: none; }")
+
+        list_style = f"""
             QListWidget {{
                 background-color: #0f0f0f;
                 border: 1px solid #282828;
@@ -1574,48 +1589,96 @@ class DicomViewerPanel(QWidget):
                 background-color: #1f538d;
             }}
         """
-        self.tab_panel.setStyleSheet(tab_style)
 
-        # 1. Вкладка "Структуры"
-        tab_structs = QWidget()
-        struct_layout = QVBoxLayout(tab_structs)
-        struct_layout.setContentsMargins(4, 6, 4, 4)
-        struct_layout.setSpacing(6)
+        # 2.1 Страница "Структуры"
+        page_structs = QWidget()
+        page_structs.setStyleSheet("background: transparent; border: none;")
+        struct_layout = QVBoxLayout(page_structs)
+        struct_layout.setContentsMargins(0, 2, 0, 0)
+        struct_layout.setSpacing(8)
 
-        self.cb_show_structures = ToggleSwitch(tr_ui("viewer_show_structures"), tab_structs)
+        self.cb_show_structures = ToggleSwitch(tr_ui("viewer_show_structures"), page_structs)
         self.cb_show_structures.setChecked(True)
         self.cb_show_structures.stateChanged.connect(self.on_global_structures_changed)
         struct_layout.addWidget(self.cb_show_structures)
 
-        self.list_structures = QListWidget(tab_structs)
+        self.list_structures = QListWidget(page_structs)
+        self.list_structures.setStyleSheet(list_style)
         self.list_structures.itemChanged.connect(self.on_structure_item_changed)
         struct_layout.addWidget(self.list_structures)
 
-        self.tab_panel.addTab(tab_structs, tr_ui("viewer_tab_structures"))
+        self.stack_panel.addWidget(page_structs)
 
-        # 2. Вкладка "Изодозы"
-        tab_isodoses = QWidget()
-        dose_layout = QVBoxLayout(tab_isodoses)
-        dose_layout.setContentsMargins(4, 6, 4, 4)
-        dose_layout.setSpacing(6)
+        # 2.2 Страница "Изодозы"
+        page_isodoses = QWidget()
+        page_isodoses.setStyleSheet("background: transparent; border: none;")
+        dose_layout = QVBoxLayout(page_isodoses)
+        dose_layout.setContentsMargins(0, 2, 0, 0)
+        dose_layout.setSpacing(8)
 
-        self.cb_show_isodoses = ToggleSwitch(tr_ui("viewer_show_isodoses"), tab_isodoses)
+        self.cb_show_isodoses = ToggleSwitch(tr_ui("viewer_show_isodoses"), page_isodoses)
         self.cb_show_isodoses.setChecked(True)
         self.cb_show_isodoses.stateChanged.connect(self.on_global_isodoses_changed)
         dose_layout.addWidget(self.cb_show_isodoses)
 
-        self.lbl_dose_info = QLabel(tab_isodoses)
-        self.lbl_dose_info.setStyleSheet("color: #9CA3AF; font-size: 10px; font-weight: bold; padding: 0px 2px;")
+        self.lbl_dose_info = QLabel(page_isodoses)
+        self.lbl_dose_info.setStyleSheet("color: #9CA3AF; font-size: 10px; font-weight: bold; padding: 0px 2px; border: none;")
         self.lbl_dose_info.setWordWrap(True)
         dose_layout.addWidget(self.lbl_dose_info)
 
-        self.list_isodoses = QListWidget(tab_isodoses)
+        self.list_isodoses = QListWidget(page_isodoses)
+        self.list_isodoses.setStyleSheet(list_style)
         self.list_isodoses.itemChanged.connect(self.on_isodose_item_changed)
         dose_layout.addWidget(self.list_isodoses)
 
-        self.tab_panel.addTab(tab_isodoses, tr_ui("viewer_tab_isodoses"))
+        self.stack_panel.addWidget(page_isodoses)
 
-        panel_layout.addWidget(self.tab_panel)
+        panel_layout.addWidget(self.stack_panel)
+        self.update_tab_buttons_style()
+
+    def on_tab_button_clicked(self, tab_id: int) -> None:
+        self.stack_panel.setCurrentIndex(tab_id)
+        self.update_tab_buttons_style()
+
+    def update_tab_buttons_style(self) -> None:
+        palette = self.parent_app.THEMES[self.parent_app.current_theme] if hasattr(self.parent_app, "current_theme") and hasattr(self.parent_app, "THEMES") else {
+            "ACCENT_COLOR": "#3B82F6",
+            "ACCENT_COLOR_DARK": "#2563EB",
+            "TEXT_COLOR": "#FFFFFF",
+            "TEXT_MUTED": "#9CA3AF",
+            "BUTTON_BG": "#374151"
+        }
+        accent = palette.get("ACCENT_COLOR", "#3B82F6")
+        accent_dark = palette.get("ACCENT_COLOR_DARK", "#2563EB")
+        
+        style_active = f"""
+            QPushButton {{
+                background-color: {accent_dark};
+                color: #FFFFFF;
+                border: none;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: bold;
+                padding: 4px 0px;
+            }}
+        """
+        style_inactive = f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {palette.get('TEXT_MUTED', '#9CA3AF')};
+                border: none;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: bold;
+                padding: 4px 0px;
+            }}
+            QPushButton:hover {{
+                background-color: {palette.get('BUTTON_BG', '#374151')};
+                color: #FFFFFF;
+            }}
+        """
+        self.btn_tab_structs.setStyleSheet(style_active if self.btn_tab_structs.isChecked() else style_inactive)
+        self.btn_tab_isodoses.setStyleSheet(style_active if self.btn_tab_isodoses.isChecked() else style_inactive)
 
     def on_global_structures_changed(self, state: int) -> None:
         self.viewer.show_structures_globally = (state == 2)
@@ -1822,9 +1885,10 @@ class DicomViewerPanel(QWidget):
             self.cb_structures.setItemText(0, tr_ui("viewer_no_structures"))
         self.cb_structures.blockSignals(False)
 
-        if hasattr(self, "tab_panel"):
-            self.tab_panel.setTabText(0, tr_ui("viewer_tab_structures"))
-            self.tab_panel.setTabText(1, tr_ui("viewer_tab_isodoses"))
+        if hasattr(self, "btn_tab_structs"):
+            self.btn_tab_structs.setText(tr_ui("viewer_tab_structures"))
+        if hasattr(self, "btn_tab_isodoses"):
+            self.btn_tab_isodoses.setText(tr_ui("viewer_tab_isodoses"))
 
         if hasattr(self, "cb_show_structures"):
             self.cb_show_structures.setText(tr_ui("viewer_show_structures"))
@@ -1876,36 +1940,30 @@ class DicomViewerPanel(QWidget):
             }}
         """)
 
-        eye_path = get_resource_path("themes/eye.png").replace(os.sep, "/")
-        self.tab_panel.setStyleSheet(f"""
-            QTabWidget::pane {{
-                border: 1px solid {palette['BORDER_COLOR']};
+        self.structures_panel.setStyleSheet(f"""
+            QFrame {{
                 background-color: {palette['PANEL_BG']};
+                border: 1px solid {palette['BORDER_COLOR']};
                 border-radius: 6px;
-                top: -1px;
             }}
-            QTabBar::tab {{
-                background-color: {palette.get('WINDOW_BG', '#1F2937')};
-                color: {palette.get('TEXT_MUTED', '#9CA3AF')};
-                border: 1px solid {palette['BORDER_COLOR']};
-                border-bottom: none;
-                border-top-left-radius: 5px;
-                border-top-right-radius: 5px;
-                padding: 6px 12px;
-                font-weight: bold;
-                font-size: 11px;
-                min-width: 80px;
+            QLabel {{
+                border: none;
+                background: transparent;
+                color: {palette['TEXT_COLOR']};
             }}
-            QTabBar::tab:selected {{
-                background-color: {palette['PANEL_BG']};
-                color: {palette['ACCENT_COLOR']};
-                border-color: {palette['BORDER_COLOR']};
-                border-bottom: 1px solid {palette['PANEL_BG']};
-            }}
-            QTabBar::tab:hover:!selected {{
-                background-color: {palette.get('BUTTON_BG', '#374151')};
-                color: #FFFFFF;
-            }}
+        """)
+
+        if hasattr(self, "segmented_frame"):
+            self.segmented_frame.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {palette.get('WINDOW_BG', '#111827')};
+                    border: 1px solid {palette['BORDER_COLOR']};
+                    border-radius: 6px;
+                }}
+            """)
+
+        eye_path = get_resource_path("themes/eye.png").replace(os.sep, "/")
+        list_style = f"""
             QListWidget {{
                 background-color: {palette.get('WINDOW_BG', '#111827')};
                 border: 1px solid {palette['BORDER_COLOR']};
@@ -1944,7 +2002,12 @@ class DicomViewerPanel(QWidget):
                 border-radius: 3px;
                 background-color: {palette['ACCENT_COLOR']};
             }}
-        """)
+        """
+        if hasattr(self, "list_structures"):
+            self.list_structures.setStyleSheet(list_style)
+        if hasattr(self, "list_isodoses"):
+            self.list_isodoses.setStyleSheet(list_style)
+        self.update_tab_buttons_style()
 
         self.slider.setStyleSheet(f"""
             QSlider::groove:horizontal {{
