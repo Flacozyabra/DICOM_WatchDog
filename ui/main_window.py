@@ -752,7 +752,7 @@ class MainWindow(QMainWindow):
             table_name = "archive_table"
         elif getattr(self, 'pacs_table', None) == table:
             table_name = "pacs_table"
-        elif table.columnCount() == 8:
+        elif table.columnCount() in (8, 10):
             if getattr(self, 'images_table', None) is None:
                 table_name = "images_table"
             else:
@@ -775,16 +775,24 @@ class MainWindow(QMainWindow):
         
         # 1. Восстанавливаем порядок
         visual_order = state.get('visual_order')
-        if visual_order and len(visual_order) == column_count:
-            for visual_idx, logical_idx in enumerate(visual_order):
-                current_visual_idx = header.visualIndex(logical_idx)
-                if current_visual_idx != visual_idx:
-                    header.moveSection(current_visual_idx, visual_idx)
+        if visual_order:
+            if len(visual_order) < column_count:
+                existing_set = set(visual_order)
+                missing = [idx for idx in range(column_count) if idx not in existing_set]
+                visual_order = list(visual_order) + missing
+            if len(visual_order) == column_count:
+                for visual_idx, logical_idx in enumerate(visual_order):
+                    current_visual_idx = header.visualIndex(logical_idx)
+                    if current_visual_idx != visual_idx:
+                        header.moveSection(current_visual_idx, visual_idx)
                     
         # 2. Восстанавливаем видимость
         visibility = state.get('visibility')
-        if visibility and len(visibility) == column_count:
-            for i, visible in enumerate(visibility):
+        if visibility:
+            if len(visibility) < column_count:
+                # По умолчанию новые колонки (RTD, RTP) выключены
+                visibility = list(visibility) + [False] * (column_count - len(visibility))
+            for i, visible in enumerate(visibility[:column_count]):
                 table.setColumnHidden(i, not visible)
                 
         header.blockSignals(False)
@@ -961,11 +969,15 @@ class MainWindow(QMainWindow):
             self.images_table.set_placeholder_state(tr_ui("placeholder_scanning_folder"), show_button=False)
             self.images_table.update_placeholder_visibility()
 
+        scan_rtd = not self.images_table.isColumnHidden(8) if hasattr(self, 'images_table') and self.images_table.columnCount() > 8 else False
+        scan_rtp = not self.images_table.isColumnHidden(9) if hasattr(self, 'images_table') and self.images_table.columnCount() > 9 else False
+
         self.scan_worker = FolderScanWorker(
             ct_dir, cleanup_str_val, fix_id_val, prefixes_val,
             rename_folder_enabled, rename_folder_mode,
             archive_dir, archive_enabled, archive_days,
-            archive_cleanup_enabled, archive_cleanup_days
+            archive_cleanup_enabled, archive_cleanup_days,
+            scan_rtd=scan_rtd, scan_rtp=scan_rtp
         )
         self.scan_worker.finished.connect(self.on_folder_scan_finished)
         self.scan_worker.log_emitted.connect(lambda msg: log_message(self.output_field, msg))
@@ -1157,10 +1169,12 @@ class MainWindow(QMainWindow):
                 study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
                 folder_item = QTableWidgetItem(data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
                 str_item = QTableWidgetItem(str(data['str']))
+                rtd_item = QTableWidgetItem(str(data.get('rtd', 0)))
+                rtp_item = QTableWidgetItem(str(data.get('rtp', 0)))
 
-                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item, rtd_item, rtp_item]:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter)
-                    if item in [modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                    if item in [modality_item, slices_item, area_item, study_item, folder_item, str_item, rtd_item, rtp_item]:
                         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
                 color = QColor("#ffffff")
@@ -1182,7 +1196,7 @@ class MainWindow(QMainWindow):
                     if highlight_no_slices and data.get('slices', 0) == 0:
                         color = QColor("crimson")
 
-                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item, rtd_item, rtp_item]:
                     item.setForeground(color)
 
                 self.images_table.setItem(row_idx, 0, id_item)
@@ -1193,6 +1207,8 @@ class MainWindow(QMainWindow):
                 self.images_table.setItem(row_idx, 5, study_item)
                 self.images_table.setItem(row_idx, 6, folder_item)
                 self.images_table.setItem(row_idx, 7, str_item)
+                self.images_table.setItem(row_idx, 8, rtd_item)
+                self.images_table.setItem(row_idx, 9, rtp_item)
 
                 row_idx += 1
             else:
@@ -1211,10 +1227,12 @@ class MainWindow(QMainWindow):
                 study_item = QTableWidgetItem("")
                 folder_item = QTableWidgetItem("")
                 str_item = QTableWidgetItem("")
+                rtd_item = QTableWidgetItem("")
+                rtp_item = QTableWidgetItem("")
 
-                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item, rtd_item, rtp_item]:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter)
-                    if item in [modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                    if item in [modality_item, slices_item, area_item, study_item, folder_item, str_item, rtd_item, rtp_item]:
                         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     item.setForeground(QColor("#ffffff"))
 
@@ -1226,6 +1244,8 @@ class MainWindow(QMainWindow):
                 self.images_table.setItem(row_idx, 5, study_item)
                 self.images_table.setItem(row_idx, 6, folder_item)
                 self.images_table.setItem(row_idx, 7, str_item)
+                self.images_table.setItem(row_idx, 8, rtd_item)
+                self.images_table.setItem(row_idx, 9, rtp_item)
 
                 row_idx += 1
 
@@ -1242,10 +1262,12 @@ class MainWindow(QMainWindow):
                     study_child = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
                     folder_child = QTableWidgetItem(data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
                     str_child = QTableWidgetItem(str(data['str']))
+                    rtd_child = QTableWidgetItem(str(data.get('rtd', 0)))
+                    rtp_child = QTableWidgetItem(str(data.get('rtp', 0)))
 
-                    for item in [id_child, name_child, modality_child, slices_child, area_child, study_child, folder_child, str_child]:
+                    for item in [id_child, name_child, modality_child, slices_child, area_child, study_child, folder_child, str_child, rtd_child, rtp_child]:
                         item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter)
-                        if item in [modality_child, slices_child, area_child, study_child, folder_child, str_child]:
+                        if item in [modality_child, slices_child, area_child, study_child, folder_child, str_child, rtd_child, rtp_child]:
                             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
                     color = QColor("#ffffff")
@@ -1267,7 +1289,7 @@ class MainWindow(QMainWindow):
                         if highlight_no_slices and data.get('slices', 0) == 0:
                             color = QColor("crimson")
 
-                    for item in [id_child, name_child, modality_child, slices_child, area_child, study_child, folder_child, str_child]:
+                    for item in [id_child, name_child, modality_child, slices_child, area_child, study_child, folder_child, str_child, rtd_child, rtp_child]:
                         item.setForeground(color)
 
                     self.images_table.setItem(row_idx, 0, id_child)
@@ -1278,6 +1300,8 @@ class MainWindow(QMainWindow):
                     self.images_table.setItem(row_idx, 5, study_child)
                     self.images_table.setItem(row_idx, 6, folder_child)
                     self.images_table.setItem(row_idx, 7, str_child)
+                    self.images_table.setItem(row_idx, 8, rtd_child)
+                    self.images_table.setItem(row_idx, 9, rtp_child)
 
                     row_idx += 1
 
@@ -1417,7 +1441,9 @@ class MainWindow(QMainWindow):
             self.archive_table.update_placeholder_visibility()
 
         cleanup_str_val = self.config.get('cleanup_structures_enabled', 'False')
-        self.archive_worker = ArchiveScanWorker(archive_dir, cleanup_str_val)
+        scan_rtd = not self.archive_table.isColumnHidden(8) if hasattr(self, 'archive_table') and self.archive_table.columnCount() > 8 else False
+        scan_rtp = not self.archive_table.isColumnHidden(9) if hasattr(self, 'archive_table') and self.archive_table.columnCount() > 9 else False
+        self.archive_worker = ArchiveScanWorker(archive_dir, cleanup_str_val, scan_rtd=scan_rtd, scan_rtp=scan_rtp)
         self.archive_worker.finished.connect(lambda ad, lm: self.on_archive_scan_finished(ad, lm, silent))
         self.archive_worker.progress.connect(self.on_archive_scan_progress)
         self.archive_worker.count_updated.connect(self.on_archive_scan_count_updated)
@@ -1544,10 +1570,12 @@ class MainWindow(QMainWindow):
                 study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
                 folder_item = QTableWidgetItem(data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
                 str_item = QTableWidgetItem(str(data['str']))
+                rtd_item = QTableWidgetItem(str(data.get('rtd', 0)))
+                rtp_item = QTableWidgetItem(str(data.get('rtp', 0)))
 
-                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item, rtd_item, rtp_item]:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter)
-                    if item in [modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                    if item in [modality_item, slices_item, area_item, study_item, folder_item, str_item, rtd_item, rtp_item]:
                         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
                 color = QColor("#ffffff")
@@ -1569,7 +1597,7 @@ class MainWindow(QMainWindow):
                     if highlight_no_slices and data.get('slices', 0) == 0:
                         color = QColor("crimson")
 
-                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item, rtd_item, rtp_item]:
                     item.setForeground(color)
 
                 self.archive_table.setItem(row_idx, 0, id_item)
@@ -1580,6 +1608,8 @@ class MainWindow(QMainWindow):
                 self.archive_table.setItem(row_idx, 5, study_item)
                 self.archive_table.setItem(row_idx, 6, folder_item)
                 self.archive_table.setItem(row_idx, 7, str_item)
+                self.archive_table.setItem(row_idx, 8, rtd_item)
+                self.archive_table.setItem(row_idx, 9, rtp_item)
 
                 row_idx += 1
             else:
@@ -1597,10 +1627,12 @@ class MainWindow(QMainWindow):
                 study_item = QTableWidgetItem("")
                 folder_item = QTableWidgetItem("")
                 str_item = QTableWidgetItem("")
+                rtd_item = QTableWidgetItem("")
+                rtp_item = QTableWidgetItem("")
 
-                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item, rtd_item, rtp_item]:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter)
-                    if item in [modality_item, slices_item, area_item, study_item, folder_item, str_item]:
+                    if item in [modality_item, slices_item, area_item, study_item, folder_item, str_item, rtd_item, rtp_item]:
                         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     item.setForeground(QColor("#ffffff"))
 
@@ -1612,6 +1644,8 @@ class MainWindow(QMainWindow):
                 self.archive_table.setItem(row_idx, 5, study_item)
                 self.archive_table.setItem(row_idx, 6, folder_item)
                 self.archive_table.setItem(row_idx, 7, str_item)
+                self.archive_table.setItem(row_idx, 8, rtd_item)
+                self.archive_table.setItem(row_idx, 9, rtp_item)
 
                 row_idx += 1
 
@@ -1628,10 +1662,12 @@ class MainWindow(QMainWindow):
                     study_child = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
                     folder_child = QTableWidgetItem(data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
                     str_child = QTableWidgetItem(str(data['str']))
+                    rtd_child = QTableWidgetItem(str(data.get('rtd', 0)))
+                    rtp_child = QTableWidgetItem(str(data.get('rtp', 0)))
 
-                    for item in [id_child, name_child, modality_child, slices_child, area_child, study_child, folder_child, str_child]:
+                    for item in [id_child, name_child, modality_child, slices_child, area_child, study_child, folder_child, str_child, rtd_child, rtp_child]:
                         item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter)
-                        if item in [modality_child, slices_child, area_child, study_child, folder_child, str_child]:
+                        if item in [modality_child, slices_child, area_child, study_child, folder_child, str_child, rtd_child, rtp_child]:
                             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
                     color = QColor("#ffffff")
@@ -1653,7 +1689,7 @@ class MainWindow(QMainWindow):
                         if highlight_no_slices and data.get('slices', 0) == 0:
                             color = QColor("crimson")
 
-                    for item in [id_child, name_child, modality_child, slices_child, area_child, study_child, folder_child, str_child]:
+                    for item in [id_child, name_child, modality_child, slices_child, area_child, study_child, folder_child, str_child, rtd_child, rtp_child]:
                         item.setForeground(color)
 
                     self.archive_table.setItem(row_idx, 0, id_child)
@@ -1664,6 +1700,8 @@ class MainWindow(QMainWindow):
                     self.archive_table.setItem(row_idx, 5, study_child)
                     self.archive_table.setItem(row_idx, 6, folder_child)
                     self.archive_table.setItem(row_idx, 7, str_child)
+                    self.archive_table.setItem(row_idx, 8, rtd_child)
+                    self.archive_table.setItem(row_idx, 9, rtp_child)
 
                     row_idx += 1
 

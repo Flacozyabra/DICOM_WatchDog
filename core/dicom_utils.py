@@ -31,6 +31,54 @@ def is_structure_file(file_path):
             pass
     return False
 
+def is_dose_file(file_path):
+    """
+    Определяет, является ли файл файлом дозы (RTDOSE).
+    Поддерживает расширения .rtd, префиксы RD, RTDOSE, DOSE,
+    а также быструю проверку Modality / SOPClassUID.
+    """
+    if not os.path.exists(file_path):
+        return False
+    filename = os.path.basename(file_path).upper()
+    if filename.endswith('.RTD') or filename.endswith('.DOSE'):
+        return True
+    if filename.startswith(('RD', 'RTDOSE', 'RT_DOSE', 'DOSE')):
+        return True
+    if file_path.lower().endswith('.dcm') or not os.path.splitext(file_path)[1]:
+        try:
+            ds = pydicom.dcmread(file_path, stop_before_pixels=True, specific_tags=['Modality', 'SOPClassUID'])
+            mod = str(getattr(ds, 'Modality', ''))
+            sop = str(getattr(ds, 'SOPClassUID', ''))
+            if mod == 'RTDOSE' or sop == '1.2.840.10008.5.1.4.1.1.481.2':
+                return True
+        except Exception:
+            pass
+    return False
+
+def is_plan_file(file_path):
+    """
+    Определяет, является ли файл файлом плана (RTPLAN).
+    Поддерживает расширения .rtp, префиксы RP, RTPLAN, PLAN,
+    а также быструю проверку Modality / SOPClassUID.
+    """
+    if not os.path.exists(file_path):
+        return False
+    filename = os.path.basename(file_path).upper()
+    if filename.endswith('.RTP') or filename.endswith('.PLAN'):
+        return True
+    if filename.startswith(('RP', 'RTPLAN', 'RT_PLAN', 'PLAN')):
+        return True
+    if file_path.lower().endswith('.dcm') or not os.path.splitext(file_path)[1]:
+        try:
+            ds = pydicom.dcmread(file_path, stop_before_pixels=True, specific_tags=['Modality', 'SOPClassUID'])
+            mod = str(getattr(ds, 'Modality', ''))
+            sop = str(getattr(ds, 'SOPClassUID', ''))
+            if mod == 'RTPLAN' or sop == '1.2.840.10008.5.1.4.1.1.481.5':
+                return True
+        except Exception:
+            pass
+    return False
+
 def is_dicom_file(file_path):
     """
     Определяет, является ли файл валидным DICOM файлом.
@@ -44,7 +92,7 @@ def is_dicom_file(file_path):
         return False
     if file_path.lower().endswith('.dcm'):
         return True
-    if is_structure_file(file_path):
+    if is_structure_file(file_path) or is_dose_file(file_path) or is_plan_file(file_path):
         return True
     try:
         if os.path.getsize(file_path) < 132:
@@ -89,7 +137,7 @@ def delete_redundant_str(patient_dir, output_field=None):
                 
     return deleted_count
 
-def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, cleanup_structures=False):
+def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, cleanup_structures=False, scan_rtd=False, scan_rtp=False):
     """
     Сканирует одну конкретную папку пациента (включая возможные подпапки исследований)
     и возвращает словарь исследований для таблицы.
@@ -107,10 +155,11 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
     for root, dirs, files in os.walk(patient_dir):
         dcm_candidates = [f for f in files if is_dicom_file(os.path.join(root, f))]
         if dcm_candidates:
-            # Сначала ищем файл КТ-среза (не RTSTRUCT)
+            # Сначала ищем файл КТ-среза (не RTSTRUCT, не RTDOSE, не RTPLAN)
             file = dcm_candidates[0]
             for f in dcm_candidates:
-                if not is_structure_file(os.path.join(root, f)):
+                fp = os.path.join(root, f)
+                if not is_structure_file(fp) and not is_dose_file(fp) and not is_plan_file(fp):
                     file = f
                     break
             try:
@@ -163,13 +212,34 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
 
                 # время создания папки
                 study_entry['folder_datetime'] = folder_ctime
+                
                 # считаем количество файлов структур
                 str_files = [f for f in os.listdir(root) if is_structure_file(os.path.join(root, f))]
                 str_count = len(str_files)
                 study_entry['str'] = str_count
 
-                # считаем количество файлов срезов (файлов DICOM, исключая файлы структур)
-                slice_files = [f for f in files if is_dicom_file(os.path.join(root, f)) and not is_structure_file(os.path.join(root, f))]
+                # считаем количество файлов доз (RTDOSE) только если столбец включен
+                if scan_rtd:
+                    rtd_files = [f for f in os.listdir(root) if is_dose_file(os.path.join(root, f))]
+                    study_entry['rtd'] = len(rtd_files)
+                else:
+                    study_entry['rtd'] = 0
+
+                # считаем количество файлов планов (RTPLAN) только если столбец включен
+                if scan_rtp:
+                    rtp_files = [f for f in os.listdir(root) if is_plan_file(os.path.join(root, f))]
+                    study_entry['rtp'] = len(rtp_files)
+                else:
+                    study_entry['rtp'] = 0
+
+                # считаем количество файлов срезов (файлов DICOM, исключая структуры, дозы и планы)
+                slice_files = [
+                    f for f in files
+                    if is_dicom_file(os.path.join(root, f))
+                    and not is_structure_file(os.path.join(root, f))
+                    and not is_dose_file(os.path.join(root, f))
+                    and not is_plan_file(os.path.join(root, f))
+                ]
                 study_entry['slices'] = len(slice_files)
 
                 if is_cleanup_on and str_count > 1:
@@ -185,7 +255,7 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
 
     return patient_data
 
-def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, progress_callback=None, count_callback=None):
+def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, progress_callback=None, count_callback=None, scan_rtd=False, scan_rtp=False):
     patient_data = defaultdict(dict)
     if not os.path.exists(ct_images_dir):
         return patient_data
@@ -200,7 +270,7 @@ def dict_create(ct_images_dir, output_field=None, cleanup_structures=False, prog
     for i, p_dir in enumerate(top_dirs):
         if progress_callback and total_dirs > 0:
             progress_callback(i + 1, total_dirs)
-        studies = collect_patient_studies(p_dir, ct_images_dir, output_field, cleanup_structures)
+        studies = collect_patient_studies(p_dir, ct_images_dir, output_field, cleanup_structures, scan_rtd=scan_rtd, scan_rtp=scan_rtp)
         patient_data.update(studies)
         if count_callback:
             count_callback(len(patient_data))

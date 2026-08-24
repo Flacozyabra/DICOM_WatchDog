@@ -44,7 +44,8 @@ class FolderScanWorker(QThread):
 
     def __init__(self, ct_images_dir, cleanup_structures_enabled, fix_patient_id_enabled, id_prefixes,
                  rename_study_folder_enabled, rename_study_folder_mode,
-                 archive_dir, archive_enabled, archive_days, archive_cleanup_enabled, archive_cleanup_days):
+                 archive_dir, archive_enabled, archive_days, archive_cleanup_enabled, archive_cleanup_days,
+                 scan_rtd=False, scan_rtp=False):
         super().__init__()
         self.ct_images_dir = ct_images_dir
         self.cleanup_structures_enabled = cleanup_structures_enabled
@@ -57,6 +58,8 @@ class FolderScanWorker(QThread):
         self.archive_days = archive_days
         self.archive_cleanup_enabled = archive_cleanup_enabled
         self.archive_cleanup_days = archive_cleanup_days
+        self.scan_rtd = scan_rtd
+        self.scan_rtp = scan_rtp
 
     def run(self):
         collector = ThreadLogCollector(emit_callback=self.log_emitted.emit)
@@ -169,7 +172,9 @@ class FolderScanWorker(QThread):
                 if not is_fully_archived and os.path.exists(active_path):
                     studies = collect_patient_studies(
                         active_path, self.ct_images_dir, collector,
-                        cleanup_structures=is_cleanup_struct_on
+                        cleanup_structures=is_cleanup_struct_on,
+                        scan_rtd=self.scan_rtd,
+                        scan_rtp=self.scan_rtp
                     )
                     patient_dict.update(studies)
                     self.count_updated.emit(len(patient_dict))
@@ -214,10 +219,12 @@ class ArchiveScanWorker(QThread):
     count_updated = pyqtSignal(int)
     log_emitted = pyqtSignal(str)
 
-    def __init__(self, archive_dir, cleanup_structures_enabled):
+    def __init__(self, archive_dir, cleanup_structures_enabled, scan_rtd=False, scan_rtp=False):
         super().__init__()
         self.archive_dir = archive_dir
         self.cleanup_structures_enabled = cleanup_structures_enabled
+        self.scan_rtd = scan_rtd
+        self.scan_rtp = scan_rtp
 
     def run(self):
         collector = ThreadLogCollector(emit_callback=self.log_emitted.emit)
@@ -228,7 +235,9 @@ class ArchiveScanWorker(QThread):
             cleanup_structures=is_cleanup_struct_on,
             progress_callback=self.progress.emit,
             count_callback=self.count_updated.emit,
-            is_interrupted=self.isInterruptionRequested
+            is_interrupted=self.isInterruptionRequested,
+            scan_rtd=self.scan_rtd,
+            scan_rtp=self.scan_rtp
         )
         if not self.isInterruptionRequested():
             self.finished.emit(d, collector.messages)

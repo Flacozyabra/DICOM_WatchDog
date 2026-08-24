@@ -8,7 +8,7 @@ from collections import defaultdict
 from core.logger import log_message
 from core.config_utils import get_cache_path
 from core.locale_utils import tr_log
-from core.dicom_utils import is_structure_file, is_dicom_file
+from core.dicom_utils import is_structure_file, is_dose_file, is_plan_file, is_dicom_file
 
 
 def load_cache():
@@ -35,7 +35,7 @@ def save_cache(cache_data):
             pass
 
 
-def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False, progress_callback=None, count_callback=None, is_interrupted=None):
+def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False, progress_callback=None, count_callback=None, is_interrupted=None, scan_rtd=False, scan_rtp=False):
     """
     Создает словарь пациентов для архива, используя кэширование метаданных в файл JSON.
     Это предотвращает повторное чтение DICOM-файлов при больших архивах.
@@ -85,6 +85,21 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                 cached_item = cache.get(root)
                 if cached_item and cached_item.get('mtime') == mtime:
                     p_id = cached_item['patient_id']
+                    
+                    rtd_val = cached_item.get('rtd', 0)
+                    if scan_rtd and 'rtd' not in cached_item:
+                        rtd_val = len([f for f in os.listdir(root) if is_dose_file(os.path.join(root, f))])
+                        cached_item['rtd'] = rtd_val
+                    elif not scan_rtd:
+                        rtd_val = 0
+
+                    rtp_val = cached_item.get('rtp', 0)
+                    if scan_rtp and 'rtp' not in cached_item:
+                        rtp_val = len([f for f in os.listdir(root) if is_plan_file(os.path.join(root, f))])
+                        cached_item['rtp'] = rtp_val
+                    elif not scan_rtp:
+                        rtp_val = 0
+
                     patient_data[rel_path] = {
                         'patient_id': p_id,
                         'patient_name': cached_item['patient_name'],
@@ -93,7 +108,9 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                         'body_part': cached_item['body_part'],
                         'folder_datetime': datetime.fromisoformat(cached_item['folder_datetime']),
                         'str': cached_item['str'],
-                        'slices': cached_item.get('slices', len([f for f in dcm_files if not is_structure_file(os.path.join(root, f))])),
+                        'rtd': rtd_val,
+                        'rtp': rtp_val,
+                        'slices': cached_item.get('slices', len([f for f in dcm_files if not is_structure_file(os.path.join(root, f)) and not is_dose_file(os.path.join(root, f)) and not is_plan_file(os.path.join(root, f))])),
                         'folder_name': rel_path
                     }
                     if count_callback:
@@ -114,7 +131,8 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                 else:
                     file = dcm_files[0]
                     for f in dcm_files:
-                        if not is_structure_file(os.path.join(root, f)):
+                        fp = os.path.join(root, f)
+                        if not is_structure_file(fp) and not is_dose_file(fp) and not is_plan_file(fp):
                             file = f
                             break
                     file_path = os.path.join(root, file)
@@ -161,7 +179,15 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                             except Exception:
                                 pass
                         
-                        slice_files = [f for f in dcm_files if not is_structure_file(os.path.join(root, f))]
+                        rtd_count = len([f for f in os.listdir(root) if is_dose_file(os.path.join(root, f))]) if scan_rtd else 0
+                        rtp_count = len([f for f in os.listdir(root) if is_plan_file(os.path.join(root, f))]) if scan_rtp else 0
+
+                        slice_files = [
+                            f for f in dcm_files
+                            if not is_structure_file(os.path.join(root, f))
+                            and not is_dose_file(os.path.join(root, f))
+                            and not is_plan_file(os.path.join(root, f))
+                        ]
                         slices_cnt = len(slice_files)
 
                         patient_data[rel_path] = {
@@ -172,6 +198,8 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                             'body_part': body_part_str,
                             'folder_datetime': folder_dt,
                             'str': str_count,
+                            'rtd': rtd_count,
+                            'rtp': rtp_count,
                             'slices': slices_cnt,
                             'folder_name': rel_path
                         }
@@ -187,6 +215,8 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                             'body_part': body_part_str,
                             'folder_datetime': folder_dt.isoformat(),
                             'str': str_count,
+                            'rtd': rtd_count,
+                            'rtp': rtp_count,
                             'slices': slices_cnt
                         }
                     except Exception as e:

@@ -36,13 +36,23 @@ class TableContextMenuManager:
         menu.setStyleSheet("QMenu { background-color: #1a1a1a; color: #ffffff; border: 1px solid #3d3d3d; } "
                            "QMenu::item:selected { background-color: #2b2b2b; }")
         
+        def on_column_toggled(checked, idx, t):
+            t.setColumnHidden(idx, not checked)
+            self.mw.save_table_state(t)
+            # Если был включен столбец RTD (8) или RTP (9), запускаем фоновое сканирование для загрузки данных
+            if checked and idx in (8, 9):
+                if t == getattr(self.mw, 'images_table', None):
+                    self.mw.start_folder_scan()
+                elif t == getattr(self.mw, 'archive_table', None):
+                    self.mw.start_archive_scan()
+
         column_count = table.columnCount()
         for i in range(column_count):
             label = table.horizontalHeaderItem(i).text()
             action = menu.addAction(label)
             action.setCheckable(True)
             action.setChecked(not table.isColumnHidden(i))
-            action.toggled.connect(lambda checked, idx=i, t=table: [t.setColumnHidden(idx, not checked), self.mw.save_table_state(t)])
+            action.toggled.connect(lambda checked, idx=i, t=table: on_column_toggled(checked, idx, t))
             
         menu.exec(header.mapToGlobal(pos))
 

@@ -34,12 +34,14 @@ class ImagesTab(QWidget):
 
         # Таблица КТ-изображений
         self.table = ToggleTableWidget(self)
-        self.table.setColumnCount(8)
+        self.table.setColumnCount(10)
         self.table.setHorizontalHeaderLabels([
             "Patient ID", "Patient Name", "Modality", "Slices", "Scanning Area", 
-            "Study datetime", "Folder datetime", "STR"
+            "Study datetime", "Folder datetime", "STR", "RTD", "RTP"
         ])
         self.table.setColumnHidden(2, True)
+        self.table.setColumnHidden(8, True)
+        self.table.setColumnHidden(9, True)
         self.table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         if self.main_window:
             self.table.horizontalHeader().customContextMenuRequested.connect(
