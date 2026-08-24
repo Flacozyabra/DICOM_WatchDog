@@ -354,10 +354,16 @@ def create_dose_colormap_lut(alpha_base: int = 110) -> np.ndarray:
 _DOSE_LUT = create_dose_colormap_lut(110)
 
 
-def dose_slice_to_rgba(slice_grid: np.ndarray, rx_dose: float, max_dose: float) -> np.ndarray | None:
+def dose_slice_to_rgba(
+    slice_grid: np.ndarray,
+    rx_dose: float,
+    max_dose: float,
+    levels: list[dict] | None = None,
+    enabled_levels: set[str] | None = None
+) -> np.ndarray | None:
     """
     Преобразует 2D срез дозы в полупрозрачное RGBA-изображение (H, W, 4).
-    Значения ниже 30% от предписанной дозы полностью прозрачны (Alpha = 0).
+    Значения ниже 30% или отключенные через чекбоксы уровни изодоз полностью прозрачны (Alpha = 0).
     """
     if slice_grid is None or slice_grid.size == 0:
         return None
@@ -372,7 +378,18 @@ def dose_slice_to_rgba(slice_grid: np.ndarray, rx_dose: float, max_dose: float) 
     h, w = slice_grid.shape
     rgba = np.zeros((h, w, 4), dtype=np.uint8)
 
-    mask = slice_grid >= d_min
+    if levels and enabled_levels is not None:
+        sorted_levels = sorted(levels, key=lambda x: float(x.get("val", 0.0)))
+        mask = np.zeros((h, w), dtype=bool)
+        for i, lvl in enumerate(sorted_levels):
+            lvl_name = lvl["name"]
+            if lvl_name in enabled_levels:
+                low_val = float(lvl["val"])
+                high_val = float(sorted_levels[i + 1]["val"]) if (i + 1 < len(sorted_levels)) else float("inf")
+                mask |= (slice_grid >= low_val) & (slice_grid < high_val)
+    else:
+        mask = slice_grid >= d_min
+
     if not np.any(mask):
         return rgba
 
@@ -1220,7 +1237,13 @@ class DicomViewerWidget(QWidget):
                     if slice_grid is not None:
                         rx = float(self.dose_data.get("rx_dose", 0.0))
                         mx = float(self.dose_data.get("max_dose", 0.0))
-                        rgba = dose_slice_to_rgba(slice_grid, rx, mx)
+                        rgba = dose_slice_to_rgba(
+                            slice_grid,
+                            rx,
+                            mx,
+                            self.dose_data.get("levels", []),
+                            self.enabled_isodose_levels
+                        )
                         if rgba is not None:
                             d_ipp = self.dose_data.get("ipp", [0.0, 0.0, 0.0])
                             d_iop = self.dose_data.get("iop", [1.0, 0.0, 0.0, 0.0, 1.0, 0.0])
