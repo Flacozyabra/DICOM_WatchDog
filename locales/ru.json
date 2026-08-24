@@ -277,5 +277,6 @@
   "viewer_no_dose": "Без изодоз",
   "viewer_no_dose_available": "Нет изодоз",
   "viewer_rx_dose": "Предписание",
-  "viewer_max_dose": "Макс. доза"
+  "viewer_max_dose": "Макс. доза",
+  "viewer_point_dose": "Доза в точке"
 }

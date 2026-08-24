@@ -277,5 +277,6 @@
   "viewer_no_dose": "No isodoses",
   "viewer_no_dose_available": "No isodoses available",
   "viewer_rx_dose": "Prescription",
-  "viewer_max_dose": "Max dose"
+  "viewer_max_dose": "Max dose",
+  "viewer_point_dose": "Point dose"
 }

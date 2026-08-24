@@ -831,6 +831,10 @@ class DicomViewerWidget(QWidget):
         self.enabled_isodose_levels = set()
         self.show_isodoses_globally = False
         self.show_dose_gradient = True
+        self.dose_point_active = False
+        self.hover_pos = None
+        self.pinned_dose_pos = None
+        self.dose_point_close_rect = None
 
         self.setMouseTracking(True)
         self.setStyleSheet("background-color: #000000;")
@@ -911,6 +915,10 @@ class DicomViewerWidget(QWidget):
         self.enabled_isodose_levels.clear()
         self.show_isodoses_globally = False
         self.show_dose_gradient = True
+        self.dose_point_active = False
+        self.hover_pos = None
+        self.pinned_dose_pos = None
+        self.dose_point_close_rect = None
         self.update()
 
     def mousePressEvent(self, event) -> None:
@@ -928,6 +936,18 @@ class DicomViewerWidget(QWidget):
             self.update()
             return
 
+        if btn == Qt.MouseButton.LeftButton and self.dose_point_active:
+            if self.dose_point_close_rect and self.dose_point_close_rect.contains(pos.toPoint()):
+                self.pinned_dose_pos = None
+                self.dose_point_close_rect = None
+                self.update()
+                return
+
+            if self.image_rect and self.image_rect.contains(pos.toPoint()):
+                self.pinned_dose_pos = pos
+                self.update()
+                return
+
         if btn in (Qt.MouseButton.MiddleButton, Qt.MouseButton.RightButton):
             self.pan_active = True
             self.last_mouse_pos = event.position()
@@ -942,6 +962,10 @@ class DicomViewerWidget(QWidget):
                 self.last_mouse_pos = event.position()
 
     def mouseMoveEvent(self, event) -> None:
+        if self.dose_point_active:
+            self.hover_pos = event.position()
+            self.update()
+
         if self.pan_active and self.last_mouse_pos:
             delta = event.position() - self.last_mouse_pos
             self.pan_offset += delta
@@ -957,6 +981,12 @@ class DicomViewerWidget(QWidget):
             self.window_center = self.window_center + delta.y() * 2.0
             self.window_changed.emit(self.window_width, self.window_center)
 
+    def leaveEvent(self, event) -> None:
+        if self.dose_point_active:
+            self.hover_pos = None
+            self.update()
+        super().leaveEvent(event)
+
     def mouseReleaseEvent(self, event) -> None:
         btn = event.button()
         if btn in (Qt.MouseButton.MiddleButton, Qt.MouseButton.RightButton):
@@ -968,6 +998,146 @@ class DicomViewerWidget(QWidget):
                 self.update()
             elif self.windowing_active:
                 self.windowing_active = False
+
+    def get_dose_at_point(self, pt_widget: QPointF) -> tuple[float, float, str] | None:
+        """
+        Вычисляет интерполированную дозу в 3D-точке для заданных экранных координат холста.
+        Возвращает (доза_Гр, процент_от_Rx, ед_измерения) или None.
+        """
+        if not self.dose_data or "dose_grid" not in self.dose_data or not self.current_dataset or not self.image_rect:
+            return None
+
+        x_img, y_img = self.to_image_coords(pt_widget)
+        ipp = getattr(self.current_dataset, "ImagePositionPatient", None)
+        iop = getattr(self.current_dataset, "ImageOrientationPatient", None)
+        pixel_spacing = getattr(self.current_dataset, "PixelSpacing", None)
+
+        if not ipp or not iop or not pixel_spacing or len(ipp) < 3 or len(iop) < 6 or len(pixel_spacing) < 2:
+            return None
+
+        ipp_x, ipp_y, ipp_z = float(ipp[0]), float(ipp[1]), float(ipp[2])
+        xr, yr, zr = float(iop[0]), float(iop[1]), float(iop[2])
+        xc, yc, zc = float(iop[3]), float(iop[4]), float(iop[5])
+        dy, dx = float(pixel_spacing[0]), float(pixel_spacing[1])
+
+        x_pat = ipp_x + x_img * dx * xr + y_img * dy * xc
+        y_pat = ipp_y + x_img * dx * yr + y_img * dy * yc
+        z_pat = ipp_z + x_img * dx * zr + y_img * dy * zc
+
+        slice_grid = get_dose_slice_at_z(self.dose_data, z_pat)
+        if slice_grid is None:
+            return None
+
+        d_ipp = self.dose_data.get("ipp", [0.0, 0.0, 0.0])
+        d_iop = self.dose_data.get("iop", [1.0, 0.0, 0.0, 0.0, 1.0, 0.0])
+        d_dy, d_dx = self.dose_data.get("pixel_spacing", [1.0, 1.0])
+
+        xr_d, yr_d, zr_d = float(d_iop[0]), float(d_iop[1]), float(d_iop[2])
+        xc_d, yc_d, zc_d = float(d_iop[3]), float(d_iop[4]), float(d_iop[5])
+
+        dp_x = x_pat - d_ipp[0]
+        dp_y = y_pat - d_ipp[1]
+        dp_z = z_pat - d_ipp[2]
+
+        c = (dp_x * xr_d + dp_y * yr_d + dp_z * zr_d) / d_dx
+        r = (dp_x * xc_d + dp_y * yc_d + dp_z * zc_d) / d_dy
+
+        rows_d, cols_d = slice_grid.shape
+        if 0.0 <= r <= float(rows_d - 1) and 0.0 <= c <= float(cols_d - 1):
+            r0 = int(r)
+            c0 = int(c)
+            r1 = min(rows_d - 1, r0 + 1)
+            c1 = min(cols_d - 1, c0 + 1)
+
+            dr = r - r0
+            dc = c - c0
+
+            v00 = slice_grid[r0, c0]
+            v01 = slice_grid[r0, c1]
+            v10 = slice_grid[r1, c0]
+            v11 = slice_grid[r1, c1]
+
+            val = float((1.0 - dr) * (1.0 - dc) * v00 + (1.0 - dr) * dc * v01 + dr * (1.0 - dc) * v10 + dr * dc * v11)
+        else:
+            val = 0.0
+
+        rx = float(self.dose_data.get("rx_dose", 0.0))
+        units = str(self.dose_data.get("dose_units", "Gy"))
+        pct = (val / rx * 100.0) if rx > 0 else 0.0
+        return val, pct, units
+
+    def _draw_dose_probe(self, painter: QPainter, pt: QPointF, is_pinned: bool) -> None:
+        dose_info = self.get_dose_at_point(pt)
+        if dose_info is None:
+            return
+
+        val, pct, units = dose_info
+        cx, cy = pt.x(), pt.y()
+
+        color_reticle = QColor("#F59E0B") if is_pinned else QColor("#38BDF8")
+        pen_reticle = QPen(color_reticle, 1.5, Qt.PenStyle.SolidLine)
+        painter.setPen(pen_reticle)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        painter.drawEllipse(QPointF(cx, cy), 10, 10)
+        painter.drawEllipse(QPointF(cx, cy), 3, 3)
+
+        painter.drawLine(QPointF(cx, cy - 16), QPointF(cx, cy - 10))
+        painter.drawLine(QPointF(cx, cy + 10), QPointF(cx, cy + 16))
+        painter.drawLine(QPointF(cx - 16, cy), QPointF(cx - 10, cy))
+        painter.drawLine(QPointF(cx + 10, cy), QPointF(cx + 16, cy))
+
+        text_val = f"{val:.2f} {units}"
+        text_pct = f"({pct:.1f}%)" if pct > 0 else ""
+        full_text = f"{text_val}  {text_pct}".strip()
+
+        font = QFont("Consolas", 10, QFont.Weight.Bold)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        text_w = metrics.horizontalAdvance(full_text)
+        text_h = metrics.height()
+
+        padding_x = 8
+        padding_y = 4
+        cross_w = 12 if is_pinned else 0
+        gap = 6 if is_pinned else 0
+
+        badge_w = text_w + padding_x * 2 + cross_w + gap
+        badge_h = text_h + padding_y * 2
+
+        bx = cx + 18
+        by = cy - badge_h - 10
+        if bx + badge_w > self.width() - 10:
+            bx = cx - badge_w - 18
+        if by < 10:
+            by = cy + 18
+
+        badge_rect = QRectF(bx, by, badge_w, badge_h)
+
+        painter.setPen(QPen(color_reticle, 1.2))
+        painter.setBrush(QBrush(QColor(15, 23, 42, 220)))
+        painter.drawRoundedRect(badge_rect, 6, 6)
+
+        painter.setPen(QColor("#FFFFFF"))
+        text_draw_rect = QRectF(bx + padding_x, by + padding_y, text_w, text_h)
+        painter.drawText(text_draw_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, full_text)
+
+        if is_pinned:
+            close_x = bx + padding_x + text_w + gap
+            close_y = by + (badge_h - cross_w) / 2
+            close_rect = QRect(int(close_x), int(close_y), cross_w, cross_w)
+            self.dose_point_close_rect = close_rect
+
+            painter.setPen(QPen(QColor("#EF4444"), 1.8))
+            margin = 2
+            painter.drawLine(
+                int(close_x + margin), int(close_y + margin),
+                int(close_x + cross_w - margin), int(close_y + cross_w - margin)
+            )
+            painter.drawLine(
+                int(close_x + cross_w - margin), int(close_y + margin),
+                int(close_x + margin), int(close_y + cross_w - margin)
+            )
 
     def wheelEvent(self, event) -> None:
         modifiers = QApplication.keyboardModifiers()
@@ -1292,6 +1462,15 @@ class DicomViewerWidget(QWidget):
             else:
                 self.ruler_close_rect = None
 
+            # Отрисовка инструмента "Доза в точке" (Point Dose Probe)
+            if self.dose_point_active and self.dose_data:
+                if self.pinned_dose_pos:
+                    self._draw_dose_probe(painter, self.pinned_dose_pos, is_pinned=True)
+                if self.hover_pos and self.image_rect and self.image_rect.contains(self.hover_pos.toPoint()):
+                    self._draw_dose_probe(painter, self.hover_pos, is_pinned=False)
+            else:
+                self.dose_point_close_rect = None
+
             # OSD-оверлей
             if self.osd_visible:
                 if self.current_dataset:
@@ -1522,10 +1701,21 @@ class DicomViewerPanel(QWidget):
         top_layout.addWidget(self.cb_presets)
 
         # Загружаем иконки
+        self.img_dose_point = QIcon(get_resource_path("themes/target.png"))
         self.img_ruler = QIcon(get_resource_path("themes/ruler.png"))
         self.img_hu = QIcon(get_resource_path("themes/hu.png"))
         self.img_osd = QIcon(get_resource_path("themes/eye.png"))
         self.img_close = QIcon(get_resource_path("themes/close.png"))
+
+        # Кнопка "Доза в точке"
+        self.btn_dose_point = QPushButton(self)
+        self.btn_dose_point.setIcon(self.img_dose_point)
+        self.btn_dose_point.setIconSize(QSize(20, 20))
+        self.btn_dose_point.setFixedSize(28, 28)
+        self.btn_dose_point.setToolTip(tr_ui("viewer_point_dose"))
+        self.btn_dose_point.setEnabled(False)
+        self.btn_dose_point.clicked.connect(self.toggle_dose_point)
+        top_layout.addWidget(self.btn_dose_point)
 
         # Кнопка линейки
         self.btn_ruler = QPushButton(self)
@@ -1889,6 +2079,13 @@ class DicomViewerPanel(QWidget):
         
         self.list_isodoses.blockSignals(True)
         self.list_isodoses.clear()
+
+        has_dose = bool(dose_data and dose_data.get("dose_grid") is not None)
+        if hasattr(self, "btn_dose_point"):
+            self.btn_dose_point.setEnabled(has_dose)
+            if not has_dose and self.viewer.dose_point_active:
+                self.viewer.dose_point_active = False
+                self.update_buttons_style()
         
         if not dose_data or "levels" not in dose_data:
             self.lbl_dose_info.setText("")
@@ -2024,6 +2221,8 @@ class DicomViewerPanel(QWidget):
         if hasattr(self, "cb_dose_gradient"):
             self.cb_dose_gradient.setText(tr_ui("viewer_show_dose_gradient"))
 
+        if hasattr(self, "btn_dose_point"):
+            self.btn_dose_point.setToolTip(tr_ui("viewer_point_dose"))
         self.btn_ruler.setToolTip("Линейка")
         self.btn_hu.setToolTip("Настройка окна HU")
         self.btn_osd.setToolTip("Показать/скрыть надписи")
@@ -2248,6 +2447,29 @@ class DicomViewerPanel(QWidget):
             }
         """
 
+        style_dose_point_active = f"""
+            QPushButton {{
+                background-color: {accent_color};
+                border: 1px solid {accent_dark};
+                border-radius: 4px;
+                padding: 0px;
+                min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px;
+            }}
+        """
+        style_dose_point_inactive = f"""
+            QPushButton {{
+                background-color: {btn_bg};
+                border: 1px solid {btn_border};
+                border-radius: 4px;
+                padding: 0px;
+                min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px;
+            }}
+            QPushButton:hover {{ background-color: {btn_hover}; }}
+            QPushButton:disabled {{ background-color: #1a1a1a; border: 1px solid #333333; }}
+        """
+
+        if hasattr(self, "btn_dose_point"):
+            self.btn_dose_point.setStyleSheet(style_dose_point_active if self.viewer.dose_point_active else style_dose_point_inactive)
         self.btn_ruler.setStyleSheet(style_ruler_active if self.viewer.ruler_active else style_ruler_inactive)
         self.btn_hu.setStyleSheet(style_hu_active if self.viewer.hu_active else style_hu_inactive)
         self.btn_osd.setStyleSheet(style_osd_active if self.viewer.osd_visible else style_osd_inactive)
@@ -2257,23 +2479,37 @@ class DicomViewerPanel(QWidget):
         self.viewer.set_osd_visible(not self.viewer.osd_visible)
         self.update_buttons_style()
 
+    def toggle_dose_point(self) -> None:
+        active = not self.viewer.dose_point_active
+        self.viewer.dose_point_active = active
+        if active:
+            self.viewer.ruler_active = False
+            self.viewer.hu_active = False
+            self.hu_panel.hide()
+        self.update_buttons_style()
+        self.viewer.update()
+
     def toggle_ruler(self) -> None:
         active = not self.viewer.ruler_active
         self.viewer.ruler_active = active
         if active:
+            self.viewer.dose_point_active = False
             self.viewer.hu_active = False
             self.hu_panel.hide()
         self.update_buttons_style()
+        self.viewer.update()
 
     def toggle_hu(self) -> None:
         active = not self.viewer.hu_active
         self.viewer.hu_active = active
         if active:
+            self.viewer.dose_point_active = False
             self.viewer.ruler_active = False
             self.hu_panel.show()
         else:
             self.hu_panel.hide()
         self.update_buttons_style()
+        self.viewer.update()
 
     def clear_panel(self) -> None:
         import gc
@@ -2312,6 +2548,8 @@ class DicomViewerPanel(QWidget):
 
         self.lbl_dose_info.setText("")
         self.lbl_info.setText("")
+        if hasattr(self, "btn_dose_point"):
+            self.btn_dose_point.setEnabled(False)
         self.current_index = -1
         self.is_loading = False
         gc.collect()
