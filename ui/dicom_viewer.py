@@ -1944,6 +1944,10 @@ class DicomViewerWidget(QWidget):
                     scale_y = view_h / rows
 
                     beams = self.plan_data.get("beams", [])
+                    
+                    # 1. Отслеживаем индекс динамических дуг для каскадных радиусов
+                    dyn_arc_idx = 0
+
                     for beam in beams:
                         iso = beam.get("isocenter")
                         if not iso or len(iso) < 3:
@@ -1963,8 +1967,8 @@ class DicomViewerWidget(QWidget):
                             wx_iso = offset_x + px_iso * scale_x
                             wy_iso = offset_y + py_iso * scale_y
 
-                            ray_len = 160.0 * self.zoom_factor
                             b_num = beam.get("number", 1)
+                            b_name = beam.get("name", "") or f"Beam {b_num}"
                             is_dynamic = beam.get("is_dynamic", False)
                             g_start = beam.get("gantry_start", beam.get("gantry_angle", 0.0))
                             g_stop = beam.get("gantry_stop", g_start)
@@ -1979,8 +1983,17 @@ class DicomViewerWidget(QWidget):
 
                             is_exact_iso_slice = (abs(dp_z) <= thickness / 2.0 + 0.5)
 
+                            # Границы шторок коллиматора X (ширина поля в мм на уровне изоцентра)
+                            jaws_x = beam.get("jaws", {}).get("x", [-50.0, 50.0])
+                            jx1_mm = float(jaws_x[0]) if len(jaws_x) >= 2 else -50.0
+                            jx2_mm = float(jaws_x[1]) if len(jaws_x) >= 2 else 50.0
+
                             # 1. Если это динамическая ротационная дуга (VMAT / Arc) с вращением гантри
                             if is_dynamic and abs(g_start - g_stop) > 0.5:
+                                # Каскадный радиус для каждой дуги (предотвращает наложение при нескольких дугах)
+                                arc_radius = (135.0 + dyn_arc_idx * 28.0) * self.zoom_factor
+                                dyn_arc_idx += 1
+
                                 pts_arc = []
                                 if rot_dir in ("CW", "CLOCKWISE"):
                                     span = (g_stop - g_start) if g_stop >= g_start else (g_stop + 360.0 - g_start)
@@ -1997,23 +2010,38 @@ class DicomViewerWidget(QWidget):
 
                                 for ang in angles:
                                     rad_a = math.radians(ang)
-                                    pts_arc.append(QPointF(wx_iso + math.sin(rad_a) * ray_len, wy_iso - math.cos(rad_a) * ray_len))
+                                    pts_arc.append(QPointF(wx_iso + math.sin(rad_a) * arc_radius, wy_iso - math.cos(rad_a) * arc_radius))
 
-                                # Полупрозрачный сектор
-                                poly_sector = QPolygonF([QPointF(wx_iso, wy_iso)] + pts_arc)
-                                painter.setPen(Qt.PenStyle.NoPen)
-                                painter.setBrush(QBrush(QColor(245, 158, 11, 35)))
-                                painter.drawPolygon(poly_sector)
+                                is_ccw = rot_dir in ("CC", "CCW", "COUNTER_CLOCKWISE")
+                                arc_color = QColor("#06B6D4") if is_ccw else QColor("#F59E0B")
+                                arc_fill = QColor(6, 182, 212, 22) if is_ccw else QColor(245, 158, 11, 22)
+
+                                # Полупрозрачная кольцевая полоса дуги
+                                if len(pts_arc) >= 2:
+                                    pts_inner = []
+                                    r_in = max(10.0, arc_radius - 8.0 * self.zoom_factor)
+                                    r_out = arc_radius + 8.0 * self.zoom_factor
+                                    for ang in angles:
+                                        rad_a = math.radians(ang)
+                                        pts_inner.append(QPointF(wx_iso + math.sin(rad_a) * r_in, wy_iso - math.cos(rad_a) * r_in))
+                                    pts_outer = []
+                                    for ang in reversed(angles):
+                                        rad_a = math.radians(ang)
+                                        pts_outer.append(QPointF(wx_iso + math.sin(rad_a) * r_out, wy_iso - math.cos(rad_a) * r_out))
+                                    
+                                    painter.setPen(Qt.PenStyle.NoPen)
+                                    painter.setBrush(QBrush(arc_fill))
+                                    painter.drawPolygon(QPolygonF(pts_inner + pts_outer))
 
                                 # Граничные направляющие
-                                pen_ray = QPen(QColor("#F59E0B"), 1.6, Qt.PenStyle.DashLine)
+                                pen_ray = QPen(arc_color, 1.4, Qt.PenStyle.DashLine)
                                 painter.setPen(pen_ray)
                                 if pts_arc:
                                     painter.drawLine(QPointF(wx_iso, wy_iso), pts_arc[0])
                                     painter.drawLine(QPointF(wx_iso, wy_iso), pts_arc[-1])
 
                                 # Дуговая линия
-                                pen_arc = QPen(QColor("#F59E0B"), 2.0, Qt.PenStyle.SolidLine)
+                                pen_arc = QPen(arc_color, 2.0, Qt.PenStyle.SolidLine)
                                 painter.setPen(pen_arc)
                                 for i in range(len(pts_arc) - 1):
                                     painter.drawLine(pts_arc[i], pts_arc[i+1])
@@ -2033,13 +2061,13 @@ class DicomViewerWidget(QWidget):
                                         a_head = p_mid
                                         a1 = p_mid - QPointF(ux * 10 - perp_x * 5, uy * 10 - perp_y * 5)
                                         a2 = p_mid - QPointF(ux * 10 + perp_x * 5, uy * 10 + perp_y * 5)
-                                        painter.setBrush(QBrush(QColor("#F59E0B")))
+                                        painter.setBrush(QBrush(arc_color))
                                         painter.setPen(Qt.PenStyle.NoPen)
                                         painter.drawPolygon(QPolygonF([a_head, a1, a2]))
 
-                                # Плашка арки
-                                mid_pt = pts_arc[mid_idx] if pts_arc else QPointF(wx_iso, wy_iso - ray_len)
-                                dir_txt = "CW" if rot_dir in ("CW", "CLOCKWISE") else ("CCW" if rot_dir in ("CC", "CCW") else "")
+                                # Плашка арки (размещается на своем каскадном радиусе)
+                                mid_pt = pts_arc[mid_idx] if pts_arc else QPointF(wx_iso, wy_iso - arc_radius)
+                                dir_txt = "CCW" if is_ccw else "CW"
                                 badge_text = f"[{b_num}] {g_start:.0f}°->{g_stop:.0f}° {dir_txt}".strip()
                                 
                                 painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
@@ -2051,14 +2079,15 @@ class DicomViewerWidget(QWidget):
                                     rect_b_txt.width() + 12,
                                     rect_b_txt.height() + 6
                                 )
-                                painter.setPen(QPen(QColor("#F59E0B"), 1.2))
-                                painter.setBrush(QBrush(QColor(15, 23, 42, 220)))
+                                painter.setPen(QPen(arc_color, 1.2))
+                                painter.setBrush(QBrush(QColor(15, 23, 42, 230)))
                                 painter.drawRoundedRect(badge_rect, 4, 4)
                                 painter.setPen(QColor("#FFFFFF"))
                                 painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_text)
 
                             else:
-                                # 2. Статический пучок (3D-CRT / IMRT)
+                                # 2. Статический пучок (3D-CRT / IMRT) с графическим отображением ширины пучка
+                                ray_len = 160.0 * self.zoom_factor
                                 g_angle = beam.get("gantry_angle", 0.0)
                                 rad = math.radians(g_angle)
                                 sx = math.sin(rad)
@@ -2067,10 +2096,43 @@ class DicomViewerWidget(QWidget):
                                 wx_src = wx_iso + sx * ray_len
                                 wy_src = wy_iso + sy * ray_len
 
-                                pen_ray = QPen(QColor("#F59E0B"), 1.8, Qt.PenStyle.DashLine)
+                                # Перпендикулярный вектор для ширины поля
+                                perp_x = -sy
+                                perp_y = sx
+
+                                # Пересчет ширины шторок в пиксели экрана
+                                scale_px_mm = scale_x / dx
+                                jx1_px = jx1_mm * scale_px_mm
+                                jx2_px = jx2_mm * scale_px_mm
+
+                                # Точки шторок на уровне изоцентра
+                                p_iso_left = QPointF(wx_iso + perp_x * jx1_px, wy_iso + perp_y * jx1_px)
+                                p_iso_right = QPointF(wx_iso + perp_x * jx2_px, wy_iso + perp_y * jx2_px)
+
+                                # Расходящиеся лучи через шторки сквозь пациента
+                                v1 = p_iso_left - QPointF(wx_src, wy_src)
+                                v2 = p_iso_right - QPointF(wx_src, wy_src)
+                                p_exit_left = QPointF(wx_src, wy_src) + v1 * 1.5
+                                p_exit_right = QPointF(wx_src, wy_src) + v2 * 1.5
+
+                                # 2.1 Расходящийся веер пучка (полупрозрачная заливка ширины поля)
+                                fan_poly = QPolygonF([QPointF(wx_src, wy_src), p_exit_left, p_exit_right])
+                                painter.setPen(Qt.PenStyle.NoPen)
+                                painter.setBrush(QBrush(QColor(245, 158, 11, 25)))
+                                painter.drawPolygon(fan_poly)
+
+                                # 2.2 Боковые границы пучка (ширина поля)
+                                pen_border = QPen(QColor(245, 158, 11, 130), 1.2, Qt.PenStyle.DashLine)
+                                painter.setPen(pen_border)
+                                painter.drawLine(QPointF(wx_src, wy_src), p_exit_left)
+                                painter.drawLine(QPointF(wx_src, wy_src), p_exit_right)
+
+                                # 2.3 Центральная ось пучка
+                                pen_ray = QPen(QColor("#F59E0B"), 1.8, Qt.PenStyle.SolidLine)
                                 painter.setPen(pen_ray)
                                 painter.drawLine(QPointF(wx_src, wy_src), QPointF(wx_iso, wy_iso))
 
+                                # 2.4 Стрелка направления входа на изоцентре
                                 arrow_len = 12.0
                                 arr_dx = -sx
                                 arr_dy = -sy
@@ -2083,7 +2145,10 @@ class DicomViewerWidget(QWidget):
                                 painter.setBrush(QBrush(QColor("#F59E0B")))
                                 painter.drawPolygon(QPolygonF([p_head, p_a1, p_a2]))
 
-                                badge_beam_text = f"[{b_num}] {g_angle:.1f}°{wedge_info}"
+                                # 2.5 Бейдж с номером, углом, шириной поля и клином
+                                width_cm = abs(jx2_mm - jx1_mm) / 10.0
+                                width_info = f" [{width_cm:.1f} см]" if width_cm > 0.1 else ""
+                                badge_beam_text = f"[{b_num}] {g_angle:.1f}°{width_info}{wedge_info}"
                                 painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
                                 m_b = painter.fontMetrics()
                                 rect_b_txt = m_b.boundingRect(badge_beam_text)
@@ -2094,7 +2159,7 @@ class DicomViewerWidget(QWidget):
                                     rect_b_txt.height() + 6
                                 )
                                 painter.setPen(QPen(QColor("#F59E0B"), 1.2))
-                                painter.setBrush(QBrush(QColor(15, 23, 42, 220)))
+                                painter.setBrush(QBrush(QColor(15, 23, 42, 230)))
                                 painter.drawRoundedRect(badge_rect, 4, 4)
                                 painter.setPen(QColor("#FFFFFF"))
                                 painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_beam_text)
@@ -2754,11 +2819,6 @@ class DicomViewerPanel(QWidget):
         self.cb_dose_gradient.stateChanged.connect(self.on_dose_gradient_changed)
         dose_layout.addWidget(self.cb_dose_gradient)
 
-        self.cb_show_beams = ToggleSwitch(tr_ui("viewer_show_beams"), page_isodoses)
-        self.cb_show_beams.setChecked(True)
-        self.cb_show_beams.stateChanged.connect(self.on_show_beams_changed)
-        dose_layout.addWidget(self.cb_show_beams)
-
         self.lbl_dose_info = QLabel(page_isodoses)
         self.lbl_dose_info.setStyleSheet("color: #9CA3AF; font-size: 10px; font-weight: bold; padding: 0px 2px; border: none;")
         self.lbl_dose_info.setWordWrap(True)
@@ -3045,8 +3105,6 @@ class DicomViewerPanel(QWidget):
             self.cb_show_isodoses.setText(tr_ui("viewer_show_isodoses"))
         if hasattr(self, "cb_dose_gradient"):
             self.cb_dose_gradient.setText(tr_ui("viewer_show_dose_gradient"))
-        if hasattr(self, "cb_show_beams"):
-            self.cb_show_beams.setText(tr_ui("viewer_show_beams"))
 
         if hasattr(self, "btn_dose_point"):
             self.btn_dose_point.setToolTip(tr_ui("viewer_point_dose"))
@@ -3368,15 +3426,6 @@ class DicomViewerPanel(QWidget):
 
     def toggle_beams(self) -> None:
         val = not self.viewer.show_beams
-        self.viewer.set_show_beams(val)
-        if hasattr(self, "cb_show_beams"):
-            self.cb_show_beams.blockSignals(True)
-            self.cb_show_beams.setChecked(val)
-            self.cb_show_beams.blockSignals(False)
-        self.update_buttons_style()
-
-    def on_show_beams_changed(self, state: int) -> None:
-        val = (state == 2)
         self.viewer.set_show_beams(val)
         self.update_buttons_style()
 
