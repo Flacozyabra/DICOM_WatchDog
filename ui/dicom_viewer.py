@@ -25,15 +25,17 @@ from core.locale_utils import tr_ui, tr_log
 def safe_dcmread(filepath, *args, **kwargs):
     """
     Безопасно считывает DICOM-файл с помощью pydicom.dcmread.
+    Поддерживает force=True по умолчанию для корректного чтения файлов без Part 10 преамбулы (Elekta и др.).
     При возникновении ошибки ValueError с текстом 'already uncompressed'
     пытается исправить TransferSyntaxUID и перечитать файл.
     """
+    kwargs.setdefault('force', True)
     try:
         return pydicom.dcmread(filepath, *args, **kwargs)
     except ValueError as e:
         if "already uncompressed" in str(e).lower():
             try:
-                ds_meta = pydicom.dcmread(filepath, stop_before_pixels=True)
+                ds_meta = pydicom.dcmread(filepath, stop_before_pixels=True, force=True)
                 ds_meta.file_meta.TransferSyntaxUID = pydicom.uid.ImplicitVRLittleEndian
                 if isinstance(filepath, (str, os.PathLike)):
                     ds = pydicom.dcmread(filepath, *args, **kwargs)

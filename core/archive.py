@@ -137,7 +137,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                             break
                     file_path = os.path.join(root, file)
                     try:
-                        ds = pydicom.dcmread(file_path, stop_before_pixels=True)
+                        ds = pydicom.dcmread(file_path, stop_before_pixels=True, force=True)
                         p_id = getattr(ds, 'PatientID', '') or str(ds.get('PatientID', ''))
                         p_name = getattr(ds, 'PatientName', '') or str(ds.get('PatientName', ''))
                         if not p_id:
@@ -330,7 +330,7 @@ def cleanup_old_archive_folders(archive_dir, cleanup_days, output_field):
                         try:
                             dcm_files = [f for f in os.listdir(study_sub) if is_dicom_file(os.path.join(study_sub, f))]
                             if dcm_files:
-                                ds = pydicom.dcmread(os.path.join(study_sub, dcm_files[0]), specific_tags=['PatientName'], stop_before_pixels=True)
+                                ds = pydicom.dcmread(os.path.join(study_sub, dcm_files[0]), specific_tags=['PatientName'], stop_before_pixels=True, force=True)
                                 patient_name = str(ds.get('PatientName', tr_log("log_patient_unknown")))
                         except Exception:
                             pass
@@ -363,7 +363,7 @@ def cleanup_old_archive_folders(archive_dir, cleanup_days, output_field):
                     try:
                         dcm_files = [f for f in os.listdir(patient_path) if is_dicom_file(os.path.join(patient_path, f))]
                         if dcm_files:
-                            ds = pydicom.dcmread(os.path.join(patient_path, dcm_files[0]), specific_tags=['PatientName'], stop_before_pixels=True)
+                            ds = pydicom.dcmread(os.path.join(patient_path, dcm_files[0]), specific_tags=['PatientName'], stop_before_pixels=True, force=True)
                             patient_name = str(ds.get('PatientName', tr_log("log_patient_unknown")))
                     except Exception:
                         pass

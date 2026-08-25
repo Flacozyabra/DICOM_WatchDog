@@ -56,7 +56,7 @@ def safe_merge_folders(src, dest, new_id):
             
             if is_dicom_file(src_file) or is_structure_file(src_file):
                 try:
-                    ds_file = pydicom.dcmread(src_file)
+                    ds_file = pydicom.dcmread(src_file, force=True)
                     ds_file.PatientID = new_id
                     ds_file.save_as(dest_file)
                 except Exception:
@@ -84,13 +84,13 @@ def safe_update_patient_ids(folder_path, new_id, output_field=None):
             if is_dicom_file(src_file) or is_structure_file(src_file):
                 try:
                     # Сначала читаем только заголовок без пикселей для сверхбыстрой проверки
-                    ds_header = pydicom.dcmread(src_file, stop_before_pixels=True)
+                    ds_header = pydicom.dcmread(src_file, stop_before_pixels=True, force=True)
                     current_id = getattr(ds_header, 'PatientID', '') or str(ds_header.get('PatientID', ''))
                     if current_id == str(new_id):
                         continue
                     
                     # Только если ID действительно отличается - загружаем полностью и перезаписываем
-                    ds_file = pydicom.dcmread(src_file)
+                    ds_file = pydicom.dcmread(src_file, force=True)
                     ds_file.PatientID = str(new_id)
                     ds_file.save_as(src_file)
                 except Exception as e:
@@ -124,7 +124,7 @@ def get_folder_study_info(folder_path):
     for fpath in dcm_files:
         if not is_structure_file(fpath):
             try:
-                ds = pydicom.dcmread(fpath, stop_before_pixels=True)
+                ds = pydicom.dcmread(fpath, stop_before_pixels=True, force=True)
                 mod = str(getattr(ds, 'Modality', 'CT'))
                 if mod not in ('RTSTRUCT', 'RTPLAN', 'RTDOSE') and hasattr(ds, 'Rows'):
                     target_file = fpath
@@ -137,7 +137,7 @@ def get_folder_study_info(folder_path):
         target_file = dcm_files[0]
 
     try:
-        ds = pydicom.dcmread(target_file, stop_before_pixels=True)
+        ds = pydicom.dcmread(target_file, stop_before_pixels=True, force=True)
         raw_id = getattr(ds, 'PatientID', '')
         raw_name = getattr(ds, 'PatientName', '')
         study_date = str(getattr(ds, 'StudyDate', ''))

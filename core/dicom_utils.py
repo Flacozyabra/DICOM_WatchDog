@@ -22,7 +22,7 @@ def is_structure_file(file_path):
         return True
     if file_path.lower().endswith('.dcm') or not os.path.splitext(file_path)[1]:
         try:
-            ds = pydicom.dcmread(file_path, stop_before_pixels=True, specific_tags=['Modality', 'SOPClassUID'])
+            ds = pydicom.dcmread(file_path, stop_before_pixels=True, force=True, specific_tags=['Modality', 'SOPClassUID'])
             mod = str(getattr(ds, 'Modality', ''))
             sop = str(getattr(ds, 'SOPClassUID', ''))
             if mod == 'RTSTRUCT' or sop == '1.2.840.10008.5.1.4.1.1.481.3':
@@ -46,7 +46,7 @@ def is_dose_file(file_path):
         return True
     if file_path.lower().endswith('.dcm') or not os.path.splitext(file_path)[1]:
         try:
-            ds = pydicom.dcmread(file_path, stop_before_pixels=True, specific_tags=['Modality', 'SOPClassUID'])
+            ds = pydicom.dcmread(file_path, stop_before_pixels=True, force=True, specific_tags=['Modality', 'SOPClassUID'])
             mod = str(getattr(ds, 'Modality', ''))
             sop = str(getattr(ds, 'SOPClassUID', ''))
             if mod == 'RTDOSE' or sop == '1.2.840.10008.5.1.4.1.1.481.2':
@@ -70,7 +70,7 @@ def is_plan_file(file_path):
         return True
     if file_path.lower().endswith('.dcm') or not os.path.splitext(file_path)[1]:
         try:
-            ds = pydicom.dcmread(file_path, stop_before_pixels=True, specific_tags=['Modality', 'SOPClassUID'])
+            ds = pydicom.dcmread(file_path, stop_before_pixels=True, force=True, specific_tags=['Modality', 'SOPClassUID'])
             mod = str(getattr(ds, 'Modality', ''))
             sop = str(getattr(ds, 'SOPClassUID', ''))
             if mod == 'RTPLAN' or sop == '1.2.840.10008.5.1.4.1.1.481.5':
@@ -163,7 +163,7 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
                     file = f
                     break
             try:
-                ds = pydicom.dcmread(os.path.join(root, file), stop_before_pixels=True)
+                ds = pydicom.dcmread(os.path.join(root, file), stop_before_pixels=True, force=True)
                 rel_path = os.path.relpath(root, ct_images_dir).replace('\\', '/')
                 
                 patient_id = getattr(ds, 'PatientID', '') or str(ds.get('PatientID', ''))
