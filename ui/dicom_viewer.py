@@ -11,7 +11,8 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QRect, QRectF, QPointF, 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
     QPushButton, QComboBox, QSlider, QApplication, QSplitter, QSplitterHandle,
-    QListWidget, QListWidgetItem, QCheckBox, QTabWidget, QButtonGroup, QStackedWidget, QSizePolicy
+    QListWidget, QListWidgetItem, QCheckBox, QTabWidget, QButtonGroup, QStackedWidget, QSizePolicy,
+    QDialog, QProgressBar
 )
 from PyQt6.QtGui import (
     QIcon, QFont, QPixmap, QBrush, QColor, QPainter,
@@ -833,6 +834,268 @@ class DoseLoaderWorker(QThread):
             self.error_signal.emit(str(e))
 
 
+class DRRPrecomputeWorker(QThread):
+    progress_signal = pyqtSignal(int, int, float)  # current, total, gantry_angle
+    item_computed_signal = pyqtSignal(tuple, object)  # cache_key, QImage
+    finished_signal = pyqtSignal(bool)  # is_cancelled
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, sorted_files: list, ct_volume: np.ndarray | None, ct_ipp0: list | None, ct_spacing: tuple | None, beams: list, existing_cache_keys: set) -> None:
+        super().__init__()
+        self.sorted_files = sorted_files
+        self.ct_volume = ct_volume
+        self.ct_ipp0 = ct_ipp0
+        self.ct_spacing = ct_spacing
+        self.beams = beams or []
+        self.existing_cache_keys = set(existing_cache_keys)
+        self._is_cancelled = False
+
+    def cancel(self) -> None:
+        self._is_cancelled = True
+
+    def run(self) -> None:
+        try:
+            # 1. Сборка 3D-объема КТ если еще не собран
+            vol = self.ct_volume
+            ipp0 = self.ct_ipp0
+            spacing = self.ct_spacing
+
+            if vol is None:
+                if not self.sorted_files:
+                    self.finished_signal.emit(False)
+                    return
+                slices_ds = []
+                for item in self.sorted_files:
+                    if self._is_cancelled:
+                        self.finished_signal.emit(True)
+                        return
+                    f_path = item[0] if isinstance(item, tuple) else item
+                    ds = safe_dcmread(f_path)
+                    if hasattr(ds, "ImagePositionPatient") and hasattr(ds, "pixel_array") and getattr(ds, "Modality", "CT") == "CT" and ds.pixel_array.ndim == 2:
+                        slices_ds.append(ds)
+                if not slices_ds or self._is_cancelled:
+                    self.finished_signal.emit(self._is_cancelled)
+                    return
+                slices_ds.sort(key=lambda s: float(s.ImagePositionPatient[2]))
+                n_z = len(slices_ds)
+                rows = int(slices_ds[0].Rows)
+                cols = int(slices_ds[0].Columns)
+                vol = np.zeros((n_z, rows, cols), dtype=np.float32)
+                for i, s in enumerate(slices_ds):
+                    if self._is_cancelled:
+                        self.finished_signal.emit(True)
+                        return
+                    slope = float(getattr(s, "RescaleSlope", 1.0) or 1.0)
+                    intercept = float(getattr(s, "RescaleIntercept", 0.0) or 0.0)
+                    vol[i] = s.pixel_array.astype(np.float32) * slope + intercept
+
+                ipp0 = [float(x) for x in slices_ds[0].ImagePositionPatient]
+                ipp_last = [float(x) for x in slices_ds[-1].ImagePositionPatient]
+                sp = [float(x) for x in slices_ds[0].PixelSpacing]
+                dy, dx = float(sp[0]), float(sp[1])
+                dz = (ipp_last[2] - ipp0[2]) / (n_z - 1) if n_z > 1 else 5.0
+                spacing = (dy, dx, dz)
+
+            dy, dx, dz = spacing
+            n_z, rows, cols = vol.shape
+
+            # 2. Формируем список уникальных проекций для расчета
+            items = []
+            seen_keys = set(self.existing_cache_keys)
+            for b in self.beams:
+                sad = float(b.get("sad", 1000.0) or 1000.0)
+                cps = b.get("control_points", [])
+                if not cps:
+                    g_angle = float(b.get("gantry_angle", 0.0))
+                    iso = b.get("isocenter")
+                    if iso and len(iso) >= 3:
+                        ck = (round(g_angle, 1), round(iso[0], 2), round(iso[1], 2), round(iso[2], 2), round(sad, 1))
+                        if ck not in seen_keys:
+                            seen_keys.add(ck)
+                            items.append((g_angle, iso, sad, ck))
+                else:
+                    for cp in cps:
+                        g_angle = float(cp.get("gantry_angle", b.get("gantry_angle", 0.0)))
+                        iso = cp.get("isocenter", b.get("isocenter"))
+                        if iso and len(iso) >= 3:
+                            ck = (round(g_angle, 1), round(iso[0], 2), round(iso[1], 2), round(iso[2], 2), round(sad, 1))
+                            if ck not in seen_keys:
+                                seen_keys.add(ck)
+                                items.append((g_angle, iso, sad, ck))
+
+            total = len(items)
+            if total == 0:
+                self.finished_signal.emit(False)
+                return
+
+            # 3. Предвыделенная сетка DRR (256x256, FOV 400 мм)
+            drr_fov = 400.0
+            drr_w, drr_h = 256, 256
+            u = np.linspace(-drr_fov / 2.0, drr_fov / 2.0, drr_w, dtype=np.float32)
+            v = np.linspace(drr_fov / 2.0, -drr_fov / 2.0, drr_h, dtype=np.float32)
+            U, V = np.meshgrid(u, v)
+
+            # 4. Расчет DRR для каждой точки
+            for idx_item, (g_angle, iso, sad, ck) in enumerate(items):
+                if self._is_cancelled:
+                    self.finished_signal.emit(True)
+                    return
+
+                self.progress_signal.emit(idx_item + 1, total, g_angle)
+
+                g_rad = math.radians(g_angle)
+                sin_g = math.sin(g_rad)
+                cos_g = math.cos(g_rad)
+
+                Sx = iso[0] + sad * sin_g
+                Sy = iso[1] - sad * cos_g
+                Sz = iso[2]
+
+                P_iso_x = iso[0] + U * cos_g
+                P_iso_y = iso[1] + U * sin_g
+                P_iso_z = iso[2] + V
+
+                Dx = P_iso_x - Sx
+                Dy = P_iso_y - Sy
+                Dz = P_iso_z - Sz
+                D_len = np.sqrt(Dx * Dx + Dy * Dy + Dz * Dz)
+                Dx /= D_len
+                Dy /= D_len
+                Dz /= D_len
+
+                steps = np.arange(sad - 250.0, sad + 250.0, 4.0, dtype=np.float32)
+                drr = np.zeros((drr_h, drr_w), dtype=np.float32)
+
+                for t in steps:
+                    Px = Sx + Dx * t
+                    Py = Sy + Dy * t
+                    Pz = Sz + Dz * t
+                    ix = np.round((Px - ipp0[0]) / dx).astype(np.int32)
+                    iy = np.round((Py - ipp0[1]) / dy).astype(np.int32)
+                    iz = np.round((Pz - ipp0[2]) / dz).astype(np.int32)
+                    valid = (ix >= 0) & (ix < cols) & (iy >= 0) & (iy < rows) & (iz >= 0) & (iz < n_z)
+                    sample_hu = np.zeros_like(drr)
+                    sample_hu[valid] = np.maximum(0.0, vol[iz[valid], iy[valid], ix[valid]] + 500.0)
+                    drr += sample_hu
+
+                drr_norm = (drr - drr.min()) / (drr.max() - drr.min() + 1e-5)
+                drr_u8 = (drr_norm * 255.0).astype(np.uint8)
+                drr_rgba = np.stack([drr_u8, drr_u8, drr_u8, np.full_like(drr_u8, 255)], axis=-1)
+
+                b_raw = drr_rgba.tobytes()
+                q_img = QImage(b_raw, drr_w, drr_h, drr_w * 4, QImage.Format.Format_RGBA8888).copy()
+                self.item_computed_signal.emit(ck, q_img)
+
+            self.finished_signal.emit(False)
+
+        except Exception as e:
+            if not self._is_cancelled:
+                self.error_signal.emit(str(e))
+            self.finished_signal.emit(self._is_cancelled)
+
+
+class DRRProgressDialog(QDialog):
+    """Модальное окно прогресса генерации DRR с кнопкой отмены."""
+    cancelled = pyqtSignal()
+
+    def __init__(self, parent: QWidget = None) -> None:
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setModal(True)
+        self.setFixedSize(380, 160)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        card = QFrame(self)
+        card.setStyleSheet("""
+            QFrame {
+                background-color: #0F172A;
+                border: 1.5px solid #3B82F6;
+                border-radius: 8px;
+            }
+        """)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(20, 16, 20, 16)
+        card_layout.setSpacing(10)
+
+        self.lbl_title = QLabel(tr_ui("drr_title"), card)
+        self.lbl_title.setStyleSheet("color: #FFFFFF; font-size: 13px; font-weight: bold; border: none;")
+        self.lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.addWidget(self.lbl_title)
+
+        self.lbl_status = QLabel(tr_ui("drr_preparing_volume"), card)
+        self.lbl_status.setStyleSheet("color: #94A3B8; font-size: 11px; border: none;")
+        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.addWidget(self.lbl_status)
+
+        self.progress_bar = QProgressBar(card)
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                background-color: #1E293B;
+                color: #FFFFFF;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                font-size: 10px;
+                font-weight: bold;
+                text-align: center;
+                height: 16px;
+            }
+            QProgressBar::chunk {
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3B82F6, stop:1 #60A5FA);
+                border-radius: 3px;
+            }
+        """)
+        card_layout.addWidget(self.progress_bar)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        self.btn_cancel = QPushButton(tr_ui("drr_cancel"), card)
+        self.btn_cancel.setFixedSize(90, 28)
+        self.btn_cancel.setStyleSheet("""
+            QPushButton {
+                background-color: #334155;
+                color: #F8FAFC;
+                border: 1px solid #475569;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #EF4444;
+                border-color: #DC2626;
+                color: #FFFFFF;
+            }
+        """)
+        self.btn_cancel.clicked.connect(self.on_cancel)
+        btn_layout.addWidget(self.btn_cancel)
+        btn_layout.addStretch()
+
+        card_layout.addLayout(btn_layout)
+        layout.addWidget(card)
+
+    def on_cancel(self) -> None:
+        self.cancelled.emit()
+        self.reject()
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            self.on_cancel()
+        else:
+            super().keyPressEvent(event)
+
+    def set_progress(self, current: int, total: int, g_angle: float) -> None:
+        if total > 0:
+            self.progress_bar.setMaximum(total)
+            self.progress_bar.setValue(current)
+            self.lbl_status.setText(tr_ui("drr_progress", current, total, g_angle))
+
+
 class HUVerticalSlider(QWidget):
     """Кастомный вертикальный слайдер с двумя ползунками для Window/Level (HU) в стиле Varian Eclipse."""
     values_changed = pyqtSignal(float, float)  # lower_val, upper_val
@@ -1050,6 +1313,7 @@ class DicomViewerWidget(QWidget):
     slice_scrolled = pyqtSignal(int)
     window_changed = pyqtSignal(float, float)
     bev_beam_changed = pyqtSignal(int)
+    drr_precompute_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget = None) -> None:
         super().__init__(parent)
@@ -1101,10 +1365,12 @@ class DicomViewerWidget(QWidget):
         self.plan_data = {}
         self.show_beams = True
         self.bev_active = False
+        self.show_drr = False
         self.bev_selected_beam_idx = 0
         self.bev_control_point_idx = 0
         self.bev_prev_btn_rect = None
         self.bev_next_btn_rect = None
+        self.bev_drr_btn_rect = None
         self.bev_cp_slider_rect = None
 
         # Кэш DRR и объем КТ
@@ -1325,6 +1591,13 @@ class DicomViewerWidget(QWidget):
         except Exception:
             return None
 
+    def toggle_drr(self) -> None:
+        if self.show_drr:
+            self.show_drr = False
+            self.update()
+        else:
+            self.drr_precompute_requested.emit()
+
     def mousePressEvent(self, event) -> None:
         if self.bev_active:
             if event.button() == Qt.MouseButton.LeftButton:
@@ -1343,6 +1616,9 @@ class DicomViewerWidget(QWidget):
                         self.bev_control_point_idx = 0
                         self.bev_beam_changed.emit(self.bev_selected_beam_idx)
                         self.update()
+                    return
+                elif self.bev_drr_btn_rect and self.bev_drr_btn_rect.contains(pos):
+                    self.toggle_drr()
                     return
                 elif self.bev_cp_slider_rect and self.bev_cp_slider_rect.contains(pos):
                     if beams:
@@ -1689,10 +1965,11 @@ class DicomViewerWidget(QWidget):
         painter.setClipPath(clip_path)
 
         # 2.1. DRR (Digitally Reconstructed Radiograph)
-        drr_img = self.get_or_compute_drr(g_angle, iso, sad)
-        if drr_img and not drr_img.isNull():
-            drr_rect = QRectF(cx - 200.0 * scale, cy - 200.0 * scale, 400.0 * scale, 400.0 * scale)
-            painter.drawImage(drr_rect, drr_img)
+        if self.show_drr:
+            drr_img = self.get_or_compute_drr(g_angle, iso, sad)
+            if drr_img and not drr_img.isNull():
+                drr_rect = QRectF(cx - 200.0 * scale, cy - 200.0 * scale, 400.0 * scale, 400.0 * scale)
+                painter.drawImage(drr_rect, drr_img)
 
         # 2.2. Проекция 3D контуров RTSTRUCT на плоскость детектора / изоцентра BEV
         if self.show_structures_globally and self.structures and iso and len(iso) >= 3:
@@ -1855,6 +2132,7 @@ class DicomViewerWidget(QWidget):
         txt_w = m_head.horizontalAdvance(header_text)
 
         btn_w, btn_h = 36, 30
+        btn_drr_w = 54
         top_y = 15
         box_w = max(240, txt_w + 32)
         total_w = box_w + btn_w * 2 + 16
@@ -1862,8 +2140,11 @@ class DicomViewerWidget(QWidget):
         rect_prev = QRect(int(cx - total_w / 2), top_y, btn_w, btn_h)
         rect_title = QRect(int(cx - box_w / 2), top_y, box_w, btn_h)
         rect_next = QRect(int(cx + total_w / 2 - btn_w), top_y, btn_w, btn_h)
+        rect_drr = QRect(int(cx + total_w / 2 + 8), top_y, btn_drr_w, btn_h)
+
         self.bev_prev_btn_rect = rect_prev
         self.bev_next_btn_rect = rect_next
+        self.bev_drr_btn_rect = rect_drr
 
         # Кнопка «Назад»
         painter.fillRect(rect_prev, QColor("#1E293B"))
@@ -1885,6 +2166,20 @@ class DicomViewerWidget(QWidget):
         painter.drawRoundedRect(rect_next, 4, 4)
         painter.setPen(QColor("#FFFFFF"))
         painter.drawText(rect_next, Qt.AlignmentFlag.AlignCenter, "▶")
+
+        # Кнопка «DRR»
+        painter.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        if self.show_drr:
+            painter.fillRect(rect_drr, QColor("#2563EB"))
+            painter.setPen(QPen(QColor("#60A5FA"), 1.5))
+            painter.drawRoundedRect(rect_drr, 4, 4)
+            painter.setPen(QColor("#FFFFFF"))
+        else:
+            painter.fillRect(rect_drr, QColor("#1E293B"))
+            painter.setPen(QPen(QColor("#475569"), 1.2))
+            painter.drawRoundedRect(rect_drr, 4, 4)
+            painter.setPen(QColor("#94A3B8"))
+        painter.drawText(rect_drr, Qt.AlignmentFlag.AlignCenter, "DRR")
 
         # 9. Информационная плашка поля
         lines_specs = [
@@ -2671,6 +2966,8 @@ class DicomViewerPanel(QWidget):
         self.loader_worker = None
         self.struct_worker = None
         self.dose_worker = None
+        self.drr_worker = None
+        self.drr_dialog = None
         self.progress_dialog = None
         self.pixmap_cache = {}
 
@@ -2885,6 +3182,7 @@ class DicomViewerPanel(QWidget):
         self.viewer.slice_scrolled.connect(self.on_slice_scrolled)
         self.viewer.window_changed.connect(self.on_window_changed)
         self.viewer.bev_beam_changed.connect(self._on_bev_beam_changed)
+        self.viewer.drr_precompute_requested.connect(self.start_drr_precompute)
         center_layout.addWidget(self.viewer, stretch=1)
 
         # Создаем и добавляем шкалу HU справа
@@ -3746,6 +4044,76 @@ class DicomViewerPanel(QWidget):
             self.cb_presets.show()
 
         self.update_buttons_style()
+        self.viewer.update()
+
+    def start_drr_precompute(self) -> None:
+        beams = self.viewer.plan_data.get("beams", [])
+        if not beams:
+            self.viewer.show_drr = True
+            self.viewer.update()
+            return
+
+        cached_keys = set(self.viewer.drr_cache.keys())
+        needs_calc = False
+        for b in beams:
+            sad = float(b.get("sad", 1000.0) or 1000.0)
+            cps = b.get("control_points", [])
+            if not cps:
+                g_angle = float(b.get("gantry_angle", 0.0))
+                iso = b.get("isocenter")
+                if iso and len(iso) >= 3:
+                    ck = (round(g_angle, 1), round(iso[0], 2), round(iso[1], 2), round(iso[2], 2), round(sad, 1))
+                    if ck not in cached_keys:
+                        needs_calc = True
+                        break
+            else:
+                for cp in cps:
+                    g_angle = float(cp.get("gantry_angle", b.get("gantry_angle", 0.0)))
+                    iso = cp.get("isocenter", b.get("isocenter"))
+                    if iso and len(iso) >= 3:
+                        ck = (round(g_angle, 1), round(iso[0], 2), round(iso[1], 2), round(iso[2], 2), round(sad, 1))
+                        if ck not in cached_keys:
+                            needs_calc = True
+                            break
+            if needs_calc:
+                break
+
+        if not needs_calc:
+            self.viewer.show_drr = True
+            self.viewer.update()
+            return
+
+        if self.drr_worker is not None and self.drr_worker.isRunning():
+            self.drr_worker.cancel()
+            self.drr_worker.quit()
+            self.drr_worker.wait()
+
+        self.drr_dialog = DRRProgressDialog(self)
+        self.drr_worker = DRRPrecomputeWorker(
+            self.viewer.sorted_files,
+            self.viewer.ct_volume,
+            self.viewer.ct_ipp0,
+            self.viewer.ct_spacing,
+            beams,
+            cached_keys
+        )
+        self.drr_dialog.cancelled.connect(self.drr_worker.cancel)
+        self.drr_worker.progress_signal.connect(self.drr_dialog.set_progress)
+        self.drr_worker.item_computed_signal.connect(self._on_drr_item_computed)
+        self.drr_worker.finished_signal.connect(self._on_drr_worker_finished)
+        self.drr_worker.start()
+        self.drr_dialog.show()
+
+    def _on_drr_item_computed(self, ck: tuple, q_img: QImage) -> None:
+        self.viewer.drr_cache[ck] = q_img
+
+    def _on_drr_worker_finished(self, is_cancelled: bool) -> None:
+        if hasattr(self, "drr_dialog") and self.drr_dialog and self.drr_dialog.isVisible():
+            self.drr_dialog.close()
+        if not is_cancelled:
+            self.viewer.show_drr = True
+        else:
+            self.viewer.show_drr = False
         self.viewer.update()
 
     def toggle_osd(self) -> None:

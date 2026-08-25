@@ -294,5 +294,10 @@
   "viewer_collimator": "Collimator",
   "viewer_couch": "Couch",
   "viewer_wedge": "Wedge",
-  "viewer_isocenter": "Isocenter"
+  "viewer_isocenter": "Isocenter",
+  "drr_title": "DRR Generation",
+  "drr_calculating": "Calculating DRR projections...",
+  "drr_preparing_volume": "Preparing 3D CT volume...",
+  "drr_progress": "Calculating projections: {0} / {1} (Gantry {2:.1f}°)",
+  "drr_cancel": "Cancel"
 }

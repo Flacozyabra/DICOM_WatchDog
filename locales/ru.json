@@ -294,5 +294,10 @@
   "viewer_collimator": "Коллиматор",
   "viewer_couch": "Стол",
   "viewer_wedge": "Клин",
-  "viewer_isocenter": "Изоцентр"
+  "viewer_isocenter": "Изоцентр",
+  "drr_title": "Генерация DRR",
+  "drr_calculating": "Расчет проекций DRR...",
+  "drr_preparing_volume": "Подготовка 3D-объема КТ...",
+  "drr_progress": "Расчет проекций: {0} / {1} (Гантри {2:.1f}°)",
+  "drr_cancel": "Отмена"
 }
