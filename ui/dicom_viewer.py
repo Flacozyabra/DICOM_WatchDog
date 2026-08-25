@@ -1220,27 +1220,15 @@ class DicomViewerWidget(QWidget):
         self.sorted_files = []
         self.update()
 
-    def get_or_compute_drr(self, beam_idx: int, beam: dict) -> QImage | None:
+    def get_or_compute_drr(self, g_angle: float, iso: list[float], sad: float = 1000.0) -> QImage | None:
         """
         Генерирует и кэширует DRR (Digitally Reconstructed Radiograph) проекцию пациента
-        для заданного угла гентри и изоцентра пучка.
+        для заданного угла гентри, изоцентра пучка и расстояния SAD.
         """
-        if not beam:
-            return None
-
-        g_angle = beam.get("gantry_angle", 0.0)
-        iso = beam.get("isocenter")
-        if not iso or len(iso) < 3:
-            cps = beam.get("control_points", [])
-            for cp in cps:
-                raw_iso = cp.get("isocenter")
-                if raw_iso and len(raw_iso) >= 3:
-                    iso = raw_iso
-                    break
         if not iso or len(iso) < 3:
             return None
 
-        cache_key = (beam_idx, round(float(g_angle), 1), round(float(iso[0]), 2), round(float(iso[1]), 2), round(float(iso[2]), 2))
+        cache_key = (round(float(g_angle), 1), round(float(iso[0]), 2), round(float(iso[1]), 2), round(float(iso[2]), 2), round(float(sad), 1))
         if cache_key in self.drr_cache:
             return self.drr_cache[cache_key]
 
@@ -1286,7 +1274,7 @@ class DicomViewerWidget(QWidget):
         try:
             drr_fov = 400.0
             drr_w, drr_h = 256, 256
-            sad = float(beam.get("sad", 1000.0) or 1000.0)
+            sad = float(sad or 1000.0)
             g_rad = math.radians(g_angle)
             sin_g = math.sin(g_rad)
             cos_g = math.cos(g_rad)
@@ -1701,7 +1689,7 @@ class DicomViewerWidget(QWidget):
         painter.setClipPath(clip_path)
 
         # 2.1. DRR (Digitally Reconstructed Radiograph)
-        drr_img = self.get_or_compute_drr(idx, beam)
+        drr_img = self.get_or_compute_drr(g_angle, iso, sad)
         if drr_img and not drr_img.isNull():
             drr_rect = QRectF(cx - 200.0 * scale, cy - 200.0 * scale, 400.0 * scale, 400.0 * scale)
             painter.drawImage(drr_rect, drr_img)
