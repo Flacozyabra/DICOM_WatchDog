@@ -167,7 +167,7 @@ def load_rtdose(filepath: str, plan_files: list[str] = None) -> dict:
                     ds_plan = safe_dcmread(pf, stop_before_pixels=True)
                     plan_sop = str(getattr(ds_plan, "SOPInstanceUID", ""))
                     if (ref_plan_uid and plan_sop == ref_plan_uid) or not ref_plan_uid:
-                        plan_label = str(getattr(ds_plan, "RTPlanLabel", getattr(ds_plan, "RTPlanName", "")))
+                        plan_label = str(getattr(ds_plan, "RTPlanName", "") or getattr(ds_plan, "RTPlanLabel", "") or getattr(ds_plan, "RTPlanDescription", "")).strip()
                         if hasattr(ds_plan, "DoseReferenceSequence"):
                             for dref in ds_plan.DoseReferenceSequence:
                                 if hasattr(dref, "TargetPrescriptionDose"):
@@ -245,7 +245,7 @@ def load_rtplan(filepath: str) -> dict:
             return plan_data
 
         sop_instance_uid = str(getattr(ds, "SOPInstanceUID", ""))
-        plan_label = str(getattr(ds, "RTPlanLabel", getattr(ds, "RTPlanName", "")))
+        plan_label = str(getattr(ds, "RTPlanName", "") or getattr(ds, "RTPlanLabel", "") or getattr(ds, "RTPlanDescription", "")).strip()
         model_name = str(getattr(ds, "ManufacturerModelName", ""))
         manufacturer = str(getattr(ds, "Manufacturer", ""))
         tps_name = clean_tps_name(model_name, manufacturer)
