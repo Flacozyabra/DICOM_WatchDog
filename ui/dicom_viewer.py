@@ -3131,7 +3131,35 @@ class DicomViewerPanel(QWidget):
         self.btn_tab_isodoses.setStyleSheet(style_active if self.btn_tab_isodoses.isChecked() else style_inactive)
 
     def on_global_structures_changed(self, state: int) -> None:
-        self.viewer.show_structures_globally = (state == 2)
+        is_on = (state == 2)
+        self.viewer.show_structures_globally = is_on
+
+        self.list_structures.blockSignals(True)
+        if not is_on:
+            if self.viewer.enabled_structures:
+                self.saved_enabled_structures = set(self.viewer.enabled_structures)
+            self.viewer.enabled_structures.clear()
+            for i in range(self.list_structures.count()):
+                item = self.list_structures.item(i)
+                if item:
+                    item.setCheckState(Qt.CheckState.Unchecked)
+        else:
+            to_restore = getattr(self, "saved_enabled_structures", None)
+            all_names = {self.list_structures.item(i).text() for i in range(self.list_structures.count()) if self.list_structures.item(i)}
+            if not to_restore:
+                to_restore = all_names
+
+            self.viewer.enabled_structures.clear()
+            for i in range(self.list_structures.count()):
+                item = self.list_structures.item(i)
+                if item:
+                    if item.text() in to_restore:
+                        item.setCheckState(Qt.CheckState.Checked)
+                        self.viewer.enabled_structures.add(item.text())
+                    else:
+                        item.setCheckState(Qt.CheckState.Unchecked)
+        self.list_structures.blockSignals(False)
+
         self.viewer.rebuild_contour_index()
         self.viewer.update()
 
@@ -3142,6 +3170,14 @@ class DicomViewerPanel(QWidget):
             self.viewer.enabled_structures.add(name)
         else:
             self.viewer.enabled_structures.discard(name)
+
+        has_any = len(self.viewer.enabled_structures) > 0
+        if has_any != self.cb_show_structures.isChecked():
+            self.cb_show_structures.blockSignals(True)
+            self.cb_show_structures.setChecked(has_any)
+            self.viewer.show_structures_globally = has_any
+            self.cb_show_structures.blockSignals(False)
+
         self.viewer.rebuild_contour_index()
         self.viewer.update()
 
