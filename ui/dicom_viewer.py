@@ -1295,11 +1295,11 @@ class DicomViewerWidget(QWidget):
             v = np.linspace(drr_fov / 2.0, -drr_fov / 2.0, drr_h, dtype=np.float32)
             U, V = np.meshgrid(u, v)
 
-            Sx = iso[0] - sad * sin_g
+            Sx = iso[0] + sad * sin_g
             Sy = iso[1] - sad * cos_g
             Sz = iso[2]
 
-            P_iso_x = iso[0] - U * cos_g
+            P_iso_x = iso[0] + U * cos_g
             P_iso_y = iso[1] + U * sin_g
             P_iso_z = iso[2] + V
 
@@ -1711,7 +1711,7 @@ class DicomViewerWidget(QWidget):
             g_rad = math.radians(g_angle)
             sin_g = math.sin(g_rad)
             cos_g = math.cos(g_rad)
-            Sx = iso[0] - sad * sin_g
+            Sx = iso[0] + sad * sin_g
             Sy = iso[1] - sad * cos_g
             Sz = iso[2]
 
@@ -1720,6 +1720,8 @@ class DicomViewerWidget(QWidget):
                 if self.enabled_structures and name not in self.enabled_structures:
                     continue
                 s_color = s.get("color", QColor("#10B981"))
+                if isinstance(s_color, (tuple, list)):
+                    s_color = QColor(*s_color)
                 pen_s = QPen(s_color, 1.8)
                 painter.setPen(pen_s)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -1730,10 +1732,10 @@ class DicomViewerWidget(QWidget):
                         rx = pt[0] - Sx
                         ry = pt[1] - Sy
                         rz = pt[2] - Sz
-                        dz_p = rx * sin_g + ry * cos_g
+                        dz_p = -rx * sin_g + ry * cos_g
                         if dz_p > 50.0:
                             M = sad / dz_p
-                            u_p = (-rx * cos_g + ry * sin_g) * M
+                            u_p = (rx * cos_g + ry * sin_g) * M
                             v_p = rz * M
                             pts_2d.append(QPointF(cx + u_p * scale, cy - v_p * scale))
                     if len(pts_2d) >= 3:
@@ -1767,7 +1769,7 @@ class DicomViewerWidget(QWidget):
         cos_c, sin_c = math.cos(c_rad), math.sin(c_rad)
 
         def coll_to_canvas(xc, yc):
-            xg = -(xc * cos_c - yc * sin_c)
+            xg = xc * cos_c - yc * sin_c
             yg = xc * sin_c + yc * cos_c
             return QPointF(cx + xg * scale, cy - yg * scale)
 
