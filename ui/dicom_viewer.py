@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import (
     QIcon, QFont, QPixmap, QBrush, QColor, QPainter,
-    QPen, QImage, QLinearGradient, QPolygon, QPolygonF
+    QPen, QImage, QLinearGradient, QPolygon, QPolygonF, QPainterPath
 )
 from ui.toggle_switch import ToggleSwitch
 from core.config_utils import get_resource_path
@@ -1107,6 +1107,13 @@ class DicomViewerWidget(QWidget):
         self.bev_next_btn_rect = None
         self.bev_cp_slider_rect = None
 
+        # Кэш DRR и объем КТ
+        self.drr_cache = {}
+        self.ct_volume = None
+        self.ct_ipp0 = None
+        self.ct_spacing = None
+        self.sorted_files = []
+
         self.setMouseTracking(True)
         self.setStyleSheet("background-color: #000000;")
 
@@ -1205,7 +1212,129 @@ class DicomViewerWidget(QWidget):
         self.bev_active = False
         self.bev_selected_beam_idx = 0
         self.bev_control_point_idx = 0
+        self.drr_cache.clear()
+        self.ct_volume = None
+        self.ct_ipp0 = None
+        self.ct_spacing = None
+        self.sorted_files = []
         self.update()
+
+    def get_or_compute_drr(self, beam_idx: int, beam: dict) -> QImage | None:
+        """
+        Генерирует и кэширует DRR (Digitally Reconstructed Radiograph) проекцию пациента
+        для заданного угла гентри и изоцентра пучка.
+        """
+        if not beam:
+            return None
+
+        g_angle = beam.get("gantry_angle", 0.0)
+        iso = beam.get("isocenter")
+        if not iso or len(iso) < 3:
+            cps = beam.get("control_points", [])
+            for cp in cps:
+                raw_iso = cp.get("isocenter")
+                if raw_iso and len(raw_iso) >= 3:
+                    iso = raw_iso
+                    break
+        if not iso or len(iso) < 3:
+            return None
+
+        cache_key = (beam_idx, round(float(g_angle), 1), round(float(iso[0]), 2), round(float(iso[1]), 2), round(float(iso[2]), 2))
+        if cache_key in self.drr_cache:
+            return self.drr_cache[cache_key]
+
+        if self.ct_volume is None:
+            if not self.sorted_files:
+                return None
+            try:
+                slices_ds = []
+                for item in self.sorted_files:
+                    f_path = item[0] if isinstance(item, tuple) else item
+                    ds = safe_dcmread(f_path)
+                    if hasattr(ds, "ImagePositionPatient") and hasattr(ds, "pixel_array"):
+                        slices_ds.append(ds)
+                if not slices_ds:
+                    return None
+                slices_ds.sort(key=lambda s: float(s.ImagePositionPatient[2]))
+                n_z = len(slices_ds)
+                rows = int(slices_ds[0].Rows)
+                cols = int(slices_ds[0].Columns)
+                vol = np.zeros((n_z, rows, cols), dtype=np.float32)
+                for i, s in enumerate(slices_ds):
+                    slope = float(getattr(s, "RescaleSlope", 1.0) or 1.0)
+                    intercept = float(getattr(s, "RescaleIntercept", 0.0) or 0.0)
+                    vol[i] = s.pixel_array.astype(np.float32) * slope + intercept
+                
+                ipp0 = [float(x) for x in slices_ds[0].ImagePositionPatient]
+                ipp_last = [float(x) for x in slices_ds[-1].ImagePositionPatient]
+                spacing = [float(x) for x in slices_ds[0].PixelSpacing]
+                dy, dx = float(spacing[0]), float(spacing[1])
+                dz = (ipp_last[2] - ipp0[2]) / (n_z - 1) if n_z > 1 else 5.0
+                
+                self.ct_volume = vol
+                self.ct_ipp0 = ipp0
+                self.ct_spacing = (dy, dx, dz)
+            except Exception:
+                return None
+
+        vol = self.ct_volume
+        ipp0 = self.ct_ipp0
+        dy, dx, dz = self.ct_spacing
+        n_z, rows, cols = vol.shape
+
+        try:
+            drr_fov = 400.0
+            drr_w, drr_h = 256, 256
+            sad = float(beam.get("sad", 1000.0) or 1000.0)
+            g_rad = math.radians(g_angle)
+            sin_g = math.sin(g_rad)
+            cos_g = math.cos(g_rad)
+
+            u = np.linspace(-drr_fov / 2.0, drr_fov / 2.0, drr_w, dtype=np.float32)
+            v = np.linspace(drr_fov / 2.0, -drr_fov / 2.0, drr_h, dtype=np.float32)
+            U, V = np.meshgrid(u, v)
+
+            Sx = iso[0] - sad * sin_g
+            Sy = iso[1] - sad * cos_g
+            Sz = iso[2]
+
+            P_iso_x = iso[0] - U * cos_g
+            P_iso_y = iso[1] + U * sin_g
+            P_iso_z = iso[2] + V
+
+            Dx = P_iso_x - Sx
+            Dy = P_iso_y - Sy
+            Dz = P_iso_z - Sz
+            D_len = np.sqrt(Dx * Dx + Dy * Dy + Dz * Dz)
+            Dx /= D_len
+            Dy /= D_len
+            Dz /= D_len
+
+            steps = np.arange(sad - 250.0, sad + 250.0, 4.0, dtype=np.float32)
+            drr = np.zeros((drr_h, drr_w), dtype=np.float32)
+
+            for t in steps:
+                Px = Sx + Dx * t
+                Py = Sy + Dy * t
+                Pz = Sz + Dz * t
+                ix = np.round((Px - ipp0[0]) / dx).astype(np.int32)
+                iy = np.round((Py - ipp0[1]) / dy).astype(np.int32)
+                iz = np.round((Pz - ipp0[2]) / dz).astype(np.int32)
+                valid = (ix >= 0) & (ix < cols) & (iy >= 0) & (iy < rows) & (iz >= 0) & (iz < n_z)
+                sample_hu = np.zeros_like(drr)
+                sample_hu[valid] = np.maximum(0.0, vol[iz[valid], iy[valid], ix[valid]] + 500.0)
+                drr += sample_hu
+
+            drr_norm = (drr - drr.min()) / (drr.max() - drr.min() + 1e-5)
+            drr_u8 = (drr_norm * 255.0).astype(np.uint8)
+            drr_rgba = np.stack([drr_u8, drr_u8, drr_u8, np.full_like(drr_u8, 255)], axis=-1)
+
+            b = drr_rgba.tobytes()
+            q_img = QImage(b, drr_w, drr_h, drr_w * 4, QImage.Format.Format_RGBA8888).copy()
+            self.drr_cache[cache_key] = q_img
+            return q_img
+        except Exception:
+            return None
 
     def mousePressEvent(self, event) -> None:
         if self.bev_active:
@@ -1552,46 +1681,99 @@ class DicomViewerWidget(QWidget):
         mach = beam.get("machine_name", "")
 
         scale = min(w, h - 80) / 440.0
+        r_field = 200.0 * scale
+        sad = float(beam.get("sad", 1000.0) or 1000.0)
+        iso = cp.get("isocenter", beam.get("isocenter", [0.0, 0.0, 0.0]))
 
         def mm_to_canvas(x_mm, y_mm):
             return QPointF(cx + x_mm * scale, cy - y_mm * scale)
 
-        # 1. Круг коллиматора
-        r_field = 200.0 * scale
+        # 1. Фоновый круг коллиматора
         painter.setPen(QPen(QColor("#1E293B"), 2))
         painter.setBrush(QBrush(QColor("#0F172A")))
         painter.drawEllipse(QPointF(cx, cy), r_field, r_field)
 
-        # 2. Сетка коллиматора (неподвижная система отсчета гентри)
-        painter.setPen(QPen(QColor("#334155"), 1, Qt.PenStyle.DashLine))
+        # 2. Отрисовка DRR и 3D-проекций контуров RTSTRUCT (внутри круглой апертуры)
+        painter.save()
+        clip_path = QPainterPath()
+        clip_path.addEllipse(QPointF(cx, cy), r_field, r_field)
+        painter.setClipPath(clip_path)
+
+        # 2.1. DRR (Digitally Reconstructed Radiograph)
+        drr_img = self.get_or_compute_drr(idx, beam)
+        if drr_img and not drr_img.isNull():
+            drr_rect = QRectF(cx - 200.0 * scale, cy - 200.0 * scale, 400.0 * scale, 400.0 * scale)
+            painter.drawImage(drr_rect, drr_img)
+
+        # 2.2. Проекция 3D контуров RTSTRUCT на плоскость детектора / изоцентра BEV
+        if self.show_structures_globally and self.structures and iso and len(iso) >= 3:
+            g_rad = math.radians(g_angle)
+            sin_g = math.sin(g_rad)
+            cos_g = math.cos(g_rad)
+            Sx = iso[0] - sad * sin_g
+            Sy = iso[1] - sad * cos_g
+            Sz = iso[2]
+
+            for roi_num, s in self.structures.items():
+                name = s.get("name", "")
+                if self.enabled_structures and name not in self.enabled_structures:
+                    continue
+                s_color = s.get("color", QColor("#10B981"))
+                pen_s = QPen(s_color, 1.8)
+                painter.setPen(pen_s)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+
+                for c in s.get("contours", []):
+                    pts_2d = []
+                    for pt in c.get("points", []):
+                        rx = pt[0] - Sx
+                        ry = pt[1] - Sy
+                        rz = pt[2] - Sz
+                        dz_p = rx * sin_g + ry * cos_g
+                        if dz_p > 50.0:
+                            M = sad / dz_p
+                            u_p = (-rx * cos_g + ry * sin_g) * M
+                            v_p = rz * M
+                            pts_2d.append(QPointF(cx + u_p * scale, cy - v_p * scale))
+                    if len(pts_2d) >= 3:
+                        painter.drawPolygon(QPolygonF(pts_2d))
+
+        painter.restore()
+
+        # 3. Сетка коллиматора (неподвижная система отсчета гентри)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(148, 163, 184, 50), 1, Qt.PenStyle.DashLine))
         for r_cm in [5, 10, 15, 20]:
             r_px = r_cm * 10.0 * scale
             if r_px <= r_field:
                 painter.drawEllipse(QPointF(cx, cy), r_px, r_px)
 
-        painter.setPen(QPen(QColor("#475569"), 1))
+        painter.setPen(QPen(QColor(148, 163, 184, 80), 1))
         painter.drawLine(QPointF(cx - r_field, cy), QPointF(cx + r_field, cy))
         painter.drawLine(QPointF(cx, cy - r_field), QPointF(cx, cy + r_field))
 
-        # 3. Поворот системы координат коллиматора на угол c_angle
+        for cm in range(-20, 21):
+            if cm == 0:
+                continue
+            px = cx + cm * 10.0 * scale
+            py = cy - cm * 10.0 * scale
+            if abs(cm * 10.0 * scale) <= r_field:
+                painter.drawLine(QPointF(px, cy - 3), QPointF(px, cy + 3))
+                painter.drawLine(QPointF(cx - 3, py), QPointF(cx + 3, py))
+
+        # 4. Поворот системы координат коллиматора на угол c_angle (-c_angle в системе координат Qt)
         painter.save()
         painter.translate(cx, cy)
-        painter.rotate(c_angle)
+        painter.rotate(-c_angle)
         painter.translate(-cx, -cy)
 
-        # 4. Шторки (Jaws) и апертура
         jx1, jx2 = jaws.get("x", [-100.0, 100.0])
         jy1, jy2 = jaws.get("y", [-100.0, 100.0])
         p_tl = mm_to_canvas(jx1, jy2)
         p_br = mm_to_canvas(jx2, jy1)
         jaws_rect = QRectF(p_tl, p_br).normalized()
 
-        # Подсветка апертуры шторок
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(QColor(59, 130, 246, 40)))
-        painter.drawRect(jaws_rect)
-
-        # 5. Лепестки MLC
+        # 4.1. Лепестки MLC и затенение неактивных областей
         if mlc and len(mlc) >= 2:
             num_pairs = len(mlc) // 2
             if not leaf_bounds or len(leaf_bounds) != num_pairs + 1:
@@ -1599,56 +1781,66 @@ class DicomViewerWidget(QWidget):
                 step = total_span / num_pairs
                 leaf_bounds = [-200.0 + i * step for i in range(num_pairs + 1)]
 
-            painter.setPen(QPen(QColor("#1E293B"), 1))
-            painter.setBrush(QBrush(QColor(100, 116, 139, 210)))
-
+            # Мягкое экранирующее затенение закрытых областей внутри шторок
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(QColor(11, 15, 25, 110)))
             for i in range(num_pairs):
                 y_top_mm = leaf_bounds[i + 1]
                 y_bot_mm = leaf_bounds[i]
+                if y_bot_mm >= jy2 or y_top_mm <= jy1:
+                    painter.drawRect(QRectF(mm_to_canvas(jx1, y_top_mm), mm_to_canvas(jx2, y_bot_mm)).normalized())
+                    continue
+                pos_a = max(jx1, min(jx2, mlc[i]))
+                pos_b = min(jx2, max(jx1, mlc[num_pairs + i]))
+                if pos_a > jx1:
+                    painter.drawRect(QRectF(mm_to_canvas(jx1, y_top_mm), mm_to_canvas(pos_a, y_bot_mm)).normalized())
+                if pos_b < jx2:
+                    painter.drawRect(QRectF(mm_to_canvas(pos_b, y_top_mm), mm_to_canvas(jx2, y_bot_mm)).normalized())
 
-                pos_a = mlc[i]
-                pos_b = mlc[num_pairs + i]
+            # Тонкие направляющие линии лепестков
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(QColor(234, 179, 8, 40), 1))
+            for i in range(num_pairs + 1):
+                y_mm = leaf_bounds[i]
+                if y_mm >= jy1 and y_mm <= jy2:
+                    painter.drawLine(mm_to_canvas(jx1, y_mm), mm_to_canvas(jx2, y_mm))
 
-                p1_a = mm_to_canvas(-200.0, y_top_mm)
-                p2_a = mm_to_canvas(pos_a, y_bot_mm)
-                painter.drawRect(QRectF(p1_a, p2_a).normalized())
+            # Ступенчатый золотой контур активной апертуры поля MLC
+            painter.setPen(QPen(QColor("#F59E0B"), 2.2))
+            for i in range(num_pairs):
+                y_top_mm = leaf_bounds[i + 1]
+                y_bot_mm = leaf_bounds[i]
+                if y_bot_mm >= jy2 or y_top_mm <= jy1:
+                    continue
+                pos_a = max(jx1, min(jx2, mlc[i]))
+                pos_b = min(jx2, max(jx1, mlc[num_pairs + i]))
+                if pos_b > pos_a:
+                    p_a1 = mm_to_canvas(pos_a, y_top_mm)
+                    p_a2 = mm_to_canvas(pos_a, y_bot_mm)
+                    p_b1 = mm_to_canvas(pos_b, y_top_mm)
+                    p_b2 = mm_to_canvas(pos_b, y_bot_mm)
+                    painter.drawLine(p_a1, p_a2)
+                    painter.drawLine(p_b1, p_b2)
+                    if i < num_pairs - 1:
+                        next_a = max(jx1, min(jx2, mlc[i + 1]))
+                        next_b = min(jx2, max(jx1, mlc[num_pairs + i + 1]))
+                        painter.drawLine(p_a1, mm_to_canvas(next_a, y_top_mm))
+                        painter.drawLine(p_b1, mm_to_canvas(next_b, y_top_mm))
 
-                p1_b = mm_to_canvas(pos_b, y_top_mm)
-                p2_b = mm_to_canvas(200.0, y_bot_mm)
-                painter.drawRect(QRectF(p1_b, p2_b).normalized())
-
-        # 6. Маскирование шторками Jaws (экранирование области за пределами шторок)
-        jaw_mask_color = QColor(11, 15, 25, 235)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(jaw_mask_color))
-        if jx1 > -200.0:
-            painter.drawRect(QRectF(mm_to_canvas(-200.0, 200.0), mm_to_canvas(jx1, -200.0)).normalized())
-        if jx2 < 200.0:
-            painter.drawRect(QRectF(mm_to_canvas(jx2, 200.0), mm_to_canvas(200.0, -200.0)).normalized())
-        if jy1 > -200.0:
-            painter.drawRect(QRectF(mm_to_canvas(-200.0, jy1), mm_to_canvas(200.0, -200.0)).normalized())
-        if jy2 < 200.0:
-            painter.drawRect(QRectF(mm_to_canvas(-200.0, 200.0), mm_to_canvas(200.0, jy2)).normalized())
-
-        # 7. Граница шторок (Jaws)
-        painter.setPen(QPen(QColor("#38BDF8"), 2))
+        # 4.2. Пунктирная граница шторок Jaws
         painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor("#38BDF8"), 1.8, Qt.PenStyle.DashLine))
         painter.drawRect(jaws_rect)
-
-        # Оси координат коллиматора
-        painter.setPen(QPen(QColor(56, 189, 248, 70), 1, Qt.PenStyle.DotLine))
-        painter.drawLine(QPointF(cx - 25, cy), QPointF(cx + 25, cy))
-        painter.drawLine(QPointF(cx, cy - 25), QPointF(cx, cy + 25))
 
         painter.restore()
 
-        # 8. Центральный перекрест
+        # 5. Центральный перекрест изоцентра
         painter.setPen(QPen(QColor("#EF4444"), 2))
         painter.drawLine(QPointF(cx - 15, cy), QPointF(cx + 15, cy))
         painter.drawLine(QPointF(cx, cy - 15), QPointF(cx, cy + 15))
         painter.drawEllipse(QPointF(cx, cy), 3, 3)
 
-        # 9. Направления осей (неподвижная система отсчета пациента)
+        # 6. Направления осей (неподвижная система отсчета пациента)
         painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
         painter.setPen(QColor("#94A3B8"))
         painter.drawText(int(cx + 6), int(cy - r_field + 16), "GUN / TOP (Y+)")
@@ -3735,6 +3927,7 @@ class DicomViewerPanel(QWidget):
         self.viewer.show_isodoses_globally = self.cb_show_isodoses.isChecked()
         self.viewer.show_dose_gradient = self.cb_dose_gradient.isChecked()
 
+        self.viewer.sorted_files = self.sorted_files
         parsed_plan = result.get("parsed_plan", {})
         self.viewer.set_plan_data(parsed_plan)
         has_beams = bool(parsed_plan and parsed_plan.get("beams"))
