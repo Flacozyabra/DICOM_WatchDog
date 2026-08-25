@@ -385,12 +385,27 @@ def load_rtplan(filepath: str) -> dict:
                     w_first = wedges[0]
                     wedge_suffix = f" [▲ {w_first['id']} ({w_first['angle']}°)]"
 
-                gantry_val = cp0.get("gantry_angle", 0.0)
+                g_start = cps[0]["gantry_angle"] if cps else 0.0
+                g_stop = cps[-1]["gantry_angle"] if cps else g_start
+                rot_dir = "NONE"
+                if hasattr(b, "ControlPointSequence") and len(b.ControlPointSequence) > 0:
+                    rot_dir = str(getattr(b.ControlPointSequence[0], "GantryRotationDirection", "NONE") or "NONE").upper()
+                if rot_dir == "NONE" and hasattr(b, "GantryRotationDirection"):
+                    rot_dir = str(getattr(b, "GantryRotationDirection", "NONE") or "NONE").upper()
+
                 clean_name = b_name.strip() if b_name else ""
-                if not clean_name or clean_name == f"Beam {b_num}":
-                    display_name = f"Поле {b_num} ({gantry_val:.1f}°){wedge_suffix}"
+                gantry_val = cp0.get("gantry_angle", 0.0)
+
+                if is_dynamic and abs(g_start - g_stop) > 0.5:
+                    dir_txt = " (CW)" if rot_dir in ("CW", "CLOCKWISE") else (" (CCW)" if rot_dir in ("CC", "CCW", "COUNTER_CLOCKWISE") else "")
+                    display_name = f"{clean_name} ({g_start:.0f}°->{g_stop:.0f}°{dir_txt})"
+                elif is_dynamic:
+                    display_name = f"{clean_name} ({g_start:.1f}° [VMAT])"
                 else:
-                    display_name = f"{clean_name} ({gantry_val:.1f}°){wedge_suffix}"
+                    if not clean_name or clean_name == f"Beam {b_num}":
+                        display_name = f"Поле {b_num} ({gantry_val:.1f}°){wedge_suffix}"
+                    else:
+                        display_name = f"{clean_name} ({gantry_val:.1f}°){wedge_suffix}"
 
                 beams.append({
                     "number": b_num,
@@ -402,6 +417,9 @@ def load_rtplan(filepath: str) -> dict:
                     "machine_name": mach_name,
                     "sad": sad,
                     "gantry_angle": cp0.get("gantry_angle", 0.0),
+                    "gantry_start": g_start,
+                    "gantry_stop": g_stop,
+                    "gantry_rotation_direction": rot_dir,
                     "collimator_angle": cp0.get("collimator_angle", 0.0),
                     "couch_angle": cp0.get("couch_angle", 0.0),
                     "isocenter": cp0.get("isocenter", None),
@@ -1081,6 +1099,7 @@ class DicomViewerWidget(QWidget):
 
         # Данные RTPLAN и режим BEV (Beam's Eye View)
         self.plan_data = {}
+        self.show_beams = True
         self.bev_active = False
         self.bev_selected_beam_idx = 0
         self.bev_control_point_idx = 0
@@ -1090,6 +1109,11 @@ class DicomViewerWidget(QWidget):
 
         self.setMouseTracking(True)
         self.setStyleSheet("background-color: #000000;")
+
+    def set_show_beams(self, show: bool) -> None:
+        if self.show_beams != show:
+            self.show_beams = show
+            self.update()
 
     def set_dose_data(self, dose_data: dict) -> None:
         self.dose_data = dose_data or {}
@@ -1901,7 +1925,7 @@ class DicomViewerWidget(QWidget):
                                 painter.drawLine(QPointF(wx1, wy1), QPointF(wx2, wy2))
 
             # Отрисовка изоцентра и геометрии пучков RTPLAN
-            if self.show_isodoses_globally and self.dose_data and self.plan_data:
+            if self.show_beams and self.plan_data and self.current_dataset:
                 ipp = getattr(self.current_dataset, "ImagePositionPatient", None)
                 iop = getattr(self.current_dataset, "ImageOrientationPatient", None)
                 pixel_spacing = getattr(self.current_dataset, "PixelSpacing", None)
@@ -1925,74 +1949,172 @@ class DicomViewerWidget(QWidget):
                         if not iso or len(iso) < 3:
                             continue
                         iso_x, iso_y, iso_z = iso[0], iso[1], iso[2]
+                        dp_x = iso_x - ipp_x
+                        dp_y = iso_y - ipp_y
+                        dp_z = iso_z - ipp_z
 
-                        if abs(ipp_z - iso_z) <= thickness / 2.0 + 0.5:
-                            dp_x = iso_x - ipp_x
-                            dp_y = iso_y - ipp_y
-                            dp_z = iso_z - ipp_z
+                        jaws_y = beam.get("jaws", {}).get("y", [-100.0, 100.0])
+                        max_z_dist = max(35.0, abs(jaws_y[0]), abs(jaws_y[1]))
+
+                        # Проверяем попадание текущего среза в продольный охват пучка
+                        if abs(dp_z) <= max_z_dist:
                             px_iso = (dp_x * xr + dp_y * yr + dp_z * zr) / dx
                             py_iso = (dp_x * xc + dp_y * yc + dp_z * zc) / dy
                             wx_iso = offset_x + px_iso * scale_x
                             wy_iso = offset_y + py_iso * scale_y
 
-                            g_angle = beam.get("gantry_angle", 0.0)
-                            rad = math.radians(g_angle)
-                            sx = math.sin(rad)
-                            sy = -math.cos(rad)
-
                             ray_len = 160.0 * self.zoom_factor
-                            wx_src = wx_iso + sx * ray_len
-                            wy_src = wy_iso + sy * ray_len
-
-                            pen_ray = QPen(QColor("#F59E0B"), 1.8, Qt.PenStyle.DashLine)
-                            painter.setPen(pen_ray)
-                            painter.drawLine(QPointF(wx_src, wy_src), QPointF(wx_iso, wy_iso))
-
-                            arrow_len = 12.0
-                            arr_dx = -sx
-                            arr_dy = -sy
-                            arr_px = -arr_dy
-                            arr_py = arr_dx
-                            p_head = QPointF(wx_iso, wy_iso)
-                            p_a1 = QPointF(wx_iso - arr_dx * arrow_len + arr_px * 6, wy_iso - arr_dy * arrow_len + arr_py * 6)
-                            p_a2 = QPointF(wx_iso - arr_dx * arrow_len - arr_px * 6, wy_iso - arr_dy * arrow_len - arr_py * 6)
-                            painter.setPen(QPen(QColor("#F59E0B"), 1.8))
-                            painter.setBrush(QBrush(QColor("#F59E0B")))
-                            painter.drawPolygon(QPolygonF([p_head, p_a1, p_a2]))
-
                             b_num = beam.get("number", 1)
-                            wedge_info = ""
+                            is_dynamic = beam.get("is_dynamic", False)
+                            g_start = beam.get("gantry_start", beam.get("gantry_angle", 0.0))
+                            g_stop = beam.get("gantry_stop", g_start)
+                            rot_dir = beam.get("gantry_rotation_direction", "NONE")
+
                             wedges = beam.get("wedges", [])
+                            wedge_info = ""
                             if wedges:
                                 w_id = wedges[0].get("id", "")
                                 w_ang = wedges[0].get("angle", "")
                                 wedge_info = f" ▲ {w_id} ({w_ang}°)"
 
-                            badge_beam_text = f"[{b_num}] {g_angle:.1f}°{wedge_info}"
-                            painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
-                            m_b = painter.fontMetrics()
-                            rect_b_txt = m_b.boundingRect(badge_beam_text)
-                            badge_rect = QRectF(
-                                wx_src - rect_b_txt.width() / 2 - 6,
-                                wy_src - rect_b_txt.height() / 2 - 3,
-                                rect_b_txt.width() + 12,
-                                rect_b_txt.height() + 6
-                            )
-                            painter.setPen(QPen(QColor("#F59E0B"), 1.2))
-                            painter.setBrush(QBrush(QColor(15, 23, 42, 220)))
-                            painter.drawRoundedRect(badge_rect, 4, 4)
-                            painter.setPen(QColor("#FFFFFF"))
-                            painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_beam_text)
+                            is_exact_iso_slice = (abs(dp_z) <= thickness / 2.0 + 0.5)
 
-                            painter.setPen(QPen(QColor("#EAB308"), 2.0))
-                            painter.setBrush(Qt.BrushStyle.NoBrush)
-                            painter.drawEllipse(QPointF(wx_iso, wy_iso), 7, 7)
-                            painter.drawLine(QPointF(wx_iso - 12, wy_iso), QPointF(wx_iso + 12, wy_iso))
-                            painter.drawLine(QPointF(wx_iso, wy_iso - 12), QPointF(wx_iso + 12, wy_iso))
+                            # 1. Если это динамическая ротационная дуга (VMAT / Arc) с вращением гантри
+                            if is_dynamic and abs(g_start - g_stop) > 0.5:
+                                pts_arc = []
+                                if rot_dir in ("CW", "CLOCKWISE"):
+                                    span = (g_stop - g_start) if g_stop >= g_start else (g_stop + 360.0 - g_start)
+                                    steps = max(2, int(span / 4.0))
+                                    angles = [(g_start + (span * s / steps)) % 360.0 for s in range(steps + 1)]
+                                elif rot_dir in ("CC", "CCW", "COUNTER_CLOCKWISE"):
+                                    span = (g_start - g_stop) if g_start >= g_stop else (g_start + 360.0 - g_stop)
+                                    steps = max(2, int(span / 4.0))
+                                    angles = [(g_start - (span * s / steps)) % 360.0 for s in range(steps + 1)]
+                                else:
+                                    span = abs(g_stop - g_start)
+                                    steps = max(2, int(span / 4.0))
+                                    angles = [g_start + (g_stop - g_start) * (s / steps) for s in range(steps + 1)]
 
-                            painter.setFont(QFont("Consolas", 8, QFont.Weight.Bold))
-                            painter.setPen(QColor("#EAB308"))
-                            painter.drawText(int(wx_iso + 10), int(wy_iso - 8), "ISO")
+                                for ang in angles:
+                                    rad_a = math.radians(ang)
+                                    pts_arc.append(QPointF(wx_iso + math.sin(rad_a) * ray_len, wy_iso - math.cos(rad_a) * ray_len))
+
+                                # Полупрозрачный сектор
+                                poly_sector = QPolygonF([QPointF(wx_iso, wy_iso)] + pts_arc)
+                                painter.setPen(Qt.PenStyle.NoPen)
+                                painter.setBrush(QBrush(QColor(245, 158, 11, 35)))
+                                painter.drawPolygon(poly_sector)
+
+                                # Граничные направляющие
+                                pen_ray = QPen(QColor("#F59E0B"), 1.6, Qt.PenStyle.DashLine)
+                                painter.setPen(pen_ray)
+                                if pts_arc:
+                                    painter.drawLine(QPointF(wx_iso, wy_iso), pts_arc[0])
+                                    painter.drawLine(QPointF(wx_iso, wy_iso), pts_arc[-1])
+
+                                # Дуговая линия
+                                pen_arc = QPen(QColor("#F59E0B"), 2.0, Qt.PenStyle.SolidLine)
+                                painter.setPen(pen_arc)
+                                for i in range(len(pts_arc) - 1):
+                                    painter.drawLine(pts_arc[i], pts_arc[i+1])
+
+                                # Стрелка направления в середине дуги
+                                mid_idx = len(pts_arc) // 2
+                                if len(pts_arc) > 2 and mid_idx > 0:
+                                    p_prev = pts_arc[mid_idx - 1]
+                                    p_mid = pts_arc[mid_idx]
+                                    d_vec = p_mid - p_prev
+                                    len_d = math.hypot(d_vec.x(), d_vec.y())
+                                    if len_d > 0.001:
+                                        ux = d_vec.x() / len_d
+                                        uy = d_vec.y() / len_d
+                                        perp_x = -uy
+                                        perp_y = ux
+                                        a_head = p_mid
+                                        a1 = p_mid - QPointF(ux * 10 - perp_x * 5, uy * 10 - perp_y * 5)
+                                        a2 = p_mid - QPointF(ux * 10 + perp_x * 5, uy * 10 + perp_y * 5)
+                                        painter.setBrush(QBrush(QColor("#F59E0B")))
+                                        painter.setPen(Qt.PenStyle.NoPen)
+                                        painter.drawPolygon(QPolygonF([a_head, a1, a2]))
+
+                                # Плашка арки
+                                mid_pt = pts_arc[mid_idx] if pts_arc else QPointF(wx_iso, wy_iso - ray_len)
+                                dir_txt = "CW" if rot_dir in ("CW", "CLOCKWISE") else ("CCW" if rot_dir in ("CC", "CCW") else "")
+                                badge_text = f"[{b_num}] {g_start:.0f}°->{g_stop:.0f}° {dir_txt}".strip()
+                                
+                                painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
+                                m_b = painter.fontMetrics()
+                                rect_b_txt = m_b.boundingRect(badge_text)
+                                badge_rect = QRectF(
+                                    mid_pt.x() - rect_b_txt.width() / 2 - 6,
+                                    mid_pt.y() - rect_b_txt.height() / 2 - 3,
+                                    rect_b_txt.width() + 12,
+                                    rect_b_txt.height() + 6
+                                )
+                                painter.setPen(QPen(QColor("#F59E0B"), 1.2))
+                                painter.setBrush(QBrush(QColor(15, 23, 42, 220)))
+                                painter.drawRoundedRect(badge_rect, 4, 4)
+                                painter.setPen(QColor("#FFFFFF"))
+                                painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_text)
+
+                            else:
+                                # 2. Статический пучок (3D-CRT / IMRT)
+                                g_angle = beam.get("gantry_angle", 0.0)
+                                rad = math.radians(g_angle)
+                                sx = math.sin(rad)
+                                sy = -math.cos(rad)
+
+                                wx_src = wx_iso + sx * ray_len
+                                wy_src = wy_iso + sy * ray_len
+
+                                pen_ray = QPen(QColor("#F59E0B"), 1.8, Qt.PenStyle.DashLine)
+                                painter.setPen(pen_ray)
+                                painter.drawLine(QPointF(wx_src, wy_src), QPointF(wx_iso, wy_iso))
+
+                                arrow_len = 12.0
+                                arr_dx = -sx
+                                arr_dy = -sy
+                                arr_px = -arr_dy
+                                arr_py = arr_dx
+                                p_head = QPointF(wx_iso, wy_iso)
+                                p_a1 = QPointF(wx_iso - arr_dx * arrow_len + arr_px * 6, wy_iso - arr_dy * arrow_len + arr_py * 6)
+                                p_a2 = QPointF(wx_iso - arr_dx * arrow_len - arr_px * 6, wy_iso - arr_dy * arrow_len - arr_py * 6)
+                                painter.setPen(QPen(QColor("#F59E0B"), 1.8))
+                                painter.setBrush(QBrush(QColor("#F59E0B")))
+                                painter.drawPolygon(QPolygonF([p_head, p_a1, p_a2]))
+
+                                badge_beam_text = f"[{b_num}] {g_angle:.1f}°{wedge_info}"
+                                painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
+                                m_b = painter.fontMetrics()
+                                rect_b_txt = m_b.boundingRect(badge_beam_text)
+                                badge_rect = QRectF(
+                                    wx_src - rect_b_txt.width() / 2 - 6,
+                                    wy_src - rect_b_txt.height() / 2 - 3,
+                                    rect_b_txt.width() + 12,
+                                    rect_b_txt.height() + 6
+                                )
+                                painter.setPen(QPen(QColor("#F59E0B"), 1.2))
+                                painter.setBrush(QBrush(QColor(15, 23, 42, 220)))
+                                painter.drawRoundedRect(badge_rect, 4, 4)
+                                painter.setPen(QColor("#FFFFFF"))
+                                painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_beam_text)
+
+                            # 3. Маркер изоцентра
+                            if is_exact_iso_slice:
+                                painter.setPen(QPen(QColor("#EAB308"), 2.0))
+                                painter.setBrush(Qt.BrushStyle.NoBrush)
+                                painter.drawEllipse(QPointF(wx_iso, wy_iso), 7, 7)
+                                painter.drawLine(QPointF(wx_iso - 12, wy_iso), QPointF(wx_iso + 12, wy_iso))
+                                painter.drawLine(QPointF(wx_iso, wy_iso - 12), QPointF(wx_iso, wy_iso + 12))
+
+                                painter.setFont(QFont("Consolas", 8, QFont.Weight.Bold))
+                                painter.setPen(QColor("#EAB308"))
+                                painter.drawText(int(wx_iso + 10), int(wy_iso - 8), "ISO")
+                            else:
+                                painter.setPen(QPen(QColor(234, 179, 8, 120), 1.2, Qt.PenStyle.DotLine))
+                                painter.setBrush(Qt.BrushStyle.NoBrush)
+                                painter.drawLine(QPointF(wx_iso - 6, wy_iso), QPointF(wx_iso + 6, wy_iso))
+                                painter.drawLine(QPointF(wx_iso, wy_iso - 6), QPointF(wx_iso, wy_iso + 6))
 
             # Отрисовка измерительной линейки
             if self.ruler_active and self.start_pos and self.current_pos:
@@ -2124,11 +2246,11 @@ class DicomViewerWidget(QWidget):
                         y_offset += rect_line.height() + 5
 
                     # Правый верхний HUD (TPS, разовая доза, суммарная доза)
-                    if self.show_isodoses_globally and self.dose_data and self.plan_data:
+                    if (self.show_beams or self.show_isodoses_globally) and self.plan_data:
                         tps = self.plan_data.get("tps_name", "")
                         dose_fx = self.plan_data.get("dose_per_fraction", 0.0)
                         total_rx = self.plan_data.get("rx_dose", 0.0)
-                        units = self.dose_data.get("dose_units", "Gy")
+                        units = self.dose_data.get("dose_units", "Gy") if self.dose_data else "Gy"
 
                         lines_hud = []
                         if tps:
@@ -2389,6 +2511,14 @@ class DicomViewerPanel(QWidget):
         self.img_osd = QIcon(get_resource_path("themes/eye.png"))
         self.img_close = QIcon(get_resource_path("themes/close.png"))
 
+        # Кнопка отображения пучков на срезах КТ
+        self.btn_beams = QPushButton(tr_ui("viewer_beams_btn"), self)
+        self.btn_beams.setFixedSize(50, 28)
+        self.btn_beams.setToolTip(tr_ui("viewer_beams_tooltip"))
+        self.btn_beams.setEnabled(False)
+        self.btn_beams.clicked.connect(self.toggle_beams)
+        top_layout.addWidget(self.btn_beams)
+
         # Кнопка "Вид из пучка" (BEV)
         self.btn_bev = QPushButton(tr_ui("viewer_bev_btn"), self)
         self.btn_bev.setFixedSize(36, 28)
@@ -2623,6 +2753,11 @@ class DicomViewerPanel(QWidget):
         self.cb_dose_gradient.setChecked(True)
         self.cb_dose_gradient.stateChanged.connect(self.on_dose_gradient_changed)
         dose_layout.addWidget(self.cb_dose_gradient)
+
+        self.cb_show_beams = ToggleSwitch(tr_ui("viewer_show_beams"), page_isodoses)
+        self.cb_show_beams.setChecked(True)
+        self.cb_show_beams.stateChanged.connect(self.on_show_beams_changed)
+        dose_layout.addWidget(self.cb_show_beams)
 
         self.lbl_dose_info = QLabel(page_isodoses)
         self.lbl_dose_info.setStyleSheet("color: #9CA3AF; font-size: 10px; font-weight: bold; padding: 0px 2px; border: none;")
@@ -2910,9 +3045,14 @@ class DicomViewerPanel(QWidget):
             self.cb_show_isodoses.setText(tr_ui("viewer_show_isodoses"))
         if hasattr(self, "cb_dose_gradient"):
             self.cb_dose_gradient.setText(tr_ui("viewer_show_dose_gradient"))
+        if hasattr(self, "cb_show_beams"):
+            self.cb_show_beams.setText(tr_ui("viewer_show_beams"))
 
         if hasattr(self, "btn_dose_point"):
             self.btn_dose_point.setToolTip(tr_ui("viewer_point_dose"))
+        if hasattr(self, "btn_beams"):
+            self.btn_beams.setText(tr_ui("viewer_beams_btn"))
+            self.btn_beams.setToolTip(tr_ui("viewer_beams_tooltip"))
         if hasattr(self, "btn_bev"):
             self.btn_bev.setText(tr_ui("viewer_bev_btn"))
             self.btn_bev.setToolTip(tr_ui("viewer_bev_tooltip"))
@@ -3188,6 +3328,35 @@ class DicomViewerPanel(QWidget):
             QPushButton:disabled {{ background-color: #1a1a1a; border: 1px solid #333333; color: #555555; }}
         """
 
+        style_beams_active = f"""
+            QPushButton {{
+                background-color: {accent_color};
+                border: 1px solid {accent_dark};
+                color: #FFFFFF;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 0px 4px;
+                min-width: 48px; max-width: 55px; min-height: 28px; max-height: 28px;
+                font-size: 11px;
+            }}
+        """
+        style_beams_inactive = f"""
+            QPushButton {{
+                background-color: {btn_bg};
+                border: 1px solid {btn_border};
+                color: #FFFFFF;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 0px 4px;
+                min-width: 48px; max-width: 55px; min-height: 28px; max-height: 28px;
+                font-size: 11px;
+            }}
+            QPushButton:hover {{ background-color: {btn_hover}; }}
+            QPushButton:disabled {{ background-color: #1a1a1a; border: 1px solid #333333; color: #555555; }}
+        """
+
+        if hasattr(self, "btn_beams"):
+            self.btn_beams.setStyleSheet(style_beams_active if self.viewer.show_beams else style_beams_inactive)
         if hasattr(self, "btn_bev"):
             self.btn_bev.setStyleSheet(style_bev_active if self.viewer.bev_active else style_bev_inactive)
         if hasattr(self, "btn_dose_point"):
@@ -3196,6 +3365,20 @@ class DicomViewerPanel(QWidget):
         self.btn_hu.setStyleSheet(style_hu_active if self.viewer.hu_active else style_hu_inactive)
         self.btn_osd.setStyleSheet(style_osd_active if self.viewer.osd_visible else style_osd_inactive)
         self.btn_close.setStyleSheet(style_close)
+
+    def toggle_beams(self) -> None:
+        val = not self.viewer.show_beams
+        self.viewer.set_show_beams(val)
+        if hasattr(self, "cb_show_beams"):
+            self.cb_show_beams.blockSignals(True)
+            self.cb_show_beams.setChecked(val)
+            self.cb_show_beams.blockSignals(False)
+        self.update_buttons_style()
+
+    def on_show_beams_changed(self, state: int) -> None:
+        val = (state == 2)
+        self.viewer.set_show_beams(val)
+        self.update_buttons_style()
 
     def _on_cb_beam_changed(self, index: int) -> None:
         if index >= 0 and self.viewer.bev_active:
@@ -3327,6 +3510,8 @@ class DicomViewerPanel(QWidget):
             self.btn_dose_point.setEnabled(False)
         if hasattr(self, "btn_bev"):
             self.btn_bev.setEnabled(False)
+        if hasattr(self, "btn_beams"):
+            self.btn_beams.setEnabled(False)
         self.current_index = -1
         self.is_loading = False
         gc.collect()
@@ -3459,9 +3644,11 @@ class DicomViewerPanel(QWidget):
 
         parsed_plan = result.get("parsed_plan", {})
         self.viewer.set_plan_data(parsed_plan)
+        has_beams = bool(parsed_plan and parsed_plan.get("beams"))
         if hasattr(self, "btn_bev"):
-            has_beams = bool(parsed_plan and parsed_plan.get("beams"))
             self.btn_bev.setEnabled(has_beams)
+        if hasattr(self, "btn_beams"):
+            self.btn_beams.setEnabled(has_beams)
 
         if not self.sorted_files:
             self.lbl_info.setText("Серия не содержит корректных DICOM файлов.")
