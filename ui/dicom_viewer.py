@@ -1765,7 +1765,7 @@ class DicomViewerWidget(QWidget):
                 painter.drawLine(QPointF(cx - 3, py), QPointF(cx + 3, py))
 
         # 4. Аналитическое преобразование коллиматора по IEC 61217 в систему координат BEV:
-        c_rad = math.radians(-c_angle)
+        c_rad = math.radians(c_angle)
         cos_c, sin_c = math.cos(c_rad), math.sin(c_rad)
 
         def coll_to_canvas(xc, yc):
@@ -1776,7 +1776,7 @@ class DicomViewerWidget(QWidget):
         jx1, jx2 = jaws.get("x", [-100.0, 100.0])
         jy1, jy2 = jaws.get("y", [-100.0, 100.0])
 
-        # 4.1. Лепестки MLC и затенение неактивных областей
+        # 4.1. Лепестки MLC и активная апертура
         if mlc and len(mlc) >= 2:
             num_pairs = len(mlc) // 2
             if not leaf_bounds or len(leaf_bounds) != num_pairs + 1:
@@ -1784,61 +1784,51 @@ class DicomViewerWidget(QWidget):
                 step = total_span / num_pairs
                 leaf_bounds = [-200.0 + i * step for i in range(num_pairs + 1)]
 
-            # Мягкое экранирующее затенение закрытых областей внутри шторок
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(QColor(11, 15, 25, 110)))
-            for i in range(num_pairs):
-                y_bot_mm = max(jy1, min(jy2, leaf_bounds[i]))
-                y_top_mm = max(jy1, min(jy2, leaf_bounds[i + 1]))
-                if y_top_mm <= y_bot_mm + 0.1:
-                    continue
-                pos_a = max(jx1, min(jx2, mlc[i]))
-                pos_b = min(jx2, max(jx1, mlc[num_pairs + i]))
-                if pos_a > jx1:
-                    p1 = coll_to_canvas(jx1, y_top_mm)
-                    p2 = coll_to_canvas(pos_a, y_top_mm)
-                    p3 = coll_to_canvas(pos_a, y_bot_mm)
-                    p4 = coll_to_canvas(jx1, y_bot_mm)
-                    painter.drawPolygon(QPolygonF([p1, p2, p3, p4]))
-                if pos_b < jx2:
-                    p1 = coll_to_canvas(pos_b, y_top_mm)
-                    p2 = coll_to_canvas(jx2, y_top_mm)
-                    p3 = coll_to_canvas(jx2, y_bot_mm)
-                    p4 = coll_to_canvas(pos_b, y_bot_mm)
-                    painter.drawPolygon(QPolygonF([p1, p2, p3, p4]))
+            # Находим открытые пары лепестков (апертура > 3 мм)
+            open_pairs = [i for i in range(num_pairs) if mlc[num_pairs + i] > mlc[i] + 3.0]
 
-            # Тонкие направляющие линии лепестков
+            # Тонкие направляющие линии активных лепестков
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setPen(QPen(QColor(234, 179, 8, 40), 1))
-            for i in range(num_pairs + 1):
-                y_mm = leaf_bounds[i]
-                if y_mm >= jy1 - 0.1 and y_mm <= jy2 + 0.1:
-                    painter.drawLine(coll_to_canvas(jx1, y_mm), coll_to_canvas(jx2, y_mm))
+            for i in open_pairs:
+                y_c = leaf_bounds[i]
+                painter.drawLine(coll_to_canvas(mlc[i], y_c), coll_to_canvas(mlc[num_pairs + i], y_c))
 
-            # Ступенчатый золотой контур активной апертуры поля MLC
+            # Ступенчатый золотой замкнутый контур активной апертуры поля MLC
             painter.setPen(QPen(QColor("#F59E0B"), 2.2))
-            for i in range(num_pairs):
-                y_bot_mm = max(jy1, min(jy2, leaf_bounds[i]))
-                y_top_mm = max(jy1, min(jy2, leaf_bounds[i + 1]))
-                if y_top_mm <= y_bot_mm + 0.1:
-                    continue
-                pos_a = max(jx1, min(jx2, mlc[i]))
-                pos_b = min(jx2, max(jx1, mlc[num_pairs + i]))
-                if pos_b > pos_a:
-                    p_a1 = coll_to_canvas(pos_a, y_top_mm)
-                    p_a2 = coll_to_canvas(pos_a, y_bot_mm)
-                    p_b1 = coll_to_canvas(pos_b, y_top_mm)
-                    p_b2 = coll_to_canvas(pos_b, y_bot_mm)
-                    painter.drawLine(p_a1, p_a2)
-                    painter.drawLine(p_b1, p_b2)
-                    if i < num_pairs - 1:
-                        next_y_bot = max(jy1, min(jy2, leaf_bounds[i + 1]))
-                        next_y_top = max(jy1, min(jy2, leaf_bounds[i + 2]))
-                        if next_y_top > next_y_bot + 0.1:
-                            next_a = max(jx1, min(jx2, mlc[i + 1]))
-                            next_b = min(jx2, max(jx1, mlc[num_pairs + i + 1]))
-                            painter.drawLine(p_a1, coll_to_canvas(next_a, y_top_mm))
-                            painter.drawLine(p_b1, coll_to_canvas(next_b, y_top_mm))
+            if open_pairs:
+                poly_pts = []
+                for idx_k, i in enumerate(open_pairs):
+                    y_bot = leaf_bounds[i]
+                    y_top = leaf_bounds[i + 1]
+                    pos_a = mlc[i]
+                    if idx_k == 0:
+                        poly_pts.append(coll_to_canvas(pos_a, y_bot))
+                    else:
+                        prev_i = open_pairs[idx_k - 1]
+                        if prev_i == i - 1:
+                            prev_a = mlc[prev_i]
+                            if abs(pos_a - prev_a) > 0.1:
+                                poly_pts.append(coll_to_canvas(pos_a, y_bot))
+                    poly_pts.append(coll_to_canvas(pos_a, y_top))
+
+                for idx_k in range(len(open_pairs) - 1, -1, -1):
+                    i = open_pairs[idx_k]
+                    y_bot = leaf_bounds[i]
+                    y_top = leaf_bounds[i + 1]
+                    pos_b = mlc[num_pairs + i]
+                    if idx_k == len(open_pairs) - 1:
+                        poly_pts.append(coll_to_canvas(pos_b, y_top))
+                    else:
+                        next_i = open_pairs[idx_k + 1]
+                        if next_i == i + 1:
+                            next_b = mlc[num_pairs + next_i]
+                            if abs(pos_b - next_b) > 0.1:
+                                poly_pts.append(coll_to_canvas(pos_b, y_top))
+                    poly_pts.append(coll_to_canvas(pos_b, y_bot))
+
+                poly_pts.append(poly_pts[0])
+                painter.drawPolyline(QPolygonF(poly_pts))
 
         # 4.2. Пунктирная граница шторок Jaws
         painter.setBrush(Qt.BrushStyle.NoBrush)
