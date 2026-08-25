@@ -157,6 +157,8 @@ class TaskProgressDelegate(QStyledItemDelegate):
             color_map = {
                 'archive': (QColor(40, 30, 15, 200), QColor(80, 50, 20, 200)),
                 'delete': (QColor(50, 15, 15, 200), QColor(90, 25, 25, 200)),
+                'delete_images': (QColor(50, 15, 15, 200), QColor(90, 25, 25, 200)),
+                'delete_archive': (QColor(50, 15, 15, 200), QColor(90, 25, 25, 200)),
                 'restore': (QColor(15, 40, 50, 200), QColor(25, 70, 90, 200)),
                 'clean_str': (QColor(35, 15, 50, 200), QColor(60, 25, 90, 200))
             }

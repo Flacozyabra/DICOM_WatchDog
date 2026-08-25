@@ -203,10 +203,15 @@ class MainWindow(QMainWindow):
             self.update_archive_table_ui()
             self.update_tab_badges()
 
-        elif op_type == 'delete':
+        elif op_type in ('delete', 'delete_images'):
             log_message(self.output_field, tr_log("log_patient_deleted", result))
             if self.images_cache and patient_id in self.images_cache:
                 self.images_cache.pop(patient_id, None)
+            self.update_images_table_ui()
+            self.update_tab_badges()
+
+        elif op_type == 'delete_archive':
+            log_message(self.output_field, tr_log("log_patient_deleted", result))
             if self.archive_cache is not None and patient_id in self.archive_cache:
                 self.archive_cache.pop(patient_id, None)
                 try:
@@ -214,7 +219,6 @@ class MainWindow(QMainWindow):
                     save_cache(self.archive_cache)
                 except Exception:
                     pass
-            self.update_images_table_ui()
             self.update_archive_table_ui()
             self.update_tab_badges()
 
@@ -223,15 +227,7 @@ class MainWindow(QMainWindow):
             log_message(self.output_field, tr_log("log_cleaned_str_files", deleted, folder_desc))
             if self.images_cache and patient_id in self.images_cache:
                 self.images_cache[patient_id]['str'] = False
-            if self.archive_cache and patient_id in self.archive_cache:
-                self.archive_cache[patient_id]['str'] = False
-                try:
-                    from core.archive import save_cache
-                    save_cache(self.archive_cache)
-                except Exception:
-                    pass
             self.update_images_table_ui()
-            self.update_archive_table_ui()
 
         elif op_type == 'restore':
             log_message(self.output_field, tr_log("log_patient_restored_from_archive", result))
@@ -267,13 +263,13 @@ class MainWindow(QMainWindow):
         _err = QMessageBox(self)
         _err.setIcon(QMessageBox.Icon.Critical)
         _err.setWindowTitle(err_title)
-        _err.setText(tr_ui("dlg_error_archive_msg", err_msg) if op_type == 'archive' else tr_ui("dlg_error_delete_msg", err_msg))
+        _err.setText(tr_ui("dlg_error_archive_msg", err_msg) if op_type in ('archive', 'delete_archive') else tr_ui("dlg_error_delete_msg", err_msg))
         apply_dark_title_bar(_err)
         _err.exec()
         
         if op_type == 'archive':
             log_message(self.output_field, tr_log("log_failed_archive_patient", patient_id, err_msg))
-        elif op_type == 'delete':
+        elif op_type in ('delete', 'delete_images', 'delete_archive'):
             log_message(self.output_field, tr_log("log_failed_delete_patient", patient_id, err_msg))
         elif op_type == 'restore':
             log_message(self.output_field, tr_log("log_failed_restore_patient", patient_id, err_msg))

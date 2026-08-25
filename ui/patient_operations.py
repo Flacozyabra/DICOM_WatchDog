@@ -41,14 +41,14 @@ class PatientOperationsManager:
         reply = _dlg.exec()
         
         if reply == QMessageBox.StandardButton.Yes:
-            self.mw.active_file_operations[patient_id] = {'op': 'delete'}
+            self.mw.active_file_operations[patient_id] = {'op': 'delete_images'}
             self.mw.images_table.viewport().update()
             
             def run_delete():
                 shutil.rmtree(path, ignore_errors=True)
                 return self.mw.get_folder_desc(patient_id, patient_name)
                 
-            worker = BackgroundFileWorker(patient_id, 'delete', run_delete)
+            worker = BackgroundFileWorker(patient_id, 'delete_images', run_delete)
             worker.finished.connect(self.mw.on_background_action_finished)
             worker.error.connect(self.mw.on_background_action_error)
             op_key = f"worker_{patient_id}"
@@ -135,14 +135,14 @@ class PatientOperationsManager:
         reply = _dlg.exec()
         
         if reply == QMessageBox.StandardButton.Yes:
-            self.mw.active_file_operations[patient_id] = {'op': 'delete'}
+            self.mw.active_file_operations[patient_id] = {'op': 'delete_archive'}
             self.mw.archive_table.viewport().update()
             
             def run_delete():
                 shutil.rmtree(path, ignore_errors=True)
                 return self.mw.get_folder_desc(patient_id, patient_name)
                 
-            worker = BackgroundFileWorker(patient_id, 'delete', run_delete)
+            worker = BackgroundFileWorker(patient_id, 'delete_archive', run_delete)
             worker.finished.connect(self.mw.on_background_action_finished)
             worker.error.connect(self.mw.on_background_action_error)
             op_key = f"worker_{patient_id}"
