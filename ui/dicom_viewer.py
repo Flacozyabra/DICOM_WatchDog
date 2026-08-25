@@ -1562,7 +1562,7 @@ class DicomViewerWidget(QWidget):
         painter.setBrush(QBrush(QColor("#0F172A")))
         painter.drawEllipse(QPointF(cx, cy), r_field, r_field)
 
-        # 2. Сетка коллиматора
+        # 2. Сетка коллиматора (неподвижная система отсчета гентри)
         painter.setPen(QPen(QColor("#334155"), 1, Qt.PenStyle.DashLine))
         for r_cm in [5, 10, 15, 20]:
             r_px = r_cm * 10.0 * scale
@@ -1573,18 +1573,25 @@ class DicomViewerWidget(QWidget):
         painter.drawLine(QPointF(cx - r_field, cy), QPointF(cx + r_field, cy))
         painter.drawLine(QPointF(cx, cy - r_field), QPointF(cx, cy + r_field))
 
-        # 3. Шторки (Jaws) и апертура
+        # 3. Поворот системы координат коллиматора на угол c_angle
+        painter.save()
+        painter.translate(cx, cy)
+        painter.rotate(c_angle)
+        painter.translate(-cx, -cy)
+
+        # 4. Шторки (Jaws) и апертура
         jx1, jx2 = jaws.get("x", [-100.0, 100.0])
         jy1, jy2 = jaws.get("y", [-100.0, 100.0])
         p_tl = mm_to_canvas(jx1, jy2)
         p_br = mm_to_canvas(jx2, jy1)
         jaws_rect = QRectF(p_tl, p_br).normalized()
 
+        # Подсветка апертуры шторок
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(QColor(59, 130, 246, 50)))
+        painter.setBrush(QBrush(QColor(59, 130, 246, 40)))
         painter.drawRect(jaws_rect)
 
-        # 4. Лепестки MLC
+        # 5. Лепестки MLC
         if mlc and len(mlc) >= 2:
             num_pairs = len(mlc) // 2
             if not leaf_bounds or len(leaf_bounds) != num_pairs + 1:
@@ -1610,18 +1617,38 @@ class DicomViewerWidget(QWidget):
                 p2_b = mm_to_canvas(200.0, y_bot_mm)
                 painter.drawRect(QRectF(p1_b, p2_b).normalized())
 
-        # 5. Граница шторок (Jaws)
+        # 6. Маскирование шторками Jaws (экранирование области за пределами шторок)
+        jaw_mask_color = QColor(11, 15, 25, 235)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(jaw_mask_color))
+        if jx1 > -200.0:
+            painter.drawRect(QRectF(mm_to_canvas(-200.0, 200.0), mm_to_canvas(jx1, -200.0)).normalized())
+        if jx2 < 200.0:
+            painter.drawRect(QRectF(mm_to_canvas(jx2, 200.0), mm_to_canvas(200.0, -200.0)).normalized())
+        if jy1 > -200.0:
+            painter.drawRect(QRectF(mm_to_canvas(-200.0, jy1), mm_to_canvas(200.0, -200.0)).normalized())
+        if jy2 < 200.0:
+            painter.drawRect(QRectF(mm_to_canvas(-200.0, 200.0), mm_to_canvas(200.0, jy2)).normalized())
+
+        # 7. Граница шторок (Jaws)
         painter.setPen(QPen(QColor("#38BDF8"), 2))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(jaws_rect)
 
-        # 6. Центральный перекрест
+        # Оси координат коллиматора
+        painter.setPen(QPen(QColor(56, 189, 248, 70), 1, Qt.PenStyle.DotLine))
+        painter.drawLine(QPointF(cx - 25, cy), QPointF(cx + 25, cy))
+        painter.drawLine(QPointF(cx, cy - 25), QPointF(cx, cy + 25))
+
+        painter.restore()
+
+        # 8. Центральный перекрест
         painter.setPen(QPen(QColor("#EF4444"), 2))
         painter.drawLine(QPointF(cx - 15, cy), QPointF(cx + 15, cy))
         painter.drawLine(QPointF(cx, cy - 15), QPointF(cx, cy + 15))
         painter.drawEllipse(QPointF(cx, cy), 3, 3)
 
-        # 7. Направления осей
+        # 9. Направления осей (неподвижная система отсчета пациента)
         painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
         painter.setPen(QColor("#94A3B8"))
         painter.drawText(int(cx + 6), int(cy - r_field + 16), "GUN / TOP (Y+)")
@@ -1957,8 +1984,30 @@ class DicomViewerWidget(QWidget):
                         dp_y = iso_y - ipp_y
                         dp_z = iso_z - ipp_z
 
+                        c_angle = beam.get("collimator_angle", 0.0)
+                        jaws_x = beam.get("jaws", {}).get("x", [-50.0, 50.0])
                         jaws_y = beam.get("jaws", {}).get("y", [-100.0, 100.0])
-                        max_z_dist = max(35.0, abs(jaws_y[0]), abs(jaws_y[1]))
+                        jx1_mm = float(jaws_x[0]) if len(jaws_x) >= 2 else -50.0
+                        jx2_mm = float(jaws_x[1]) if len(jaws_x) >= 2 else 50.0
+                        jy1_mm = float(jaws_y[0]) if len(jaws_y) >= 2 else -100.0
+                        jy2_mm = float(jaws_y[1]) if len(jaws_y) >= 2 else 100.0
+
+                        # Преобразование координат шторок с учетом поворота коллиматора c_angle
+                        c_rad = math.radians(c_angle)
+                        cos_c = math.cos(c_rad)
+                        sin_c = math.sin(c_rad)
+
+                        corners_xc = [jx1_mm, jx1_mm, jx2_mm, jx2_mm]
+                        corners_yc = [jy1_mm, jy2_mm, jy1_mm, jy2_mm]
+                        corners_xg = [xc * cos_c - yc * sin_c for xc, yc in zip(corners_xc, corners_yc)]
+                        corners_yg = [xc * sin_c + yc * cos_c for xc, yc in zip(corners_xc, corners_yc)]
+
+                        w1_mm = min(corners_xg)
+                        w2_mm = max(corners_xg)
+                        z1_mm = min(corners_yg)
+                        z2_mm = max(corners_yg)
+
+                        max_z_dist = max(35.0, abs(z1_mm), abs(z2_mm))
 
                         # Проверяем попадание текущего среза в продольный охват пучка
                         if abs(dp_z) <= max_z_dist:
@@ -1982,11 +2031,6 @@ class DicomViewerWidget(QWidget):
                                 wedge_info = f" ▲ {w_id} ({w_ang}°)"
 
                             is_exact_iso_slice = (abs(dp_z) <= thickness / 2.0 + 0.5)
-
-                            # Границы шторок коллиматора X (ширина поля в мм на уровне изоцентра)
-                            jaws_x = beam.get("jaws", {}).get("x", [-50.0, 50.0])
-                            jx1_mm = float(jaws_x[0]) if len(jaws_x) >= 2 else -50.0
-                            jx2_mm = float(jaws_x[1]) if len(jaws_x) >= 2 else 50.0
 
                             # 1. Если это динамическая ротационная дуга (VMAT / Arc) с вращением гантри
                             if is_dynamic and abs(g_start - g_stop) > 0.5:
@@ -2100,14 +2144,14 @@ class DicomViewerWidget(QWidget):
                                 perp_x = -sy
                                 perp_y = sx
 
-                                # Пересчет ширины шторок в пиксели экрана
+                                # Пересчет ширины шторок в пиксели экрана с учетом поворота коллиматора
                                 scale_px_mm = scale_x / dx
-                                jx1_px = jx1_mm * scale_px_mm
-                                jx2_px = jx2_mm * scale_px_mm
+                                w1_px = w1_mm * scale_px_mm
+                                w2_px = w2_mm * scale_px_mm
 
                                 # Точки шторок на уровне изоцентра
-                                p_iso_left = QPointF(wx_iso + perp_x * jx1_px, wy_iso + perp_y * jx1_px)
-                                p_iso_right = QPointF(wx_iso + perp_x * jx2_px, wy_iso + perp_y * jx2_px)
+                                p_iso_left = QPointF(wx_iso + perp_x * w1_px, wy_iso + perp_y * w1_px)
+                                p_iso_right = QPointF(wx_iso + perp_x * w2_px, wy_iso + perp_y * w2_px)
 
                                 # Расходящиеся лучи через шторки сквозь пациента
                                 v1 = p_iso_left - QPointF(wx_src, wy_src)
@@ -2146,7 +2190,7 @@ class DicomViewerWidget(QWidget):
                                 painter.drawPolygon(QPolygonF([p_head, p_a1, p_a2]))
 
                                 # 2.5 Бейдж с номером, углом, шириной поля и клином
-                                width_cm = abs(jx2_mm - jx1_mm) / 10.0
+                                width_cm = abs(w2_mm - w1_mm) / 10.0
                                 width_info = f" [{width_cm:.1f} см]" if width_cm > 0.1 else ""
                                 badge_beam_text = f"[{b_num}] {g_angle:.1f}°{width_info}{wedge_info}"
                                 painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
