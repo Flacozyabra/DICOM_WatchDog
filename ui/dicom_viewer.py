@@ -1779,7 +1779,14 @@ class DicomViewerWidget(QWidget):
         # 4.1. Лепестки MLC и активная апертура
         if mlc and len(mlc) >= 2:
             num_pairs = len(mlc) // 2
-            if not leaf_bounds or len(leaf_bounds) != num_pairs + 1:
+            mach = str(beam.get("machine_name", "")).upper()
+            if num_pairs == 40 and ("TERABALT" in mach or not leaf_bounds or (leaf_bounds and abs(leaf_bounds[1] - leaf_bounds[0] - 11.0) < 1.5)):
+                leaf_bounds = (
+                    [-150.0 + i * 10.0 for i in range(10)] +
+                    [-50.0 + i * 5.0 for i in range(20)] +
+                    [50.0 + i * 10.0 for i in range(11)]
+                )
+            elif not leaf_bounds or len(leaf_bounds) != num_pairs + 1:
                 total_span = 400.0
                 step = total_span / num_pairs
                 leaf_bounds = [-200.0 + i * step for i in range(num_pairs + 1)]
