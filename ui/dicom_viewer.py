@@ -1131,6 +1131,7 @@ class DicomViewerWidget(QWidget):
         self.plan_data = plan_data or {}
         self.bev_selected_beam_idx = 0
         self.bev_control_point_idx = 0
+        self.drr_cache.clear()
         self.update()
 
     def rebuild_contour_index(self) -> None:
@@ -3941,6 +3942,10 @@ class DicomViewerPanel(QWidget):
         self.viewer.show_isodoses_globally = self.cb_show_isodoses.isChecked()
         self.viewer.show_dose_gradient = self.cb_dose_gradient.isChecked()
 
+        self.viewer.drr_cache.clear()
+        self.viewer.ct_volume = None
+        self.viewer.ct_ipp0 = None
+        self.viewer.ct_spacing = None
         self.viewer.sorted_files = self.sorted_files
         parsed_plan = result.get("parsed_plan", {})
         self.viewer.set_plan_data(parsed_plan)
