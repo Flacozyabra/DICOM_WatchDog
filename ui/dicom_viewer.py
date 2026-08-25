@@ -1765,7 +1765,7 @@ class DicomViewerWidget(QWidget):
                 painter.drawLine(QPointF(cx - 3, py), QPointF(cx + 3, py))
 
         # 4. Аналитическое преобразование коллиматора по IEC 61217 в систему координат BEV:
-        c_rad = math.radians(c_angle)
+        c_rad = math.radians(-c_angle)
         cos_c, sin_c = math.cos(c_rad), math.sin(c_rad)
 
         def coll_to_canvas(xc, yc):
@@ -1788,14 +1788,9 @@ class DicomViewerWidget(QWidget):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(QColor(11, 15, 25, 110)))
             for i in range(num_pairs):
-                y_top_mm = leaf_bounds[i + 1]
-                y_bot_mm = leaf_bounds[i]
-                if y_bot_mm >= jy2 or y_top_mm <= jy1:
-                    p1 = coll_to_canvas(jx1, y_top_mm)
-                    p2 = coll_to_canvas(jx2, y_top_mm)
-                    p3 = coll_to_canvas(jx2, y_bot_mm)
-                    p4 = coll_to_canvas(jx1, y_bot_mm)
-                    painter.drawPolygon(QPolygonF([p1, p2, p3, p4]))
+                y_bot_mm = max(jy1, min(jy2, leaf_bounds[i]))
+                y_top_mm = max(jy1, min(jy2, leaf_bounds[i + 1]))
+                if y_top_mm <= y_bot_mm + 0.1:
                     continue
                 pos_a = max(jx1, min(jx2, mlc[i]))
                 pos_b = min(jx2, max(jx1, mlc[num_pairs + i]))
@@ -1817,15 +1812,15 @@ class DicomViewerWidget(QWidget):
             painter.setPen(QPen(QColor(234, 179, 8, 40), 1))
             for i in range(num_pairs + 1):
                 y_mm = leaf_bounds[i]
-                if y_mm >= jy1 and y_mm <= jy2:
+                if y_mm >= jy1 - 0.1 and y_mm <= jy2 + 0.1:
                     painter.drawLine(coll_to_canvas(jx1, y_mm), coll_to_canvas(jx2, y_mm))
 
             # Ступенчатый золотой контур активной апертуры поля MLC
             painter.setPen(QPen(QColor("#F59E0B"), 2.2))
             for i in range(num_pairs):
-                y_top_mm = leaf_bounds[i + 1]
-                y_bot_mm = leaf_bounds[i]
-                if y_bot_mm >= jy2 or y_top_mm <= jy1:
+                y_bot_mm = max(jy1, min(jy2, leaf_bounds[i]))
+                y_top_mm = max(jy1, min(jy2, leaf_bounds[i + 1]))
+                if y_top_mm <= y_bot_mm + 0.1:
                     continue
                 pos_a = max(jx1, min(jx2, mlc[i]))
                 pos_b = min(jx2, max(jx1, mlc[num_pairs + i]))
@@ -1837,10 +1832,13 @@ class DicomViewerWidget(QWidget):
                     painter.drawLine(p_a1, p_a2)
                     painter.drawLine(p_b1, p_b2)
                     if i < num_pairs - 1:
-                        next_a = max(jx1, min(jx2, mlc[i + 1]))
-                        next_b = min(jx2, max(jx1, mlc[num_pairs + i + 1]))
-                        painter.drawLine(p_a1, coll_to_canvas(next_a, y_top_mm))
-                        painter.drawLine(p_b1, coll_to_canvas(next_b, y_top_mm))
+                        next_y_bot = max(jy1, min(jy2, leaf_bounds[i + 1]))
+                        next_y_top = max(jy1, min(jy2, leaf_bounds[i + 2]))
+                        if next_y_top > next_y_bot + 0.1:
+                            next_a = max(jx1, min(jx2, mlc[i + 1]))
+                            next_b = min(jx2, max(jx1, mlc[num_pairs + i + 1]))
+                            painter.drawLine(p_a1, coll_to_canvas(next_a, y_top_mm))
+                            painter.drawLine(p_b1, coll_to_canvas(next_b, y_top_mm))
 
         # 4.2. Пунктирная граница шторок Jaws
         painter.setBrush(Qt.BrushStyle.NoBrush)
