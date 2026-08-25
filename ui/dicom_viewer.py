@@ -6,6 +6,7 @@ import os
 import re
 import numpy as np
 import pydicom
+from concurrent.futures import ThreadPoolExecutor
 
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QRect, QRectF, QPointF, QThread
 from PyQt6.QtWidgets import (
@@ -899,6 +900,9 @@ class DRRPrecomputeWorker(QThread):
             dy, dx, dz = spacing
             n_z, rows, cols = vol.shape
 
+            # Предварительно срезаем воздух (< -500 HU)
+            vol_pre = np.maximum(0.0, vol + 500.0)
+
             # 2. Формируем список уникальных проекций для расчета
             items = []
             seen_keys = set(self.existing_cache_keys)
@@ -914,35 +918,38 @@ class DRRPrecomputeWorker(QThread):
                             seen_keys.add(ck)
                             items.append((g_angle, iso, sad, ck))
                 else:
+                    # Для динамических полей с множеством точек шагаем с интервалом ~3.0°
+                    step_deg = 3.0 if len(cps) > 30 else 0.5
+                    last_g = None
                     for cp in cps:
                         g_angle = float(cp.get("gantry_angle", b.get("gantry_angle", 0.0)))
                         iso = cp.get("isocenter", b.get("isocenter"))
-                        if iso and len(iso) >= 3:
-                            ck = (round(g_angle, 1), round(iso[0], 2), round(iso[1], 2), round(iso[2], 2), round(sad, 1))
-                            if ck not in seen_keys:
-                                seen_keys.add(ck)
-                                items.append((g_angle, iso, sad, ck))
+                        if not iso or len(iso) < 3:
+                            continue
+                        if last_g is not None and abs(g_angle - last_g) < (step_deg - 0.1):
+                            continue
+                        ck = (round(g_angle, 1), round(iso[0], 2), round(iso[1], 2), round(iso[2], 2), round(sad, 1))
+                        if ck not in seen_keys:
+                            seen_keys.add(ck)
+                            items.append((g_angle, iso, sad, ck))
+                            last_g = g_angle
 
             total = len(items)
             if total == 0:
                 self.finished_signal.emit(False)
                 return
 
-            # 3. Предвыделенная сетка DRR (256x256, FOV 400 мм)
+            # 3. Предвыделенная сетка DRR (160x160, FOV 400 мм)
             drr_fov = 400.0
-            drr_w, drr_h = 256, 256
+            drr_w, drr_h = 160, 160
             u = np.linspace(-drr_fov / 2.0, drr_fov / 2.0, drr_w, dtype=np.float32)
             v = np.linspace(drr_fov / 2.0, -drr_fov / 2.0, drr_h, dtype=np.float32)
             U, V = np.meshgrid(u, v)
 
-            # 4. Расчет DRR для каждой точки
-            for idx_item, (g_angle, iso, sad, ck) in enumerate(items):
+            def compute_one(entry):
                 if self._is_cancelled:
-                    self.finished_signal.emit(True)
-                    return
-
-                self.progress_signal.emit(idx_item + 1, total, g_angle)
-
+                    return None
+                g_angle, iso, sad, ck = entry
                 g_rad = math.radians(g_angle)
                 sin_g = math.sin(g_rad)
                 cos_g = math.cos(g_rad)
@@ -963,7 +970,7 @@ class DRRPrecomputeWorker(QThread):
                 Dy /= D_len
                 Dz /= D_len
 
-                steps = np.arange(sad - 250.0, sad + 250.0, 4.0, dtype=np.float32)
+                steps = np.arange(sad - 200.0, sad + 200.0, 6.0, dtype=np.float32)
                 drr = np.zeros((drr_h, drr_w), dtype=np.float32)
 
                 for t in steps:
@@ -974,17 +981,29 @@ class DRRPrecomputeWorker(QThread):
                     iy = np.round((Py - ipp0[1]) / dy).astype(np.int32)
                     iz = np.round((Pz - ipp0[2]) / dz).astype(np.int32)
                     valid = (ix >= 0) & (ix < cols) & (iy >= 0) & (iy < rows) & (iz >= 0) & (iz < n_z)
-                    sample_hu = np.zeros_like(drr)
-                    sample_hu[valid] = np.maximum(0.0, vol[iz[valid], iy[valid], ix[valid]] + 500.0)
-                    drr += sample_hu
+                    drr[valid] += vol_pre[iz[valid], iy[valid], ix[valid]]
 
-                drr_norm = (drr - drr.min()) / (drr.max() - drr.min() + 1e-5)
+                d_min = drr.min()
+                d_max = drr.max()
+                drr_norm = (drr - d_min) / (d_max - d_min + 1e-5)
                 drr_u8 = (drr_norm * 255.0).astype(np.uint8)
                 drr_rgba = np.stack([drr_u8, drr_u8, drr_u8, np.full_like(drr_u8, 255)], axis=-1)
 
                 b_raw = drr_rgba.tobytes()
                 q_img = QImage(b_raw, drr_w, drr_h, drr_w * 4, QImage.Format.Format_RGBA8888).copy()
-                self.item_computed_signal.emit(ck, q_img)
+                return ck, q_img, g_angle
+
+            # 4. Многопоточный расчет на всех ядрах процессора
+            num_workers = min(16, os.cpu_count() or 4)
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                for idx_item, res in enumerate(executor.map(compute_one, items)):
+                    if self._is_cancelled:
+                        self.finished_signal.emit(True)
+                        return
+                    if res is not None:
+                        ck, q_img, g_angle = res
+                        self.progress_signal.emit(idx_item + 1, total, g_angle)
+                        self.item_computed_signal.emit(ck, q_img)
 
             self.finished_signal.emit(False)
 
@@ -1498,6 +1517,19 @@ class DicomViewerWidget(QWidget):
         if cache_key in self.drr_cache:
             return self.drr_cache[cache_key]
 
+        # Ищем ближайший рассчитанный угол в пределах 3.05° (для мгновенного плавного скраббинга VMAT)
+        cur_angle = float(g_angle)
+        best_diff = 3.05
+        best_img = None
+        for ck, img in self.drr_cache.items():
+            if len(ck) >= 4 and ck[1] == cache_key[1] and ck[2] == cache_key[2] and ck[3] == cache_key[3]:
+                diff = abs(ck[0] - cur_angle)
+                if diff < best_diff:
+                    best_diff = diff
+                    best_img = img
+        if best_img is not None:
+            return best_img
+
         if self.ct_volume is None:
             if not self.sorted_files:
                 return None
@@ -1536,10 +1568,11 @@ class DicomViewerWidget(QWidget):
         ipp0 = self.ct_ipp0
         dy, dx, dz = self.ct_spacing
         n_z, rows, cols = vol.shape
+        vol_pre = np.maximum(0.0, vol + 500.0)
 
         try:
             drr_fov = 400.0
-            drr_w, drr_h = 256, 256
+            drr_w, drr_h = 160, 160
             sad = float(sad or 1000.0)
             g_rad = math.radians(g_angle)
             sin_g = math.sin(g_rad)
@@ -1565,7 +1598,7 @@ class DicomViewerWidget(QWidget):
             Dy /= D_len
             Dz /= D_len
 
-            steps = np.arange(sad - 250.0, sad + 250.0, 4.0, dtype=np.float32)
+            steps = np.arange(sad - 200.0, sad + 200.0, 6.0, dtype=np.float32)
             drr = np.zeros((drr_h, drr_w), dtype=np.float32)
 
             for t in steps:
@@ -1576,11 +1609,11 @@ class DicomViewerWidget(QWidget):
                 iy = np.round((Py - ipp0[1]) / dy).astype(np.int32)
                 iz = np.round((Pz - ipp0[2]) / dz).astype(np.int32)
                 valid = (ix >= 0) & (ix < cols) & (iy >= 0) & (iy < rows) & (iz >= 0) & (iz < n_z)
-                sample_hu = np.zeros_like(drr)
-                sample_hu[valid] = np.maximum(0.0, vol[iz[valid], iy[valid], ix[valid]] + 500.0)
-                drr += sample_hu
+                drr[valid] += vol_pre[iz[valid], iy[valid], ix[valid]]
 
-            drr_norm = (drr - drr.min()) / (drr.max() - drr.min() + 1e-5)
+            d_min = drr.min()
+            d_max = drr.max()
+            drr_norm = (drr - d_min) / (d_max - d_min + 1e-5)
             drr_u8 = (drr_norm * 255.0).astype(np.uint8)
             drr_rgba = np.stack([drr_u8, drr_u8, drr_u8, np.full_like(drr_u8, 255)], axis=-1)
 
@@ -4067,14 +4100,20 @@ class DicomViewerPanel(QWidget):
                         needs_calc = True
                         break
             else:
+                step_deg = 3.0 if len(cps) > 30 else 0.5
+                last_g = None
                 for cp in cps:
                     g_angle = float(cp.get("gantry_angle", b.get("gantry_angle", 0.0)))
                     iso = cp.get("isocenter", b.get("isocenter"))
-                    if iso and len(iso) >= 3:
-                        ck = (round(g_angle, 1), round(iso[0], 2), round(iso[1], 2), round(iso[2], 2), round(sad, 1))
-                        if ck not in cached_keys:
-                            needs_calc = True
-                            break
+                    if not iso or len(iso) < 3:
+                        continue
+                    if last_g is not None and abs(g_angle - last_g) < (step_deg - 0.1):
+                        continue
+                    ck = (round(g_angle, 1), round(iso[0], 2), round(iso[1], 2), round(iso[2], 2), round(sad, 1))
+                    if ck not in cached_keys:
+                        needs_calc = True
+                        break
+                    last_g = g_angle
             if needs_calc:
                 break
 
