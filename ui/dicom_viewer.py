@@ -26,12 +26,21 @@ def safe_dcmread(filepath, *args, **kwargs):
     """
     Безопасно считывает DICOM-файл с помощью pydicom.dcmread.
     Поддерживает force=True по умолчанию для корректного чтения файлов без Part 10 преамбулы (Elekta и др.).
+    Гарантирует инициализацию file_meta.TransferSyntaxUID для возможности декодирования pixel_array.
     При возникновении ошибки ValueError с текстом 'already uncompressed'
     пытается исправить TransferSyntaxUID и перечитать файл.
     """
     kwargs.setdefault('force', True)
     try:
-        return pydicom.dcmread(filepath, *args, **kwargs)
+        ds = pydicom.dcmread(filepath, *args, **kwargs)
+        if not hasattr(ds, 'file_meta') or ds.file_meta is None:
+            ds.file_meta = pydicom.dataset.FileMetaDataset()
+        if not hasattr(ds.file_meta, 'TransferSyntaxUID') or not ds.file_meta.TransferSyntaxUID:
+            if getattr(ds, 'is_implicit_VR', True):
+                ds.file_meta.TransferSyntaxUID = pydicom.uid.ImplicitVRLittleEndian
+            else:
+                ds.file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+        return ds
     except ValueError as e:
         if "already uncompressed" in str(e).lower():
             try:
