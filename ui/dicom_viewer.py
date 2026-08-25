@@ -1251,7 +1251,7 @@ class DicomViewerWidget(QWidget):
                 for item in self.sorted_files:
                     f_path = item[0] if isinstance(item, tuple) else item
                     ds = safe_dcmread(f_path)
-                    if hasattr(ds, "ImagePositionPatient") and hasattr(ds, "pixel_array"):
+                    if hasattr(ds, "ImagePositionPatient") and hasattr(ds, "pixel_array") and getattr(ds, "Modality", "CT") == "CT" and ds.pixel_array.ndim == 2:
                         slices_ds.append(ds)
                 if not slices_ds:
                     return None
@@ -1761,17 +1761,17 @@ class DicomViewerWidget(QWidget):
                 painter.drawLine(QPointF(px, cy - 3), QPointF(px, cy + 3))
                 painter.drawLine(QPointF(cx - 3, py), QPointF(cx + 3, py))
 
-        # 4. Поворот системы координат коллиматора на угол c_angle (по часовой стрелке в Qt)
-        painter.save()
-        painter.translate(cx, cy)
-        painter.rotate(c_angle)
-        painter.translate(-cx, -cy)
+        # 4. Аналитическое преобразование коллиматора по IEC 61217 в систему координат BEV:
+        c_rad = math.radians(c_angle)
+        cos_c, sin_c = math.cos(c_rad), math.sin(c_rad)
+
+        def coll_to_canvas(xc, yc):
+            xg = -(xc * cos_c - yc * sin_c)
+            yg = xc * sin_c + yc * cos_c
+            return QPointF(cx + xg * scale, cy - yg * scale)
 
         jx1, jx2 = jaws.get("x", [-100.0, 100.0])
         jy1, jy2 = jaws.get("y", [-100.0, 100.0])
-        p_tl = mm_to_canvas(jx1, jy2)
-        p_br = mm_to_canvas(jx2, jy1)
-        jaws_rect = QRectF(p_tl, p_br).normalized()
 
         # 4.1. Лепестки MLC и затенение неактивных областей
         if mlc and len(mlc) >= 2:
@@ -1788,14 +1788,26 @@ class DicomViewerWidget(QWidget):
                 y_top_mm = leaf_bounds[i + 1]
                 y_bot_mm = leaf_bounds[i]
                 if y_bot_mm >= jy2 or y_top_mm <= jy1:
-                    painter.drawRect(QRectF(mm_to_canvas(jx1, y_top_mm), mm_to_canvas(jx2, y_bot_mm)).normalized())
+                    p1 = coll_to_canvas(jx1, y_top_mm)
+                    p2 = coll_to_canvas(jx2, y_top_mm)
+                    p3 = coll_to_canvas(jx2, y_bot_mm)
+                    p4 = coll_to_canvas(jx1, y_bot_mm)
+                    painter.drawPolygon(QPolygonF([p1, p2, p3, p4]))
                     continue
                 pos_a = max(jx1, min(jx2, mlc[i]))
                 pos_b = min(jx2, max(jx1, mlc[num_pairs + i]))
                 if pos_a > jx1:
-                    painter.drawRect(QRectF(mm_to_canvas(jx1, y_top_mm), mm_to_canvas(pos_a, y_bot_mm)).normalized())
+                    p1 = coll_to_canvas(jx1, y_top_mm)
+                    p2 = coll_to_canvas(pos_a, y_top_mm)
+                    p3 = coll_to_canvas(pos_a, y_bot_mm)
+                    p4 = coll_to_canvas(jx1, y_bot_mm)
+                    painter.drawPolygon(QPolygonF([p1, p2, p3, p4]))
                 if pos_b < jx2:
-                    painter.drawRect(QRectF(mm_to_canvas(pos_b, y_top_mm), mm_to_canvas(jx2, y_bot_mm)).normalized())
+                    p1 = coll_to_canvas(pos_b, y_top_mm)
+                    p2 = coll_to_canvas(jx2, y_top_mm)
+                    p3 = coll_to_canvas(jx2, y_bot_mm)
+                    p4 = coll_to_canvas(pos_b, y_bot_mm)
+                    painter.drawPolygon(QPolygonF([p1, p2, p3, p4]))
 
             # Тонкие направляющие линии лепестков
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -1803,7 +1815,7 @@ class DicomViewerWidget(QWidget):
             for i in range(num_pairs + 1):
                 y_mm = leaf_bounds[i]
                 if y_mm >= jy1 and y_mm <= jy2:
-                    painter.drawLine(mm_to_canvas(jx1, y_mm), mm_to_canvas(jx2, y_mm))
+                    painter.drawLine(coll_to_canvas(jx1, y_mm), coll_to_canvas(jx2, y_mm))
 
             # Ступенчатый золотой контур активной апертуры поля MLC
             painter.setPen(QPen(QColor("#F59E0B"), 2.2))
@@ -1815,24 +1827,26 @@ class DicomViewerWidget(QWidget):
                 pos_a = max(jx1, min(jx2, mlc[i]))
                 pos_b = min(jx2, max(jx1, mlc[num_pairs + i]))
                 if pos_b > pos_a:
-                    p_a1 = mm_to_canvas(pos_a, y_top_mm)
-                    p_a2 = mm_to_canvas(pos_a, y_bot_mm)
-                    p_b1 = mm_to_canvas(pos_b, y_top_mm)
-                    p_b2 = mm_to_canvas(pos_b, y_bot_mm)
+                    p_a1 = coll_to_canvas(pos_a, y_top_mm)
+                    p_a2 = coll_to_canvas(pos_a, y_bot_mm)
+                    p_b1 = coll_to_canvas(pos_b, y_top_mm)
+                    p_b2 = coll_to_canvas(pos_b, y_bot_mm)
                     painter.drawLine(p_a1, p_a2)
                     painter.drawLine(p_b1, p_b2)
                     if i < num_pairs - 1:
                         next_a = max(jx1, min(jx2, mlc[i + 1]))
                         next_b = min(jx2, max(jx1, mlc[num_pairs + i + 1]))
-                        painter.drawLine(p_a1, mm_to_canvas(next_a, y_top_mm))
-                        painter.drawLine(p_b1, mm_to_canvas(next_b, y_top_mm))
+                        painter.drawLine(p_a1, coll_to_canvas(next_a, y_top_mm))
+                        painter.drawLine(p_b1, coll_to_canvas(next_b, y_top_mm))
 
         # 4.2. Пунктирная граница шторок Jaws
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(QColor("#38BDF8"), 1.8, Qt.PenStyle.DashLine))
-        painter.drawRect(jaws_rect)
-
-        painter.restore()
+        p_j1 = coll_to_canvas(jx1, jy1)
+        p_j2 = coll_to_canvas(jx2, jy1)
+        p_j3 = coll_to_canvas(jx2, jy2)
+        p_j4 = coll_to_canvas(jx1, jy2)
+        painter.drawPolygon(QPolygonF([p_j1, p_j2, p_j3, p_j4]))
 
         # 5. Центральный перекрест изоцентра
         painter.setPen(QPen(QColor("#EF4444"), 2))
