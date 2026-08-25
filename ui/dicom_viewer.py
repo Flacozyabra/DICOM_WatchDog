@@ -290,50 +290,103 @@ def load_rtplan(filepath: str) -> dict:
 
                 # Control points (Gantry, Collimator, Jaws, MLC, Isocenter)
                 cps = []
+                cur_gantry = 0.0
+                cur_coll = 0.0
+                cur_couch = 0.0
+                cur_iso = None
+                cur_jaws = {"x": [-100.0, 100.0], "y": [-100.0, 100.0]}
+                cur_mlc = []
+
                 if hasattr(b, "ControlPointSequence"):
                     for cp in b.ControlPointSequence:
                         cp_idx = int(getattr(cp, "ControlPointIndex", len(cps)))
-                        g_angle = float(getattr(cp, "GantryAngle", 0.0) or 0.0)
-                        c_angle = float(getattr(cp, "BeamLimitingDeviceAngle", 0.0) or 0.0)
-                        couch_angle = float(getattr(cp, "PatientSupportAngle", 0.0) or 0.0)
+                        
+                        raw_g = getattr(cp, "GantryAngle", None)
+                        if raw_g is not None:
+                            try:
+                                cur_gantry = float(raw_g)
+                            except (ValueError, TypeError):
+                                pass
+
+                        raw_c = getattr(cp, "BeamLimitingDeviceAngle", None)
+                        if raw_c is not None:
+                            try:
+                                cur_coll = float(raw_c)
+                            except (ValueError, TypeError):
+                                pass
+
+                        raw_couch = getattr(cp, "PatientSupportAngle", None)
+                        if raw_couch is not None:
+                            try:
+                                cur_couch = float(raw_couch)
+                            except (ValueError, TypeError):
+                                pass
+
                         meterset_w = float(getattr(cp, "CumulativeMetersetWeight", 0.0) or 0.0)
                         energy = float(getattr(cp, "NominalBeamEnergy", 0.0) or 0.0)
 
-                        iso = getattr(cp, "IsocenterPosition", None)
-                        iso_coords = [float(x) for x in iso] if (iso and len(iso) >= 3) else None
-
-                        jaws = {"x": [-100.0, 100.0], "y": [-100.0, 100.0]}
-                        mlc_leaves = []
+                        raw_iso = getattr(cp, "IsocenterPosition", None)
+                        if raw_iso is not None and len(raw_iso) >= 3:
+                            try:
+                                cur_iso = [float(x) for x in raw_iso]
+                            except (ValueError, TypeError):
+                                pass
 
                         if hasattr(cp, "BeamLimitingDevicePositionSequence"):
                             for dev in cp.BeamLimitingDevicePositionSequence:
                                 dev_type = getattr(dev, "RTBeamLimitingDeviceType", "")
                                 pos = getattr(dev, "LeafJawPositions", [])
                                 if dev_type in ("ASYMX", "X") and len(pos) >= 2:
-                                    jaws["x"] = [float(pos[0]), float(pos[1])]
+                                    cur_jaws["x"] = [float(pos[0]), float(pos[1])]
                                 elif dev_type in ("ASYMY", "Y") and len(pos) >= 2:
-                                    jaws["y"] = [float(pos[0]), float(pos[1])]
+                                    cur_jaws["y"] = [float(pos[0]), float(pos[1])]
                                 elif "MLC" in dev_type and len(pos) > 0:
-                                    mlc_leaves = [float(p) for p in pos]
+                                    cur_mlc = [float(p) for p in pos]
 
                         cps.append({
                             "index": cp_idx,
-                            "gantry_angle": g_angle,
-                            "collimator_angle": c_angle,
-                            "couch_angle": couch_angle,
+                            "gantry_angle": cur_gantry,
+                            "collimator_angle": cur_coll,
+                            "couch_angle": cur_couch,
                             "meterset_weight": meterset_w,
                             "energy": energy,
-                            "isocenter": iso_coords,
-                            "jaws": jaws,
-                            "mlc_leaves": mlc_leaves,
+                            "isocenter": cur_iso,
+                            "jaws": dict(cur_jaws),
+                            "mlc_leaves": list(cur_mlc),
                             "leaf_boundaries": global_leaf_bounds
                         })
 
                 cp0 = cps[0] if cps else {}
+
+                is_dynamic = False
+                if b_type in ("DYNAMIC", "ROTATIONAL"):
+                    is_dynamic = True
+                elif len(cps) > 2:
+                    is_dynamic = True
+                elif len(cps) == 2:
+                    g0, g1 = cps[0]["gantry_angle"], cps[1]["gantry_angle"]
+                    mlc0, mlc1 = cps[0]["mlc_leaves"], cps[1]["mlc_leaves"]
+                    if abs(g0 - g1) > 0.1 or (mlc0 != mlc1 and mlc0 and mlc1):
+                        is_dynamic = True
+
+                wedge_suffix = ""
+                if wedges:
+                    w_first = wedges[0]
+                    wedge_suffix = f" [▲ {w_first['id']} ({w_first['angle']}°)]"
+
+                gantry_val = cp0.get("gantry_angle", 0.0)
+                clean_name = b_name.strip() if b_name else ""
+                if not clean_name or clean_name == f"Beam {b_num}":
+                    display_name = f"Поле {b_num} ({gantry_val:.1f}°){wedge_suffix}"
+                else:
+                    display_name = f"{clean_name} ({gantry_val:.1f}°){wedge_suffix}"
+
                 beams.append({
                     "number": b_num,
                     "name": b_name,
+                    "display_name": display_name,
                     "type": b_type,
+                    "is_dynamic": is_dynamic,
                     "radiation_type": rad_type,
                     "machine_name": mach_name,
                     "sad": sad,
@@ -967,6 +1020,7 @@ class DicomViewerWidget(QWidget):
     """Виджет для отрисовки DICOM-изображения, линейки и контуров структур RTSTRUCT."""
     slice_scrolled = pyqtSignal(int)
     window_changed = pyqtSignal(float, float)
+    bev_beam_changed = pyqtSignal(int)
 
     def __init__(self, parent: QWidget = None) -> None:
         super().__init__(parent)
@@ -1122,26 +1176,26 @@ class DicomViewerWidget(QWidget):
         if self.bev_active:
             if event.button() == Qt.MouseButton.LeftButton:
                 pos = event.position().toPoint()
+                beams = self.plan_data.get("beams", [])
                 if self.bev_prev_btn_rect and self.bev_prev_btn_rect.contains(pos):
-                    beams = self.plan_data.get("beams", [])
                     if beams:
                         self.bev_selected_beam_idx = (self.bev_selected_beam_idx - 1) % len(beams)
                         self.bev_control_point_idx = 0
+                        self.bev_beam_changed.emit(self.bev_selected_beam_idx)
                         self.update()
                     return
                 elif self.bev_next_btn_rect and self.bev_next_btn_rect.contains(pos):
-                    beams = self.plan_data.get("beams", [])
                     if beams:
                         self.bev_selected_beam_idx = (self.bev_selected_beam_idx + 1) % len(beams)
                         self.bev_control_point_idx = 0
+                        self.bev_beam_changed.emit(self.bev_selected_beam_idx)
                         self.update()
                     return
                 elif self.bev_cp_slider_rect and self.bev_cp_slider_rect.contains(pos):
-                    beams = self.plan_data.get("beams", [])
                     if beams:
                         beam = beams[self.bev_selected_beam_idx]
                         cps = beam.get("control_points", [])
-                        if len(cps) > 1:
+                        if beam.get("is_dynamic", False) and len(cps) > 1:
                             rel_x = max(0.0, min(1.0, (pos.x() - self.bev_cp_slider_rect.x()) / float(self.bev_cp_slider_rect.width())))
                             self.bev_control_point_idx = int(round(rel_x * (len(cps) - 1)))
                             self.update()
@@ -1386,13 +1440,15 @@ class DicomViewerWidget(QWidget):
             beam = beams[self.bev_selected_beam_idx]
             cps = beam.get("control_points", [])
             delta = event.angleDelta().y()
-            if len(cps) > 1:
+            if beam.get("is_dynamic", False) and len(cps) > 1:
                 step = 1 if delta < 0 else -1
                 self.bev_control_point_idx = max(0, min(len(cps) - 1, self.bev_control_point_idx + step))
                 self.update()
             else:
                 step = 1 if delta < 0 else -1
                 self.bev_selected_beam_idx = (self.bev_selected_beam_idx + step) % len(beams)
+                self.bev_control_point_idx = 0
+                self.bev_beam_changed.emit(self.bev_selected_beam_idx)
                 self.update()
             return
 
@@ -1539,31 +1595,42 @@ class DicomViewerWidget(QWidget):
         painter.drawText(int(cx + r_field - 70), int(cy - 6), "LEFT (X+)")
 
         # 8. Заголовок и селектор полей
-        painter.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
-        header_text = f"Beam {idx + 1} / {len(beams)}: {beam.get('name') or f'Field {idx + 1}'}"
+        painter.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        header_text = beam.get("display_name") or f"Поле {idx + 1}"
+        m_head = painter.fontMetrics()
+        txt_w = m_head.horizontalAdvance(header_text)
 
-        btn_w, btn_h = 32, 28
+        btn_w, btn_h = 36, 30
         top_y = 15
+        box_w = max(240, txt_w + 32)
+        total_w = box_w + btn_w * 2 + 16
 
-        rect_prev = QRect(int(cx - 160), top_y, btn_w, btn_h)
-        rect_next = QRect(int(cx + 130), top_y, btn_w, btn_h)
+        rect_prev = QRect(int(cx - total_w / 2), top_y, btn_w, btn_h)
+        rect_title = QRect(int(cx - box_w / 2), top_y, box_w, btn_h)
+        rect_next = QRect(int(cx + total_w / 2 - btn_w), top_y, btn_w, btn_h)
         self.bev_prev_btn_rect = rect_prev
         self.bev_next_btn_rect = rect_next
 
+        # Кнопка «Назад»
         painter.fillRect(rect_prev, QColor("#1E293B"))
-        painter.setPen(QPen(QColor("#3B82F6"), 1))
+        painter.setPen(QPen(QColor("#3B82F6"), 1.5))
         painter.drawRoundedRect(rect_prev, 4, 4)
         painter.setPen(QColor("#FFFFFF"))
         painter.drawText(rect_prev, Qt.AlignmentFlag.AlignCenter, "◀")
 
+        # Плашка названия поля
+        painter.fillRect(rect_title, QColor(15, 23, 42, 220))
+        painter.setPen(QPen(QColor("#334155"), 1.2))
+        painter.drawRoundedRect(rect_title, 4, 4)
+        painter.setPen(QColor("#FFFFFF"))
+        painter.drawText(rect_title, Qt.AlignmentFlag.AlignCenter, header_text)
+
+        # Кнопка «Вперед»
         painter.fillRect(rect_next, QColor("#1E293B"))
-        painter.setPen(QPen(QColor("#3B82F6"), 1))
+        painter.setPen(QPen(QColor("#3B82F6"), 1.5))
         painter.drawRoundedRect(rect_next, 4, 4)
         painter.setPen(QColor("#FFFFFF"))
         painter.drawText(rect_next, Qt.AlignmentFlag.AlignCenter, "▶")
-
-        title_rect = QRect(int(cx - 120), top_y, 240, btn_h)
-        painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter, header_text)
 
         # 9. Информационная плашка поля
         lines_specs = [
@@ -1591,8 +1658,8 @@ class DicomViewerWidget(QWidget):
             painter.drawText(rect_l, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, line)
             y_spec += rect_l.height() + 4
 
-        # 10. Ползунок контрольных точек для VMAT
-        if len(cps) > 1:
+        # 10. Ползунок контрольных точек для VMAT (только для динамических полей)
+        if beam.get("is_dynamic", False) and len(cps) > 1:
             slider_h = 24
             slider_y = h - 45
             slider_w = min(400, w - 80)
@@ -1607,7 +1674,7 @@ class DicomViewerWidget(QWidget):
             handle_rect = QRect(handle_x, slider_y + 2, 20, slider_h - 4)
             painter.fillRect(handle_rect, QColor("#3B82F6"))
 
-            cp_text = f"Control Point {cp_idx + 1} / {len(cps)} (Gantry {g_angle:.1f}°)"
+            cp_text = f"Control Point {cp_idx + 1} / {len(cps)} (Гантри {g_angle:.1f}°)"
             painter.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
             painter.setPen(QColor("#94A3B8"))
             painter.drawText(QRect(slider_x, slider_y - 20, slider_w, 18), Qt.AlignmentFlag.AlignCenter, cp_text)
@@ -2255,6 +2322,32 @@ class DicomViewerPanel(QWidget):
         self.cb_structures.setEnabled(False)
         top_layout.addWidget(self.cb_structures)
 
+        # Выпадающий список выбора полей облучения (для режима BEV)
+        self.cb_beam = QComboBox(self)
+        self.cb_beam.setFixedWidth(240)
+        self.cb_beam.setStyleSheet("""
+            QComboBox {
+                background-color: #2A2A2A;
+                border: 1px solid #3B82F6;
+                border-radius: 4px;
+                color: #FFFFFF;
+                padding: 0px 8px;
+                font-size: 12px;
+                font-weight: bold;
+                min-height: 28px;
+                max-height: 28px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1A1A1A;
+                border: 1px solid #374151;
+                color: #FFFFFF;
+                selection-background-color: #3B82F6;
+            }
+        """)
+        self.cb_beam.currentIndexChanged.connect(self._on_cb_beam_changed)
+        self.cb_beam.hide()
+        top_layout.addWidget(self.cb_beam)
+
         # Выпадающий список пресетов HU
         self.cb_presets = QComboBox(self)
         self.cb_presets.setFixedWidth(160)
@@ -2349,6 +2442,7 @@ class DicomViewerPanel(QWidget):
         self.viewer = DicomViewerWidget(self)
         self.viewer.slice_scrolled.connect(self.on_slice_scrolled)
         self.viewer.window_changed.connect(self.on_window_changed)
+        self.viewer.bev_beam_changed.connect(self._on_bev_beam_changed)
         center_layout.addWidget(self.viewer, stretch=1)
 
         # Создаем и добавляем шкалу HU справа
@@ -2842,6 +2936,8 @@ class DicomViewerPanel(QWidget):
         self.cb_presets.setStyleSheet(style_combo)
         self.cb_dose.setStyleSheet(style_combo)
         self.cb_structures.setStyleSheet(style_combo)
+        if hasattr(self, "cb_beam"):
+            self.cb_beam.setStyleSheet(style_combo)
         
         self.hu_panel.setStyleSheet(f"""
             QFrame {{
@@ -3090,6 +3186,18 @@ class DicomViewerPanel(QWidget):
         self.btn_osd.setStyleSheet(style_osd_active if self.viewer.osd_visible else style_osd_inactive)
         self.btn_close.setStyleSheet(style_close)
 
+    def _on_cb_beam_changed(self, index: int) -> None:
+        if index >= 0 and self.viewer.bev_active:
+            self.viewer.bev_selected_beam_idx = index
+            self.viewer.bev_control_point_idx = 0
+            self.viewer.update()
+
+    def _on_bev_beam_changed(self, index: int) -> None:
+        if hasattr(self, "cb_beam") and self.cb_beam.count() > index >= 0:
+            self.cb_beam.blockSignals(True)
+            self.cb_beam.setCurrentIndex(index)
+            self.cb_beam.blockSignals(False)
+
     def toggle_bev(self) -> None:
         active = not self.viewer.bev_active
         self.viewer.bev_active = active
@@ -3099,8 +3207,29 @@ class DicomViewerPanel(QWidget):
             self.viewer.hu_active = False
             self.hu_panel.hide()
             self.slider.setEnabled(False)
+
+            # Наполняем и показываем выпадающий список полей BEV
+            beams = self.viewer.plan_data.get("beams", [])
+            self.cb_beam.blockSignals(True)
+            self.cb_beam.clear()
+            for i, b in enumerate(beams):
+                self.cb_beam.addItem(b.get("display_name", f"Поле {i+1}"), i)
+            if beams:
+                cur_idx = max(0, min(len(beams) - 1, self.viewer.bev_selected_beam_idx))
+                self.cb_beam.setCurrentIndex(cur_idx)
+            self.cb_beam.blockSignals(False)
+
+            self.cb_dose.hide()
+            self.cb_structures.hide()
+            self.cb_presets.hide()
+            self.cb_beam.show()
         else:
             self.slider.setEnabled(True)
+            self.cb_beam.hide()
+            self.cb_dose.show()
+            self.cb_structures.show()
+            self.cb_presets.show()
+
         self.update_buttons_style()
         self.viewer.update()
 
