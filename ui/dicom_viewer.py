@@ -1761,10 +1761,10 @@ class DicomViewerWidget(QWidget):
                 painter.drawLine(QPointF(px, cy - 3), QPointF(px, cy + 3))
                 painter.drawLine(QPointF(cx - 3, py), QPointF(cx + 3, py))
 
-        # 4. Поворот системы координат коллиматора на угол c_angle (-c_angle в системе координат Qt)
+        # 4. Поворот системы координат коллиматора на угол c_angle (по часовой стрелке в Qt)
         painter.save()
         painter.translate(cx, cy)
-        painter.rotate(-c_angle)
+        painter.rotate(c_angle)
         painter.translate(-cx, -cy)
 
         jx1, jx2 = jaws.get("x", [-100.0, 100.0])
