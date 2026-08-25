@@ -680,7 +680,7 @@ class MainWindow(QMainWindow):
         header.setStretchLastSection(False)
         
         # Установим пропорции ширины по умолчанию
-        if table.columnCount() == 8:
+        if table.columnCount() in (8, 10):
             table.setColumnWidth(0, 140)  # ID
             table.setColumnWidth(1, 300)  # Name
             table.setColumnWidth(2, 65)   # Modality
@@ -689,6 +689,9 @@ class MainWindow(QMainWindow):
             table.setColumnWidth(5, 150)  # Study
             table.setColumnWidth(6, 150)  # Folder
             table.setColumnWidth(7, 45)   # STR
+            if table.columnCount() == 10:
+                table.setColumnWidth(8, 45)   # RTD
+                table.setColumnWidth(9, 45)   # RTP
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Имя тянется
         elif table.columnCount() == 6:
             table.setColumnWidth(0, 140)  # ID
@@ -713,7 +716,7 @@ class MainWindow(QMainWindow):
             table_name = "archive_table"
         elif getattr(self, 'pacs_table', None) == table:
             table_name = "pacs_table"
-        elif table.columnCount() == 8:
+        elif table.columnCount() in (8, 10):
             if getattr(self, 'images_table', None) is None:
                 table_name = "images_table"
             else:
@@ -795,6 +798,8 @@ class MainWindow(QMainWindow):
             for i, visible in enumerate(visibility[:column_count]):
                 table.setColumnHidden(i, not visible)
                 
+        # Гарантируем растягивание колонки Patient Name (1)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.blockSignals(False)
 
     def on_tab_changed(self, index):
