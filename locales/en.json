@@ -283,5 +283,13 @@
   "viewer_preset_soft": "Soft tissue",
   "viewer_preset_bone": "Bone",
   "viewer_preset_lung": "Lung",
-  "viewer_preset_brain": "Brain"
+  "viewer_preset_brain": "Brain",
+  "viewer_bev_tooltip": "Beam's Eye View (BEV)",
+  "viewer_bev_btn": "BEV",
+  "viewer_field": "Field",
+  "viewer_gantry": "Gantry",
+  "viewer_collimator": "Collimator",
+  "viewer_couch": "Couch",
+  "viewer_wedge": "Wedge",
+  "viewer_isocenter": "Isocenter"
 }

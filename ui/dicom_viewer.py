@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import io
 import os
+import re
 import numpy as np
 import pydicom
 
@@ -212,6 +213,156 @@ def load_rtdose(filepath: str, plan_files: list[str] = None) -> dict:
         print(f"Error parsing RTDOSE {filepath}: {e}")
 
     return dose_data
+
+
+def clean_tps_name(model_name: str, manufacturer: str) -> str:
+    raw = model_name or manufacturer or "Unknown"
+    raw = re.sub(r'[,;]?\s*(version|ver\.?|v\.?)\s*[\d\.\w\-_]+', '', raw, flags=re.IGNORECASE)
+    raw = re.sub(r'^(TPS|Treatment Planning System)\s+', '', raw, flags=re.IGNORECASE)
+    raw = raw.strip()
+    return raw or "RT Plan"
+
+
+def load_rtplan(filepath: str) -> dict:
+    plan_data = {}
+    if not filepath or not os.path.exists(filepath):
+        return plan_data
+
+    try:
+        ds = safe_dcmread(filepath, stop_before_pixels=True)
+        if getattr(ds, "Modality", "") != "RTPLAN":
+            return plan_data
+
+        sop_instance_uid = str(getattr(ds, "SOPInstanceUID", ""))
+        plan_label = str(getattr(ds, "RTPlanLabel", getattr(ds, "RTPlanName", "")))
+        model_name = str(getattr(ds, "ManufacturerModelName", ""))
+        manufacturer = str(getattr(ds, "Manufacturer", ""))
+        tps_name = clean_tps_name(model_name, manufacturer)
+        approval_status = str(getattr(ds, "ApprovalStatus", ""))
+
+        rx_dose = 0.0
+        if hasattr(ds, "DoseReferenceSequence"):
+            for dref in ds.DoseReferenceSequence:
+                if hasattr(dref, "TargetPrescriptionDose"):
+                    rx_dose = float(dref.TargetPrescriptionDose)
+                    break
+                elif hasattr(dref, "DeliveryMaximumDose"):
+                    rx_dose = float(dref.DeliveryMaximumDose)
+                    break
+
+        fractions_count = 1
+        if hasattr(ds, "FractionGroupSequence") and len(ds.FractionGroupSequence) > 0:
+            fg0 = ds.FractionGroupSequence[0]
+            fractions_count = int(getattr(fg0, "NumberOfFractionsPlanned", 1) or 1)
+
+        dose_per_fraction = round(rx_dose / fractions_count, 2) if (rx_dose > 0 and fractions_count > 0) else 0.0
+
+        beams = []
+        if hasattr(ds, "BeamSequence"):
+            for b in ds.BeamSequence:
+                b_num = int(getattr(b, "BeamNumber", len(beams) + 1))
+                b_name = str(getattr(b, "BeamName", f"Beam {b_num}"))
+                b_type = str(getattr(b, "BeamType", "STATIC"))
+                rad_type = str(getattr(b, "RadiationType", "PHOTON"))
+                mach_name = str(getattr(b, "TreatmentMachineName", ""))
+                sad = float(getattr(b, "SourceAxisDistance", 1000.0) or 1000.0)
+
+                # Wedges
+                wedges = []
+                num_wedges = int(getattr(b, "NumberOfWedges", getattr(b, "NumberofWedges", 0)) or 0)
+                if num_wedges > 0 and hasattr(b, "WedgeSequence"):
+                    for w in b.WedgeSequence:
+                        wedges.append({
+                            "id": str(getattr(w, "WedgeID", "")),
+                            "angle": int(getattr(w, "WedgeAngle", 0) or 0),
+                            "type": str(getattr(w, "WedgeType", "STANDARD")),
+                            "orientation": float(getattr(w, "WedgeOrientation", 0.0) or 0.0)
+                        })
+
+                # Global leaf boundaries from BeamLimitingDeviceSequence
+                global_leaf_bounds = []
+                if hasattr(b, "BeamLimitingDeviceSequence"):
+                    for bld in b.BeamLimitingDeviceSequence:
+                        if "MLC" in getattr(bld, "RTBeamLimitingDeviceType", ""):
+                            bounds = getattr(bld, "LeafPositionBoundaries", [])
+                            if bounds:
+                                global_leaf_bounds = [float(x) for x in bounds]
+
+                # Control points (Gantry, Collimator, Jaws, MLC, Isocenter)
+                cps = []
+                if hasattr(b, "ControlPointSequence"):
+                    for cp in b.ControlPointSequence:
+                        cp_idx = int(getattr(cp, "ControlPointIndex", len(cps)))
+                        g_angle = float(getattr(cp, "GantryAngle", 0.0) or 0.0)
+                        c_angle = float(getattr(cp, "BeamLimitingDeviceAngle", 0.0) or 0.0)
+                        couch_angle = float(getattr(cp, "PatientSupportAngle", 0.0) or 0.0)
+                        meterset_w = float(getattr(cp, "CumulativeMetersetWeight", 0.0) or 0.0)
+                        energy = float(getattr(cp, "NominalBeamEnergy", 0.0) or 0.0)
+
+                        iso = getattr(cp, "IsocenterPosition", None)
+                        iso_coords = [float(x) for x in iso] if (iso and len(iso) >= 3) else None
+
+                        jaws = {"x": [-100.0, 100.0], "y": [-100.0, 100.0]}
+                        mlc_leaves = []
+
+                        if hasattr(cp, "BeamLimitingDevicePositionSequence"):
+                            for dev in cp.BeamLimitingDevicePositionSequence:
+                                dev_type = getattr(dev, "RTBeamLimitingDeviceType", "")
+                                pos = getattr(dev, "LeafJawPositions", [])
+                                if dev_type in ("ASYMX", "X") and len(pos) >= 2:
+                                    jaws["x"] = [float(pos[0]), float(pos[1])]
+                                elif dev_type in ("ASYMY", "Y") and len(pos) >= 2:
+                                    jaws["y"] = [float(pos[0]), float(pos[1])]
+                                elif "MLC" in dev_type and len(pos) > 0:
+                                    mlc_leaves = [float(p) for p in pos]
+
+                        cps.append({
+                            "index": cp_idx,
+                            "gantry_angle": g_angle,
+                            "collimator_angle": c_angle,
+                            "couch_angle": couch_angle,
+                            "meterset_weight": meterset_w,
+                            "energy": energy,
+                            "isocenter": iso_coords,
+                            "jaws": jaws,
+                            "mlc_leaves": mlc_leaves,
+                            "leaf_boundaries": global_leaf_bounds
+                        })
+
+                cp0 = cps[0] if cps else {}
+                beams.append({
+                    "number": b_num,
+                    "name": b_name,
+                    "type": b_type,
+                    "radiation_type": rad_type,
+                    "machine_name": mach_name,
+                    "sad": sad,
+                    "gantry_angle": cp0.get("gantry_angle", 0.0),
+                    "collimator_angle": cp0.get("collimator_angle", 0.0),
+                    "couch_angle": cp0.get("couch_angle", 0.0),
+                    "isocenter": cp0.get("isocenter", None),
+                    "jaws": cp0.get("jaws", {"x": [-100.0, 100.0], "y": [-100.0, 100.0]}),
+                    "mlc_leaves": cp0.get("mlc_leaves", []),
+                    "leaf_boundaries": global_leaf_bounds,
+                    "wedges": wedges,
+                    "control_points": cps
+                })
+
+        plan_data = {
+            "filepath": filepath,
+            "sop_instance_uid": sop_instance_uid,
+            "plan_label": plan_label,
+            "tps_name": tps_name,
+            "approval_status": approval_status,
+            "rx_dose": rx_dose,
+            "fractions_count": fractions_count,
+            "dose_per_fraction": dose_per_fraction,
+            "beams": beams
+        }
+    except Exception as e:
+        print(f"Error loading RTPLAN {filepath}: {e}")
+
+    return plan_data
 
 
 def marching_squares_2d(grid: np.ndarray, threshold: float) -> list[tuple[tuple[float, float], tuple[float, float]]]:
@@ -531,6 +682,15 @@ class PatientSeriesLoaderWorker(QThread):
                 self.progress_signal.emit(total_files, total_files, tr_ui("loading_rtdose_data"))
                 parsed_dose = load_rtdose(latest_dose_file, plan_files)
 
+            # 5. Выбор и предпарсинг файла RTPLAN
+            parsed_plan = {}
+            if plan_files:
+                if self._is_cancelled:
+                    return
+                plan_files.sort(key=lambda x: os.path.basename(x))
+                latest_plan_file = max(plan_files, key=lambda x: os.path.getmtime(x))
+                parsed_plan = load_rtplan(latest_plan_file)
+
             if self._is_cancelled:
                 return
 
@@ -542,6 +702,7 @@ class PatientSeriesLoaderWorker(QThread):
                 "selected_dose_idx": selected_dose_idx,
                 "parsed_dose": parsed_dose,
                 "plan_files": plan_files,
+                "parsed_plan": parsed_plan,
                 "sorted_files": sorted_files
             }
             self.finished_signal.emit(result)
@@ -853,12 +1014,27 @@ class DicomViewerWidget(QWidget):
         self.pinned_dose_pos = None
         self.dose_point_close_rect = None
 
+        # Данные RTPLAN и режим BEV (Beam's Eye View)
+        self.plan_data = {}
+        self.bev_active = False
+        self.bev_selected_beam_idx = 0
+        self.bev_control_point_idx = 0
+        self.bev_prev_btn_rect = None
+        self.bev_next_btn_rect = None
+        self.bev_cp_slider_rect = None
+
         self.setMouseTracking(True)
         self.setStyleSheet("background-color: #000000;")
 
     def set_dose_data(self, dose_data: dict) -> None:
         self.dose_data = dose_data or {}
         self.enabled_isodose_levels = {lvl["name"] for lvl in self.dose_data.get("levels", []) if lvl.get("enabled", True)}
+        self.update()
+
+    def set_plan_data(self, plan_data: dict) -> None:
+        self.plan_data = plan_data or {}
+        self.bev_selected_beam_idx = 0
+        self.bev_control_point_idx = 0
         self.update()
 
     def rebuild_contour_index(self) -> None:
@@ -936,9 +1112,42 @@ class DicomViewerWidget(QWidget):
         self.hover_pos = None
         self.pinned_dose_pos = None
         self.dose_point_close_rect = None
+        self.plan_data = {}
+        self.bev_active = False
+        self.bev_selected_beam_idx = 0
+        self.bev_control_point_idx = 0
         self.update()
 
     def mousePressEvent(self, event) -> None:
+        if self.bev_active:
+            if event.button() == Qt.MouseButton.LeftButton:
+                pos = event.position().toPoint()
+                if self.bev_prev_btn_rect and self.bev_prev_btn_rect.contains(pos):
+                    beams = self.plan_data.get("beams", [])
+                    if beams:
+                        self.bev_selected_beam_idx = (self.bev_selected_beam_idx - 1) % len(beams)
+                        self.bev_control_point_idx = 0
+                        self.update()
+                    return
+                elif self.bev_next_btn_rect and self.bev_next_btn_rect.contains(pos):
+                    beams = self.plan_data.get("beams", [])
+                    if beams:
+                        self.bev_selected_beam_idx = (self.bev_selected_beam_idx + 1) % len(beams)
+                        self.bev_control_point_idx = 0
+                        self.update()
+                    return
+                elif self.bev_cp_slider_rect and self.bev_cp_slider_rect.contains(pos):
+                    beams = self.plan_data.get("beams", [])
+                    if beams:
+                        beam = beams[self.bev_selected_beam_idx]
+                        cps = beam.get("control_points", [])
+                        if len(cps) > 1:
+                            rel_x = max(0.0, min(1.0, (pos.x() - self.bev_cp_slider_rect.x()) / float(self.bev_cp_slider_rect.width())))
+                            self.bev_control_point_idx = int(round(rel_x * (len(cps) - 1)))
+                            self.update()
+                    return
+            return
+
         if not self.current_pixmap:
             return
 
@@ -979,6 +1188,19 @@ class DicomViewerWidget(QWidget):
                 self.last_mouse_pos = event.position()
 
     def mouseMoveEvent(self, event) -> None:
+        if self.bev_active and self.bev_cp_slider_rect and (event.buttons() & Qt.MouseButton.LeftButton):
+            pos = event.position().toPoint()
+            if self.bev_cp_slider_rect.adjusted(-20, -10, 20, 10).contains(pos):
+                beams = self.plan_data.get("beams", [])
+                if beams:
+                    beam = beams[self.bev_selected_beam_idx]
+                    cps = beam.get("control_points", [])
+                    if len(cps) > 1:
+                        rel_x = max(0.0, min(1.0, (pos.x() - self.bev_cp_slider_rect.x()) / float(self.bev_cp_slider_rect.width())))
+                        self.bev_control_point_idx = int(round(rel_x * (len(cps) - 1)))
+                        self.update()
+                return
+
         if self.dose_point_active:
             self.hover_pos = event.position()
             self.update()
@@ -1157,6 +1379,23 @@ class DicomViewerWidget(QWidget):
             )
 
     def wheelEvent(self, event) -> None:
+        if self.bev_active:
+            beams = self.plan_data.get("beams", [])
+            if not beams:
+                return
+            beam = beams[self.bev_selected_beam_idx]
+            cps = beam.get("control_points", [])
+            delta = event.angleDelta().y()
+            if len(cps) > 1:
+                step = 1 if delta < 0 else -1
+                self.bev_control_point_idx = max(0, min(len(cps) - 1, self.bev_control_point_idx + step))
+                self.update()
+            else:
+                step = 1 if delta < 0 else -1
+                self.bev_selected_beam_idx = (self.bev_selected_beam_idx + step) % len(beams)
+                self.update()
+            return
+
         modifiers = QApplication.keyboardModifiers()
         if modifiers == Qt.KeyboardModifier.ControlModifier:
             delta = event.angleDelta().y()
@@ -1193,11 +1432,195 @@ class DicomViewerWidget(QWidget):
         x_img = max(0.0, min(float(pix_w), x_img))
         y_img = max(0.0, min(float(pix_h), y_img))
 
-        return x_img, y_img
+    def _paint_bev(self, painter: QPainter) -> None:
+        painter.fillRect(self.rect(), QColor("#0B0F19"))
+        beams = self.plan_data.get("beams", [])
+        if not beams:
+            return
+
+        idx = max(0, min(len(beams) - 1, self.bev_selected_beam_idx))
+        beam = beams[idx]
+
+        w = self.width()
+        h = self.height()
+        cx = w / 2.0
+        cy = h / 2.0
+
+        cps = beam.get("control_points", [])
+        cp_idx = max(0, min(len(cps) - 1, self.bev_control_point_idx)) if cps else 0
+        cp = cps[cp_idx] if cps else {}
+
+        g_angle = cp.get("gantry_angle", beam.get("gantry_angle", 0.0))
+        c_angle = cp.get("collimator_angle", beam.get("collimator_angle", 0.0))
+        couch_angle = cp.get("couch_angle", beam.get("couch_angle", 0.0))
+        jaws = cp.get("jaws", beam.get("jaws", {"x": [-100.0, 100.0], "y": [-100.0, 100.0]}))
+        mlc = cp.get("mlc_leaves", beam.get("mlc_leaves", []))
+        leaf_bounds = cp.get("leaf_boundaries", beam.get("leaf_boundaries", []))
+        wedges = beam.get("wedges", [])
+        rad_type = beam.get("radiation_type", "PHOTON")
+        mach = beam.get("machine_name", "")
+
+        scale = min(w, h - 80) / 440.0
+
+        def mm_to_canvas(x_mm, y_mm):
+            return QPointF(cx + x_mm * scale, cy - y_mm * scale)
+
+        # 1. Круг коллиматора
+        r_field = 200.0 * scale
+        painter.setPen(QPen(QColor("#1E293B"), 2))
+        painter.setBrush(QBrush(QColor("#0F172A")))
+        painter.drawEllipse(QPointF(cx, cy), r_field, r_field)
+
+        # 2. Сетка коллиматора
+        painter.setPen(QPen(QColor("#334155"), 1, Qt.PenStyle.DashLine))
+        for r_cm in [5, 10, 15, 20]:
+            r_px = r_cm * 10.0 * scale
+            if r_px <= r_field:
+                painter.drawEllipse(QPointF(cx, cy), r_px, r_px)
+
+        painter.setPen(QPen(QColor("#475569"), 1))
+        painter.drawLine(QPointF(cx - r_field, cy), QPointF(cx + r_field, cy))
+        painter.drawLine(QPointF(cx, cy - r_field), QPointF(cx, cy + r_field))
+
+        # 3. Шторки (Jaws) и апертура
+        jx1, jx2 = jaws.get("x", [-100.0, 100.0])
+        jy1, jy2 = jaws.get("y", [-100.0, 100.0])
+        p_tl = mm_to_canvas(jx1, jy2)
+        p_br = mm_to_canvas(jx2, jy1)
+        jaws_rect = QRectF(p_tl, p_br).normalized()
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(59, 130, 246, 50)))
+        painter.drawRect(jaws_rect)
+
+        # 4. Лепестки MLC
+        if mlc and len(mlc) >= 2:
+            num_pairs = len(mlc) // 2
+            if not leaf_bounds or len(leaf_bounds) != num_pairs + 1:
+                total_span = 400.0
+                step = total_span / num_pairs
+                leaf_bounds = [-200.0 + i * step for i in range(num_pairs + 1)]
+
+            painter.setPen(QPen(QColor("#1E293B"), 1))
+            painter.setBrush(QBrush(QColor(100, 116, 139, 210)))
+
+            for i in range(num_pairs):
+                y_top_mm = leaf_bounds[i + 1]
+                y_bot_mm = leaf_bounds[i]
+
+                pos_a = mlc[i]
+                pos_b = mlc[num_pairs + i]
+
+                p1_a = mm_to_canvas(-200.0, y_top_mm)
+                p2_a = mm_to_canvas(pos_a, y_bot_mm)
+                painter.drawRect(QRectF(p1_a, p2_a).normalized())
+
+                p1_b = mm_to_canvas(pos_b, y_top_mm)
+                p2_b = mm_to_canvas(200.0, y_bot_mm)
+                painter.drawRect(QRectF(p1_b, p2_b).normalized())
+
+        # 5. Граница шторок (Jaws)
+        painter.setPen(QPen(QColor("#38BDF8"), 2))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(jaws_rect)
+
+        # 6. Центральный перекрест
+        painter.setPen(QPen(QColor("#EF4444"), 2))
+        painter.drawLine(QPointF(cx - 15, cy), QPointF(cx + 15, cy))
+        painter.drawLine(QPointF(cx, cy - 15), QPointF(cx, cy + 15))
+        painter.drawEllipse(QPointF(cx, cy), 3, 3)
+
+        # 7. Направления осей
+        painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
+        painter.setPen(QColor("#94A3B8"))
+        painter.drawText(int(cx + 6), int(cy - r_field + 16), "GUN / TOP (Y+)")
+        painter.drawText(int(cx + 6), int(cy + r_field - 6), "TARGET / BOT (Y-)")
+        painter.drawText(int(cx - r_field + 6), int(cy - 6), "RIGHT (X-)")
+        painter.drawText(int(cx + r_field - 70), int(cy - 6), "LEFT (X+)")
+
+        # 8. Заголовок и селектор полей
+        painter.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        header_text = f"Beam {idx + 1} / {len(beams)}: {beam.get('name') or f'Field {idx + 1}'}"
+
+        btn_w, btn_h = 32, 28
+        top_y = 15
+
+        rect_prev = QRect(int(cx - 160), top_y, btn_w, btn_h)
+        rect_next = QRect(int(cx + 130), top_y, btn_w, btn_h)
+        self.bev_prev_btn_rect = rect_prev
+        self.bev_next_btn_rect = rect_next
+
+        painter.fillRect(rect_prev, QColor("#1E293B"))
+        painter.setPen(QPen(QColor("#3B82F6"), 1))
+        painter.drawRoundedRect(rect_prev, 4, 4)
+        painter.setPen(QColor("#FFFFFF"))
+        painter.drawText(rect_prev, Qt.AlignmentFlag.AlignCenter, "◀")
+
+        painter.fillRect(rect_next, QColor("#1E293B"))
+        painter.setPen(QPen(QColor("#3B82F6"), 1))
+        painter.drawRoundedRect(rect_next, 4, 4)
+        painter.setPen(QColor("#FFFFFF"))
+        painter.drawText(rect_next, Qt.AlignmentFlag.AlignCenter, "▶")
+
+        title_rect = QRect(int(cx - 120), top_y, 240, btn_h)
+        painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter, header_text)
+
+        # 9. Информационная плашка поля
+        lines_specs = [
+            f"Gantry: {g_angle:.1f}°",
+            f"Collimator: {c_angle:.1f}°",
+            f"Couch: {couch_angle:.1f}°",
+            f"Jaws X: [{jx1:.1f}, {jx2:.1f}] mm",
+            f"Jaws Y: [{jy1:.1f}, {jy2:.1f}] mm",
+            f"Machine: {mach}",
+            f"Radiation: {rad_type}"
+        ]
+        if wedges:
+            for w_item in wedges:
+                lines_specs.append(f"Wedge: {w_item.get('id')} ({w_item.get('angle')}°)")
+
+        painter.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
+        metrics_s = painter.fontMetrics()
+        y_spec = 15
+        for line in lines_specs:
+            rect_l = metrics_s.boundingRect(line)
+            rect_l.setWidth(rect_l.width() + 14)
+            rect_l.moveTopLeft(QPoint(15, y_spec))
+            painter.fillRect(rect_l.adjusted(-4, -2, 4, 2), QColor(0, 0, 0, 160))
+            painter.setPen(QColor("#E2E8F0"))
+            painter.drawText(rect_l, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, line)
+            y_spec += rect_l.height() + 4
+
+        # 10. Ползунок контрольных точек для VMAT
+        if len(cps) > 1:
+            slider_h = 24
+            slider_y = h - 45
+            slider_w = min(400, w - 80)
+            slider_x = int(cx - slider_w / 2)
+            self.bev_cp_slider_rect = QRect(slider_x, slider_y, slider_w, slider_h)
+
+            painter.fillRect(self.bev_cp_slider_rect, QColor("#1E293B"))
+            painter.setPen(QPen(QColor("#334155"), 1))
+            painter.drawRoundedRect(self.bev_cp_slider_rect, 4, 4)
+
+            handle_x = slider_x + int((cp_idx / (len(cps) - 1)) * (slider_w - 20))
+            handle_rect = QRect(handle_x, slider_y + 2, 20, slider_h - 4)
+            painter.fillRect(handle_rect, QColor("#3B82F6"))
+
+            cp_text = f"Control Point {cp_idx + 1} / {len(cps)} (Gantry {g_angle:.1f}°)"
+            painter.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+            painter.setPen(QColor("#94A3B8"))
+            painter.drawText(QRect(slider_x, slider_y - 20, slider_w, 18), Qt.AlignmentFlag.AlignCenter, cp_text)
+        else:
+            self.bev_cp_slider_rect = None
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor("#000000"))
+
+        if self.bev_active and self.plan_data and self.plan_data.get("beams"):
+            self._paint_bev(painter)
+            return
 
         if self.current_pixmap:
             pix_w = self.current_pixmap.width()
@@ -1399,6 +1822,100 @@ class DicomViewerWidget(QWidget):
                                 
                                 painter.drawLine(QPointF(wx1, wy1), QPointF(wx2, wy2))
 
+            # Отрисовка изоцентра и геометрии пучков RTPLAN
+            if self.show_isodoses_globally and self.dose_data and self.plan_data:
+                ipp = getattr(self.current_dataset, "ImagePositionPatient", None)
+                iop = getattr(self.current_dataset, "ImageOrientationPatient", None)
+                pixel_spacing = getattr(self.current_dataset, "PixelSpacing", None)
+                
+                if ipp is not None and iop is not None and pixel_spacing is not None and len(ipp) >= 3 and len(iop) >= 6 and len(pixel_spacing) >= 2:
+                    ipp_x, ipp_y, ipp_z = float(ipp[0]), float(ipp[1]), float(ipp[2])
+                    xr, yr, zr = float(iop[0]), float(iop[1]), float(iop[2])
+                    xc, yc, zc = float(iop[3]), float(iop[4]), float(iop[5])
+                    dy, dx = float(pixel_spacing[0]), float(pixel_spacing[1])
+
+                    thickness = float(getattr(self.current_dataset, "SliceThickness", 5.0) or 5.0)
+
+                    rows = getattr(self.current_dataset, "Rows", 512)
+                    cols = getattr(self.current_dataset, "Columns", 512)
+                    scale_x = view_w / cols
+                    scale_y = view_h / rows
+
+                    beams = self.plan_data.get("beams", [])
+                    for beam in beams:
+                        iso = beam.get("isocenter")
+                        if not iso or len(iso) < 3:
+                            continue
+                        iso_x, iso_y, iso_z = iso[0], iso[1], iso[2]
+
+                        if abs(ipp_z - iso_z) <= thickness / 2.0 + 0.5:
+                            dp_x = iso_x - ipp_x
+                            dp_y = iso_y - ipp_y
+                            dp_z = iso_z - ipp_z
+                            px_iso = (dp_x * xr + dp_y * yr + dp_z * zr) / dx
+                            py_iso = (dp_x * xc + dp_y * yc + dp_z * zc) / dy
+                            wx_iso = offset_x + px_iso * scale_x
+                            wy_iso = offset_y + py_iso * scale_y
+
+                            g_angle = beam.get("gantry_angle", 0.0)
+                            rad = math.radians(g_angle)
+                            sx = math.sin(rad)
+                            sy = -math.cos(rad)
+
+                            ray_len = 160.0 * self.zoom_factor
+                            wx_src = wx_iso + sx * ray_len
+                            wy_src = wy_iso + sy * ray_len
+
+                            pen_ray = QPen(QColor("#F59E0B"), 1.8, Qt.PenStyle.DashLine)
+                            painter.setPen(pen_ray)
+                            painter.drawLine(QPointF(wx_src, wy_src), QPointF(wx_iso, wy_iso))
+
+                            arrow_len = 12.0
+                            arr_dx = -sx
+                            arr_dy = -sy
+                            arr_px = -arr_dy
+                            arr_py = arr_dx
+                            p_head = QPointF(wx_iso, wy_iso)
+                            p_a1 = QPointF(wx_iso - arr_dx * arrow_len + arr_px * 6, wy_iso - arr_dy * arrow_len + arr_py * 6)
+                            p_a2 = QPointF(wx_iso - arr_dx * arrow_len - arr_px * 6, wy_iso - arr_dy * arrow_len - arr_py * 6)
+                            painter.setPen(QPen(QColor("#F59E0B"), 1.8))
+                            painter.setBrush(QBrush(QColor("#F59E0B")))
+                            painter.drawPolygon(QPolygonF([p_head, p_a1, p_a2]))
+
+                            b_num = beam.get("number", 1)
+                            wedge_info = ""
+                            wedges = beam.get("wedges", [])
+                            if wedges:
+                                w_id = wedges[0].get("id", "")
+                                w_ang = wedges[0].get("angle", "")
+                                wedge_info = f" ▲ {w_id} ({w_ang}°)"
+
+                            badge_beam_text = f"[{b_num}] {g_angle:.1f}°{wedge_info}"
+                            painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
+                            m_b = painter.fontMetrics()
+                            rect_b_txt = m_b.boundingRect(badge_beam_text)
+                            badge_rect = QRectF(
+                                wx_src - rect_b_txt.width() / 2 - 6,
+                                wy_src - rect_b_txt.height() / 2 - 3,
+                                rect_b_txt.width() + 12,
+                                rect_b_txt.height() + 6
+                            )
+                            painter.setPen(QPen(QColor("#F59E0B"), 1.2))
+                            painter.setBrush(QBrush(QColor(15, 23, 42, 220)))
+                            painter.drawRoundedRect(badge_rect, 4, 4)
+                            painter.setPen(QColor("#FFFFFF"))
+                            painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_beam_text)
+
+                            painter.setPen(QPen(QColor("#EAB308"), 2.0))
+                            painter.setBrush(Qt.BrushStyle.NoBrush)
+                            painter.drawEllipse(QPointF(wx_iso, wy_iso), 7, 7)
+                            painter.drawLine(QPointF(wx_iso - 12, wy_iso), QPointF(wx_iso + 12, wy_iso))
+                            painter.drawLine(QPointF(wx_iso, wy_iso - 12), QPointF(wx_iso + 12, wy_iso))
+
+                            painter.setFont(QFont("Consolas", 8, QFont.Weight.Bold))
+                            painter.setPen(QColor("#EAB308"))
+                            painter.drawText(int(wx_iso + 10), int(wy_iso - 8), "ISO")
+
             # Отрисовка измерительной линейки
             if self.ruler_active and self.start_pos and self.current_pos:
                 pen = QPen(QColor("#10B981"), 2, Qt.PenStyle.SolidLine)
@@ -1527,6 +2044,33 @@ class DicomViewerWidget(QWidget):
                         painter.setPen(QColor("#E5E7EB"))
                         painter.drawText(rect_line, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, line)
                         y_offset += rect_line.height() + 5
+
+                    # Правый верхний HUD (TPS, разовая доза, суммарная доза)
+                    if self.show_isodoses_globally and self.dose_data and self.plan_data:
+                        tps = self.plan_data.get("tps_name", "")
+                        dose_fx = self.plan_data.get("dose_per_fraction", 0.0)
+                        total_rx = self.plan_data.get("rx_dose", 0.0)
+                        units = self.dose_data.get("dose_units", "Gy")
+
+                        lines_hud = []
+                        if tps:
+                            lines_hud.append(tps)
+                        if dose_fx > 0:
+                            lines_hud.append(f"{dose_fx:.2f} {units} / fx")
+                        if total_rx > 0:
+                            lines_hud.append(f"{total_rx:.2f} {units}")
+
+                        if lines_hud:
+                            y_hud = 15
+                            for line in lines_hud:
+                                rect_l = metrics.boundingRect(line)
+                                w_l = rect_l.width() + 16
+                                h_l = rect_l.height()
+                                rect_draw = QRect(self.width() - w_l - 15, y_hud, w_l, h_l)
+                                painter.fillRect(rect_draw.adjusted(-4, -2, 4, 2), QColor(0, 0, 0, 150))
+                                painter.setPen(QColor("#E5E7EB"))
+                                painter.drawText(rect_draw, Qt.AlignmentFlag.AlignCenter, line)
+                                y_hud += h_l + 5
 
                 # Параметры окна HU, Zoom
                 painter.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
@@ -1740,6 +2284,14 @@ class DicomViewerPanel(QWidget):
         self.img_hu = QIcon(get_resource_path("themes/hu.png"))
         self.img_osd = QIcon(get_resource_path("themes/eye.png"))
         self.img_close = QIcon(get_resource_path("themes/close.png"))
+
+        # Кнопка "Вид из пучка" (BEV)
+        self.btn_bev = QPushButton(tr_ui("viewer_bev_btn"), self)
+        self.btn_bev.setFixedSize(36, 28)
+        self.btn_bev.setToolTip(tr_ui("viewer_bev_tooltip"))
+        self.btn_bev.setEnabled(False)
+        self.btn_bev.clicked.connect(self.toggle_bev)
+        top_layout.addWidget(self.btn_bev)
 
         # Кнопка "Доза в точке"
         self.btn_dose_point = QPushButton(self)
@@ -2256,6 +2808,9 @@ class DicomViewerPanel(QWidget):
 
         if hasattr(self, "btn_dose_point"):
             self.btn_dose_point.setToolTip(tr_ui("viewer_point_dose"))
+        if hasattr(self, "btn_bev"):
+            self.btn_bev.setText(tr_ui("viewer_bev_btn"))
+            self.btn_bev.setToolTip(tr_ui("viewer_bev_tooltip"))
         self.btn_ruler.setToolTip("Линейка")
         self.btn_hu.setToolTip("Настройка окна HU")
         self.btn_osd.setToolTip("Показать/скрыть надписи")
@@ -2501,12 +3056,53 @@ class DicomViewerPanel(QWidget):
             QPushButton:disabled {{ background-color: #1a1a1a; border: 1px solid #333333; }}
         """
 
+        style_bev_active = f"""
+            QPushButton {{
+                background-color: {accent_color};
+                border: 1px solid {accent_dark};
+                color: #FFFFFF;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 0px;
+                min-width: 36px; max-width: 36px; min-height: 28px; max-height: 28px;
+            }}
+        """
+        style_bev_inactive = f"""
+            QPushButton {{
+                background-color: {btn_bg};
+                border: 1px solid {btn_border};
+                color: #FFFFFF;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 0px;
+                min-width: 36px; max-width: 36px; min-height: 28px; max-height: 28px;
+            }}
+            QPushButton:hover {{ background-color: {btn_hover}; }}
+            QPushButton:disabled {{ background-color: #1a1a1a; border: 1px solid #333333; color: #555555; }}
+        """
+
+        if hasattr(self, "btn_bev"):
+            self.btn_bev.setStyleSheet(style_bev_active if self.viewer.bev_active else style_bev_inactive)
         if hasattr(self, "btn_dose_point"):
             self.btn_dose_point.setStyleSheet(style_dose_point_active if self.viewer.dose_point_active else style_dose_point_inactive)
         self.btn_ruler.setStyleSheet(style_ruler_active if self.viewer.ruler_active else style_ruler_inactive)
         self.btn_hu.setStyleSheet(style_hu_active if self.viewer.hu_active else style_hu_inactive)
         self.btn_osd.setStyleSheet(style_osd_active if self.viewer.osd_visible else style_osd_inactive)
         self.btn_close.setStyleSheet(style_close)
+
+    def toggle_bev(self) -> None:
+        active = not self.viewer.bev_active
+        self.viewer.bev_active = active
+        if active:
+            self.viewer.dose_point_active = False
+            self.viewer.ruler_active = False
+            self.viewer.hu_active = False
+            self.hu_panel.hide()
+            self.slider.setEnabled(False)
+        else:
+            self.slider.setEnabled(True)
+        self.update_buttons_style()
+        self.viewer.update()
 
     def toggle_osd(self) -> None:
         self.viewer.set_osd_visible(not self.viewer.osd_visible)
@@ -2516,6 +3112,8 @@ class DicomViewerPanel(QWidget):
         active = not self.viewer.dose_point_active
         self.viewer.dose_point_active = active
         if active:
+            self.viewer.bev_active = False
+            self.slider.setEnabled(True)
             self.viewer.ruler_active = False
             self.viewer.hu_active = False
             self.hu_panel.hide()
@@ -2526,6 +3124,8 @@ class DicomViewerPanel(QWidget):
         active = not self.viewer.ruler_active
         self.viewer.ruler_active = active
         if active:
+            self.viewer.bev_active = False
+            self.slider.setEnabled(True)
             self.viewer.dose_point_active = False
             self.viewer.hu_active = False
             self.hu_panel.hide()
@@ -2536,6 +3136,8 @@ class DicomViewerPanel(QWidget):
         active = not self.viewer.hu_active
         self.viewer.hu_active = active
         if active:
+            self.viewer.bev_active = False
+            self.slider.setEnabled(True)
             self.viewer.dose_point_active = False
             self.viewer.ruler_active = False
             self.hu_panel.show()
@@ -2583,6 +3185,8 @@ class DicomViewerPanel(QWidget):
         self.lbl_info.setText("")
         if hasattr(self, "btn_dose_point"):
             self.btn_dose_point.setEnabled(False)
+        if hasattr(self, "btn_bev"):
+            self.btn_bev.setEnabled(False)
         self.current_index = -1
         self.is_loading = False
         gc.collect()
@@ -2712,6 +3316,12 @@ class DicomViewerPanel(QWidget):
         self.apply_dose_data(parsed_dose)
         self.viewer.show_isodoses_globally = self.cb_show_isodoses.isChecked()
         self.viewer.show_dose_gradient = self.cb_dose_gradient.isChecked()
+
+        parsed_plan = result.get("parsed_plan", {})
+        self.viewer.set_plan_data(parsed_plan)
+        if hasattr(self, "btn_bev"):
+            has_beams = bool(parsed_plan and parsed_plan.get("beams"))
+            self.btn_bev.setEnabled(has_beams)
 
         if not self.sorted_files:
             self.lbl_info.setText("Серия не содержит корректных DICOM файлов.")

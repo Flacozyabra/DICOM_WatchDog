@@ -283,5 +283,13 @@
   "viewer_preset_soft": "Мягкие ткани",
   "viewer_preset_bone": "Кости",
   "viewer_preset_lung": "Легкие",
-  "viewer_preset_brain": "Мозг"
+  "viewer_preset_brain": "Мозг",
+  "viewer_bev_tooltip": "Вид из пучка (BEV)",
+  "viewer_bev_btn": "BEV",
+  "viewer_field": "Поле",
+  "viewer_gantry": "Гантри",
+  "viewer_collimator": "Коллиматор",
+  "viewer_couch": "Стол",
+  "viewer_wedge": "Клин",
+  "viewer_isocenter": "Изоцентр"
 }
