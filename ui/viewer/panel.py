@@ -1126,26 +1126,36 @@ class DicomViewerPanel(QWidget):
         beams = self.viewer.plan_data.get("beams", [])
         if not beams or not self.viewer.structures:
             return
-        idx = max(0, min(len(beams) - 1, self.viewer.bev_selected_beam_idx))
-        beam = beams[idx]
-        sad = float(beam.get("sad", 1000.0) or 1000.0)
 
         if hasattr(self, "bev_struct_worker") and self.bev_struct_worker is not None and self.bev_struct_worker.isRunning():
             self.bev_struct_worker.cancel()
             self.bev_struct_worker.quit()
             self.bev_struct_worker.wait()
 
+        self.viewer.bev_precomputing_status = "BEV: подготовка 3D-проекций..."
         self.bev_struct_worker = BEVStructurePrecomputeWorker(
             self.viewer.structures,
             self.viewer.enabled_structures,
-            beam,
-            sad
+            beams,
+            1000.0
         )
+        self.bev_struct_worker.progress_signal.connect(self._on_bev_struct_progress)
         self.bev_struct_worker.item_computed_signal.connect(self._on_bev_struct_item_computed)
+        self.bev_struct_worker.finished_signal.connect(self._on_bev_struct_finished)
         self.bev_struct_worker.start()
+
+    def _on_bev_struct_progress(self, cur: int, total: int, b_name: str) -> None:
+        self.viewer.bev_precomputing_status = f"BEV: подготовка 3D ({cur}/{total})"
+        if self.viewer.bev_active:
+            self.viewer.update()
 
     def _on_bev_struct_item_computed(self, ck: tuple, path, pois: list) -> None:
         self.viewer.bev_struct_cache[ck] = (path, pois)
+
+    def _on_bev_struct_finished(self) -> None:
+        self.viewer.bev_precomputing_status = ""
+        if self.viewer.bev_active:
+            self.viewer.update()
 
     def toggle_bev(self) -> None:
         active = not self.viewer.bev_active
@@ -1561,6 +1571,10 @@ class DicomViewerPanel(QWidget):
         if self.progress_dialog:
             self.progress_dialog.accept()
             self.progress_dialog = None
+
+        # Автоматический фоновый предрасчет 3D-проекций BEV для всех полей плана
+        if self.viewer.plan_data and self.viewer.plan_data.get("beams") and self.viewer.structures:
+            self.start_bev_struct_precompute()
 
     def _on_series_load_error(self, error_msg: str) -> None:
         if self.loader_worker and getattr(self.loader_worker, '_is_cancelled', False):

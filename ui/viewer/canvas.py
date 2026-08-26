@@ -84,6 +84,7 @@ class DicomViewerWidget(QWidget):
         # Кэш DRR, объем КТ и кэш 3D-проекций структур BEV
         self.drr_cache = {}
         self.bev_struct_cache = {}
+        self.bev_precomputing_status = ""
         self.ct_volume = None
         self.ct_ipp0 = None
         self.ct_spacing = None
@@ -747,10 +748,12 @@ class DicomViewerWidget(QWidget):
                             pois_mm.append((name, ppt[0], ppt[1]))
                     else:
                         projected_slices = []
-                        for c in contours:
+                        step_s = max(1, len(contours) // 25) if len(contours) > 30 else 1
+                        for c in contours[::step_s]:
                             pts = c.get("points", [])
                             if len(pts) >= 3:
-                                pts_2d = [project_pt_mm(p[0], p[1], p[2]) for p in pts]
+                                step_p = max(1, len(pts) // 30) if len(pts) > 40 else 1
+                                pts_2d = [project_pt_mm(p[0], p[1], p[2]) for p in pts[::step_p]]
                                 valid_pts = [p for p in pts_2d if p is not None]
                                 if len(valid_pts) >= 3:
                                     z_avg = sum(p[2] for p in pts) / len(pts)
@@ -1015,6 +1018,19 @@ class DicomViewerWidget(QWidget):
             painter.drawText(QRect(slider_x, slider_y - 20, slider_w, 18), Qt.AlignmentFlag.AlignCenter, cp_text)
         else:
             self.bev_cp_slider_rect = None
+
+        # 11. Индикатор фонового предрасчета 3D-проекций BEV
+        if getattr(self, "bev_precomputing_status", ""):
+            st_text = f"⏳ {self.bev_precomputing_status}"
+            painter.setFont(QFont("Segoe UI", 9, QFont.Weight.DemiBold))
+            st_metrics = painter.fontMetrics()
+            st_w = st_metrics.horizontalAdvance(st_text) + 20
+            st_rect = QRect(w - st_w - 15, h - 42 if (beam.get("is_dynamic", False) and len(cps) > 1) else h - 35, st_w, 24)
+            painter.fillRect(st_rect, QColor(30, 41, 59, 230))
+            painter.setPen(QPen(QColor("#3B82F6"), 1.2))
+            painter.drawRoundedRect(st_rect, 4, 4)
+            painter.setPen(QColor("#93C5FD"))
+            painter.drawText(st_rect, Qt.AlignmentFlag.AlignCenter, st_text)
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)

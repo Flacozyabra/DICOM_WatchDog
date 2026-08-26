@@ -393,42 +393,54 @@ class DRRPrecomputeWorker(QThread):
 
 class BEVStructurePrecomputeWorker(QThread):
     """
-    Фоновый предрасчет 3D-проекций контуров RTSTRUCT для всех контрол-поинтов пучка в режиме BEV.
+    Фоновый предрасчет 3D-проекций контуров RTSTRUCT для всех контрол-поинтов всех пучков плана в режиме BEV.
     """
+    progress_signal = pyqtSignal(int, int, str)  # (current, total, beam_name)
     item_computed_signal = pyqtSignal(tuple, object, list)  # (cache_key, struct_path_mm, pois_mm)
     finished_signal = pyqtSignal()
 
-    def __init__(self, structures: dict, enabled_structures: set, beam: dict, sad: float) -> None:
+    def __init__(self, structures: dict, enabled_structures: set, beams: list[dict] | dict, default_sad: float = 1000.0) -> None:
         super().__init__()
         self.structures = structures
         self.enabled_structures = set(enabled_structures) if enabled_structures else set()
-        self.beam = beam
-        self.sad = sad
+        if isinstance(beams, list):
+            self.beams = beams
+        elif isinstance(beams, dict):
+            self.beams = [beams]
+        else:
+            self.beams = []
+        self.default_sad = float(default_sad or 1000.0)
         self._is_cancelled = False
 
     def cancel(self) -> None:
         self._is_cancelled = True
 
     def run(self) -> None:
-        if not self.beam or not self.structures:
+        if not self.beams or not self.structures:
             self.finished_signal.emit()
             return
 
-        cps = self.beam.get("control_points", [])
-        sad = float(self.sad or 1000.0)
-        iso_default = self.beam.get("isocenter", [0.0, 0.0, 0.0])
+        # 1. Формируем плоский список всех ракурсов для всех полей
+        items_to_calc = []
+        for b_idx, beam in enumerate(self.beams):
+            b_name = beam.get("display_name", f"Поле {b_idx + 1}")
+            sad = float(beam.get("sad", self.default_sad) or self.default_sad)
+            iso_default = beam.get("isocenter", [0.0, 0.0, 0.0])
+            cps = beam.get("control_points", [])
 
-        angles_to_calc = []
-        if not cps:
-            g_ang = float(self.beam.get("gantry_angle", 0.0))
-            angles_to_calc.append((g_ang, iso_default))
-        else:
-            for cp in cps:
-                g_ang = float(cp.get("gantry_angle", self.beam.get("gantry_angle", 0.0)))
-                iso = cp.get("isocenter", iso_default)
-                angles_to_calc.append((g_ang, iso))
+            if not cps:
+                g_ang = float(beam.get("gantry_angle", 0.0))
+                items_to_calc.append((b_name, g_ang, iso_default, sad))
+            else:
+                for cp in cps:
+                    g_ang = float(cp.get("gantry_angle", beam.get("gantry_angle", 0.0)))
+                    iso = cp.get("isocenter", iso_default)
+                    items_to_calc.append((b_name, g_ang, iso, sad))
 
-        for g_angle, iso in angles_to_calc:
+        total_items = len(items_to_calc)
+        calculated_keys = set()
+
+        for idx_item, (b_name, g_angle, iso, sad) in enumerate(items_to_calc):
             if self._is_cancelled:
                 break
             if not iso or len(iso) < 3:
@@ -472,6 +484,9 @@ class BEVStructurePrecomputeWorker(QThread):
                     round(float(sad), 1)
                 )
 
+                if cache_key in calculated_keys:
+                    continue
+
                 struct_path_mm = QPainterPath()
                 pois_mm = []
 
@@ -482,10 +497,12 @@ class BEVStructurePrecomputeWorker(QThread):
                         pois_mm.append((name, ppt[0], ppt[1]))
                 else:
                     projected_slices = []
-                    for c in contours:
+                    step_s = max(1, len(contours) // 25) if len(contours) > 30 else 1
+                    for c in contours[::step_s]:
                         pts = c.get("points", [])
                         if len(pts) >= 3:
-                            pts_2d = [project_pt_mm(p[0], p[1], p[2]) for p in pts]
+                            step_p = max(1, len(pts) // 30) if len(pts) > 40 else 1
+                            pts_2d = [project_pt_mm(p[0], p[1], p[2]) for p in pts[::step_p]]
                             valid_pts = [p for p in pts_2d if p is not None]
                             if len(valid_pts) >= 3:
                                 z_avg = sum(p[2] for p in pts) / len(pts)
@@ -509,6 +526,9 @@ class BEVStructurePrecomputeWorker(QThread):
                                     hull_path.closeSubpath()
                                     struct_path_mm = struct_path_mm.united(hull_path)
 
+                calculated_keys.add(cache_key)
                 self.item_computed_signal.emit(cache_key, struct_path_mm, pois_mm)
+
+            self.progress_signal.emit(idx_item + 1, total_items, b_name)
 
         self.finished_signal.emit()
