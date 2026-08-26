@@ -63,6 +63,26 @@ def safe_dcmread(filepath, *args, **kwargs):
         raise e
 
 
+def _convex_hull_2d(points):
+    """Monotone chain 2D convex hull algorithm: O(N log N)."""
+    pts = sorted(set(points), key=lambda p: (p[0], p[1]))
+    if len(pts) <= 2:
+        return pts
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    lower = []
+    for p in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    upper = []
+    for p in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
+
+
 def load_rtstruct(filepath):
     """
     Парсит файл RTSTRUCT и возвращает словарь со структурами и их контурами.
@@ -2004,7 +2024,7 @@ class DicomViewerWidget(QWidget):
                 drr_rect = QRectF(cx - 200.0 * scale, cy - 200.0 * scale, 400.0 * scale, 400.0 * scale)
                 painter.drawImage(drr_rect, drr_img)
 
-        # 2.2. Проекция 3D контуров RTSTRUCT на плоскость детектора / изоцентра BEV
+        # 2.2. Проекция 3D контуров RTSTRUCT на плоскость детектора / изоцентра BEV (непрерывный объемный силуэт)
         if self.show_structures_globally and self.structures and iso and len(iso) >= 3:
             g_rad = math.radians(g_angle)
             sin_g = math.sin(g_rad)
@@ -2013,6 +2033,18 @@ class DicomViewerWidget(QWidget):
             Sy = iso[1] - sad * cos_g
             Sz = iso[2]
 
+            def project_pt(x, y, z):
+                rx = x - Sx
+                ry = y - Sy
+                rz = z - Sz
+                dz_p = -rx * sin_g + ry * cos_g
+                if dz_p > 50.0:
+                    M = sad / dz_p
+                    u_p = (rx * cos_g + ry * sin_g) * M
+                    v_p = rz * M
+                    return (cx + u_p * scale, cy - v_p * scale)
+                return None
+
             for roi_num, s in self.structures.items():
                 name = s.get("name", "")
                 if self.enabled_structures and name not in self.enabled_structures:
@@ -2020,24 +2052,61 @@ class DicomViewerWidget(QWidget):
                 s_color = s.get("color", QColor("#10B981"))
                 if isinstance(s_color, (tuple, list)):
                     s_color = QColor(*s_color)
-                pen_s = QPen(s_color, 1.8)
-                painter.setPen(pen_s)
-                painter.setBrush(Qt.BrushStyle.NoBrush)
 
-                for c in s.get("contours", []):
-                    pts_2d = []
-                    for pt in c.get("points", []):
-                        rx = pt[0] - Sx
-                        ry = pt[1] - Sy
-                        rz = pt[2] - Sz
-                        dz_p = -rx * sin_g + ry * cos_g
-                        if dz_p > 50.0:
-                            M = sad / dz_p
-                            u_p = (rx * cos_g + ry * sin_g) * M
-                            v_p = rz * M
-                            pts_2d.append(QPointF(cx + u_p * scale, cy - v_p * scale))
-                    if len(pts_2d) >= 3:
-                        painter.drawPolygon(QPolygonF(pts_2d))
+                contours = s.get("contours", [])
+                if not contours:
+                    continue
+
+                # Одноточечные ориентиры (POI, например ICRU / реперные точки)
+                if len(contours) == 1 and len(contours[0].get("points", [])) == 1:
+                    pt = contours[0]["points"][0]
+                    ppt = project_pt(pt[0], pt[1], pt[2])
+                    if ppt:
+                        painter.setPen(QPen(s_color, 2.0))
+                        painter.setBrush(QBrush(s_color))
+                        painter.drawEllipse(QPointF(ppt[0], ppt[1]), 3.5, 3.5)
+                        painter.setFont(QFont("Consolas", 8, QFont.Weight.Bold))
+                        painter.drawText(int(ppt[0] + 6), int(ppt[1] + 4), name)
+                    continue
+
+                # Проецируем контуры каждого среза
+                projected_slices = []
+                for c in contours:
+                    pts = c.get("points", [])
+                    if len(pts) >= 3:
+                        pts_2d = [project_pt(p[0], p[1], p[2]) for p in pts]
+                        valid_pts = [p for p in pts_2d if p is not None]
+                        if len(valid_pts) >= 3:
+                            z_avg = sum(p[2] for p in pts) / len(pts)
+                            projected_slices.append((z_avg, valid_pts))
+
+                if not projected_slices:
+                    continue
+
+                projected_slices.sort(key=lambda x: x[0])
+
+                # Объединяем срезы и межсрезовые объемы в непрерывный 2D-силуэт
+                struct_path = QPainterPath()
+                for idx_c in range(len(projected_slices)):
+                    z_c, pts_c = projected_slices[idx_c]
+                    p_c = QPainterPath()
+                    p_c.addPolygon(QPolygonF([QPointF(p[0], p[1]) for p in pts_c]))
+                    p_c.closeSubpath()
+                    struct_path = struct_path.united(p_c) if not struct_path.isEmpty() else p_c
+
+                    if idx_c + 1 < len(projected_slices):
+                        z_next, pts_next = projected_slices[idx_c + 1]
+                        hull = _convex_hull_2d(pts_c + pts_next)
+                        if len(hull) >= 3:
+                            hull_path = QPainterPath()
+                            hull_path.addPolygon(QPolygonF([QPointF(p[0], p[1]) for p in hull]))
+                            hull_path.closeSubpath()
+                            struct_path = struct_path.united(hull_path)
+
+                if not struct_path.isEmpty():
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.setPen(QPen(s_color, 2.0))
+                    painter.drawPath(struct_path)
 
         painter.restore()
 
