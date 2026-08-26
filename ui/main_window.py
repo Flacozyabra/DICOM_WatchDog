@@ -27,7 +27,7 @@ from ui.toggle_switch import ToggleSwitch
 from ui.centered_date_edit import CenteredDateEdit
 from ui.tab_badge import TabBadge
 from themes.theme_manager import load_theme
-from ui.dicom_viewer import DicomViewerPanel
+from ui.viewer import DicomViewerPanel
 from ui.table_widgets import (
     ToggleTableWidget, TaskProgressDelegate, CustomSplitter, CustomSplitterHandle
 )

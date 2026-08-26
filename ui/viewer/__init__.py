@@ -1,16 +1,6 @@
 from __future__ import annotations
 
-"""
-Backward compatibility proxy module for the modularized ui.viewer package.
-All viewer components are now organized inside the ui/viewer/ package:
-- ui/viewer/parsers.py: DICOM data parsing & math (RTSTRUCT, RTDOSE, RTPLAN, colormaps)
-- ui/viewer/workers.py: Background QThread workers
-- ui/viewer/controls.py: Auxiliary UI widgets (HUVerticalSlider, DRRProgressDialog)
-- ui/viewer/canvas.py: DicomViewerWidget (viewport rendering, BEV, contours, isodoses)
-- ui/viewer/panel.py: DicomViewerPanel (main viewer panel)
-"""
-
-from ui.viewer import (
+from .parsers import (
     safe_dcmread,
     load_rtstruct,
     load_rtdose,
@@ -20,16 +10,20 @@ from ui.viewer import (
     dose_slice_to_rgba,
     create_dose_colormap_lut,
     marching_squares_2d,
-    _convex_hull_2d,
+    _convex_hull_2d
+)
+from .workers import (
     PatientSeriesLoaderWorker,
     StructureLoaderWorker,
     DoseLoaderWorker,
-    DRRPrecomputeWorker,
-    HUVerticalSlider,
-    DRRProgressDialog,
-    DicomViewerWidget,
-    DicomViewerPanel,
+    DRRPrecomputeWorker
 )
+from .controls import (
+    HUVerticalSlider,
+    DRRProgressDialog
+)
+from .canvas import DicomViewerWidget
+from .panel import DicomViewerPanel
 
 __all__ = [
     "safe_dcmread",
