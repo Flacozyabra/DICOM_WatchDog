@@ -113,9 +113,13 @@ def load_rtstruct(filepath, progress_callback=None):
                         raw_val = elem.value
                         if isinstance(raw_val, bytes):
                             s = raw_val.decode("ascii", errors="ignore")
-                            arr = np.fromstring(s, sep="\\", dtype=np.float32).reshape(-1, 3)
-                        else:
+                            arr = np.fromiter((float(x) for x in s.split("\\") if x), dtype=np.float32).reshape(-1, 3)
+                        elif isinstance(raw_val, str):
+                            arr = np.fromiter((float(x) for x in raw_val.split("\\") if x), dtype=np.float32).reshape(-1, 3)
+                        elif isinstance(raw_val, (list, tuple)) or hasattr(raw_val, "__iter__"):
                             arr = np.fromiter(raw_val, dtype=np.float32).reshape(-1, 3)
+                        else:
+                            arr = np.array(raw_val, dtype=np.float32).reshape(-1, 3)
 
                         if len(arr) > 0:
                             z_coord = float(arr[0, 2])

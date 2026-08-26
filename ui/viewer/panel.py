@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import io
 import gc
+from collections import OrderedDict
 import numpy as np
 import pydicom
 
@@ -49,7 +50,7 @@ class DicomViewerPanel(QWidget):
         self.bev_struct_worker = None
         self.drr_dialog = None
         self.progress_dialog = None
-        self.pixmap_cache = {}
+        self.pixmap_cache = OrderedDict()
 
         self.window_width = 400.0
         self.window_center = 40.0
@@ -1228,7 +1229,7 @@ class DicomViewerPanel(QWidget):
             if hasattr(self, "bev_struct_worker") and self.bev_struct_worker is not None and self.bev_struct_worker.isRunning():
                 self.bev_struct_worker.cancel()
                 self.bev_struct_worker.quit()
-                self.bev_struct_worker.wait()
+                self.bev_struct_worker.wait(1000)
             self.viewer.bev_precomputing_status = ""
             self.viewer.show_drr = False
             self.lbl_slider_info.hide()
@@ -1390,18 +1391,19 @@ class DicomViewerPanel(QWidget):
 
     def clear_panel(self) -> None:
         if self.loader_worker is not None and self.loader_worker.isRunning():
+            self.loader_worker.cancel() if hasattr(self.loader_worker, "cancel") else None
             self.loader_worker.quit()
-            self.loader_worker.wait()
+            self.loader_worker.wait(1000)
         if self.struct_worker is not None and self.struct_worker.isRunning():
             self.struct_worker.quit()
-            self.struct_worker.wait()
+            self.struct_worker.wait(1000)
         if self.dose_worker is not None and self.dose_worker.isRunning():
             self.dose_worker.quit()
-            self.dose_worker.wait()
+            self.dose_worker.wait(1000)
         if hasattr(self, "bev_struct_worker") and self.bev_struct_worker is not None and self.bev_struct_worker.isRunning():
             self.bev_struct_worker.cancel()
             self.bev_struct_worker.quit()
-            self.bev_struct_worker.wait()
+            self.bev_struct_worker.wait(1000)
 
         self.viewer.clear_viewer()
         self.viewer.bev_active = False
@@ -1695,6 +1697,8 @@ class DicomViewerPanel(QWidget):
         cache_key = (filepath, frame_idx, round(self.window_width, 1), round(self.window_center, 1))
 
         if cache_key in self.pixmap_cache:
+            if isinstance(self.pixmap_cache, OrderedDict):
+                self.pixmap_cache.move_to_end(cache_key)
             pixmap, ds = self.pixmap_cache[cache_key]
             pat_name = getattr(ds, "PatientName", "Unknown")
             pat_id = getattr(ds, "PatientID", "Unknown")
@@ -1749,9 +1753,8 @@ class DicomViewerPanel(QWidget):
 
             pixmap = self.dicom_to_pixmap(ds, self.window_width, self.window_center)
             if pixmap:
-                if len(self.pixmap_cache) > 80:
-                    oldest_key = next(iter(self.pixmap_cache))
-                    del self.pixmap_cache[oldest_key]
+                if len(self.pixmap_cache) >= 300:
+                    self.pixmap_cache.popitem(last=False)
                 self.pixmap_cache[cache_key] = (pixmap, ds)
                 self.viewer.set_dicom_image(pixmap, ds)
                 self.viewer.set_window_params(self.window_width, self.window_center)
