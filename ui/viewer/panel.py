@@ -260,6 +260,13 @@ class DicomViewerPanel(QWidget):
 
         right_layout.addLayout(center_layout, stretch=1)
 
+        # Информационная подпись над слайдером (для BEV режима)
+        self.lbl_slider_info = QLabel("", self)
+        self.lbl_slider_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_slider_info.setStyleSheet("font-size: 11px; font-weight: bold; color: #93C5FD; padding: 2px 0px;")
+        self.lbl_slider_info.hide()
+        right_layout.addWidget(self.lbl_slider_info)
+
         # Горизонтальный слайдер срезов снизу
         self.slider = QSlider(Qt.Orientation.Horizontal, self)
         self.slider.valueChanged.connect(self.on_slider_changed)
@@ -1082,14 +1089,17 @@ class DicomViewerPanel(QWidget):
 
     def _on_bev_beam_changed(self, index: int) -> None:
         self._sync_bev_slider()
+        self._update_bev_slider_label()
         self.viewer.update()
 
     def _sync_bev_slider(self) -> None:
         if not self.viewer.bev_active:
+            self._update_bev_slider_label()
             return
         beams = self.viewer.plan_data.get("beams", [])
         if not beams:
             self.slider.setEnabled(False)
+            self._update_bev_slider_label()
             return
         idx = max(0, min(len(beams) - 1, self.viewer.bev_selected_beam_idx))
         beam = beams[idx]
@@ -1102,12 +1112,37 @@ class DicomViewerPanel(QWidget):
             self.slider.blockSignals(False)
         else:
             self.slider.setEnabled(False)
+        self._update_bev_slider_label()
 
     def _on_bev_cp_changed(self, cp_idx: int) -> None:
         if self.viewer.bev_active:
             self.slider.blockSignals(True)
             self.slider.setValue(cp_idx)
             self.slider.blockSignals(False)
+            self._update_bev_slider_label()
+
+    def _update_bev_slider_label(self) -> None:
+        if not self.viewer.bev_active:
+            self.lbl_slider_info.hide()
+            return
+        beams = self.viewer.plan_data.get("beams", [])
+        if not beams:
+            self.lbl_slider_info.hide()
+            return
+        idx = max(0, min(len(beams) - 1, self.viewer.bev_selected_beam_idx))
+        beam = beams[idx]
+        cps = beam.get("control_points", [])
+        cp_idx = max(0, min(len(cps) - 1, self.viewer.bev_control_point_idx)) if cps else 0
+        cp = cps[cp_idx] if cps else {}
+        g_angle = float(cp.get("gantry_angle", beam.get("gantry_angle", 0.0)) or 0.0)
+
+        if beam.get("is_dynamic", False) and len(cps) > 1:
+            self.lbl_slider_info.setText(f"Control Point {cp_idx + 1} / {len(cps)}   •   Гантри {g_angle:.1f}°")
+            self.lbl_slider_info.show()
+        else:
+            c_angle = float(cp.get("beam_limiting_device_angle", beam.get("collimator_angle", 0.0)) or 0.0)
+            self.lbl_slider_info.setText(f"Гантри {g_angle:.1f}°   •   Коллиматор {c_angle:.1f}°")
+            self.lbl_slider_info.show()
 
     def start_bev_struct_precompute(self) -> None:
         beams = self.viewer.plan_data.get("beams", [])
@@ -1196,6 +1231,7 @@ class DicomViewerPanel(QWidget):
                 self.bev_struct_worker.wait()
             self.viewer.bev_precomputing_status = ""
             self.viewer.show_drr = False
+            self.lbl_slider_info.hide()
             
             # Восстанавливаем слайдер срезов
             self.slider.blockSignals(True)
@@ -1711,6 +1747,7 @@ class DicomViewerPanel(QWidget):
                 cps = beam.get("control_points", [])
                 if beam.get("is_dynamic", False) and len(cps) > 1:
                     self.viewer.bev_control_point_idx = max(0, min(len(cps) - 1, value))
+                    self._update_bev_slider_label()
                     self.viewer.update()
             return
 

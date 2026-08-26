@@ -985,13 +985,11 @@ class DicomViewerWidget(QWidget):
         top_y = 15
         box_w = max(240, txt_w + 44)
         gap = 6
-        total_w = btn_w + gap + box_w + gap + btn_w + gap + btn_drr_w
 
-        start_x = int(cx - total_w / 2)
-        rect_prev = QRect(start_x, top_y, btn_w, btn_h)
-        rect_title = QRect(start_x + btn_w + gap, top_y, box_w, btn_h)
-        rect_next = QRect(start_x + btn_w + gap + box_w + gap, top_y, btn_w, btn_h)
-        rect_drr = QRect(start_x + btn_w + gap + box_w + gap + btn_w + gap, top_y, btn_drr_w, btn_h)
+        rect_title = QRect(int(cx - box_w / 2), top_y, box_w, btn_h)
+        rect_prev = QRect(rect_title.left() - gap - btn_w, top_y, btn_w, btn_h)
+        rect_next = QRect(rect_title.right() + gap, top_y, btn_w, btn_h)
+        rect_drr = QRect(rect_next.right() + gap, top_y, btn_drr_w, btn_h)
 
         self.bev_prev_btn_rect = rect_prev
         self.bev_title_btn_rect = rect_title
