@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import (
     QIcon, QFont, QPixmap, QBrush, QColor, QPainter,
-    QPen, QImage, QLinearGradient, QPolygon, QPolygonF, QPainterPath
+    QPen, QImage, QLinearGradient, QPolygon, QPolygonF, QPainterPath, QTransform
 )
 from ui.toggle_switch import ToggleSwitch
 from core.config_utils import get_resource_path
@@ -1412,8 +1412,9 @@ class DicomViewerWidget(QWidget):
         self.bev_drr_btn_rect = None
         self.bev_cp_slider_rect = None
 
-        # Кэш DRR и объем КТ
+        # Кэш DRR, объем КТ и кэш 3D-проекций структур BEV
         self.drr_cache = {}
+        self.bev_struct_cache = {}
         self.ct_volume = None
         self.ct_ipp0 = None
         self.ct_spacing = None
@@ -2033,7 +2034,7 @@ class DicomViewerWidget(QWidget):
             Sy = iso[1] - sad * cos_g
             Sz = iso[2]
 
-            def project_pt(x, y, z):
+            def project_pt_mm(x, y, z):
                 rx = x - Sx
                 ry = y - Sy
                 rz = z - Sz
@@ -2042,8 +2043,12 @@ class DicomViewerWidget(QWidget):
                     M = sad / dz_p
                     u_p = (rx * cos_g + ry * sin_g) * M
                     v_p = rz * M
-                    return (cx + u_p * scale, cy - v_p * scale)
+                    return (u_p, -v_p)
                 return None
+
+            trans = QTransform()
+            trans.translate(cx, cy)
+            trans.scale(scale, scale)
 
             for roi_num, s in self.structures.items():
                 name = s.get("name", "")
@@ -2057,56 +2062,68 @@ class DicomViewerWidget(QWidget):
                 if not contours:
                     continue
 
-                # Одноточечные ориентиры (POI, например ICRU / реперные точки)
-                if len(contours) == 1 and len(contours[0].get("points", [])) == 1:
-                    pt = contours[0]["points"][0]
-                    ppt = project_pt(pt[0], pt[1], pt[2])
-                    if ppt:
-                        painter.setPen(QPen(s_color, 2.0))
-                        painter.setBrush(QBrush(s_color))
-                        painter.drawEllipse(QPointF(ppt[0], ppt[1]), 3.5, 3.5)
-                        painter.setFont(QFont("Consolas", 8, QFont.Weight.Bold))
-                        painter.drawText(int(ppt[0] + 6), int(ppt[1] + 4), name)
-                    continue
+                cache_key = (roi_num, round(float(g_angle), 1), round(float(iso[0]), 2), round(float(iso[1]), 2), round(float(iso[2]), 2), round(float(sad), 1))
+                if cache_key in self.bev_struct_cache:
+                    struct_path_mm, pois_mm = self.bev_struct_cache[cache_key]
+                else:
+                    struct_path_mm = QPainterPath()
+                    pois_mm = []
 
-                # Проецируем контуры каждого среза
-                projected_slices = []
-                for c in contours:
-                    pts = c.get("points", [])
-                    if len(pts) >= 3:
-                        pts_2d = [project_pt(p[0], p[1], p[2]) for p in pts]
-                        valid_pts = [p for p in pts_2d if p is not None]
-                        if len(valid_pts) >= 3:
-                            z_avg = sum(p[2] for p in pts) / len(pts)
-                            projected_slices.append((z_avg, valid_pts))
+                    # Одноточечные ориентиры (POI, например ICRU / реперные точки)
+                    if len(contours) == 1 and len(contours[0].get("points", [])) == 1:
+                        pt = contours[0]["points"][0]
+                        ppt = project_pt_mm(pt[0], pt[1], pt[2])
+                        if ppt:
+                            pois_mm.append((name, ppt[0], ppt[1]))
+                    else:
+                        # Проецируем контуры каждого среза
+                        projected_slices = []
+                        for c in contours:
+                            pts = c.get("points", [])
+                            if len(pts) >= 3:
+                                pts_2d = [project_pt_mm(p[0], p[1], p[2]) for p in pts]
+                                valid_pts = [p for p in pts_2d if p is not None]
+                                if len(valid_pts) >= 3:
+                                    z_avg = sum(p[2] for p in pts) / len(pts)
+                                    projected_slices.append((z_avg, valid_pts))
 
-                if not projected_slices:
-                    continue
+                        if projected_slices:
+                            projected_slices.sort(key=lambda x: x[0])
 
-                projected_slices.sort(key=lambda x: x[0])
+                            # Объединяем срезы и межсрезовые объемы в непрерывный 2D-силуэт
+                            for idx_c in range(len(projected_slices)):
+                                z_c, pts_c = projected_slices[idx_c]
+                                p_c = QPainterPath()
+                                p_c.addPolygon(QPolygonF([QPointF(p[0], p[1]) for p in pts_c]))
+                                p_c.closeSubpath()
+                                struct_path_mm = struct_path_mm.united(p_c) if not struct_path_mm.isEmpty() else p_c
 
-                # Объединяем срезы и межсрезовые объемы в непрерывный 2D-силуэт
-                struct_path = QPainterPath()
-                for idx_c in range(len(projected_slices)):
-                    z_c, pts_c = projected_slices[idx_c]
-                    p_c = QPainterPath()
-                    p_c.addPolygon(QPolygonF([QPointF(p[0], p[1]) for p in pts_c]))
-                    p_c.closeSubpath()
-                    struct_path = struct_path.united(p_c) if not struct_path.isEmpty() else p_c
+                                if idx_c + 1 < len(projected_slices):
+                                    z_next, pts_next = projected_slices[idx_c + 1]
+                                    hull = _convex_hull_2d(pts_c + pts_next)
+                                    if len(hull) >= 3:
+                                        hull_path = QPainterPath()
+                                        hull_path.addPolygon(QPolygonF([QPointF(p[0], p[1]) for p in hull]))
+                                        hull_path.closeSubpath()
+                                        struct_path_mm = struct_path_mm.united(hull_path)
 
-                    if idx_c + 1 < len(projected_slices):
-                        z_next, pts_next = projected_slices[idx_c + 1]
-                        hull = _convex_hull_2d(pts_c + pts_next)
-                        if len(hull) >= 3:
-                            hull_path = QPainterPath()
-                            hull_path.addPolygon(QPolygonF([QPointF(p[0], p[1]) for p in hull]))
-                            hull_path.closeSubpath()
-                            struct_path = struct_path.united(hull_path)
+                    self.bev_struct_cache[cache_key] = (struct_path_mm, pois_mm)
 
-                if not struct_path.isEmpty():
+                # Отрисовка силуэта структуры
+                if not struct_path_mm.isEmpty():
+                    canvas_path = trans.map(struct_path_mm)
                     painter.setBrush(Qt.BrushStyle.NoBrush)
                     painter.setPen(QPen(s_color, 2.0))
-                    painter.drawPath(struct_path)
+                    painter.drawPath(canvas_path)
+
+                # Отрисовка точечных маркеров POI
+                for poi_name, poi_u, poi_v in pois_mm:
+                    p_canvas = QPointF(cx + poi_u * scale, cy + poi_v * scale)
+                    painter.setPen(QPen(s_color, 2.0))
+                    painter.setBrush(QBrush(s_color))
+                    painter.drawEllipse(p_canvas, 3.5, 3.5)
+                    painter.setFont(QFont("Consolas", 8, QFont.Weight.Bold))
+                    painter.drawText(int(p_canvas.x() + 6), int(p_canvas.y() + 4), poi_name)
 
         painter.restore()
 
@@ -3556,6 +3573,7 @@ class DicomViewerPanel(QWidget):
     def apply_structures(self, parsed: dict) -> None:
         self.viewer.structures.clear()
         self.viewer.enabled_structures.clear()
+        self.viewer.bev_struct_cache.clear()
         
         self.list_structures.blockSignals(True)
         self.list_structures.clear()
@@ -3584,6 +3602,7 @@ class DicomViewerPanel(QWidget):
 
         self.viewer.structures.clear()
         self.viewer.enabled_structures.clear()
+        self.viewer.bev_struct_cache.clear()
         self.viewer.rebuild_contour_index()
         
         self.list_structures.blockSignals(True)
@@ -4117,6 +4136,31 @@ class DicomViewerPanel(QWidget):
             self.hu_panel.hide()
             self.slider.setEnabled(False)
 
+            # Сохраняем текущий набор включенных пользователем структур
+            self._pre_bev_enabled_structures = set(self.viewer.enabled_structures)
+
+            # В BEV по умолчанию оставляем включенными только Body, PTV и ICRU / ориентиры
+            def is_essential_bev_struct(name: str) -> bool:
+                n = name.lower()
+                for k in ("body", "тело", "боди", "external", "skin", "ptv", "птв", "icru", "ориентир", "marker", "poi"):
+                    if k in n:
+                        return True
+                return False
+
+            self.list_structures.blockSignals(True)
+            self.viewer.enabled_structures.clear()
+            for i in range(self.list_structures.count()):
+                item = self.list_structures.item(i)
+                if item:
+                    s_name = item.text()
+                    if is_essential_bev_struct(s_name) and s_name in self._pre_bev_enabled_structures:
+                        item.setCheckState(Qt.CheckState.Checked)
+                        self.viewer.enabled_structures.add(s_name)
+                    else:
+                        item.setCheckState(Qt.CheckState.Unchecked)
+            self.list_structures.blockSignals(False)
+            self.viewer.rebuild_contour_index()
+
             # Наполняем и показываем выпадающий список полей BEV
             beams = self.viewer.plan_data.get("beams", [])
             self.cb_beam.blockSignals(True)
@@ -4142,6 +4186,23 @@ class DicomViewerPanel(QWidget):
             self.cb_beam.show()
         else:
             self.slider.setEnabled(True)
+            # Восстанавливаем состояние включенных структур, которое было до входа в BEV
+            to_restore = getattr(self, "_pre_bev_enabled_structures", None)
+            if to_restore is not None:
+                self.list_structures.blockSignals(True)
+                self.viewer.enabled_structures.clear()
+                for i in range(self.list_structures.count()):
+                    item = self.list_structures.item(i)
+                    if item:
+                        s_name = item.text()
+                        if s_name in to_restore:
+                            item.setCheckState(Qt.CheckState.Checked)
+                            self.viewer.enabled_structures.add(s_name)
+                        else:
+                            item.setCheckState(Qt.CheckState.Unchecked)
+                self.list_structures.blockSignals(False)
+                self.viewer.rebuild_contour_index()
+
             if hasattr(self, "lbl_beam"):
                 self.lbl_beam.hide()
             self.cb_beam.hide()
