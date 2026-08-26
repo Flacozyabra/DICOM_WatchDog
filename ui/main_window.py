@@ -824,6 +824,7 @@ class MainWindow(QMainWindow):
                 if not self.archive_worker or not self.archive_worker.isRunning():
                     self.fill_archive_list()
             else:
+                self._prune_missing_archive_records()
                 self.update_archive_table_ui()
             QTimer.singleShot(0, self.focus_ct_archive_search)
         elif current_widget == self.pacs_tab:  # PACS
@@ -1478,6 +1479,68 @@ class MainWindow(QMainWindow):
         if not silent:
             log_message(self.output_field, tr_log("log_archive_loaded"), replace_suffix=tr_log("log_loading_archive"))
         self.archive_cache = archive_dict
+        self.update_archive_table_ui()
+        self.update_tab_badges()
+
+    def _prune_missing_archive_records(self):
+        if not hasattr(self, 'archive_cache') or not self.archive_cache:
+            return
+        archive_dir = self.config.get('archive_dir', '')
+        if not archive_dir or not os.path.exists(archive_dir):
+            return
+
+        missing_keys = []
+        for key, item in list(self.archive_cache.items()):
+            folder_name = item.get('folder_name', key)
+            if not folder_name:
+                continue
+            full_path = os.path.normpath(os.path.join(archive_dir, folder_name))
+            if not os.path.exists(full_path):
+                missing_keys.append(key)
+
+        if missing_keys:
+            from core.archive import load_cache, save_cache
+            cache = load_cache()
+            cache_changed = False
+
+            for key in missing_keys:
+                pat_info = self.archive_cache.pop(key, {})
+                folder_name = pat_info.get('folder_name', key)
+                full_path = os.path.normpath(os.path.join(archive_dir, folder_name))
+                keys_to_del = [k for k in cache.keys() if os.path.normcase(os.path.normpath(k)) == os.path.normcase(full_path)]
+                for k in keys_to_del:
+                    del cache[k]
+                    cache_changed = True
+
+            if cache_changed:
+                save_cache(cache)
+
+            self.update_archive_table_ui()
+            self.update_tab_badges()
+
+    def remove_missing_archive_patient(self, patient_key: str):
+        if not hasattr(self, 'archive_cache') or not self.archive_cache:
+            return
+
+        pat_info = self.archive_cache.pop(patient_key, {})
+        pat_name = pat_info.get('patient_name', 'Unknown')
+        p_id = pat_info.get('patient_id', patient_key)
+        
+        log_message(self.output_field, tr_log("log_patient_not_found_in_archive", pat_name, p_id))
+
+        archive_dir = self.config.get('archive_dir', '')
+        if archive_dir and os.path.exists(archive_dir):
+            folder_name = pat_info.get('folder_name', patient_key)
+            full_path = os.path.normpath(os.path.join(archive_dir, folder_name))
+            
+            from core.archive import load_cache, save_cache
+            cache = load_cache()
+            keys_to_del = [k for k in cache.keys() if os.path.normcase(os.path.normpath(k)) == os.path.normcase(full_path)]
+            if keys_to_del:
+                for k in keys_to_del:
+                    del cache[k]
+                save_cache(cache)
+
         self.update_archive_table_ui()
         self.update_tab_badges()
 
@@ -2223,7 +2286,10 @@ class MainWindow(QMainWindow):
             return
             
         if not os.path.exists(patient_dir):
-            log_message(self.output_field, tr_log("log_path_not_exist", patient_dir))
+            if is_archive:
+                self.remove_missing_archive_patient(patient_id)
+            else:
+                log_message(self.output_field, tr_log("log_path_not_exist", patient_dir))
             return
             
         try:

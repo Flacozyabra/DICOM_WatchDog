@@ -122,7 +122,7 @@ class PatientOperationsManager:
         folder_name = self.mw.archive_cache[patient_id].get('folder_name', patient_id) if (self.mw.archive_cache and patient_id in self.mw.archive_cache) else patient_id
         path = os.path.join(self.mw.config.get('archive_dir', ''), folder_name)
         if not os.path.exists(path):
-            log_message(self.mw.output_field, tr_log("log_path_not_exist", path))
+            self.mw.remove_missing_archive_patient(patient_id)
             return
 
         _dlg = QMessageBox(self.mw)
@@ -181,7 +181,7 @@ class PatientOperationsManager:
         folder_name = self.mw.archive_cache[patient_id].get('folder_name', patient_id) if (self.mw.archive_cache and patient_id in self.mw.archive_cache) else patient_id
         path = os.path.join(archive_dir, folder_name)
         if not os.path.exists(path):
-            log_message(self.mw.output_field, tr_log("log_patient_not_found_in_archive", patient_id, patient_name))
+            self.mw.remove_missing_archive_patient(patient_id)
             return
             
         dest_path = os.path.join(ct_images_dir, folder_name)
@@ -233,7 +233,10 @@ class PatientOperationsManager:
             except Exception as e:
                 log_message(self.mw.output_field, tr_log("log_failed_open_folder", folder_name, e))
         else:
-            log_message(self.mw.output_field, tr_log("log_path_not_exist", path))
+            if is_archive:
+                self.mw.remove_missing_archive_patient(patient_id)
+            else:
+                log_message(self.mw.output_field, tr_log("log_path_not_exist", path))
 
     def open_current_folder_cmd(self, row, column):
         id_item = self.mw.images_table.item(row, 0)
