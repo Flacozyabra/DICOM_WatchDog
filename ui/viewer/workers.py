@@ -446,8 +446,9 @@ class BEVStructurePrecomputeWorker(QThread):
             if b_idx != self.active_beam_idx:
                 ordered_beams.append(beam)
 
-        # Формируем плоский список всех ракурсов
+        # Формируем плоский список уникальных ракурсов (с шагом 2° для дуг)
         items_to_calc = []
+        seen_angles = set()
         for b_idx, beam in enumerate(ordered_beams):
             b_name = beam.get("display_name", f"Поле {b_idx + 1}")
             sad = float(beam.get("sad", self.default_sad) or self.default_sad)
@@ -455,13 +456,22 @@ class BEVStructurePrecomputeWorker(QThread):
             cps = beam.get("control_points", [])
 
             if not cps:
-                g_ang = float(beam.get("gantry_angle", 0.0))
-                items_to_calc.append((b_name, g_ang, iso_default, sad))
+                g_ang = round(float(beam.get("gantry_angle", 0.0)) / 2.0) * 2.0
+                iso = iso_default
+                key_sig = (g_ang, round(float(iso[0]), 1), round(float(iso[1]), 1), round(float(iso[2]), 1))
+                if key_sig not in seen_angles:
+                    seen_angles.add(key_sig)
+                    items_to_calc.append((b_name, g_ang, iso, sad))
             else:
                 for cp in cps:
-                    g_ang = float(cp.get("gantry_angle", beam.get("gantry_angle", 0.0)))
+                    g_ang = round(float(cp.get("gantry_angle", beam.get("gantry_angle", 0.0))) / 2.0) * 2.0
                     iso = cp.get("isocenter", iso_default)
-                    items_to_calc.append((b_name, g_ang, iso, sad))
+                    if not iso or len(iso) < 3:
+                        continue
+                    key_sig = (g_ang, round(float(iso[0]), 1), round(float(iso[1]), 1), round(float(iso[2]), 1))
+                    if key_sig not in seen_angles:
+                        seen_angles.add(key_sig)
+                        items_to_calc.append((b_name, g_ang, iso, sad))
 
         total_items = len(items_to_calc)
         calculated_keys = set()
@@ -504,10 +514,10 @@ class BEVStructurePrecomputeWorker(QThread):
 
                 cache_key = (
                     roi_num,
-                    round(float(g_angle), 1),
-                    round(float(iso[0]), 2),
-                    round(float(iso[1]), 2),
-                    round(float(iso[2]), 2),
+                    round(float(g_angle) / 2.0) * 2.0,
+                    round(float(iso[0]), 1),
+                    round(float(iso[1]), 1),
+                    round(float(iso[2]), 1),
                     round(float(sad), 1)
                 )
 

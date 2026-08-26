@@ -407,19 +407,15 @@ def load_rtplan(filepath: str) -> dict:
                 if rot_dir == "NONE" and hasattr(b, "GantryRotationDirection"):
                     rot_dir = str(getattr(b, "GantryRotationDirection", "NONE") or "NONE").upper()
 
-                clean_name = b_name.strip() if b_name else ""
-                gantry_val = cp0.get("gantry_angle", 0.0)
+                clean_name = str(b_name).strip() if b_name else ""
+                if not clean_name or clean_name == f"Beam {b_num}":
+                    clean_name = f"Поле {b_num}"
 
                 if is_dynamic and abs(g_start - g_stop) > 0.5:
                     dir_txt = " (CW)" if rot_dir in ("CW", "CLOCKWISE") else (" (CCW)" if rot_dir in ("CC", "CCW", "COUNTER_CLOCKWISE") else "")
                     display_name = f"{clean_name} ({g_start:.0f}°->{g_stop:.0f}°{dir_txt})"
-                elif is_dynamic:
-                    display_name = f"{clean_name} ({g_start:.1f}° [VMAT])"
                 else:
-                    if not clean_name or clean_name == f"Beam {b_num}":
-                        display_name = f"Поле {b_num} ({gantry_val:.1f}°){wedge_suffix}"
-                    else:
-                        display_name = f"{clean_name} ({gantry_val:.1f}°){wedge_suffix}"
+                    display_name = f"{clean_name} ({g_start:.1f}°){wedge_suffix}"
 
                 beams.append({
                     "number": b_num,

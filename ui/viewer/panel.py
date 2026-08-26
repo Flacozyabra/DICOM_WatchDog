@@ -1112,7 +1112,6 @@ class DicomViewerPanel(QWidget):
         if index >= 0 and self.viewer.bev_active:
             self.viewer.bev_selected_beam_idx = index
             self.viewer.bev_control_point_idx = 0
-            self.start_bev_struct_precompute()
             self.viewer.update()
 
     def _on_bev_beam_changed(self, index: int) -> None:
@@ -1120,7 +1119,7 @@ class DicomViewerPanel(QWidget):
             self.cb_beam.blockSignals(True)
             self.cb_beam.setCurrentIndex(index)
             self.cb_beam.blockSignals(False)
-            self.start_bev_struct_precompute()
+            self.viewer.update()
 
     def start_bev_struct_precompute(self) -> None:
         beams = self.viewer.plan_data.get("beams", [])
@@ -1128,9 +1127,7 @@ class DicomViewerPanel(QWidget):
             return
 
         if hasattr(self, "bev_struct_worker") and self.bev_struct_worker is not None and self.bev_struct_worker.isRunning():
-            self.bev_struct_worker.cancel()
-            self.bev_struct_worker.quit()
-            self.bev_struct_worker.wait()
+            return
 
         self.viewer.bev_precomputing_status = "BEV: подготовка 3D-проекций..."
         self.bev_struct_worker = BEVStructurePrecomputeWorker(

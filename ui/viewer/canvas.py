@@ -733,7 +733,14 @@ class DicomViewerWidget(QWidget):
                 if not contours:
                     continue
 
-                cache_key = (roi_num, round(float(g_angle), 1), round(float(iso[0]), 2), round(float(iso[1]), 2), round(float(iso[2]), 2), round(float(sad), 1))
+                cache_key = (
+                    roi_num,
+                    round(float(g_angle) / 2.0) * 2.0,
+                    round(float(iso[0]), 1),
+                    round(float(iso[1]), 1),
+                    round(float(iso[2]), 1),
+                    round(float(sad), 1)
+                )
                 if cache_key in self.bev_struct_cache:
                     struct_path_mm, pois_mm = self.bev_struct_cache[cache_key]
                 else:
