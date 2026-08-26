@@ -9,7 +9,7 @@ from PyQt6.QtGui import QImage, QPainterPath, QPolygonF
 
 from core.locale_utils import tr_ui
 from core.dicom_utils import classify_dicom_file
-from .parsers import safe_dcmread, load_rtstruct, load_rtdose, load_rtplan
+from .parsers import safe_dcmread, load_rtstruct, load_rtdose, load_rtplan, _convex_hull_2d
 
 
 class PatientSeriesLoaderWorker(QThread):
@@ -45,28 +45,13 @@ class PatientSeriesLoaderWorker(QThread):
                         return
                     f_path = os.path.join(series_dir, f)
                     if os.path.isfile(f_path):
-                        f_up = f.upper()
-                        if f_up.startswith("STR"):
+                        t = classify_dicom_file(f, f_path)
+                        if t == "RTSTRUCT":
                             struct_files.append(f_path)
-                        elif f_up.startswith("RD") or f_up.startswith("DOSE"):
+                        elif t == "RTDOSE":
                             dose_files.append(f_path)
-                        elif f_up.startswith("RP") or f_up.startswith("PLAN"):
+                        elif t == "RTPLAN":
                             plan_files.append(f_path)
-                        elif f.lower().endswith(".dcm"):
-                            try:
-                                ds_meta = safe_dcmread(f_path, stop_before_pixels=True)
-                                mod = getattr(ds_meta, "Modality", "")
-                                if mod == "RTSTRUCT":
-                                    if f_path not in struct_files:
-                                        struct_files.append(f_path)
-                                elif mod == "RTDOSE":
-                                    if f_path not in dose_files:
-                                        dose_files.append(f_path)
-                                elif mod == "RTPLAN":
-                                    if f_path not in plan_files:
-                                        plan_files.append(f_path)
-                            except Exception:
-                                pass
 
             # 2. Обработка КТ файлов с передачей прогресса (0% -> 60%)
             slices = []
@@ -496,16 +481,33 @@ class BEVStructurePrecomputeWorker(QThread):
                     if ppt:
                         pois_mm.append((name, ppt[0], ppt[1]))
                 else:
-                    step_s = 2 if len(contours) > 50 else 1
-                    for c in contours[::step_s]:
+                    projected_slices = []
+                    for c in contours:
                         pts = c.get("points", [])
                         if len(pts) >= 3:
-                            step_p = 2 if len(pts) > 60 else 1
-                            pts_2d = [project_pt_mm(p[0], p[1], p[2]) for p in pts[::step_p]]
+                            pts_2d = [project_pt_mm(p[0], p[1], p[2]) for p in pts]
                             valid_pts = [p for p in pts_2d if p is not None]
                             if len(valid_pts) >= 3:
-                                struct_path_mm.addPolygon(QPolygonF([QPointF(p[0], p[1]) for p in valid_pts]))
-                                struct_path_mm.closeSubpath()
+                                z_avg = sum(p[2] for p in pts) / len(pts)
+                                projected_slices.append((z_avg, valid_pts))
+
+                    if projected_slices:
+                        projected_slices.sort(key=lambda x: x[0])
+                        for idx_c in range(len(projected_slices)):
+                            z_c, pts_c = projected_slices[idx_c]
+                            p_c = QPainterPath()
+                            p_c.addPolygon(QPolygonF([QPointF(p[0], p[1]) for p in pts_c]))
+                            p_c.closeSubpath()
+                            struct_path_mm = struct_path_mm.united(p_c) if not struct_path_mm.isEmpty() else p_c
+
+                            if idx_c + 1 < len(projected_slices):
+                                z_next, pts_next = projected_slices[idx_c + 1]
+                                hull = _convex_hull_2d(pts_c + pts_next)
+                                if len(hull) >= 3:
+                                    hull_path = QPainterPath()
+                                    hull_path.addPolygon(QPolygonF([QPointF(p[0], p[1]) for p in hull]))
+                                    hull_path.closeSubpath()
+                                    struct_path_mm = struct_path_mm.united(hull_path)
 
                 self.item_computed_signal.emit(cache_key, struct_path_mm, pois_mm)
 

@@ -8,99 +8,89 @@ from core.logger import log_message
 from core.locale_utils import tr_log
 
 
-def classify_dicom_file(filename: str) -> str:
+def classify_dicom_file(filename: str, filepath: str = None) -> str:
     """
-    Быстро определяет тип DICOM файла по имени/расширению без обращения к диску.
+    Быстро определяет тип DICOM файла по имени/расширению без обращения к диску,
+    а при неоднозначности выполняет быструю проверку тегов Modality/SOPClassUID.
     Возвращает: 'RTSTRUCT', 'RTDOSE', 'RTPLAN', 'CT', или 'IGNORE' (для DICOMDIR).
     """
     fn = filename.upper()
     if fn == 'DICOMDIR':
         return 'IGNORE'
-    if fn.endswith('.STR') or fn.startswith(('STR', 'RS', 'RTSTRUCT', 'RT_STRUCT', 'STRUCTURES')):
+
+    # 1. RTSTRUCT (STR, RS, RTSTRUCT, STRUCT, STRCTR, CONTOUR, .STR)
+    if (fn.endswith('.STR') or 
+        fn.startswith(('STR', 'RS', 'RTSTRUCT', 'RT_STRUCT', 'STRUCTURES')) or 
+        'STRUCT' in fn or 'STRCTR' in fn or '_STR' in fn or '_RS' in fn or 'CONTOUR' in fn):
         return 'RTSTRUCT'
-    if fn.endswith(('.RTD', '.DOSE')) or fn.startswith(('RD', 'RTDOSE', 'RT_DOSE', 'DOSE')):
+
+    # 2. RTDOSE (RD, RTDOSE, DOSE, .RTD, .DOSE, _RD)
+    if (fn.endswith(('.RTD', '.DOSE')) or 
+        fn.startswith(('RD', 'RTDOSE', 'RT_DOSE', 'DOSE')) or 
+        'DOSE' in fn or '_RD' in fn or 'RTDOSE' in fn or 'RD_' in fn):
         return 'RTDOSE'
-    if fn.endswith(('.RTP', '.PLAN')) or fn.startswith(('RP', 'RTPLAN', 'RT_PLAN', 'PLAN')):
+
+    # 3. RTPLAN (RP, RTPLAN, PLAN, .RTP, .PLAN, _PL, _RP)
+    if (fn.endswith(('.RTP', '.PLAN')) or 
+        fn.startswith(('RP', 'RTPLAN', 'RT_PLAN', 'PLAN')) or 
+        'PLAN' in fn or '_PL' in fn or '_RP' in fn or 'RTPLAN' in fn or 'RP_' in fn):
         return 'RTPLAN'
+
+    # 4. Явные шаблоны КТ-срезов
+    if ('_CT' in fn or 'CT_' in fn or 'CT2_' in fn or '_IMAGE' in fn or 
+        'IMG' in fn or fn.startswith('CT') or fn.startswith('1.2.')):
+        return 'CT'
+
+    # 5. Для неоднозначных файлов без явного префикса КТ — быстрая проверка заголовка
+    target_path = filepath or (filename if os.path.isabs(filename) else None)
+    if target_path and os.path.isfile(target_path) and (target_path.lower().endswith('.dcm') or not os.path.splitext(target_path)[1]):
+        try:
+            ds = pydicom.dcmread(target_path, stop_before_pixels=True, force=True, specific_tags=['Modality', 'SOPClassUID'])
+            mod = str(getattr(ds, 'Modality', '')).upper()
+            sop = str(getattr(ds, 'SOPClassUID', ''))
+            if mod == 'RTSTRUCT' or sop == '1.2.840.10008.5.1.4.1.1.481.3':
+                return 'RTSTRUCT'
+            if mod == 'RTDOSE' or sop == '1.2.840.10008.5.1.4.1.1.481.2':
+                return 'RTDOSE'
+            if mod == 'RTPLAN' or sop == '1.2.840.10008.5.1.4.1.1.481.5':
+                return 'RTPLAN'
+        except Exception:
+            pass
+
     return 'CT'
 
 
 def is_structure_file(file_path):
     """
     Определяет, является ли файл файлом структур (RTSTRUCT).
-    Поддерживает расширение .str, префиксы STR, RS, RTSTRUCT, 
-    а также быструю проверку Modality в DICOM-файлах без ограничения по размеру.
     """
     if not os.path.exists(file_path):
         return False
     bname = os.path.basename(file_path)
-    cls = classify_dicom_file(bname)
-    if cls == 'RTSTRUCT':
-        return True
-    if cls in ('RTDOSE', 'RTPLAN', 'IGNORE'):
-        return False
-    if file_path.lower().endswith('.dcm') or not os.path.splitext(file_path)[1]:
-        try:
-            ds = pydicom.dcmread(file_path, stop_before_pixels=True, force=True, specific_tags=['Modality', 'SOPClassUID'])
-            mod = str(getattr(ds, 'Modality', ''))
-            sop = str(getattr(ds, 'SOPClassUID', ''))
-            if mod == 'RTSTRUCT' or sop == '1.2.840.10008.5.1.4.1.1.481.3':
-                return True
-        except Exception:
-            pass
-    return False
+    cls = classify_dicom_file(bname, file_path)
+    return cls == 'RTSTRUCT'
 
 
 def is_dose_file(file_path):
     """
     Определяет, является ли файл файлом дозы (RTDOSE).
-    Поддерживает расширения .rtd, префиксы RD, RTDOSE, DOSE,
-    а также быструю проверку Modality / SOPClassUID.
     """
     if not os.path.exists(file_path):
         return False
     bname = os.path.basename(file_path)
-    cls = classify_dicom_file(bname)
-    if cls == 'RTDOSE':
-        return True
-    if cls in ('RTSTRUCT', 'RTPLAN', 'IGNORE'):
-        return False
-    if file_path.lower().endswith('.dcm') or not os.path.splitext(file_path)[1]:
-        try:
-            ds = pydicom.dcmread(file_path, stop_before_pixels=True, force=True, specific_tags=['Modality', 'SOPClassUID'])
-            mod = str(getattr(ds, 'Modality', ''))
-            sop = str(getattr(ds, 'SOPClassUID', ''))
-            if mod == 'RTDOSE' or sop == '1.2.840.10008.5.1.4.1.1.481.2':
-                return True
-        except Exception:
-            pass
-    return False
+    cls = classify_dicom_file(bname, file_path)
+    return cls == 'RTDOSE'
 
 
 def is_plan_file(file_path):
     """
     Определяет, является ли файл файлом плана (RTPLAN).
-    Поддерживает расширения .rtp, префиксы RP, RTPLAN, PLAN,
-    а также быструю проверку Modality / SOPClassUID.
     """
     if not os.path.exists(file_path):
         return False
     bname = os.path.basename(file_path)
-    cls = classify_dicom_file(bname)
-    if cls == 'RTPLAN':
-        return True
-    if cls in ('RTSTRUCT', 'RTDOSE', 'IGNORE'):
-        return False
-    if file_path.lower().endswith('.dcm') or not os.path.splitext(file_path)[1]:
-        try:
-            ds = pydicom.dcmread(file_path, stop_before_pixels=True, force=True, specific_tags=['Modality', 'SOPClassUID'])
-            mod = str(getattr(ds, 'Modality', ''))
-            sop = str(getattr(ds, 'SOPClassUID', ''))
-            if mod == 'RTPLAN' or sop == '1.2.840.10008.5.1.4.1.1.481.5':
-                return True
-        except Exception:
-            pass
-    return False
+    cls = classify_dicom_file(bname, file_path)
+    return cls == 'RTPLAN'
 
 
 def is_dicom_file(file_path):
@@ -190,7 +180,8 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
         rtp_files = []
 
         for f in files:
-            t = classify_dicom_file(f)
+            fp_curr = os.path.join(root, f)
+            t = classify_dicom_file(f, fp_curr)
             if t == 'IGNORE':
                 continue
             elif t == 'RTSTRUCT':
