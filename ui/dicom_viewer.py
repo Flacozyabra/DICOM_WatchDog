@@ -2650,7 +2650,7 @@ class DicomViewerWidget(QWidget):
                                 painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_text)
 
                             else:
-                                # 2. Статический пучок (3D-CRT / IMRT) с графическим отображением ширины пучка
+                                # 2. Статический пучок (3D-CRT / IMRT) - только центральная ось пучка
                                 ray_len = 160.0 * self.zoom_factor
                                 g_angle = beam.get("gantry_angle", 0.0)
                                 rad = math.radians(g_angle)
@@ -2660,43 +2660,12 @@ class DicomViewerWidget(QWidget):
                                 wx_src = wx_iso + sx * ray_len
                                 wy_src = wy_iso + sy * ray_len
 
-                                # Перпендикулярный вектор для ширины поля
-                                perp_x = -sy
-                                perp_y = sx
-
-                                # Пересчет ширины шторок в пиксели экрана с учетом поворота коллиматора
-                                scale_px_mm = scale_x / dx
-                                w1_px = w1_mm * scale_px_mm
-                                w2_px = w2_mm * scale_px_mm
-
-                                # Точки шторок на уровне изоцентра
-                                p_iso_left = QPointF(wx_iso + perp_x * w1_px, wy_iso + perp_y * w1_px)
-                                p_iso_right = QPointF(wx_iso + perp_x * w2_px, wy_iso + perp_y * w2_px)
-
-                                # Расходящиеся лучи через шторки сквозь пациента
-                                v1 = p_iso_left - QPointF(wx_src, wy_src)
-                                v2 = p_iso_right - QPointF(wx_src, wy_src)
-                                p_exit_left = QPointF(wx_src, wy_src) + v1 * 1.5
-                                p_exit_right = QPointF(wx_src, wy_src) + v2 * 1.5
-
-                                # 2.1 Расходящийся веер пучка (полупрозрачная заливка ширины поля)
-                                fan_poly = QPolygonF([QPointF(wx_src, wy_src), p_exit_left, p_exit_right])
-                                painter.setPen(Qt.PenStyle.NoPen)
-                                painter.setBrush(QBrush(QColor(245, 158, 11, 25)))
-                                painter.drawPolygon(fan_poly)
-
-                                # 2.2 Боковые границы пучка (ширина поля)
-                                pen_border = QPen(QColor(245, 158, 11, 130), 1.2, Qt.PenStyle.DashLine)
-                                painter.setPen(pen_border)
-                                painter.drawLine(QPointF(wx_src, wy_src), p_exit_left)
-                                painter.drawLine(QPointF(wx_src, wy_src), p_exit_right)
-
-                                # 2.3 Центральная ось пучка
+                                # 2.1 Центральная ось пучка
                                 pen_ray = QPen(QColor("#F59E0B"), 1.8, Qt.PenStyle.SolidLine)
                                 painter.setPen(pen_ray)
                                 painter.drawLine(QPointF(wx_src, wy_src), QPointF(wx_iso, wy_iso))
 
-                                # 2.4 Стрелка направления входа на изоцентре
+                                # 2.2 Стрелка направления входа на изоцентре
                                 arrow_len = 12.0
                                 arr_dx = -sx
                                 arr_dy = -sy
@@ -2709,10 +2678,8 @@ class DicomViewerWidget(QWidget):
                                 painter.setBrush(QBrush(QColor("#F59E0B")))
                                 painter.drawPolygon(QPolygonF([p_head, p_a1, p_a2]))
 
-                                # 2.5 Бейдж с номером, углом, шириной поля и клином
-                                width_cm = abs(w2_mm - w1_mm) / 10.0
-                                width_info = f" [{width_cm:.1f} см]" if width_cm > 0.1 else ""
-                                badge_beam_text = f"[{b_num}] {g_angle:.1f}°{width_info}{wedge_info}"
+                                # 2.3 Бейдж с номером, углом и клином
+                                badge_beam_text = f"[{b_num}] {g_angle:.1f}°{wedge_info}"
                                 painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
                                 m_b = painter.fontMetrics()
                                 rect_b_txt = m_b.boundingRect(badge_beam_text)
@@ -3036,7 +3003,11 @@ class DicomViewerPanel(QWidget):
 
         top_layout.addStretch()
 
-        # Выпадающий список для выбора файла дозы RTDOSE
+        # Метка и выпадающий список для выбора файла дозы RTDOSE
+        self.lbl_dose = QLabel("RTD", self)
+        self.lbl_dose.setStyleSheet("font-size: 11px; font-weight: bold; color: #9CA3AF;")
+        top_layout.addWidget(self.lbl_dose)
+
         self.cb_dose = QComboBox(self)
         self.cb_dose.setFixedWidth(160)
         self.cb_dose.setStyleSheet("""
@@ -3061,7 +3032,11 @@ class DicomViewerPanel(QWidget):
         self.cb_dose.setEnabled(False)
         top_layout.addWidget(self.cb_dose)
 
-        # Выпадающий список для выбора набора структур RTSTRUCT
+        # Метка и выпадающий список для выбора набора структур RTSTRUCT
+        self.lbl_structures = QLabel("STR", self)
+        self.lbl_structures.setStyleSheet("font-size: 11px; font-weight: bold; color: #9CA3AF;")
+        top_layout.addWidget(self.lbl_structures)
+
         self.cb_structures = QComboBox(self)
         self.cb_structures.setFixedWidth(160)
         self.cb_structures.setStyleSheet("""
@@ -3086,7 +3061,12 @@ class DicomViewerPanel(QWidget):
         self.cb_structures.setEnabled(False)
         top_layout.addWidget(self.cb_structures)
 
-        # Выпадающий список выбора полей облучения (для режима BEV)
+        # Метка и выпадающий список выбора полей облучения (для режима BEV)
+        self.lbl_beam = QLabel("BEAM", self)
+        self.lbl_beam.setStyleSheet("font-size: 11px; font-weight: bold; color: #9CA3AF;")
+        self.lbl_beam.hide()
+        top_layout.addWidget(self.lbl_beam)
+
         self.cb_beam = QComboBox(self)
         self.cb_beam.setFixedWidth(240)
         self.cb_beam.setStyleSheet("""
@@ -3112,7 +3092,11 @@ class DicomViewerPanel(QWidget):
         self.cb_beam.hide()
         top_layout.addWidget(self.cb_beam)
 
-        # Выпадающий список пресетов HU
+        # Метка и выпадающий список пресетов HU
+        self.lbl_presets = QLabel("HU", self)
+        self.lbl_presets.setStyleSheet("font-size: 11px; font-weight: bold; color: #9CA3AF;")
+        top_layout.addWidget(self.lbl_presets)
+
         self.cb_presets = QComboBox(self)
         self.cb_presets.setFixedWidth(160)
         self.cb_presets.setStyleSheet("""
@@ -3750,6 +3734,16 @@ class DicomViewerPanel(QWidget):
         self.cb_structures.setStyleSheet(style_combo)
         if hasattr(self, "cb_beam"):
             self.cb_beam.setStyleSheet(style_combo)
+
+        lbl_style = f"font-size: 11px; font-weight: bold; color: {palette.get('TEXT_MUTED', '#9CA3AF')}; background: transparent; border: none;"
+        if hasattr(self, "lbl_dose"):
+            self.lbl_dose.setStyleSheet(lbl_style)
+        if hasattr(self, "lbl_structures"):
+            self.lbl_structures.setStyleSheet(lbl_style)
+        if hasattr(self, "lbl_presets"):
+            self.lbl_presets.setStyleSheet(lbl_style)
+        if hasattr(self, "lbl_beam"):
+            self.lbl_beam.setStyleSheet(lbl_style)
         
         self.hu_panel.setStyleSheet(f"""
             QFrame {{
@@ -4065,15 +4059,31 @@ class DicomViewerPanel(QWidget):
                 self.cb_beam.setCurrentIndex(cur_idx)
             self.cb_beam.blockSignals(False)
 
+            if hasattr(self, "lbl_dose"):
+                self.lbl_dose.hide()
             self.cb_dose.hide()
+            if hasattr(self, "lbl_structures"):
+                self.lbl_structures.hide()
             self.cb_structures.hide()
+            if hasattr(self, "lbl_presets"):
+                self.lbl_presets.hide()
             self.cb_presets.hide()
+            if hasattr(self, "lbl_beam"):
+                self.lbl_beam.show()
             self.cb_beam.show()
         else:
             self.slider.setEnabled(True)
+            if hasattr(self, "lbl_beam"):
+                self.lbl_beam.hide()
             self.cb_beam.hide()
+            if hasattr(self, "lbl_dose"):
+                self.lbl_dose.show()
             self.cb_dose.show()
+            if hasattr(self, "lbl_structures"):
+                self.lbl_structures.show()
             self.cb_structures.show()
+            if hasattr(self, "lbl_presets"):
+                self.lbl_presets.show()
             self.cb_presets.show()
 
         self.update_buttons_style()
