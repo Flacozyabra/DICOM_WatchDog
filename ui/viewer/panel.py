@@ -141,36 +141,7 @@ class DicomViewerPanel(QWidget):
         self.cb_structures.setEnabled(False)
         top_layout.addWidget(self.cb_structures)
 
-        # Метка и выпадающий список выбора полей облучения (для режима BEV)
-        self.lbl_beam = QLabel("BEAM", self)
-        self.lbl_beam.setStyleSheet("font-size: 11px; font-weight: bold; color: #9CA3AF;")
-        self.lbl_beam.hide()
-        top_layout.addWidget(self.lbl_beam)
 
-        self.cb_beam = QComboBox(self)
-        self.cb_beam.setFixedWidth(240)
-        self.cb_beam.setStyleSheet("""
-            QComboBox {
-                background-color: #2A2A2A;
-                border: 1px solid #3B82F6;
-                border-radius: 4px;
-                color: #FFFFFF;
-                padding: 0px 8px;
-                font-size: 12px;
-                font-weight: bold;
-                min-height: 28px;
-                max-height: 28px;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #1A1A1A;
-                border: 1px solid #374151;
-                color: #FFFFFF;
-                selection-background-color: #3B82F6;
-            }
-        """)
-        self.cb_beam.currentIndexChanged.connect(self._on_cb_beam_changed)
-        self.cb_beam.hide()
-        top_layout.addWidget(self.cb_beam)
 
         # Метка и выпадающий список пресетов HU
         self.lbl_presets = QLabel("HU", self)
@@ -279,6 +250,7 @@ class DicomViewerPanel(QWidget):
         self.viewer.slice_scrolled.connect(self.on_slice_scrolled)
         self.viewer.window_changed.connect(self.on_window_changed)
         self.viewer.bev_beam_changed.connect(self._on_bev_beam_changed)
+        self.viewer.bev_control_point_changed.connect(self._on_bev_cp_changed)
         self.viewer.drr_precompute_requested.connect(self.start_drr_precompute)
         center_layout.addWidget(self.viewer, stretch=1)
 
@@ -1108,18 +1080,34 @@ class DicomViewerPanel(QWidget):
         self.viewer.set_show_beams(val)
         self.update_buttons_style()
 
-    def _on_cb_beam_changed(self, index: int) -> None:
-        if index >= 0 and self.viewer.bev_active:
-            self.viewer.bev_selected_beam_idx = index
-            self.viewer.bev_control_point_idx = 0
-            self.viewer.update()
-
     def _on_bev_beam_changed(self, index: int) -> None:
-        if hasattr(self, "cb_beam") and self.cb_beam.count() > index >= 0:
-            self.cb_beam.blockSignals(True)
-            self.cb_beam.setCurrentIndex(index)
-            self.cb_beam.blockSignals(False)
-            self.viewer.update()
+        self._sync_bev_slider()
+        self.viewer.update()
+
+    def _sync_bev_slider(self) -> None:
+        if not self.viewer.bev_active:
+            return
+        beams = self.viewer.plan_data.get("beams", [])
+        if not beams:
+            self.slider.setEnabled(False)
+            return
+        idx = max(0, min(len(beams) - 1, self.viewer.bev_selected_beam_idx))
+        beam = beams[idx]
+        cps = beam.get("control_points", [])
+        if beam.get("is_dynamic", False) and len(cps) > 1:
+            self.slider.blockSignals(True)
+            self.slider.setEnabled(True)
+            self.slider.setRange(0, len(cps) - 1)
+            self.slider.setValue(self.viewer.bev_control_point_idx)
+            self.slider.blockSignals(False)
+        else:
+            self.slider.setEnabled(False)
+
+    def _on_bev_cp_changed(self, cp_idx: int) -> None:
+        if self.viewer.bev_active:
+            self.slider.blockSignals(True)
+            self.slider.setValue(cp_idx)
+            self.slider.blockSignals(False)
 
     def start_bev_struct_precompute(self) -> None:
         beams = self.viewer.plan_data.get("beams", [])
@@ -1163,7 +1151,6 @@ class DicomViewerPanel(QWidget):
             self.viewer.ruler_active = False
             self.viewer.hu_active = False
             self.hu_panel.hide()
-            self.slider.setEnabled(False)
 
             # Сохраняем текущий набор включенных пользователем структур
             self._pre_bev_enabled_structures = set(self.viewer.enabled_structures)
@@ -1190,18 +1177,8 @@ class DicomViewerPanel(QWidget):
             self.list_structures.blockSignals(False)
             self.viewer.rebuild_contour_index()
 
-            # Наполняем и показываем выпадающий список полей BEV
-            beams = self.viewer.plan_data.get("beams", [])
-            self.cb_beam.blockSignals(True)
-            self.cb_beam.clear()
-            for i, b in enumerate(beams):
-                self.cb_beam.addItem(b.get("display_name", f"Поле {i+1}"), i)
-            if beams:
-                cur_idx = max(0, min(len(beams) - 1, self.viewer.bev_selected_beam_idx))
-                self.cb_beam.setCurrentIndex(cur_idx)
-            self.cb_beam.blockSignals(False)
-
             self.start_bev_struct_precompute()
+            self._sync_bev_slider()
 
             if hasattr(self, "lbl_dose"):
                 self.lbl_dose.hide()
@@ -1212,9 +1189,6 @@ class DicomViewerPanel(QWidget):
             if hasattr(self, "lbl_presets"):
                 self.lbl_presets.hide()
             self.cb_presets.hide()
-            if hasattr(self, "lbl_beam"):
-                self.lbl_beam.show()
-            self.cb_beam.show()
         else:
             if hasattr(self, "bev_struct_worker") and self.bev_struct_worker is not None and self.bev_struct_worker.isRunning():
                 self.bev_struct_worker.cancel()
@@ -1222,7 +1196,14 @@ class DicomViewerPanel(QWidget):
                 self.bev_struct_worker.wait()
             self.viewer.bev_precomputing_status = ""
             self.viewer.show_drr = False
+            
+            # Восстанавливаем слайдер срезов
+            self.slider.blockSignals(True)
             self.slider.setEnabled(True)
+            self.slider.setRange(0, max(0, len(self.sorted_files) - 1))
+            self.slider.setValue(max(0, self.current_index))
+            self.slider.blockSignals(False)
+
             # Восстанавливаем состояние включенных структур, которое было до входа в BEV
             to_restore = getattr(self, "_pre_bev_enabled_structures", None)
             if to_restore is not None:
@@ -1240,9 +1221,6 @@ class DicomViewerPanel(QWidget):
                 self.list_structures.blockSignals(False)
                 self.viewer.rebuild_contour_index()
 
-            if hasattr(self, "lbl_beam"):
-                self.lbl_beam.hide()
-            self.cb_beam.hide()
             if hasattr(self, "lbl_dose"):
                 self.lbl_dose.show()
             self.cb_dose.show()
@@ -1726,6 +1704,16 @@ class DicomViewerPanel(QWidget):
             self.set_current_slice(new_index)
 
     def on_slider_changed(self, value: int) -> None:
+        if self.viewer.bev_active:
+            beams = self.viewer.plan_data.get("beams", [])
+            if beams:
+                beam = beams[self.viewer.bev_selected_beam_idx]
+                cps = beam.get("control_points", [])
+                if beam.get("is_dynamic", False) and len(cps) > 1:
+                    self.viewer.bev_control_point_idx = max(0, min(len(cps) - 1, value))
+                    self.viewer.update()
+            return
+
         if not self.is_loading and value != self.current_index:
             self.set_current_slice(value)
 

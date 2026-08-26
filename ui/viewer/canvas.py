@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import numpy as np
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QPointF, QRect, QRectF
-from PyQt6.QtWidgets import QWidget, QApplication
+from PyQt6.QtWidgets import QWidget, QApplication, QMenu
 from PyQt6.QtGui import (
     QFont, QPixmap, QBrush, QColor, QPainter,
     QPen, QImage, QPolygonF, QPainterPath, QTransform
@@ -21,6 +21,7 @@ class DicomViewerWidget(QWidget):
     slice_scrolled = pyqtSignal(int)
     window_changed = pyqtSignal(float, float)
     bev_beam_changed = pyqtSignal(int)
+    bev_control_point_changed = pyqtSignal(int)
     drr_precompute_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget = None) -> None:
@@ -364,11 +365,51 @@ class DicomViewerWidget(QWidget):
                         self.bev_beam_changed.emit(self.bev_selected_beam_idx)
                         self.update()
                     return
+                elif hasattr(self, "bev_title_btn_rect") and self.bev_title_btn_rect and self.bev_title_btn_rect.contains(pos):
+                    if beams:
+                        menu = QMenu(self)
+                        menu.setStyleSheet("""
+                            QMenu {
+                                background-color: #0F172A;
+                                color: #F8FAFC;
+                                border: 1px solid #334155;
+                                border-radius: 8px;
+                                padding: 4px;
+                                font-family: "Segoe UI";
+                                font-size: 13px;
+                            }
+                            QMenu::item {
+                                padding: 6px 20px 6px 24px;
+                                border-radius: 4px;
+                            }
+                            QMenu::item:selected {
+                                background-color: #2563EB;
+                                color: #FFFFFF;
+                            }
+                        """)
+                        for b_idx, b in enumerate(beams):
+                            b_name = b.get("display_name", f"Поле {b_idx + 1}")
+                            prefix = "✔  " if b_idx == self.bev_selected_beam_idx else "    "
+                            action = menu.addAction(f"{prefix}{b_name}")
+                            action.setData(b_idx)
+
+                        global_pt = self.mapToGlobal(QPoint(self.bev_title_btn_rect.left(), self.bev_title_btn_rect.bottom() + 4))
+                        selected_action = menu.exec(global_pt)
+                        if selected_action is not None and selected_action.data() is not None:
+                            new_idx = int(selected_action.data())
+                            if new_idx != self.bev_selected_beam_idx:
+                                self.bev_selected_beam_idx = new_idx
+                                self.bev_control_point_idx = 0
+                                self.bev_beam_changed.emit(self.bev_selected_beam_idx)
+                                self.bev_control_point_changed.emit(0)
+                                self.update()
+                    return
                 elif self.bev_next_btn_rect and self.bev_next_btn_rect.contains(pos):
                     if beams:
                         self.bev_selected_beam_idx = (self.bev_selected_beam_idx + 1) % len(beams)
                         self.bev_control_point_idx = 0
                         self.bev_beam_changed.emit(self.bev_selected_beam_idx)
+                        self.bev_control_point_changed.emit(0)
                         self.update()
                     return
                 elif self.bev_drr_btn_rect and self.bev_drr_btn_rect.contains(pos):
@@ -382,6 +423,7 @@ class DicomViewerWidget(QWidget):
                             track = getattr(self, "bev_cp_track_rect", self.bev_cp_slider_rect)
                             rel_x = max(0.0, min(1.0, (pos.x() - track.x()) / float(track.width() or 1)))
                             self.bev_control_point_idx = int(round(rel_x * (len(cps) - 1)))
+                            self.bev_control_point_changed.emit(self.bev_control_point_idx)
                             self.update()
                     return
             return
@@ -437,6 +479,7 @@ class DicomViewerWidget(QWidget):
                         track = getattr(self, "bev_cp_track_rect", self.bev_cp_slider_rect)
                         rel_x = max(0.0, min(1.0, (pos.x() - track.x()) / float(track.width() or 1)))
                         self.bev_control_point_idx = int(round(rel_x * (len(cps) - 1)))
+                        self.bev_control_point_changed.emit(self.bev_control_point_idx)
                         self.update()
                 return
 
@@ -628,12 +671,14 @@ class DicomViewerWidget(QWidget):
             if beam.get("is_dynamic", False) and len(cps) > 1:
                 step = 1 if delta < 0 else -1
                 self.bev_control_point_idx = max(0, min(len(cps) - 1, self.bev_control_point_idx + step))
+                self.bev_control_point_changed.emit(self.bev_control_point_idx)
                 self.update()
             else:
                 step = 1 if delta < 0 else -1
                 self.bev_selected_beam_idx = (self.bev_selected_beam_idx + step) % len(beams)
                 self.bev_control_point_idx = 0
                 self.bev_beam_changed.emit(self.bev_selected_beam_idx)
+                self.bev_control_point_changed.emit(0)
                 self.update()
             return
 
@@ -954,58 +999,73 @@ class DicomViewerWidget(QWidget):
         painter.drawText(int(cx + r_field - 70), int(cy - 6), "LEFT (X+)")
 
         # 8. Заголовок и селектор полей
-        painter.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         header_text = beam.get("display_name") or f"Поле {idx + 1}"
+        painter.setFont(QFont("Segoe UI", 10, QFont.Weight.DemiBold))
         m_head = painter.fontMetrics()
         txt_w = m_head.horizontalAdvance(header_text)
 
-        btn_w, btn_h = 36, 30
-        btn_drr_w = 54
+        btn_w, btn_h = 34, 32
+        btn_drr_w = 58
         top_y = 15
-        box_w = max(240, txt_w + 32)
-        total_w = box_w + btn_w * 2 + 16
+        box_w = max(240, txt_w + 44)
+        gap = 6
+        total_w = btn_w + gap + box_w + gap + btn_w + gap + btn_drr_w
 
-        rect_prev = QRect(int(cx - total_w / 2), top_y, btn_w, btn_h)
-        rect_title = QRect(int(cx - box_w / 2), top_y, box_w, btn_h)
-        rect_next = QRect(int(cx + total_w / 2 - btn_w), top_y, btn_w, btn_h)
-        rect_drr = QRect(int(cx + total_w / 2 + 8), top_y, btn_drr_w, btn_h)
+        start_x = int(cx - total_w / 2)
+        rect_prev = QRect(start_x, top_y, btn_w, btn_h)
+        rect_title = QRect(start_x + btn_w + gap, top_y, box_w, btn_h)
+        rect_next = QRect(start_x + btn_w + gap + box_w + gap, top_y, btn_w, btn_h)
+        rect_drr = QRect(start_x + btn_w + gap + box_w + gap + btn_w + gap, top_y, btn_drr_w, btn_h)
 
         self.bev_prev_btn_rect = rect_prev
+        self.bev_title_btn_rect = rect_title
         self.bev_next_btn_rect = rect_next
         self.bev_drr_btn_rect = rect_drr
 
-        # Кнопка «Назад»
-        painter.fillRect(rect_prev, QColor("#1E293B"))
-        painter.setPen(QPen(QColor("#3B82F6"), 1.5))
-        painter.drawRoundedRect(rect_prev, 4, 4)
-        painter.setPen(QColor("#FFFFFF"))
+        # Кнопка «Назад ◀»
+        painter.setPen(QPen(QColor(51, 65, 85, 220), 1.0))
+        painter.setBrush(QColor(15, 23, 42, 220))
+        painter.drawRoundedRect(rect_prev, 8, 8)
+        painter.setPen(QColor("#93C5FD"))
+        painter.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         painter.drawText(rect_prev, Qt.AlignmentFlag.AlignCenter, "◀")
 
-        # Плашка названия поля
-        painter.fillRect(rect_title, QColor(15, 23, 42, 220))
-        painter.setPen(QPen(QColor("#334155"), 1.2))
-        painter.drawRoundedRect(rect_title, 4, 4)
-        painter.setPen(QColor("#FFFFFF"))
-        painter.drawText(rect_title, Qt.AlignmentFlag.AlignCenter, header_text)
+        # Выпадающее поле названия «[ DisplayName ▾ ]»
+        painter.setPen(QPen(QColor(59, 130, 246, 200), 1.0))
+        painter.setBrush(QColor(15, 23, 42, 230))
+        painter.drawRoundedRect(rect_title, 8, 8)
+        painter.setPen(QColor("#F8FAFC"))
+        painter.setFont(QFont("Segoe UI", 10, QFont.Weight.DemiBold))
+        
+        text_rect = rect_title.adjusted(12, 0, -22, 0)
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, header_text)
+        
+        # Стрелочка выпадающего меню ▾
+        arrow_rect = QRect(rect_title.right() - 22, top_y, 16, btn_h)
+        painter.setPen(QColor("#60A5FA"))
+        painter.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        painter.drawText(arrow_rect, Qt.AlignmentFlag.AlignCenter, "▼")
 
-        # Кнопка «Вперед»
-        painter.fillRect(rect_next, QColor("#1E293B"))
-        painter.setPen(QPen(QColor("#3B82F6"), 1.5))
-        painter.drawRoundedRect(rect_next, 4, 4)
-        painter.setPen(QColor("#FFFFFF"))
+        # Кнопка «Вперед ▶»
+        painter.setPen(QPen(QColor(51, 65, 85, 220), 1.0))
+        painter.setBrush(QColor(15, 23, 42, 220))
+        painter.drawRoundedRect(rect_next, 8, 8)
+        painter.setPen(QColor("#93C5FD"))
+        painter.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         painter.drawText(rect_next, Qt.AlignmentFlag.AlignCenter, "▶")
 
         # Кнопка «DRR»
         painter.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         if self.show_drr:
-            painter.fillRect(rect_drr, QColor("#2563EB"))
-            painter.setPen(QPen(QColor("#60A5FA"), 1.5))
-            painter.drawRoundedRect(rect_drr, 4, 4)
+            painter.setPen(QPen(QColor("#3B82F6"), 1.2))
+            painter.setBrush(QColor(37, 99, 235, 240))
+            painter.drawRoundedRect(rect_drr, 8, 8)
             painter.setPen(QColor("#FFFFFF"))
         else:
-            painter.fillRect(rect_drr, QColor("#1E293B"))
-            painter.setPen(QPen(QColor("#475569"), 1.2))
-            painter.drawRoundedRect(rect_drr, 4, 4)
+            painter.setPen(QPen(QColor(51, 65, 85, 200), 1.0))
+            painter.setBrush(QColor(15, 23, 42, 220))
+            painter.drawRoundedRect(rect_drr, 8, 8)
             painter.setPen(QColor("#94A3B8"))
         painter.drawText(rect_drr, Qt.AlignmentFlag.AlignCenter, "DRR")
 
@@ -1037,7 +1097,7 @@ class DicomViewerWidget(QWidget):
 
         # 10. Ползунок контрольных точек для динамических полей (2+ CP)
         if beam.get("is_dynamic", False) and len(cps) > 1:
-            slider_w = min(420, w - 80)
+            slider_w = min(460, w - 80)
             slider_h = 38
             slider_x = int(cx - slider_w / 2)
             slider_y = h - 54
@@ -1050,7 +1110,7 @@ class DicomViewerWidget(QWidget):
             painter.drawRoundedRect(self.bev_cp_slider_rect, 10, 10)
 
             # Текст статуса CP и угла гантри
-            cp_text = f"CP {cp_idx + 1} / {len(cps)}   •   Гантри {g_angle:.1f}°"
+            cp_text = f"Control Point {cp_idx + 1} / {len(cps)}   •   Гантри {g_angle:.1f}°"
             painter.setFont(QFont("Segoe UI", 9, QFont.Weight.DemiBold))
             painter.setPen(QColor("#93C5FD"))
             painter.drawText(QRect(slider_x, slider_y + 4, slider_w, 14), Qt.AlignmentFlag.AlignCenter, cp_text)
