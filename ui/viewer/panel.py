@@ -1404,6 +1404,26 @@ class DicomViewerPanel(QWidget):
             self.bev_struct_worker.wait()
 
         self.viewer.clear_viewer()
+        self.viewer.bev_active = False
+        self.viewer.show_drr = False
+        if hasattr(self, "lbl_slider_info"):
+            self.lbl_slider_info.hide()
+        if hasattr(self, "hu_panel"):
+            self.hu_panel.hide()
+
+        if hasattr(self, "lbl_dose"):
+            self.lbl_dose.show()
+        if hasattr(self, "cb_dose"):
+            self.cb_dose.show()
+        if hasattr(self, "lbl_structures"):
+            self.lbl_structures.show()
+        if hasattr(self, "cb_structures"):
+            self.cb_structures.show()
+        if hasattr(self, "lbl_presets"):
+            self.lbl_presets.show()
+        if hasattr(self, "cb_presets"):
+            self.cb_presets.show()
+
         self.pixmap_cache.clear()
         self.sorted_files.clear()
         self.struct_files.clear()
@@ -1436,6 +1456,7 @@ class DicomViewerPanel(QWidget):
             self.btn_beams.setEnabled(False)
         self.current_index = -1
         self.is_loading = False
+        self.update_buttons_style()
         gc.collect()
 
     def load_series(self, files: list[str]) -> None:
@@ -1552,6 +1573,17 @@ class DicomViewerPanel(QWidget):
             self.cb_structures.setEnabled(False)
         self.cb_structures.show()
         self.cb_structures.blockSignals(False)
+
+        if hasattr(self, "lbl_dose"):
+            self.lbl_dose.show()
+        if hasattr(self, "lbl_structures"):
+            self.lbl_structures.show()
+        if hasattr(self, "lbl_presets"):
+            self.lbl_presets.show()
+        if hasattr(self, "cb_presets"):
+            self.cb_presets.show()
+        if hasattr(self, "lbl_slider_info"):
+            self.lbl_slider_info.hide()
 
         self.apply_structures(parsed_structures)
         self.viewer.show_structures_globally = self.cb_show_structures.isChecked()
