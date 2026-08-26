@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections import defaultdict
 import numpy as np
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QPointF, QRect, QRectF
 from PyQt6.QtWidgets import QWidget, QApplication, QMenu
@@ -806,35 +807,43 @@ class DicomViewerWidget(QWidget):
                         if ppt:
                             pois_mm.append((name, ppt[0], ppt[1]))
                     else:
-                        projected_slices = []
-                        step_s = max(1, len(contours) // 25) if len(contours) > 30 else 1
-                        for c in contours[::step_s]:
+                        z_map = defaultdict(list)
+                        for c in contours:
                             pts = c.get("points", [])
                             if len(pts) >= 3:
-                                step_p = max(1, len(pts) // 30) if len(pts) > 40 else 1
-                                pts_2d = [project_pt_mm(p[0], p[1], p[2]) for p in pts[::step_p]]
-                                valid_pts = [p for p in pts_2d if p is not None]
-                                if len(valid_pts) >= 3:
-                                    z_avg = sum(p[2] for p in pts) / len(pts)
-                                    projected_slices.append((z_avg, valid_pts))
+                                z_key = round(float(c.get("z", pts[0][2])), 2)
+                                z_map[z_key].append(pts)
 
-                        if projected_slices:
-                            projected_slices.sort(key=lambda x: x[0])
-                            for idx_c in range(len(projected_slices)):
-                                z_c, pts_c = projected_slices[idx_c]
-                                p_c = QPainterPath()
-                                p_c.addPolygon(QPolygonF([QPointF(p[0], p[1]) for p in pts_c]))
-                                p_c.closeSubpath()
-                                struct_path_mm = struct_path_mm.united(p_c) if not struct_path_mm.isEmpty() else p_c
+                        sorted_z = sorted(z_map.keys())
+                        if sorted_z:
+                            step_z = max(1, len(sorted_z) // 60) if len(sorted_z) > 70 else 1
+                            sample_z = sorted_z[::step_z]
 
-                                if idx_c + 1 < len(projected_slices):
-                                    z_next, pts_next = projected_slices[idx_c + 1]
-                                    hull = _convex_hull_2d(pts_c + pts_next)
+                            prev_slice_pts = None
+                            for z_val in sample_z:
+                                polys_on_z = z_map[z_val]
+                                slice_all_pts_2d = []
+
+                                for pts in polys_on_z:
+                                    step_p = max(1, len(pts) // 35) if len(pts) > 45 else 1
+                                    pts_2d = [project_pt_mm(p[0], p[1], p[2]) for p in pts[::step_p]]
+                                    valid_pts = [p for p in pts_2d if p is not None]
+                                    if len(valid_pts) >= 3:
+                                        slice_all_pts_2d.extend(valid_pts)
+                                        p_c = QPainterPath()
+                                        p_c.addPolygon(QPolygonF([QPointF(p[0], p[1]) for p in valid_pts]))
+                                        p_c.closeSubpath()
+                                        struct_path_mm = struct_path_mm.united(p_c) if not struct_path_mm.isEmpty() else p_c
+
+                                if prev_slice_pts and slice_all_pts_2d:
+                                    hull = _convex_hull_2d(prev_slice_pts + slice_all_pts_2d)
                                     if len(hull) >= 3:
                                         hull_path = QPainterPath()
                                         hull_path.addPolygon(QPolygonF([QPointF(p[0], p[1]) for p in hull]))
                                         hull_path.closeSubpath()
                                         struct_path_mm = struct_path_mm.united(hull_path)
+
+                                prev_slice_pts = slice_all_pts_2d
 
                     self.bev_struct_cache[cache_key] = (struct_path_mm, pois_mm)
 
