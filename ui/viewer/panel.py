@@ -23,7 +23,7 @@ from core.locale_utils import tr_ui
 from .parsers import safe_dcmread
 from .workers import (
     PatientSeriesLoaderWorker, StructureLoaderWorker,
-    DoseLoaderWorker, DRRPrecomputeWorker
+    DoseLoaderWorker, DRRPrecomputeWorker, BEVStructurePrecomputeWorker
 )
 from .controls import HUVerticalSlider, DRRProgressDialog
 from .canvas import DicomViewerWidget
@@ -46,6 +46,7 @@ class DicomViewerPanel(QWidget):
         self.struct_worker = None
         self.dose_worker = None
         self.drr_worker = None
+        self.bev_struct_worker = None
         self.drr_dialog = None
         self.progress_dialog = None
         self.pixmap_cache = {}
@@ -1111,6 +1112,7 @@ class DicomViewerPanel(QWidget):
         if index >= 0 and self.viewer.bev_active:
             self.viewer.bev_selected_beam_idx = index
             self.viewer.bev_control_point_idx = 0
+            self.start_bev_struct_precompute()
             self.viewer.update()
 
     def _on_bev_beam_changed(self, index: int) -> None:
@@ -1118,6 +1120,32 @@ class DicomViewerPanel(QWidget):
             self.cb_beam.blockSignals(True)
             self.cb_beam.setCurrentIndex(index)
             self.cb_beam.blockSignals(False)
+            self.start_bev_struct_precompute()
+
+    def start_bev_struct_precompute(self) -> None:
+        beams = self.viewer.plan_data.get("beams", [])
+        if not beams or not self.viewer.structures:
+            return
+        idx = max(0, min(len(beams) - 1, self.viewer.bev_selected_beam_idx))
+        beam = beams[idx]
+        sad = float(beam.get("sad", 1000.0) or 1000.0)
+
+        if hasattr(self, "bev_struct_worker") and self.bev_struct_worker is not None and self.bev_struct_worker.isRunning():
+            self.bev_struct_worker.cancel()
+            self.bev_struct_worker.quit()
+            self.bev_struct_worker.wait()
+
+        self.bev_struct_worker = BEVStructurePrecomputeWorker(
+            self.viewer.structures,
+            self.viewer.enabled_structures,
+            beam,
+            sad
+        )
+        self.bev_struct_worker.item_computed_signal.connect(self._on_bev_struct_item_computed)
+        self.bev_struct_worker.start()
+
+    def _on_bev_struct_item_computed(self, ck: tuple, path, pois: list) -> None:
+        self.viewer.bev_struct_cache[ck] = (path, pois)
 
     def toggle_bev(self) -> None:
         active = not self.viewer.bev_active
@@ -1164,6 +1192,8 @@ class DicomViewerPanel(QWidget):
                 cur_idx = max(0, min(len(beams) - 1, self.viewer.bev_selected_beam_idx))
                 self.cb_beam.setCurrentIndex(cur_idx)
             self.cb_beam.blockSignals(False)
+
+            self.start_bev_struct_precompute()
 
             if hasattr(self, "lbl_dose"):
                 self.lbl_dose.hide()
@@ -1340,6 +1370,10 @@ class DicomViewerPanel(QWidget):
         if self.dose_worker is not None and self.dose_worker.isRunning():
             self.dose_worker.quit()
             self.dose_worker.wait()
+        if hasattr(self, "bev_struct_worker") and self.bev_struct_worker is not None and self.bev_struct_worker.isRunning():
+            self.bev_struct_worker.cancel()
+            self.bev_struct_worker.quit()
+            self.bev_struct_worker.wait()
 
         self.viewer.clear_viewer()
         self.pixmap_cache.clear()

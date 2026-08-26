@@ -4,10 +4,11 @@ import os
 import math
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
-from PyQt6.QtCore import pyqtSignal, QThread
-from PyQt6.QtGui import QImage
+from PyQt6.QtCore import pyqtSignal, QThread, QPointF
+from PyQt6.QtGui import QImage, QPainterPath, QPolygonF
 
 from core.locale_utils import tr_ui
+from core.dicom_utils import classify_dicom_file
 from .parsers import safe_dcmread, load_rtstruct, load_rtdose, load_rtplan
 
 
@@ -403,3 +404,109 @@ class DRRPrecomputeWorker(QThread):
             if not self._is_cancelled:
                 self.error_signal.emit(str(e))
             self.finished_signal.emit(self._is_cancelled)
+
+
+class BEVStructurePrecomputeWorker(QThread):
+    """
+    Фоновый предрасчет 3D-проекций контуров RTSTRUCT для всех контрол-поинтов пучка в режиме BEV.
+    """
+    item_computed_signal = pyqtSignal(tuple, object, list)  # (cache_key, struct_path_mm, pois_mm)
+    finished_signal = pyqtSignal()
+
+    def __init__(self, structures: dict, enabled_structures: set, beam: dict, sad: float) -> None:
+        super().__init__()
+        self.structures = structures
+        self.enabled_structures = set(enabled_structures) if enabled_structures else set()
+        self.beam = beam
+        self.sad = sad
+        self._is_cancelled = False
+
+    def cancel(self) -> None:
+        self._is_cancelled = True
+
+    def run(self) -> None:
+        if not self.beam or not self.structures:
+            self.finished_signal.emit()
+            return
+
+        cps = self.beam.get("control_points", [])
+        sad = float(self.sad or 1000.0)
+        iso_default = self.beam.get("isocenter", [0.0, 0.0, 0.0])
+
+        angles_to_calc = []
+        if not cps:
+            g_ang = float(self.beam.get("gantry_angle", 0.0))
+            angles_to_calc.append((g_ang, iso_default))
+        else:
+            for cp in cps:
+                g_ang = float(cp.get("gantry_angle", self.beam.get("gantry_angle", 0.0)))
+                iso = cp.get("isocenter", iso_default)
+                angles_to_calc.append((g_ang, iso))
+
+        for g_angle, iso in angles_to_calc:
+            if self._is_cancelled:
+                break
+            if not iso or len(iso) < 3:
+                continue
+
+            g_rad = math.radians(g_angle)
+            sin_g = math.sin(g_rad)
+            cos_g = math.cos(g_rad)
+            Sx = iso[0] + sad * sin_g
+            Sy = iso[1] - sad * cos_g
+            Sz = iso[2]
+
+            def project_pt_mm(x: float, y: float, z: float):
+                rx = x - Sx
+                ry = y - Sy
+                rz = z - Sz
+                dz_p = -rx * sin_g + ry * cos_g
+                if dz_p > 50.0:
+                    M = sad / dz_p
+                    u_p = (rx * cos_g + ry * sin_g) * M
+                    v_p = rz * M
+                    return (u_p, -v_p)
+                return None
+
+            for roi_num, s in self.structures.items():
+                if self._is_cancelled:
+                    break
+                name = s.get("name", "")
+                if self.enabled_structures and name not in self.enabled_structures:
+                    continue
+                contours = s.get("contours", [])
+                if not contours:
+                    continue
+
+                cache_key = (
+                    roi_num,
+                    round(float(g_angle), 1),
+                    round(float(iso[0]), 2),
+                    round(float(iso[1]), 2),
+                    round(float(iso[2]), 2),
+                    round(float(sad), 1)
+                )
+
+                struct_path_mm = QPainterPath()
+                pois_mm = []
+
+                if len(contours) == 1 and len(contours[0].get("points", [])) == 1:
+                    pt = contours[0]["points"][0]
+                    ppt = project_pt_mm(pt[0], pt[1], pt[2])
+                    if ppt:
+                        pois_mm.append((name, ppt[0], ppt[1]))
+                else:
+                    step_s = 2 if len(contours) > 50 else 1
+                    for c in contours[::step_s]:
+                        pts = c.get("points", [])
+                        if len(pts) >= 3:
+                            step_p = 2 if len(pts) > 60 else 1
+                            pts_2d = [project_pt_mm(p[0], p[1], p[2]) for p in pts[::step_p]]
+                            valid_pts = [p for p in pts_2d if p is not None]
+                            if len(valid_pts) >= 3:
+                                struct_path_mm.addPolygon(QPolygonF([QPointF(p[0], p[1]) for p in valid_pts]))
+                                struct_path_mm.closeSubpath()
+
+                self.item_computed_signal.emit(cache_key, struct_path_mm, pois_mm)
+
+        self.finished_signal.emit()

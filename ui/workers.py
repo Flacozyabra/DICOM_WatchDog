@@ -102,15 +102,11 @@ class FolderScanWorker(QThread):
             self.status_changed.emit(tr_ui("loading_scanning_folders_status"))
             now = datetime.now()
             from core.rename_utils import move_study_folder_hierarchical, get_folder_study_info
+            from concurrent.futures import ThreadPoolExecutor, as_completed
             
-            for i, path in enumerate(patient_folders):
-                if self.isInterruptionRequested():
-                    return
-                self.progress.emit(i, total_folders)
-                
+            def process_single(path):
                 if not os.path.exists(path):
-                    continue
-
+                    return {}
                 active_path = path
 
                 # 2a. Исправление ID и переименование
@@ -170,14 +166,32 @@ class FolderScanWorker(QThread):
 
                 # 2c. Считывание исследования сразу в patient_dict
                 if not is_fully_archived and os.path.exists(active_path):
-                    studies = collect_patient_studies(
+                    return collect_patient_studies(
                         active_path, self.ct_images_dir, collector,
                         cleanup_structures=is_cleanup_struct_on,
                         scan_rtd=self.scan_rtd,
                         scan_rtp=self.scan_rtp
                     )
-                    patient_dict.update(studies)
-                    self.count_updated.emit(len(patient_dict))
+                return {}
+
+            max_w = min(8, max(1, (os.cpu_count() or 4)))
+            completed_count = 0
+            with ThreadPoolExecutor(max_workers=max_w) as executor:
+                future_map = {executor.submit(process_single, p): p for p in patient_folders}
+                for future in as_completed(future_map):
+                    if self.isInterruptionRequested():
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        return
+                    completed_count += 1
+                    self.progress.emit(completed_count, total_folders)
+                    try:
+                        studies = future.result()
+                        if studies:
+                            patient_dict.update(studies)
+                            self.count_updated.emit(len(patient_dict))
+                    except Exception as e:
+                        p_path = future_map.get(future, "unknown")
+                        log_message(collector, f"Error scanning folder {p_path}: {e}")
 
             self.progress.emit(total_folders, total_folders)
 

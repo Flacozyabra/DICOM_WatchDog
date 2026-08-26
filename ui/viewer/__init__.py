@@ -16,7 +16,8 @@ from .workers import (
     PatientSeriesLoaderWorker,
     StructureLoaderWorker,
     DoseLoaderWorker,
-    DRRPrecomputeWorker
+    DRRPrecomputeWorker,
+    BEVStructurePrecomputeWorker
 )
 from .controls import (
     HUVerticalSlider,
@@ -40,6 +41,7 @@ __all__ = [
     "StructureLoaderWorker",
     "DoseLoaderWorker",
     "DRRPrecomputeWorker",
+    "BEVStructurePrecomputeWorker",
     "HUVerticalSlider",
     "DRRProgressDialog",
     "DicomViewerWidget",
