@@ -11,7 +11,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QRect
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
     QPushButton, QComboBox, QSlider, QListWidget, QListWidgetItem,
-    QStackedWidget, QButtonGroup, QSizePolicy
+    QStackedWidget, QButtonGroup, QSizePolicy, QLineEdit
 )
 from PyQt6.QtGui import (
     QIcon, QFont, QPixmap, QBrush, QColor, QImage
@@ -430,6 +430,52 @@ class DicomViewerPanel(QWidget):
         self.cb_dose_gradient.stateChanged.connect(self.on_dose_gradient_changed)
         dose_layout.addWidget(self.cb_dose_gradient)
 
+        # Блок настройки 100% предписанной дозы (клавиатурный ввод)
+        self.rx_container = QWidget(page_isodoses)
+        self.rx_container.setStyleSheet("background: transparent; border: none;")
+        rx_layout = QHBoxLayout(self.rx_container)
+        rx_layout.setContentsMargins(2, 2, 2, 2)
+        rx_layout.setSpacing(6)
+
+        self.lbl_rx_title = QLabel("100% Доза:", self.rx_container)
+        self.lbl_rx_title.setStyleSheet("color: #E5E7EB; font-size: 11px; font-weight: bold; background: transparent; border: none;")
+        rx_layout.addWidget(self.lbl_rx_title)
+
+        self.edit_rx_dose = QLineEdit(self.rx_container)
+        self.edit_rx_dose.setPlaceholderText("—")
+        self.edit_rx_dose.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.edit_rx_dose.setStyleSheet("""
+            QLineEdit {
+                background-color: #1F2937;
+                color: #F9FAFB;
+                border: 1px solid #374151;
+                border-radius: 4px;
+                padding: 3px 6px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QLineEdit:focus {
+                border: 1px solid #3B82F6;
+                background-color: #111827;
+            }
+            QLineEdit:disabled {
+                background-color: #111827;
+                color: #6B7280;
+                border: 1px solid #1F2937;
+            }
+        """)
+        self.edit_rx_dose.setFixedWidth(65)
+        self.edit_rx_dose.setEnabled(False)
+        self.edit_rx_dose.editingFinished.connect(self.on_rx_dose_edited)
+        rx_layout.addWidget(self.edit_rx_dose)
+
+        self.lbl_rx_unit = QLabel("Гр", self.rx_container)
+        self.lbl_rx_unit.setStyleSheet("color: #9CA3AF; font-size: 11px; font-weight: bold; background: transparent; border: none;")
+        rx_layout.addWidget(self.lbl_rx_unit)
+        rx_layout.addStretch()
+
+        dose_layout.addWidget(self.rx_container)
+
         self.lbl_dose_info = QLabel(page_isodoses)
         self.lbl_dose_info.setStyleSheet("color: #9CA3AF; font-size: 10px; font-weight: bold; padding: 0px 2px; border: none;")
         self.lbl_dose_info.setWordWrap(True)
@@ -610,6 +656,7 @@ class DicomViewerPanel(QWidget):
         self.viewer.update()
 
     def apply_dose_data(self, dose_data: dict) -> None:
+        self.current_dose_data = dose_data
         self.viewer.set_dose_data(dose_data)
         
         self.list_isodoses.blockSignals(True)
@@ -621,6 +668,16 @@ class DicomViewerPanel(QWidget):
             if not has_dose and self.viewer.dose_point_active:
                 self.viewer.dose_point_active = False
                 self.update_buttons_style()
+
+        if hasattr(self, "edit_rx_dose"):
+            self.edit_rx_dose.blockSignals(True)
+            if has_dose and dose_data.get("rx_dose", 0.0) > 0:
+                self.edit_rx_dose.setText(f"{dose_data['rx_dose']:.2f}")
+                self.edit_rx_dose.setEnabled(True)
+            else:
+                self.edit_rx_dose.clear()
+                self.edit_rx_dose.setEnabled(False)
+            self.edit_rx_dose.blockSignals(False)
         
         if not dose_data or "levels" not in dose_data:
             self.lbl_dose_info.setText("")
@@ -646,6 +703,44 @@ class DicomViewerPanel(QWidget):
             self.list_isodoses.addItem(item)
 
         self.list_isodoses.blockSignals(False)
+
+    def on_rx_dose_edited(self) -> None:
+        if not getattr(self, "current_dose_data", None):
+            return
+        text = self.edit_rx_dose.text().strip().replace(",", ".")
+        if not text:
+            return
+        try:
+            new_rx = float(text)
+            if new_rx <= 0:
+                return
+        except ValueError:
+            rx_cur = self.current_dose_data.get("rx_dose", 0.0)
+            self.edit_rx_dose.setText(f"{rx_cur:.2f}" if rx_cur > 0 else "")
+            return
+
+        self.current_dose_data["rx_dose"] = new_rx
+        units = self.current_dose_data.get("dose_units", "Gy")
+        mx = self.current_dose_data.get("max_dose", 0.0)
+        self.lbl_dose_info.setText(f"{tr_ui('viewer_rx_dose')}: {new_rx:.2f} {units} | {tr_ui('viewer_max_dose')}: {mx:.2f} {units}")
+
+        # Пересчет значений изодозных уровней
+        levels = self.current_dose_data.get("levels", [])
+        for lvl in levels:
+            pct = lvl["pct"]
+            lvl["val"] = round(new_rx * (pct / 100.0), 2)
+
+        # Обновление текста элементов в списке
+        self.list_isodoses.blockSignals(True)
+        for i in range(self.list_isodoses.count()):
+            item = self.list_isodoses.item(i)
+            if item and i < len(levels):
+                lvl = levels[i]
+                item.setText(f"{lvl['name']} — {lvl['val']:.2f} {units}")
+        self.list_isodoses.blockSignals(False)
+
+        self.viewer.set_dose_data(self.current_dose_data)
+        self.viewer.update()
 
     def on_dose_file_changed(self, index: int) -> None:
         if self.dose_worker is not None and self.dose_worker.isRunning():
@@ -1447,6 +1542,12 @@ class DicomViewerPanel(QWidget):
         self.list_isodoses.blockSignals(True)
         self.list_isodoses.clear()
         self.list_isodoses.blockSignals(False)
+
+        if hasattr(self, "edit_rx_dose"):
+            self.edit_rx_dose.blockSignals(True)
+            self.edit_rx_dose.clear()
+            self.edit_rx_dose.setEnabled(False)
+            self.edit_rx_dose.blockSignals(False)
 
         self.lbl_dose_info.setText("")
         self.lbl_info.setText("")
