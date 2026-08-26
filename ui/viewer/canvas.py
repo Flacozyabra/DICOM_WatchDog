@@ -93,6 +93,36 @@ class DicomViewerWidget(QWidget):
         self.setMouseTracking(True)
         self.setStyleSheet("background-color: #000000;")
 
+    def clear_viewer(self) -> None:
+        self.current_pixmap = None
+        self.raw_pixel_array = None
+        self.current_sop_uid = ""
+        self.current_z = None
+        self.structures.clear()
+        self.enabled_structures.clear()
+        self.contour_sop_index.clear()
+        self.contour_z_index.clear()
+        self.dose_data.clear()
+        self.enabled_isodose_levels.clear()
+        self.plan_data.clear()
+        self.pinned_dose_pos = None
+        self.hover_pos = None
+        self.dose_point_active = False
+        self.ruler_active = False
+        self.hu_active = False
+        self.bev_active = False
+        self.show_drr = False
+        self.bev_selected_beam_idx = 0
+        self.bev_control_point_idx = 0
+        self.bev_precomputing_status = ""
+        self.drr_cache.clear()
+        self.bev_struct_cache.clear()
+        self.ct_volume = None
+        self.ct_ipp0 = None
+        self.ct_spacing = None
+        self.sorted_files.clear()
+        self.update()
+
     def set_show_beams(self, show: bool) -> None:
         if self.show_beams != show:
             self.show_beams = show
@@ -349,7 +379,8 @@ class DicomViewerWidget(QWidget):
                         beam = beams[self.bev_selected_beam_idx]
                         cps = beam.get("control_points", [])
                         if beam.get("is_dynamic", False) and len(cps) > 1:
-                            rel_x = max(0.0, min(1.0, (pos.x() - self.bev_cp_slider_rect.x()) / float(self.bev_cp_slider_rect.width())))
+                            track = getattr(self, "bev_cp_track_rect", self.bev_cp_slider_rect)
+                            rel_x = max(0.0, min(1.0, (pos.x() - track.x()) / float(track.width() or 1)))
                             self.bev_control_point_idx = int(round(rel_x * (len(cps) - 1)))
                             self.update()
                     return
@@ -397,13 +428,14 @@ class DicomViewerWidget(QWidget):
     def mouseMoveEvent(self, event) -> None:
         if self.bev_active and self.bev_cp_slider_rect and (event.buttons() & Qt.MouseButton.LeftButton):
             pos = event.position().toPoint()
-            if self.bev_cp_slider_rect.adjusted(-20, -10, 20, 10).contains(pos):
+            if self.bev_cp_slider_rect.adjusted(-20, -15, 20, 15).contains(pos):
                 beams = self.plan_data.get("beams", [])
                 if beams:
                     beam = beams[self.bev_selected_beam_idx]
                     cps = beam.get("control_points", [])
                     if len(cps) > 1:
-                        rel_x = max(0.0, min(1.0, (pos.x() - self.bev_cp_slider_rect.x()) / float(self.bev_cp_slider_rect.width())))
+                        track = getattr(self, "bev_cp_track_rect", self.bev_cp_slider_rect)
+                        rel_x = max(0.0, min(1.0, (pos.x() - track.x()) / float(track.width() or 1)))
                         self.bev_control_point_idx = int(round(rel_x * (len(cps) - 1)))
                         self.update()
                 return
@@ -1003,28 +1035,56 @@ class DicomViewerWidget(QWidget):
             painter.drawText(rect_l, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, line)
             y_spec += rect_l.height() + 4
 
-        # 10. Ползунок контрольных точек для VMAT (только для динамических полей)
+        # 10. Ползунок контрольных точек для динамических полей (2+ CP)
         if beam.get("is_dynamic", False) and len(cps) > 1:
-            slider_h = 24
-            slider_y = h - 45
-            slider_w = min(400, w - 80)
+            slider_w = min(420, w - 80)
+            slider_h = 38
             slider_x = int(cx - slider_w / 2)
+            slider_y = h - 54
             self.bev_cp_slider_rect = QRect(slider_x, slider_y, slider_w, slider_h)
 
-            painter.fillRect(self.bev_cp_slider_rect, QColor("#1E293B"))
-            painter.setPen(QPen(QColor("#334155"), 1))
-            painter.drawRoundedRect(self.bev_cp_slider_rect, 4, 4)
+            # Стеклянная полупрозрачная капсула-подложка
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.setPen(QPen(QColor(51, 65, 85, 200), 1.0))
+            painter.setBrush(QColor(15, 23, 42, 220))
+            painter.drawRoundedRect(self.bev_cp_slider_rect, 10, 10)
 
-            handle_x = slider_x + int((cp_idx / (len(cps) - 1)) * (slider_w - 20))
-            handle_rect = QRect(handle_x, slider_y + 2, 20, slider_h - 4)
-            painter.fillRect(handle_rect, QColor("#3B82F6"))
+            # Текст статуса CP и угла гантри
+            cp_text = f"CP {cp_idx + 1} / {len(cps)}   •   Гантри {g_angle:.1f}°"
+            painter.setFont(QFont("Segoe UI", 9, QFont.Weight.DemiBold))
+            painter.setPen(QColor("#93C5FD"))
+            painter.drawText(QRect(slider_x, slider_y + 4, slider_w, 14), Qt.AlignmentFlag.AlignCenter, cp_text)
 
-            cp_text = f"Control Point {cp_idx + 1} / {len(cps)} (Гантри {g_angle:.1f}°)"
-            painter.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-            painter.setPen(QColor("#94A3B8"))
-            painter.drawText(QRect(slider_x, slider_y - 20, slider_w, 18), Qt.AlignmentFlag.AlignCenter, cp_text)
+            # Тонкая направляющая линия (трек)
+            track_margin = 18
+            track_x = slider_x + track_margin
+            track_w = slider_w - 2 * track_margin
+            track_y = slider_y + 24
+            track_h = 4
+            self.bev_cp_track_rect = QRect(track_x, track_y, track_w, track_h)
+
+            # Фоновый незаполненный трек
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(51, 65, 85, 255))
+            painter.drawRoundedRect(self.bev_cp_track_rect, 2, 2)
+
+            # Активная заполненная часть трека
+            progress_w = int((cp_idx / (len(cps) - 1)) * track_w) if len(cps) > 1 else 0
+            if progress_w > 0:
+                painter.setBrush(QColor("#3B82F6"))
+                painter.drawRoundedRect(QRect(track_x, track_y, progress_w, track_h), 2, 2)
+
+            # Круглый бегунок (knob)
+            handle_cx = track_x + progress_w
+            handle_cy = track_y + int(track_h / 2)
+            handle_r = 7
+
+            painter.setBrush(QColor("#FFFFFF"))
+            painter.setPen(QPen(QColor("#3B82F6"), 2.0))
+            painter.drawEllipse(QPoint(handle_cx, handle_cy), handle_r, handle_r)
         else:
             self.bev_cp_slider_rect = None
+            self.bev_cp_track_rect = None
 
         # 11. Индикатор фонового предрасчета 3D-проекций BEV
         if getattr(self, "bev_precomputing_status", ""):

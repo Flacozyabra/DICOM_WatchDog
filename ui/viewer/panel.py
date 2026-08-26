@@ -1221,6 +1221,7 @@ class DicomViewerPanel(QWidget):
                 self.bev_struct_worker.quit()
                 self.bev_struct_worker.wait()
             self.viewer.bev_precomputing_status = ""
+            self.viewer.show_drr = False
             self.slider.setEnabled(True)
             # Восстанавливаем состояние включенных структур, которое было до входа в BEV
             to_restore = getattr(self, "_pre_bev_enabled_structures", None)
