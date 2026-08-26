@@ -355,6 +355,7 @@ class DicomViewerWidget(QWidget):
             self.drr_precompute_requested.emit()
 
     def mousePressEvent(self, event) -> None:
+        self.setFocus()
         if self.bev_active:
             if event.button() == Qt.MouseButton.LeftButton:
                 pos = event.position().toPoint()

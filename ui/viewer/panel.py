@@ -467,6 +467,7 @@ class DicomViewerPanel(QWidget):
         self.edit_rx_dose.setFixedWidth(65)
         self.edit_rx_dose.setEnabled(False)
         self.edit_rx_dose.editingFinished.connect(self.on_rx_dose_edited)
+        self.edit_rx_dose.returnPressed.connect(self.on_rx_dose_edited)
         rx_layout.addWidget(self.edit_rx_dose)
 
         self.lbl_rx_unit = QLabel("Гр", self.rx_container)
@@ -723,6 +724,11 @@ class DicomViewerPanel(QWidget):
         units = self.current_dose_data.get("dose_units", "Gy")
         mx = self.current_dose_data.get("max_dose", 0.0)
         self.lbl_dose_info.setText(f"{tr_ui('viewer_rx_dose')}: {new_rx:.2f} {units} | {tr_ui('viewer_max_dose')}: {mx:.2f} {units}")
+
+        self.edit_rx_dose.blockSignals(True)
+        self.edit_rx_dose.setText(f"{new_rx:.2f}")
+        self.edit_rx_dose.clearFocus()
+        self.edit_rx_dose.blockSignals(False)
 
         # Пересчет значений изодозных уровней
         levels = self.current_dose_data.get("levels", [])
@@ -1483,6 +1489,11 @@ class DicomViewerPanel(QWidget):
             self.hu_panel.hide()
         self.update_buttons_style()
         self.viewer.update()
+
+    def mousePressEvent(self, event) -> None:
+        if hasattr(self, "edit_rx_dose") and self.edit_rx_dose.hasFocus():
+            self.edit_rx_dose.clearFocus()
+        super().mousePressEvent(event)
 
     def clear_panel(self) -> None:
         if self.loader_worker is not None and self.loader_worker.isRunning():
