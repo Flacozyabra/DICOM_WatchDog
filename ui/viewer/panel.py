@@ -1137,7 +1137,8 @@ class DicomViewerPanel(QWidget):
             self.viewer.structures,
             self.viewer.enabled_structures,
             beams,
-            1000.0
+            1000.0,
+            active_beam_idx=self.viewer.bev_selected_beam_idx
         )
         self.bev_struct_worker.progress_signal.connect(self._on_bev_struct_progress)
         self.bev_struct_worker.item_computed_signal.connect(self._on_bev_struct_item_computed)
@@ -1218,6 +1219,11 @@ class DicomViewerPanel(QWidget):
                 self.lbl_beam.show()
             self.cb_beam.show()
         else:
+            if hasattr(self, "bev_struct_worker") and self.bev_struct_worker is not None and self.bev_struct_worker.isRunning():
+                self.bev_struct_worker.cancel()
+                self.bev_struct_worker.quit()
+                self.bev_struct_worker.wait()
+            self.viewer.bev_precomputing_status = ""
             self.slider.setEnabled(True)
             # Восстанавливаем состояние включенных структур, которое было до входа в BEV
             to_restore = getattr(self, "_pre_bev_enabled_structures", None)
@@ -1571,10 +1577,6 @@ class DicomViewerPanel(QWidget):
         if self.progress_dialog:
             self.progress_dialog.accept()
             self.progress_dialog = None
-
-        # Автоматический фоновый предрасчет 3D-проекций BEV для всех полей плана
-        if self.viewer.plan_data and self.viewer.plan_data.get("beams") and self.viewer.structures:
-            self.start_bev_struct_precompute()
 
     def _on_series_load_error(self, error_msg: str) -> None:
         if self.loader_worker and getattr(self.loader_worker, '_is_cancelled', False):

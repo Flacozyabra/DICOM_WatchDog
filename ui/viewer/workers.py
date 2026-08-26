@@ -399,17 +399,18 @@ class BEVStructurePrecomputeWorker(QThread):
     item_computed_signal = pyqtSignal(tuple, object, list)  # (cache_key, struct_path_mm, pois_mm)
     finished_signal = pyqtSignal()
 
-    def __init__(self, structures: dict, enabled_structures: set, beams: list[dict] | dict, default_sad: float = 1000.0) -> None:
+    def __init__(self, structures: dict, enabled_structures: set, beams: list[dict] | dict, default_sad: float = 1000.0, active_beam_idx: int = 0) -> None:
         super().__init__()
         self.structures = structures
         self.enabled_structures = set(enabled_structures) if enabled_structures else set()
         if isinstance(beams, list):
-            self.beams = beams
+            self.beams = list(beams)
         elif isinstance(beams, dict):
             self.beams = [beams]
         else:
             self.beams = []
         self.default_sad = float(default_sad or 1000.0)
+        self.active_beam_idx = max(0, min(len(self.beams) - 1, active_beam_idx)) if self.beams else 0
         self._is_cancelled = False
 
     def cancel(self) -> None:
@@ -420,9 +421,34 @@ class BEVStructurePrecomputeWorker(QThread):
             self.finished_signal.emit()
             return
 
-        # 1. Формируем плоский список всех ракурсов для всех полей
-        items_to_calc = []
+        import time
+
+        # Фильтруем структуры: только Body, PTV и ориентиры
+        def is_bev_struct(name: str) -> bool:
+            n = name.lower()
+            for k in ("body", "тело", "боди", "external", "skin", "ptv", "птв", "icru", "ориентир", "marker", "poi"):
+                if k in n:
+                    return True
+            return False
+
+        target_structures = {
+            roi_num: s for roi_num, s in self.structures.items()
+            if is_bev_struct(s.get("name", "")) and (not self.enabled_structures or s.get("name", "") in self.enabled_structures)
+        }
+        if not target_structures:
+            target_structures = self.structures
+
+        # Сортируем поля так, чтобы активное поле рассчитывалось первым
+        ordered_beams = []
+        if self.active_beam_idx < len(self.beams):
+            ordered_beams.append(self.beams[self.active_beam_idx])
         for b_idx, beam in enumerate(self.beams):
+            if b_idx != self.active_beam_idx:
+                ordered_beams.append(beam)
+
+        # Формируем плоский список всех ракурсов
+        items_to_calc = []
+        for b_idx, beam in enumerate(ordered_beams):
             b_name = beam.get("display_name", f"Поле {b_idx + 1}")
             sad = float(beam.get("sad", self.default_sad) or self.default_sad)
             iso_default = beam.get("isocenter", [0.0, 0.0, 0.0])
@@ -446,6 +472,9 @@ class BEVStructurePrecomputeWorker(QThread):
             if not iso or len(iso) < 3:
                 continue
 
+            # Уступаем время процессора основному GUI потоку
+            time.sleep(0.001)
+
             g_rad = math.radians(g_angle)
             sin_g = math.sin(g_rad)
             cos_g = math.cos(g_rad)
@@ -465,12 +494,10 @@ class BEVStructurePrecomputeWorker(QThread):
                     return (u_p, -v_p)
                 return None
 
-            for roi_num, s in self.structures.items():
+            for roi_num, s in target_structures.items():
                 if self._is_cancelled:
                     break
                 name = s.get("name", "")
-                if self.enabled_structures and name not in self.enabled_structures:
-                    continue
                 contours = s.get("contours", [])
                 if not contours:
                     continue
