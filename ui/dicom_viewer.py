@@ -83,13 +83,15 @@ def _convex_hull_2d(points):
     return lower[:-1] + upper[:-1]
 
 
-def load_rtstruct(filepath):
+def load_rtstruct(filepath, progress_callback=None):
     """
     Парсит файл RTSTRUCT и возвращает словарь со структурами и их контурами.
+    Использует векторизованное чтение сырых бинарных данных ContourData (defer_size и numpy)
+    для многократного ускорения парсинга.
     """
     structures = {}
     try:
-        ds = safe_dcmread(filepath)
+        ds = safe_dcmread(filepath, defer_size=512)
         if getattr(ds, "Modality", "") != "RTSTRUCT":
             return structures
             
@@ -100,44 +102,51 @@ def load_rtstruct(filepath):
                 name = str(roi.ROIName)
                 roi_names[num] = name
                 
-        if hasattr(ds, "ROIContourSequence"):
-            for roi_contour in ds.ROIContourSequence:
-                num = int(roi_contour.ReferencedROINumber)
-                name = roi_names.get(num, f"ROI {num}")
-                
-                color = QColor(0, 255, 0)
-                if hasattr(roi_contour, "ROIDisplayColor"):
-                    rgb = roi_contour.ROIDisplayColor
-                    if len(rgb) == 3:
-                        color = QColor(int(rgb[0]), int(rgb[1]), int(rgb[2]))
+        roi_contours = list(getattr(ds, "ROIContourSequence", []))
+        total_rois = len(roi_contours)
+
+        for roi_idx, roi_contour in enumerate(roi_contours):
+            if progress_callback is not None:
+                progress_callback(roi_idx + 1, total_rois)
+
+            num = int(roi_contour.ReferencedROINumber)
+            name = roi_names.get(num, f"ROI {num}")
+            
+            color = QColor(0, 255, 0)
+            if hasattr(roi_contour, "ROIDisplayColor"):
+                rgb = roi_contour.ROIDisplayColor
+                if len(rgb) == 3:
+                    color = QColor(int(rgb[0]), int(rgb[1]), int(rgb[2]))
+                    
+            contours = []
+            if hasattr(roi_contour, "ContourSequence"):
+                for contour in roi_contour.ContourSequence:
+                    sop_uid = None
+                    if hasattr(contour, "ContourImageSequence") and len(contour.ContourImageSequence) > 0:
+                        sop_uid = str(contour.ContourImageSequence[0].ReferencedSOPInstanceUID)
                         
-                contours = []
-                if hasattr(roi_contour, "ContourSequence"):
-                    for contour in roi_contour.ContourSequence:
-                        sop_uid = None
-                        if hasattr(contour, "ContourImageSequence") and len(contour.ContourImageSequence) > 0:
-                            sop_uid = str(contour.ContourImageSequence[0].ReferencedSOPInstanceUID)
-                            
-                        points = []
-                        if hasattr(contour, "ContourData"):
-                            cdata = contour.ContourData
-                            for i in range(0, len(cdata), 3):
-                                if i + 2 < len(cdata):
-                                    points.append((float(cdata[i]), float(cdata[i+1]), float(cdata[i+2])))
-                                    
-                        if points:
-                            z_coord = points[0][2]
+                    elem = contour.get_item(0x30060050)
+                    if elem is not None and elem.value is not None:
+                        raw_val = elem.value
+                        if isinstance(raw_val, bytes):
+                            s = raw_val.decode("ascii", errors="ignore")
+                            arr = np.fromstring(s, sep="\\", dtype=np.float32).reshape(-1, 3)
+                        else:
+                            arr = np.fromiter(raw_val, dtype=np.float32).reshape(-1, 3)
+
+                        if len(arr) > 0:
+                            z_coord = float(arr[0, 2])
                             contours.append({
                                 "sop_uid": sop_uid,
                                 "z": z_coord,
-                                "points": points
+                                "points": arr.tolist()
                             })
                             
-                structures[num] = {
-                    "name": name,
-                    "color": color,
-                    "contours": contours
-                }
+            structures[num] = {
+                "name": name,
+                "color": color,
+                "contours": contours
+            }
     except Exception as e:
         print(f"Error parsing RTSTRUCT {filepath}: {e}")
         
@@ -711,15 +720,16 @@ class PatientSeriesLoaderWorker(QThread):
                             except Exception:
                                 pass
 
-            # 2. Обработка КТ файлов с передачей прогресса
+            # 2. Обработка КТ файлов с передачей прогресса (0% -> 60%)
             slices = []
             for idx, f in enumerate(self.files):
                 if self._is_cancelled:
                     return
                 filename = os.path.basename(f)
-                if idx % 5 == 0 or idx == total_files - 1:
+                if idx % 3 == 0 or idx == total_files - 1:
+                    pct = int(((idx + 1) / total_files) * 60)
                     status = tr_ui("loading_dicom_files", idx + 1, total_files)
-                    self.progress_signal.emit(idx + 1, total_files, status)
+                    self.progress_signal.emit(pct, 100, status)
 
                 if filename.startswith("STR") or filename.startswith("RD") or filename.startswith("RP"):
                     continue
@@ -760,7 +770,7 @@ class PatientSeriesLoaderWorker(QThread):
             slices.sort(key=lambda x: (x[1], x[2], x[3]))
             sorted_files = [(x[0], x[3]) for x in slices]
 
-            # 3. Выбор и предпарсинг наиболее свежего файла RTSTRUCT
+            # 3. Выбор и предпарсинг наиболее свежего файла RTSTRUCT (60% -> 85%)
             selected_struct_idx = -1
             parsed_structures = {}
             if struct_files:
@@ -770,10 +780,19 @@ class PatientSeriesLoaderWorker(QThread):
                 latest_file = max(struct_files, key=lambda x: os.path.getmtime(x))
                 selected_struct_idx = struct_files.index(latest_file) + 1
                 
-                self.progress_signal.emit(total_files, total_files, tr_ui("loading_rtstruct_data"))
-                parsed_structures = load_rtstruct(latest_file)
+                def on_struct_progress(cur_roi, total_roi):
+                    if self._is_cancelled:
+                        return
+                    p = int(60 + (cur_roi / max(1, total_roi)) * 25)
+                    status = f"{tr_ui('loading_rtstruct_data')} ({cur_roi}/{total_roi})"
+                    self.progress_signal.emit(p, 100, status)
 
-            # 4. Выбор и предпарсинг наиболее свежего файла RTDOSE
+                self.progress_signal.emit(60, 100, tr_ui("loading_rtstruct_data"))
+                parsed_structures = load_rtstruct(latest_file, progress_callback=on_struct_progress)
+            else:
+                self.progress_signal.emit(85, 100, "Завершение обработки КТ...")
+
+            # 4. Выбор и предпарсинг наиболее свежего файла RTDOSE (85% -> 95%)
             selected_dose_idx = -1
             parsed_dose = {}
             if dose_files:
@@ -783,17 +802,23 @@ class PatientSeriesLoaderWorker(QThread):
                 latest_dose_file = max(dose_files, key=lambda x: os.path.getmtime(x))
                 selected_dose_idx = dose_files.index(latest_dose_file) + 1
 
-                self.progress_signal.emit(total_files, total_files, tr_ui("loading_rtdose_data"))
+                self.progress_signal.emit(87, 100, tr_ui("loading_rtdose_data"))
                 parsed_dose = load_rtdose(latest_dose_file, plan_files)
+                self.progress_signal.emit(95, 100, tr_ui("loading_rtdose_data"))
+            else:
+                self.progress_signal.emit(95, 100, "Подготовка данных...")
 
-            # 5. Выбор и предпарсинг файла RTPLAN
+            # 5. Выбор и предпарсинг файла RTPLAN (95% -> 100%)
             parsed_plan = {}
             if plan_files:
                 if self._is_cancelled:
                     return
                 plan_files.sort(key=lambda x: os.path.basename(x))
                 latest_plan_file = max(plan_files, key=lambda x: os.path.getmtime(x))
+                self.progress_signal.emit(96, 100, "Загрузка параметров плана RTPLAN...")
                 parsed_plan = load_rtplan(latest_plan_file)
+
+            self.progress_signal.emit(99, 100, "Инициализация отображения...")
 
             if self._is_cancelled:
                 return
@@ -4418,7 +4443,7 @@ class DicomViewerPanel(QWidget):
             on_cancel=self._on_cancel_load_series
         )
         total_count = len(files) if files else 0
-        self.progress_dialog.set_custom_progress(0, total_count, tr_ui("loading_dicom_files", 0, total_count))
+        self.progress_dialog.set_custom_progress(0, 100, tr_ui("loading_dicom_files", 0, total_count))
 
         self.loader_worker = PatientSeriesLoaderWorker(files)
         self.loader_worker.progress_signal.connect(self._on_load_progress)
@@ -4441,10 +4466,6 @@ class DicomViewerPanel(QWidget):
     def _on_series_loaded(self, result: dict) -> None:
         if self.loader_worker and getattr(self.loader_worker, '_is_cancelled', False):
             return
-
-        if self.progress_dialog:
-            self.progress_dialog.accept()
-            self.progress_dialog = None
 
         self.struct_files = result.get("struct_files", [])
         self.dose_files = result.get("dose_files", [])
@@ -4524,6 +4545,9 @@ class DicomViewerPanel(QWidget):
             self.btn_beams.setEnabled(has_beams)
 
         if not self.sorted_files:
+            if self.progress_dialog:
+                self.progress_dialog.accept()
+                self.progress_dialog = None
             self.lbl_info.setText("Серия не содержит корректных DICOM файлов.")
             self.viewer.set_slice_info(0, 0)
             self.is_loading = False
@@ -4532,6 +4556,10 @@ class DicomViewerPanel(QWidget):
         self.slider.setRange(0, len(self.sorted_files) - 1)
         self.is_loading = False
         self.set_current_slice(0)
+
+        if self.progress_dialog:
+            self.progress_dialog.accept()
+            self.progress_dialog = None
 
     def _on_series_load_error(self, error_msg: str) -> None:
         if self.loader_worker and getattr(self.loader_worker, '_is_cancelled', False):
