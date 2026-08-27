@@ -76,7 +76,7 @@ def safe_merge_folders(src, dest, new_id):
         except Exception:
             pass
 
-def safe_update_patient_ids(folder_path, new_id, output_field=None):
+def safe_update_patient_ids(folder_path, new_id, output_field=None, rt_only=False):
     if not new_id:
         return
     for dirpath, dirnames, filenames in os.walk(folder_path):
@@ -84,6 +84,11 @@ def safe_update_patient_ids(folder_path, new_id, output_field=None):
             fn_lower = filename.lower()
             if fn_lower == 'dicomdir':
                 continue
+
+            # Если включен режим rt_only, проверяем только файлы структур/доз/планов, пропуская явные КТ-срезы
+            if rt_only and (fn_lower.startswith(('ct', 'img')) or '_ct' in fn_lower or 'ct_' in fn_lower or '_image' in fn_lower):
+                continue
+
             if not (fn_lower.endswith('.dcm') or fn_lower.endswith(('.str', '.rtd', '.rtp', '.dose', '.plan')) or '.' not in filename):
                 continue
 
@@ -377,9 +382,13 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
 
     id_changed = fix_patient_id and (new_patient_id != raw_patient_id)
 
-    # 2. Если включено исправление ID, гарантируем синхронизацию PatientID для всех DICOM-файлов (включая прибывшие структуры)
+    # 2. Если ID изменился у КТ, обновляем все файлы в папке.
+    # Если у КТ ID уже правильный, проверяем только структуры/дозы/планы (rt_only=True) за долю миллисекунды.
     if fix_patient_id:
-        safe_update_patient_ids(path, new_patient_id, output_field)
+        if id_changed:
+            safe_update_patient_ids(path, new_patient_id, output_field, rt_only=False)
+        else:
+            safe_update_patient_ids(path, new_patient_id, output_field, rt_only=True)
 
     # 3. Если включено переименование папки исследования (rename_folder)
     if rename_folder:
