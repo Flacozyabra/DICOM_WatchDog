@@ -21,10 +21,26 @@ if USE_PYQT5:
             'AlignmentFlag', 'CheckState', 'ContextMenuPolicy', 'Corner',
             'CursorShape', 'ItemDataRole', 'ItemFlag', 'KeyboardModifier',
             'Orientation', 'ScrollBarPolicy', 'SortOrder', 'TextInteractionFlag',
-            'WindowModality'
+            'WindowModality', 'WindowType', 'WidgetAttribute', 'AspectRatioMode',
+            'TransformationMode', 'MouseButton', 'Key', 'ApplicationAttribute',
+            'ConnectionType', 'DockWidgetArea', 'ToolBarArea', 'FillRule',
+            'PenStyle', 'BrushStyle', 'DropAction', 'FocusPolicy', 'MatchFlag',
+            'ScreenOrientation'
         ]:
             if not hasattr(PyQt5.QtCore.Qt, name):
                 setattr(PyQt5.QtCore.Qt, name, PyQt5.QtCore.Qt)
+
+        if not hasattr(PyQt5.QtCore.QEasingCurve, 'Type'):
+            setattr(PyQt5.QtCore.QEasingCurve, 'Type', PyQt5.QtCore.QEasingCurve)
+
+        if not hasattr(PyQt5.QtGui.QImage, 'Format'):
+            setattr(PyQt5.QtGui.QImage, 'Format', PyQt5.QtGui.QImage)
+
+        if not hasattr(PyQt5.QtGui.QPainter, 'RenderHint'):
+            setattr(PyQt5.QtGui.QPainter, 'RenderHint', PyQt5.QtGui.QPainter)
+
+        if not hasattr(PyQt5.QtGui.QPainter, 'CompositionMode'):
+            setattr(PyQt5.QtGui.QPainter, 'CompositionMode', PyQt5.QtGui.QPainter)
 
         for name in ['EditTrigger', 'SelectionBehavior', 'SelectionMode']:
             if not hasattr(PyQt5.QtWidgets.QAbstractItemView, name):
@@ -41,6 +57,12 @@ if USE_PYQT5:
             
         if not hasattr(PyQt5.QtWidgets.QLineEdit, 'EchoMode'):
             setattr(PyQt5.QtWidgets.QLineEdit, 'EchoMode', PyQt5.QtWidgets.QLineEdit)
+
+        if not hasattr(PyQt5.QtWidgets.QAbstractSpinBox, 'ButtonSymbols'):
+            setattr(PyQt5.QtWidgets.QAbstractSpinBox, 'ButtonSymbols', PyQt5.QtWidgets.QAbstractSpinBox)
+
+        if not hasattr(PyQt5.QtWidgets.QDialog, 'DialogCode'):
+            setattr(PyQt5.QtWidgets.QDialog, 'DialogCode', PyQt5.QtWidgets.QDialog)
 
         for name in ['ButtonRole', 'Icon', 'StandardButton']:
             if not hasattr(PyQt5.QtWidgets.QMessageBox, name):

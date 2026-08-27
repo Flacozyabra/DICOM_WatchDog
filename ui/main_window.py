@@ -383,7 +383,8 @@ class MainWindow(QMainWindow):
             
         try:
             self.watcher_handler = WatchdogHandler()
-            self.watcher_handler.changed.connect(self.trigger_debounce, Qt.ConnectionType.QueuedConnection)
+            queued_conn = getattr(getattr(Qt, 'ConnectionType', Qt), 'QueuedConnection', getattr(Qt, 'QueuedConnection', 2))
+            self.watcher_handler.changed.connect(self.trigger_debounce, queued_conn)
             
             self.watcher_observer = Observer()
             self.watcher_observer.schedule(self.watcher_handler, ct_dir, recursive=True)
@@ -1032,10 +1033,11 @@ class MainWindow(QMainWindow):
         self.last_scan_finished_time = time.time()
         if hasattr(self, 'debounce_timer') and self.debounce_timer:
             self.debounce_timer.stop()
-        self.images_cache = patient_dict
 
-        # Собираем существующие ID пациентов для сравнения
+        # Собираем существующие ID пациентов из предыдущего кэша и таблицы
         existing_ids = set()
+        if hasattr(self, 'images_cache') and self.images_cache:
+            existing_ids.update(self.images_cache.keys())
         for r in range(self.images_table.rowCount()):
             id_item = self.images_table.item(r, 0)
             if id_item:
@@ -1049,9 +1051,8 @@ class MainWindow(QMainWindow):
         if not os.path.exists(icon_path):
             icon_path = get_resource_path("src/folder_notification.png")
 
-        # Проверяем на появление новых файлов до фильтрации
-        # Оповещения срабатывают только в режиме фонового мониторинга при непустой таблице
-        can_notify = (not self.is_first_scan) and (len(existing_ids) > 0)
+        # Оповещения срабатывают для новых пациентов после первоначального сканирования
+        can_notify = not self.is_first_scan
         for patient_id, data in patient_dict.items():
             if 'patient_name' in data and 'study_datetime' in data and 'folder_datetime' in data and 'str' in data:
                 if can_notify and patient_id not in existing_ids and patient_id not in self.restored_patient_ids:

@@ -21,6 +21,23 @@ except ImportError:
     )
     from PyQt5.QtGui import QPixmap, QColor, QFont, QMouseEvent, QCursor  # type: ignore
 
+for _n in [
+    'AlignmentFlag', 'CheckState', 'ContextMenuPolicy', 'Corner',
+    'CursorShape', 'ItemDataRole', 'ItemFlag', 'KeyboardModifier',
+    'Orientation', 'ScrollBarPolicy', 'SortOrder', 'TextInteractionFlag',
+    'WindowModality', 'WindowType', 'WidgetAttribute', 'AspectRatioMode',
+    'TransformationMode', 'MouseButton', 'Key', 'ApplicationAttribute',
+    'ConnectionType'
+]:
+    if not hasattr(Qt, _n):
+        setattr(Qt, _n, Qt)
+
+if not hasattr(QEasingCurve, 'Type'):
+    setattr(QEasingCurve, 'Type', QEasingCurve)
+
+if not hasattr(QFont, 'Weight'):
+    setattr(QFont, 'Weight', QFont)
+
 
 _active_toasts: List['ToastNotification'] = []
 

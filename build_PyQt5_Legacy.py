@@ -20,6 +20,83 @@ try:
     import PyQt5.QtCore
     import PyQt5.QtGui
     import PyQt5.QtWidgets
+
+    for name in [
+        'AlignmentFlag', 'CheckState', 'ContextMenuPolicy', 'Corner',
+        'CursorShape', 'ItemDataRole', 'ItemFlag', 'KeyboardModifier',
+        'Orientation', 'ScrollBarPolicy', 'SortOrder', 'TextInteractionFlag',
+        'WindowModality', 'WindowType', 'WidgetAttribute', 'AspectRatioMode',
+        'TransformationMode', 'MouseButton', 'Key', 'ApplicationAttribute',
+        'ConnectionType', 'DockWidgetArea', 'ToolBarArea', 'FillRule',
+        'PenStyle', 'BrushStyle', 'DropAction', 'FocusPolicy', 'MatchFlag',
+        'ScreenOrientation'
+    ]:
+        if not hasattr(PyQt5.QtCore.Qt, name):
+            setattr(PyQt5.QtCore.Qt, name, PyQt5.QtCore.Qt)
+
+    if not hasattr(PyQt5.QtCore.QEasingCurve, 'Type'):
+        setattr(PyQt5.QtCore.QEasingCurve, 'Type', PyQt5.QtCore.QEasingCurve)
+
+    if not hasattr(PyQt5.QtGui.QImage, 'Format'):
+        setattr(PyQt5.QtGui.QImage, 'Format', PyQt5.QtGui.QImage)
+
+    if not hasattr(PyQt5.QtGui.QPainter, 'RenderHint'):
+        setattr(PyQt5.QtGui.QPainter, 'RenderHint', PyQt5.QtGui.QPainter)
+
+    if not hasattr(PyQt5.QtGui.QPainter, 'CompositionMode'):
+        setattr(PyQt5.QtGui.QPainter, 'CompositionMode', PyQt5.QtGui.QPainter)
+
+    for name in ['EditTrigger', 'SelectionBehavior', 'SelectionMode']:
+        if not hasattr(PyQt5.QtWidgets.QAbstractItemView, name):
+            setattr(PyQt5.QtWidgets.QAbstractItemView, name, PyQt5.QtWidgets.QAbstractItemView)
+
+    if not hasattr(PyQt5.QtWidgets.QTabBar, 'ButtonPosition'):
+        setattr(PyQt5.QtWidgets.QTabBar, 'ButtonPosition', PyQt5.QtWidgets.QTabBar)
+
+    if not hasattr(PyQt5.QtGui.QFont, 'Weight'):
+        setattr(PyQt5.QtGui.QFont, 'Weight', PyQt5.QtGui.QFont)
+        
+    if not hasattr(PyQt5.QtWidgets.QHeaderView, 'ResizeMode'):
+        setattr(PyQt5.QtWidgets.QHeaderView, 'ResizeMode', PyQt5.QtWidgets.QHeaderView)
+        
+    if not hasattr(PyQt5.QtWidgets.QLineEdit, 'EchoMode'):
+        setattr(PyQt5.QtWidgets.QLineEdit, 'EchoMode', PyQt5.QtWidgets.QLineEdit)
+
+    if not hasattr(PyQt5.QtWidgets.QAbstractSpinBox, 'ButtonSymbols'):
+        setattr(PyQt5.QtWidgets.QAbstractSpinBox, 'ButtonSymbols', PyQt5.QtWidgets.QAbstractSpinBox)
+
+    if not hasattr(PyQt5.QtWidgets.QDialog, 'DialogCode'):
+        setattr(PyQt5.QtWidgets.QDialog, 'DialogCode', PyQt5.QtWidgets.QDialog)
+
+    for name in ['ButtonRole', 'Icon', 'StandardButton']:
+        if not hasattr(PyQt5.QtWidgets.QMessageBox, name):
+            setattr(PyQt5.QtWidgets.QMessageBox, name, PyQt5.QtWidgets.QMessageBox)
+
+    for name in ['ColorGroup', 'ColorRole']:
+        if not hasattr(PyQt5.QtGui.QPalette, name):
+            setattr(PyQt5.QtGui.QPalette, name, PyQt5.QtGui.QPalette)
+
+    if not hasattr(PyQt5.QtCore.QSettings, 'Format'):
+        setattr(PyQt5.QtCore.QSettings, 'Format', PyQt5.QtCore.QSettings)
+        
+    if not hasattr(PyQt5.QtWidgets.QSizePolicy, 'Policy'):
+        setattr(PyQt5.QtWidgets.QSizePolicy, 'Policy', PyQt5.QtWidgets.QSizePolicy)
+        
+    if not hasattr(PyQt5.QtGui.QTextCursor, 'MoveOperation'):
+        setattr(PyQt5.QtGui.QTextCursor, 'MoveOperation', PyQt5.QtGui.QTextCursor)
+
+    if not hasattr(PyQt5.QtWidgets.QFrame, 'Shape'):
+        setattr(PyQt5.QtWidgets.QFrame, 'Shape', PyQt5.QtWidgets.QFrame)
+        
+    if not hasattr(PyQt5.QtWidgets.QFrame, 'Shadow'):
+        setattr(PyQt5.QtWidgets.QFrame, 'Shadow', PyQt5.QtWidgets.QFrame)
+
+    PyQt5.QtGui.QAction = PyQt5.QtWidgets.QAction
+    if hasattr(PyQt5.QtWidgets, 'QActionGroup'):
+        PyQt5.QtGui.QActionGroup = PyQt5.QtWidgets.QActionGroup
+
+    PyQt5.QtGui.QMouseEvent.position = lambda self: self.localPos()
+
     sys.modules['PyQt6'] = sys.modules.get('PyQt5')
     sys.modules['PyQt6.QtCore'] = PyQt5.QtCore
     sys.modules['PyQt6.QtGui'] = PyQt5.QtGui
