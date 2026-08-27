@@ -57,7 +57,8 @@ def safe_merge_folders(src, dest, new_id):
             if is_dicom_file(src_file) or is_structure_file(src_file):
                 try:
                     ds_file = pydicom.dcmread(src_file, force=True)
-                    ds_file.PatientID = new_id
+                    if new_id:
+                        ds_file.PatientID = str(new_id)
                     ds_file.save_as(dest_file)
                 except Exception:
                     shutil.copy2(src_file, dest_file)
@@ -80,22 +81,27 @@ def safe_update_patient_ids(folder_path, new_id, output_field=None):
         return
     for dirpath, dirnames, filenames in os.walk(folder_path):
         for filename in filenames:
+            fn_lower = filename.lower()
+            if fn_lower == 'dicomdir':
+                continue
+            if not (fn_lower.endswith('.dcm') or fn_lower.endswith(('.str', '.rtd', '.rtp', '.dose', '.plan')) or '.' not in filename):
+                continue
+
             src_file = os.path.join(dirpath, filename)
-            if is_dicom_file(src_file) or is_structure_file(src_file):
-                try:
-                    # Сначала читаем только заголовок без пикселей для сверхбыстрой проверки
-                    ds_header = pydicom.dcmread(src_file, stop_before_pixels=True, force=True)
-                    current_id = getattr(ds_header, 'PatientID', '') or str(ds_header.get('PatientID', ''))
-                    if current_id == str(new_id):
-                        continue
-                    
-                    # Только если ID действительно отличается - загружаем полностью и перезаписываем
-                    ds_file = pydicom.dcmread(src_file, force=True)
-                    ds_file.PatientID = str(new_id)
-                    ds_file.save_as(src_file)
-                except Exception as e:
-                    if output_field:
-                        log_message(output_field, tr_log("log_dcm_update_id_warning", filename, e))
+            try:
+                # Сначала читаем только тег PatientID без пикселей для сверхбыстрой проверки
+                ds_header = pydicom.dcmread(src_file, stop_before_pixels=True, force=True, specific_tags=['PatientID'])
+                current_id = str(getattr(ds_header, 'PatientID', '') or ds_header.get('PatientID', '')).strip()
+                if not current_id or current_id == str(new_id):
+                    continue
+                
+                # Только если ID действительно отличается - загружаем полностью и перезаписываем
+                ds_file = pydicom.dcmread(src_file, force=True)
+                ds_file.PatientID = str(new_id)
+                ds_file.save_as(src_file)
+            except Exception as e:
+                if output_field:
+                    log_message(output_field, tr_log("log_dcm_update_id_warning", filename, e))
 
 def get_folder_study_info(folder_path):
     """
@@ -371,8 +377,8 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
 
     id_changed = fix_patient_id and (new_patient_id != raw_patient_id)
 
-    # 2. Если ID изменился в процессе фиксации, обновляем его во всех DICOM-файлах строго один раз
-    if id_changed:
+    # 2. Если включено исправление ID, гарантируем синхронизацию PatientID для всех DICOM-файлов (включая прибывшие структуры)
+    if fix_patient_id:
         safe_update_patient_ids(path, new_patient_id, output_field)
 
     # 3. Если включено переименование папки исследования (rename_folder)
