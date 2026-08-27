@@ -1,18 +1,117 @@
-# -*- coding: utf-8 -*-
-"""Patient File Operations Controller for DICOM WatchDog."""
-
 import os
 import sys
 import shutil
+import re
+import time
 import subprocess
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import (
+    QMessageBox, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton
+)
 
 from core.logger import log_message
 from core.locale_utils import tr_ui, tr_log
 from core.dicom_utils import delete_redundant_str
+from core.rename_utils import safe_update_patient_ids, get_folder_study_info, sanitize_folder_name
 from ui.workers import BackgroundFileWorker
 from ui.settings_tabs.settings_utils import apply_dark_title_bar
+
+
+class ChangePatientIdDialog(QDialog):
+    def __init__(self, parent, patient_name, current_id):
+        super().__init__(parent)
+        self.setWindowTitle(tr_ui("dlg_change_id_title"))
+        self.setMinimumWidth(380)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #1e1e1e;
+                color: #ffffff;
+                border: 1px solid #3d3d3d;
+                border-radius: 6px;
+                font-family: 'Segoe UI';
+            }
+            QLabel {
+                color: #e0e0e0;
+                font-family: 'Segoe UI';
+            }
+            QLineEdit {
+                background-color: #2b2b2b;
+                color: #ffffff;
+                border: 1px solid #3d3d3d;
+                border-radius: 4px;
+                padding: 6px 10px;
+                font-family: 'Segoe UI';
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #1f538d;
+            }
+            QPushButton {
+                background-color: #2b2b2b;
+                color: #ffffff;
+                border: 1px solid #3d3d3d;
+                border-radius: 4px;
+                padding: 6px 18px;
+                font-family: 'Segoe UI';
+                font-size: 13px;
+                min-width: 90px;
+            }
+            QPushButton:hover {
+                background-color: #383838;
+                border-color: #555555;
+            }
+            QPushButton#btn_apply {
+                background-color: #1f538d;
+                border-color: #2a6ab2;
+                font-weight: bold;
+            }
+            QPushButton#btn_apply:hover {
+                background-color: #2868ad;
+                border-color: #3d7dc2;
+            }
+        """)
+        apply_dark_title_bar(self)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
+
+        if patient_name:
+            clean_name = patient_name.replace("  ↳", "").strip()
+            lbl_name = QLabel(f"<b>{clean_name}</b>", self)
+            lbl_name.setStyleSheet("font-size: 14px; color: #ffffff;")
+            layout.addWidget(lbl_name)
+
+        lbl_prompt = QLabel(tr_ui("dlg_change_id_label"), self)
+        lbl_prompt.setStyleSheet("font-size: 12px; color: #aaaaaa;")
+        layout.addWidget(lbl_prompt)
+
+        self.edit_id = QLineEdit(self)
+        self.edit_id.setText(str(current_id))
+        self.edit_id.selectAll()
+        layout.addWidget(self.edit_id)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(12)
+
+        self.btn_apply = QPushButton(tr_ui("dlg_change_id_btn_apply"), self)
+        self.btn_apply.setObjectName("btn_apply")
+        self.btn_apply.clicked.connect(self.accept)
+
+        self.btn_cancel = QPushButton(tr_ui("dlg_change_id_btn_cancel"), self)
+        self.btn_cancel.clicked.connect(self.reject)
+
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.btn_apply)
+        btn_layout.addWidget(self.btn_cancel)
+        btn_layout.addStretch()
+
+        layout.addLayout(btn_layout)
+
+        self.edit_id.returnPressed.connect(self.accept)
+
+    def get_new_id(self):
+        return self.edit_id.text().strip()
 
 
 class PatientOperationsManager:
@@ -20,6 +119,101 @@ class PatientOperationsManager:
 
     def __init__(self, main_window):
         self.mw = main_window
+
+    def change_patient_id_action(self, patient_id, patient_name, is_archive=False):
+        if patient_id in self.mw.active_file_operations:
+            return
+
+        dir_key = 'archive_dir' if is_archive else 'ct_images_dir'
+        base_dir = self.mw.config.get(dir_key, '')
+        if not base_dir or not os.path.exists(base_dir):
+            return
+
+        cache = self.mw.archive_cache if is_archive else self.mw.images_cache
+        folder_name = str(patient_id)
+        current_id = ""
+        if cache and patient_id in cache:
+            folder_name = cache[patient_id].get('folder_name', folder_name)
+            current_id = cache[patient_id].get('patient_id', '')
+
+        top_folder_name = folder_name.replace('\\', '/').split('/')[0] if ('/' in folder_name or '\\' in folder_name) else folder_name
+        top_path = os.path.normpath(os.path.join(base_dir, top_folder_name))
+        if not os.path.exists(top_path):
+            if is_archive:
+                self.mw.remove_missing_archive_patient(patient_id)
+            else:
+                log_message(self.mw.output_field, tr_log("log_path_not_exist", top_path))
+            return
+
+        if not current_id:
+            info = get_folder_study_info(top_path)
+            if info and info.get('patient_id'):
+                current_id = str(info['patient_id'])
+            else:
+                current_id = top_folder_name
+
+        dlg = ChangePatientIdDialog(self.mw, patient_name, current_id)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        new_id = dlg.get_new_id()
+        if not new_id:
+            return
+
+        self.mw.active_file_operations[patient_id] = {'op': 'change_id'}
+        if is_archive:
+            self.mw.archive_table.viewport().update()
+        else:
+            self.mw.images_table.viewport().update()
+
+        def run_change_id():
+            # 1. Применяем ID ко ВСЕМ DICOM-файлам в папке и ее подпапках
+            safe_update_patient_ids(top_path, new_id, self.mw.output_field, rt_only=False)
+
+            # 2. Если ID изменился, переименовываем корневую папку пациента
+            final_path = top_path
+            if new_id != current_id:
+                info = get_folder_study_info(top_path)
+                p_name = info['patient_name'] if info else patient_name
+                clean_p_name = str(p_name).replace('^', ' ').replace('_', ' ').replace('  ↳', '').strip()
+                clean_p_name = re.sub(r'\s+', ' ', clean_p_name)
+                name_part = sanitize_folder_name(clean_p_name)
+
+                rename_mode = self.mw.config.get('rename_study_folder_mode', 'id')
+                if rename_mode == 'name_id':
+                    new_folder_name = f"{name_part} [{new_id}]" if name_part else str(new_id)
+                elif rename_mode == 'id_name':
+                    new_folder_name = f"[{new_id}] {name_part}" if name_part else str(new_id)
+                elif rename_mode == 'name':
+                    new_folder_name = name_part if name_part else str(new_id)
+                else:
+                    new_folder_name = str(new_id)
+
+                new_top_path = os.path.normpath(os.path.join(base_dir, new_folder_name))
+                if os.path.normcase(top_path) != os.path.normcase(new_top_path):
+                    for attempt in range(5):
+                        try:
+                            os.rename(top_path, new_top_path)
+                            final_path = new_top_path
+                            break
+                        except OSError:
+                            time.sleep(0.2)
+
+            return {
+                'is_archive': is_archive,
+                'old_id': current_id,
+                'new_id': new_id,
+                'patient_name': patient_name,
+                'top_path': final_path,
+                'old_top_path': top_path
+            }
+
+        worker = BackgroundFileWorker(patient_id, 'change_id', run_change_id)
+        worker.finished.connect(self.mw.on_background_action_finished)
+        worker.error.connect(self.mw.on_background_action_error)
+        op_key = f"worker_{patient_id}"
+        setattr(self.mw, op_key, worker)
+        worker.start()
 
     def delete_patient_action(self, patient_id, patient_name):
         if patient_id in self.mw.active_file_operations:

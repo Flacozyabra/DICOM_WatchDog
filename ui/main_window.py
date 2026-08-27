@@ -246,6 +246,22 @@ class MainWindow(QMainWindow):
             self.update_archive_table_ui()
             self.update_tab_badges()
 
+        elif op_type == 'change_id':
+            is_archive = result.get('is_archive', False)
+            old_id = result.get('old_id', '')
+            new_id = result.get('new_id', '')
+            p_name = result.get('patient_name', '')
+            if new_id != old_id:
+                log_message(self.output_field, tr_log("log_patient_id_changed", p_name, old_id, new_id))
+            else:
+                log_message(self.output_field, tr_log("log_patient_id_resynced", p_name, new_id))
+
+            if is_archive:
+                self.archive_cache = None
+                self.fill_archive_list(force=True, silent=True)
+            else:
+                self.start_folder_scan(force=True)
+
     def on_background_action_error(self, patient_id, op_type, err_msg, err_title):
         if patient_id in self.active_file_operations:
             del self.active_file_operations[patient_id]
@@ -1371,6 +1387,9 @@ class MainWindow(QMainWindow):
 
     def delete_patient_action(self, patient_id, patient_name):
         self.patient_ops.delete_patient_action(patient_id, patient_name)
+
+    def change_patient_id_action(self, patient_id, patient_name, is_archive=False):
+        self.patient_ops.change_patient_id_action(patient_id, patient_name, is_archive)
 
     def archive_patient_action(self, patient_id, patient_name=None):
         self.patient_ops.archive_patient_action(patient_id, patient_name)

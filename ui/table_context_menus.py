@@ -163,6 +163,9 @@ class TableContextMenuManager:
         open_folder_action = QAction(tr_ui("ctx_open_folder"), self.mw)
         open_folder_action.triggered.connect(lambda: self.mw.open_patient_folder(folder_to_open, is_archive=False))
 
+        change_id_action = QAction(tr_ui("ctx_change_id"), self.mw)
+        change_id_action.triggered.connect(lambda: self.mw.patient_ops.change_patient_id_action(patient_id, patient_name, is_archive=False))
+
         delete_action = QAction(tr_ui("ctx_delete_patient"), self.mw)
         delete_action.triggered.connect(lambda: self.mw.delete_patient_action(patient_id, patient_name))
 
@@ -173,6 +176,7 @@ class TableContextMenuManager:
         clean_str_action.triggered.connect(lambda: self.mw.clean_str_action(patient_id))
 
         menu.addAction(open_folder_action)
+        menu.addAction(change_id_action)
         menu.addAction(delete_action)
         if self.mw.config.get('show_tab_archive', 'True').lower() == 'true':
             menu.addAction(archive_action)
@@ -204,6 +208,9 @@ class TableContextMenuManager:
         open_folder_action = QAction(tr_ui("ctx_open_folder"), self.mw)
         open_folder_action.triggered.connect(lambda: self.mw.open_patient_folder(folder_to_open, is_archive=True))
 
+        change_id_action = QAction(tr_ui("ctx_change_id"), self.mw)
+        change_id_action.triggered.connect(lambda: self.mw.patient_ops.change_patient_id_action(patient_id, patient_name, is_archive=True))
+
         restore_action = QAction(self.mw.get_restore_to_ct_text(), self.mw)
         restore_action.triggered.connect(self.mw.move_from_archive_cmd)
 
@@ -211,6 +218,7 @@ class TableContextMenuManager:
         delete_action.triggered.connect(lambda: self.mw.delete_archive_patient_action(patient_id, patient_name))
 
         menu.addAction(open_folder_action)
+        menu.addAction(change_id_action)
         menu.addAction(restore_action)
         menu.addAction(delete_action)
 
