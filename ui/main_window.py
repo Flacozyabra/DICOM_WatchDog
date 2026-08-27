@@ -251,16 +251,43 @@ class MainWindow(QMainWindow):
             old_id = result.get('old_id', '')
             new_id = result.get('new_id', '')
             p_name = result.get('patient_name', '')
+            top_path = result.get('top_path', '')
+            old_top_path = result.get('old_top_path', '')
+
+            old_folder_name = os.path.basename(old_top_path)
+            new_folder_name = os.path.basename(top_path)
+
             if new_id != old_id:
                 log_message(self.output_field, tr_log("log_patient_id_changed", p_name, old_id, new_id))
             else:
                 log_message(self.output_field, tr_log("log_patient_id_resynced", p_name, new_id))
 
-            if is_archive:
-                self.archive_cache = None
-                self.fill_archive_list(force=True, silent=True)
-            else:
-                self.start_folder_scan(force=True)
+            target_cache = self.archive_cache if is_archive else self.images_cache
+            if target_cache is not None:
+                keys_to_update = []
+                for k in list(target_cache.keys()):
+                    if k == patient_id or k == old_folder_name or k.startswith(old_folder_name + '/') or k.startswith(old_folder_name + '\\'):
+                        keys_to_update.append(k)
+
+                for old_key in keys_to_update:
+                    entry = target_cache.pop(old_key)
+                    entry['patient_id'] = new_id
+                    if 'folder_name' in entry:
+                        entry['folder_name'] = entry['folder_name'].replace(old_folder_name, new_folder_name, 1)
+                    new_key = old_key.replace(old_folder_name, new_folder_name, 1) if old_folder_name in old_key else new_folder_name
+                    target_cache[new_key] = entry
+
+                if is_archive:
+                    try:
+                        from core.archive import save_cache
+                        save_cache(self.archive_cache)
+                    except Exception:
+                        pass
+                    self.update_archive_table_ui()
+                else:
+                    self.update_images_table_ui()
+
+                self.update_tab_badges()
 
     def on_background_action_error(self, patient_id, op_type, err_msg, err_title):
         if patient_id in self.active_file_operations:
