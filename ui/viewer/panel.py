@@ -1108,6 +1108,7 @@ class DicomViewerPanel(QWidget):
                 padding: 0px;
                 min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px;
             }}
+            QPushButton:disabled {{ background-color: #1a1a1a; border: 1px solid #333333; }}
         """
         style_dose_point_inactive = f"""
             QPushButton {{
@@ -1131,6 +1132,7 @@ class DicomViewerPanel(QWidget):
                 padding: 0px;
                 min-width: 36px; max-width: 36px; min-height: 28px; max-height: 28px;
             }}
+            QPushButton:disabled {{ background-color: #1a1a1a; border: 1px solid #333333; color: #555555; }}
         """
         style_bev_inactive = f"""
             QPushButton {{
@@ -1157,6 +1159,7 @@ class DicomViewerPanel(QWidget):
                 min-width: 48px; max-width: 55px; min-height: 28px; max-height: 28px;
                 font-size: 11px;
             }}
+            QPushButton:disabled {{ background-color: #1a1a1a; border: 1px solid #333333; color: #555555; }}
         """
         style_beams_inactive = f"""
             QPushButton {{
@@ -1173,12 +1176,18 @@ class DicomViewerPanel(QWidget):
             QPushButton:disabled {{ background-color: #1a1a1a; border: 1px solid #333333; color: #555555; }}
         """
 
+        has_beams = bool(self.viewer.plan_data and self.viewer.plan_data.get("beams"))
+        has_dose = bool(self.viewer.dose_volume is not None or (hasattr(self, "dose_files") and self.dose_files))
+
         if hasattr(self, "btn_beams"):
-            self.btn_beams.setStyleSheet(style_beams_active if self.viewer.show_beams else style_beams_inactive)
+            self.btn_beams.setEnabled(has_beams)
+            self.btn_beams.setStyleSheet(style_beams_active if (self.viewer.show_beams and has_beams) else style_beams_inactive)
         if hasattr(self, "btn_bev"):
-            self.btn_bev.setStyleSheet(style_bev_active if self.viewer.bev_active else style_bev_inactive)
+            self.btn_bev.setEnabled(has_beams)
+            self.btn_bev.setStyleSheet(style_bev_active if (self.viewer.bev_active and has_beams) else style_bev_inactive)
         if hasattr(self, "btn_dose_point"):
-            self.btn_dose_point.setStyleSheet(style_dose_point_active if self.viewer.dose_point_active else style_dose_point_inactive)
+            self.btn_dose_point.setEnabled(has_dose)
+            self.btn_dose_point.setStyleSheet(style_dose_point_active if (self.viewer.dose_point_active and has_dose) else style_dose_point_inactive)
         self.btn_ruler.setStyleSheet(style_ruler_active if self.viewer.ruler_active else style_ruler_inactive)
         self.btn_hu.setStyleSheet(style_hu_active if self.viewer.hu_active else style_hu_inactive)
         self.btn_osd.setStyleSheet(style_osd_active if self.viewer.osd_visible else style_osd_inactive)
@@ -1722,6 +1731,7 @@ class DicomViewerPanel(QWidget):
             self.btn_bev.setEnabled(has_beams)
         if hasattr(self, "btn_beams"):
             self.btn_beams.setEnabled(has_beams)
+        self.update_buttons_style()
 
         if not self.sorted_files:
             if self.progress_dialog:
