@@ -47,10 +47,34 @@ class BackgroundDicomServer:
                 p_dir = os.path.join(target_dir, safe_pid)
                 os.makedirs(p_dir, exist_ok=True)
                 
-                file_path = os.path.join(p_dir, f"{d_set.SOPInstanceUID}.dcm")
+                mod = str(getattr(d_set, 'Modality', '')).upper().strip()
+                sop_class = str(getattr(d_set, 'SOPClassUID', '') or getattr(event.file_meta, 'MediaStorageSOPClassUID', '')).strip()
+                if mod == 'RTSTRUCT' or sop_class == '1.2.840.10008.5.1.4.1.1.481.3':
+                    prefix = 'STR_'
+                elif mod == 'RTDOSE' or sop_class == '1.2.840.10008.5.1.4.1.1.481.2':
+                    prefix = 'RD_'
+                elif mod == 'RTPLAN' or sop_class in ('1.2.840.10008.5.1.4.1.1.481.5', '1.2.840.10008.5.1.4.1.1.481.8', '1.2.246.352.70.1.70', '1.2.246.352.70.1.71', '1.2.246.352.70.1.72'):
+                    prefix = 'RP_'
+                elif mod:
+                    prefix = f"{mod}_"
+                else:
+                    prefix = "CT_"
+
+                sop_uid = str(getattr(d_set, 'SOPInstanceUID', '') or getattr(event.file_meta, 'MediaStorageSOPInstanceUID', '')).strip()
+                if not sop_uid:
+                    import uuid
+                    sop_uid = str(uuid.uuid4())
+
+                file_path = os.path.join(p_dir, f"{prefix}{sop_uid}.dcm")
                 d_set.save_as(file_path, write_like_original=False)
                 return 0x0000
-            except Exception:
+            except Exception as e:
+                try:
+                    from core.config_utils import get_log_path
+                    with open(get_log_path(), "a", encoding="utf-8") as log_f:
+                        log_f.write(f"[{datetime.now()}] Error in handle_store: {e}\n")
+                except Exception:
+                    pass
                 return 0xC000
 
         handlers = [
@@ -279,7 +303,25 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
             os.makedirs(p_dir, exist_ok=True)
             created_patient_dir[0] = p_dir
             
-            file_path = os.path.join(p_dir, f"{d_set.SOPInstanceUID}.dcm")
+            mod = str(getattr(d_set, 'Modality', '')).upper().strip()
+            sop_class = str(getattr(d_set, 'SOPClassUID', '') or getattr(event.file_meta, 'MediaStorageSOPClassUID', '')).strip()
+            if mod == 'RTSTRUCT' or sop_class == '1.2.840.10008.5.1.4.1.1.481.3':
+                prefix = 'STR_'
+            elif mod == 'RTDOSE' or sop_class == '1.2.840.10008.5.1.4.1.1.481.2':
+                prefix = 'RD_'
+            elif mod == 'RTPLAN' or sop_class in ('1.2.840.10008.5.1.4.1.1.481.5', '1.2.840.10008.5.1.4.1.1.481.8', '1.2.246.352.70.1.70', '1.2.246.352.70.1.71', '1.2.246.352.70.1.72'):
+                prefix = 'RP_'
+            elif mod:
+                prefix = f"{mod}_"
+            else:
+                prefix = "CT_"
+
+            sop_uid = str(getattr(d_set, 'SOPInstanceUID', '') or getattr(event.file_meta, 'MediaStorageSOPInstanceUID', '')).strip()
+            if not sop_uid:
+                import uuid
+                sop_uid = str(uuid.uuid4())
+
+            file_path = os.path.join(p_dir, f"{prefix}{sop_uid}.dcm")
             d_set.save_as(file_path, write_like_original=False)
             saved_files_count[0] += 1
             return 0x0000

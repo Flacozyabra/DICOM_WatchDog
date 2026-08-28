@@ -36,24 +36,28 @@ def classify_dicom_file(filename: str, filepath: str = None) -> str:
         'PLAN' in fn or '_PL' in fn or '_RP' in fn or 'RTPLAN' in fn or 'RP_' in fn):
         return 'RTPLAN'
 
-    # 4. Явные шаблоны КТ-срезов
+    # 4. Явные шаблоны КТ-срезов по префиксу/имени файла (без UID '1.2.')
     if ('_CT' in fn or 'CT_' in fn or 'CT2_' in fn or '_IMAGE' in fn or 
-        'IMG' in fn or fn.startswith('CT') or fn.startswith('1.2.')):
+        'IMG' in fn or fn.startswith(('CT.', 'CT_', 'CT-', 'CT'))):
         return 'CT'
 
-    # 5. Для неоднозначных файлов без явного префикса КТ — быстрая проверка заголовка
+    # 5. Для неоднозначных файлов (числовые имена, UID 1.2.xxx, .dcm) — быстрая проверка заголовка
     target_path = filepath or (filename if os.path.isabs(filename) else None)
     if target_path and os.path.isfile(target_path) and (target_path.lower().endswith('.dcm') or not os.path.splitext(target_path)[1]):
         try:
             ds = pydicom.dcmread(target_path, stop_before_pixels=True, force=True, specific_tags=['Modality', 'SOPClassUID'])
-            mod = str(getattr(ds, 'Modality', '')).upper()
-            sop = str(getattr(ds, 'SOPClassUID', ''))
+            mod = str(getattr(ds, 'Modality', '')).upper().strip()
+            sop = str(getattr(ds, 'SOPClassUID', '')).strip()
             if mod == 'RTSTRUCT' or sop == '1.2.840.10008.5.1.4.1.1.481.3':
                 return 'RTSTRUCT'
             if mod == 'RTDOSE' or sop == '1.2.840.10008.5.1.4.1.1.481.2':
                 return 'RTDOSE'
-            if mod == 'RTPLAN' or sop == '1.2.840.10008.5.1.4.1.1.481.5':
+            if mod == 'RTPLAN' or sop in ('1.2.840.10008.5.1.4.1.1.481.5', '1.2.840.10008.5.1.4.1.1.481.8', '1.2.246.352.70.1.70', '1.2.246.352.70.1.71', '1.2.246.352.70.1.72'):
                 return 'RTPLAN'
+            if mod == 'CT' or sop == '1.2.840.10008.5.1.4.1.1.2':
+                return 'CT'
+            if mod:
+                return mod
         except Exception:
             pass
 
@@ -102,10 +106,10 @@ def is_dicom_file(file_path):
     if not os.path.isfile(file_path):
         return False
     bname = os.path.basename(file_path)
-    cls = classify_dicom_file(bname)
+    cls = classify_dicom_file(bname, file_path)
     if cls == 'IGNORE':
         return False
-    if cls in ('RTSTRUCT', 'RTDOSE', 'RTPLAN'):
+    if cls in ('RTSTRUCT', 'RTDOSE', 'RTPLAN', 'CT'):
         return True
     if file_path.lower().endswith('.dcm'):
         return True
@@ -261,7 +265,7 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
 
             if is_cleanup_on and len(str_files) > 1:
                 delete_redundant_str(root, output_field)
-                str_files = [f for f in os.listdir(root) if classify_dicom_file(f) == 'RTSTRUCT']
+                str_files = [f for f in os.listdir(root) if classify_dicom_file(f, os.path.join(root, f)) == 'RTSTRUCT']
                 study_entry['str'] = len(str_files)
 
             patient_data[rel_path] = study_entry

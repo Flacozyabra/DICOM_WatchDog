@@ -1185,6 +1185,8 @@ class DicomViewerPanel(QWidget):
         self.btn_close.setStyleSheet(style_close)
 
     def toggle_beams(self) -> None:
+        if not self.viewer.plan_data or not self.viewer.plan_data.get("beams"):
+            return
         val = not self.viewer.show_beams
         self.viewer.set_show_beams(val)
         self.update_buttons_style()
@@ -1281,6 +1283,8 @@ class DicomViewerPanel(QWidget):
             self.viewer.update()
 
     def toggle_bev(self) -> None:
+        if not self.viewer.plan_data or not self.viewer.plan_data.get("beams"):
+            return
         active = not self.viewer.bev_active
         self.viewer.bev_active = active
         if active:
