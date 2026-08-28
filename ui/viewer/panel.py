@@ -1176,22 +1176,26 @@ class DicomViewerPanel(QWidget):
             QPushButton:disabled {{ background-color: #1a1a1a; border: 1px solid #333333; color: #555555; }}
         """
 
-        has_beams = bool(self.viewer.plan_data and self.viewer.plan_data.get("beams"))
-        has_dose = bool(self.viewer.dose_volume is not None or (hasattr(self, "dose_files") and self.dose_files))
+        has_beams = bool(getattr(self.viewer, "plan_data", None) and self.viewer.plan_data.get("beams"))
+        has_dose = bool(getattr(self.viewer, "dose_data", None) or getattr(self, "dose_files", None))
 
         if hasattr(self, "btn_beams"):
             self.btn_beams.setEnabled(has_beams)
-            self.btn_beams.setStyleSheet(style_beams_active if (self.viewer.show_beams and has_beams) else style_beams_inactive)
+            self.btn_beams.setStyleSheet(style_beams_active if (getattr(self.viewer, "show_beams", False) and has_beams) else style_beams_inactive)
         if hasattr(self, "btn_bev"):
             self.btn_bev.setEnabled(has_beams)
-            self.btn_bev.setStyleSheet(style_bev_active if (self.viewer.bev_active and has_beams) else style_bev_inactive)
+            self.btn_bev.setStyleSheet(style_bev_active if (getattr(self.viewer, "bev_active", False) and has_beams) else style_bev_inactive)
         if hasattr(self, "btn_dose_point"):
             self.btn_dose_point.setEnabled(has_dose)
-            self.btn_dose_point.setStyleSheet(style_dose_point_active if (self.viewer.dose_point_active and has_dose) else style_dose_point_inactive)
-        self.btn_ruler.setStyleSheet(style_ruler_active if self.viewer.ruler_active else style_ruler_inactive)
-        self.btn_hu.setStyleSheet(style_hu_active if self.viewer.hu_active else style_hu_inactive)
-        self.btn_osd.setStyleSheet(style_osd_active if self.viewer.osd_visible else style_osd_inactive)
-        self.btn_close.setStyleSheet(style_close)
+            self.btn_dose_point.setStyleSheet(style_dose_point_active if (getattr(self.viewer, "dose_point_active", False) and has_dose) else style_dose_point_inactive)
+        if hasattr(self, "btn_ruler"):
+            self.btn_ruler.setStyleSheet(style_ruler_active if getattr(self.viewer, "ruler_active", False) else style_ruler_inactive)
+        if hasattr(self, "btn_hu"):
+            self.btn_hu.setStyleSheet(style_hu_active if getattr(self.viewer, "hu_active", False) else style_hu_inactive)
+        if hasattr(self, "btn_osd"):
+            self.btn_osd.setStyleSheet(style_osd_active if getattr(self.viewer, "osd_visible", False) else style_osd_inactive)
+        if hasattr(self, "btn_close"):
+            self.btn_close.setStyleSheet(style_close)
 
     def toggle_beams(self) -> None:
         if not self.viewer.plan_data or not self.viewer.plan_data.get("beams"):
