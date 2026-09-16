@@ -292,7 +292,7 @@ def cleanup_old_archive_folders(archive_dir, cleanup_days, output_field):
     Поддерживает как плоскую, так и иерархическую структуру исследований пациента.
     """
     if not os.path.exists(archive_dir) or cleanup_days <= 0:
-        return
+        return 0
 
     now = datetime.now()
     deleted_count = 0
@@ -301,7 +301,7 @@ def cleanup_old_archive_folders(archive_dir, cleanup_days, output_field):
         items = os.listdir(archive_dir)
     except Exception as e:
         log_message(output_field, tr_log("log_archive_cleanup_access_error", e))
-        return
+        return 0
 
     for item in items:
         patient_path = os.path.join(archive_dir, item)
@@ -373,3 +373,5 @@ def cleanup_old_archive_folders(archive_dir, cleanup_days, output_field):
                     log_message(output_field, tr_log("log_archive_cleanup_success", patient_name, item, days_old))
                 except Exception as e:
                     log_message(output_field, tr_log("log_archive_cleanup_error", item, e))
+
+    return deleted_count

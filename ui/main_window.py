@@ -153,7 +153,8 @@ class MainWindow(QMainWindow):
         
         # Первоначальное заполнение
         self.show_patient_list()
-        self.fill_archive_list(silent=True)
+        if not getattr(self, 'scan_worker', None) or not self.scan_worker.isRunning():
+            self.fill_archive_list(silent=True)
         if self.config.get('auto_update_is', 'off').lower() == 'on' or self.tab_widget.currentIndex() == 2:
             self.fill_pacs_list(silent=True)
         
@@ -864,9 +865,22 @@ class MainWindow(QMainWindow):
         elif current_widget == self.archive_tab:  # CT archive
             if not pacs_auto_scan_on:
                 self.pacs_timer.stop()
-            if not hasattr(self, 'archive_cache') or self.archive_cache is None:
+            archive_dir = self.config.get('archive_dir', '')
+            needs_rescan = False
+            if archive_dir and os.path.exists(archive_dir) and getattr(self, 'archive_cache', None) is not None:
+                try:
+                    disk_dirs = [d for d in os.listdir(archive_dir) if os.path.isdir(os.path.join(archive_dir, d))]
+                    if len(disk_dirs) != len(self.archive_cache):
+                        needs_rescan = True
+                except Exception:
+                    pass
+
+            if not hasattr(self, 'archive_cache') or self.archive_cache is None or needs_rescan:
                 if not self.archive_worker or not self.archive_worker.isRunning():
-                    self.fill_archive_list()
+                    self.fill_archive_list(silent=(getattr(self, 'archive_cache', None) is not None))
+                else:
+                    self._prune_missing_archive_records()
+                    self.update_archive_table_ui()
             else:
                 self._prune_missing_archive_records()
                 self.update_archive_table_ui()
@@ -1026,6 +1040,7 @@ class MainWindow(QMainWindow):
             scan_rtd=scan_rtd, scan_rtp=scan_rtp
         )
         self.scan_worker.finished.connect(self.on_folder_scan_finished)
+        self.scan_worker.archive_updated.connect(self.on_archive_updated_by_scan)
         self.scan_worker.log_emitted.connect(lambda msg: log_message(self.output_field, msg))
         self.scan_worker.status_changed.connect(self.on_scan_status_changed)
         self.scan_worker.progress.connect(self.on_scan_progress)
@@ -1124,11 +1139,24 @@ class MainWindow(QMainWindow):
         self.update_images_table_ui()
         self.update_tab_badges()
 
-        # Если включена вкладка архива и настроена папка архива, подгружаем если еще не загружен
+        # Если включена вкладка архива и настроена папка архива, подгружаем если еще не загружен или если архив изменился
         if self.config.get('show_tab_archive', 'True').lower() == 'true':
             archive_dir = self.config.get('archive_dir', '')
             if archive_dir and os.path.exists(archive_dir):
-                if getattr(self, 'archive_cache', None) is None and (not self.archive_worker or not self.archive_worker.isRunning()):
+                archive_modified = getattr(self.scan_worker, 'archived_count', 0) > 0 or getattr(self.scan_worker, 'archive_cleaned', False)
+                if getattr(self, 'archive_cache', None) is None or archive_modified:
+                    if not self.archive_worker or not self.archive_worker.isRunning():
+                        self.fill_archive_list(silent=True)
+                    else:
+                        self._pending_archive_scan = True
+
+    def on_archive_updated_by_scan(self):
+        if self.config.get('show_tab_archive', 'True').lower() == 'true':
+            archive_dir = self.config.get('archive_dir', '')
+            if archive_dir and os.path.exists(archive_dir):
+                if hasattr(self, 'archive_worker') and self.archive_worker and self.archive_worker.isRunning():
+                    self._pending_archive_scan = True
+                else:
                     self.fill_archive_list(silent=True)
 
     def update_images_table_ui(self):
@@ -1449,6 +1477,7 @@ class MainWindow(QMainWindow):
                 self.archive_worker.wait(500)
                 self.archive_worker = None
             else:
+                self._pending_archive_scan = True
                 return
 
         if force:
@@ -1528,6 +1557,9 @@ class MainWindow(QMainWindow):
         self.archive_cache = archive_dict
         self.update_archive_table_ui()
         self.update_tab_badges()
+        if getattr(self, '_pending_archive_scan', False):
+            self._pending_archive_scan = False
+            self.fill_archive_list(silent=True)
 
     def _prune_missing_archive_records(self):
         if not hasattr(self, 'archive_cache') or not self.archive_cache:

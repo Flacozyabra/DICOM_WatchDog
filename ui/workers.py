@@ -41,6 +41,7 @@ class FolderScanWorker(QThread):
     count_updated = pyqtSignal(int)
     status_changed = pyqtSignal(str) # (status_text)
     log_emitted = pyqtSignal(str)
+    archive_updated = pyqtSignal()
 
     def __init__(self, ct_images_dir, cleanup_structures_enabled, fix_patient_id_enabled, id_prefixes,
                  rename_study_folder_enabled, rename_study_folder_mode,
@@ -60,6 +61,8 @@ class FolderScanWorker(QThread):
         self.archive_cleanup_days = archive_cleanup_days
         self.scan_rtd = scan_rtd
         self.scan_rtp = scan_rtp
+        self.archived_count = 0
+        self.archive_cleaned = False
 
     def run(self):
         collector = ThreadLogCollector(emit_callback=self.log_emitted.emit)
@@ -77,11 +80,14 @@ class FolderScanWorker(QThread):
             collector.appendPlainText(tr_log("log_warn_auto_archive_not_configured"))
 
         # 1. Быстрая автоочистка старых файлов архива (если включена)
+        archive_cleaned = False
         if self.archive_dir and is_cleanup_on:
             if self.isInterruptionRequested():
                 return
             from core.archive import cleanup_old_archive_folders
-            cleanup_old_archive_folders(self.archive_dir, self.archive_cleanup_days, collector)
+            deleted_cnt = cleanup_old_archive_folders(self.archive_dir, self.archive_cleanup_days, collector)
+            if deleted_cnt and deleted_cnt > 0:
+                archive_cleaned = True
 
         if self.isInterruptionRequested():
             return
@@ -97,6 +103,7 @@ class FolderScanWorker(QThread):
 
         total_folders = len(patient_folders)
         patient_dict = {}
+        total_archived = 0
 
         if total_folders > 0:
             self.status_changed.emit(tr_ui("loading_scanning_folders_status"))
@@ -106,8 +113,9 @@ class FolderScanWorker(QThread):
             
             def process_single(path):
                 if not os.path.exists(path):
-                    return {}
+                    return {}, 0
                 active_path = path
+                archived_in_study = 0
 
                 # 2a. Исправление ID и переименование
                 if is_fix_id_on or is_rename_folder_on:
@@ -143,7 +151,8 @@ class FolderScanWorker(QThread):
                                     info = get_folder_study_info(sub)
                                     if info and info.get('patient_name'):
                                         patient_name = str(info['patient_name'])
-                                    move_study_folder_hierarchical(sub, self.archive_dir, collector)
+                                    if move_study_folder_hierarchical(sub, self.archive_dir, collector):
+                                        archived_in_study += 1
                                     log_message(collector, tr_log("log_patient_moved_to_archive", patient_name, os.path.basename(target_folder)))
                                 except Exception as e:
                                     log_message(collector, tr_log("log_patient_move_to_archive_error", os.path.basename(target_folder), e))
@@ -158,7 +167,8 @@ class FolderScanWorker(QThread):
                                 info = get_folder_study_info(target_folder)
                                 if info and info.get('patient_name'):
                                     patient_name = str(info['patient_name'])
-                                move_study_folder_hierarchical(target_folder, self.archive_dir, collector)
+                                if move_study_folder_hierarchical(target_folder, self.archive_dir, collector):
+                                    archived_in_study += 1
                                 log_message(collector, tr_log("log_patient_moved_to_archive", patient_name, os.path.basename(target_folder)))
                                 is_fully_archived = True
                             except Exception as e:
@@ -166,13 +176,14 @@ class FolderScanWorker(QThread):
 
                 # 2c. Считывание исследования сразу в patient_dict
                 if not is_fully_archived and os.path.exists(active_path):
-                    return collect_patient_studies(
+                    studies = collect_patient_studies(
                         active_path, self.ct_images_dir, collector,
                         cleanup_structures=is_cleanup_struct_on,
                         scan_rtd=self.scan_rtd,
                         scan_rtp=self.scan_rtp
                     )
-                return {}
+                    return studies, archived_in_study
+                return {}, archived_in_study
 
             max_w = min(8, max(1, (os.cpu_count() or 4)))
             completed_count = 0
@@ -185,7 +196,8 @@ class FolderScanWorker(QThread):
                     completed_count += 1
                     self.progress.emit(completed_count, total_folders)
                     try:
-                        studies = future.result()
+                        studies, num_archived = future.result()
+                        total_archived += num_archived
                         if studies:
                             patient_dict.update(studies)
                             self.count_updated.emit(len(patient_dict))
@@ -195,7 +207,12 @@ class FolderScanWorker(QThread):
 
             self.progress.emit(total_folders, total_folders)
 
+        self.archived_count = total_archived
+        self.archive_cleaned = archive_cleaned
+
         if not self.isInterruptionRequested():
+            if self.archived_count > 0 or self.archive_cleaned:
+                self.archive_updated.emit()
             self.finished.emit(patient_dict, collector.messages)
 
 
