@@ -896,8 +896,8 @@ class DicomViewerWidget(QWidget):
             yg = xc * sin_c + yc * cos_c
             return QPointF(cx + xg * scale, cy - yg * scale)
 
-        jx1, jx2 = jaws.get("x", [-100.0, 100.0])
-        jy1, jy2 = jaws.get("y", [-100.0, 100.0])
+        jx1, jx2 = jaws.get("x", [-200.0, 200.0])
+        jy1, jy2 = jaws.get("y", [-200.0, 200.0])
 
         # 4.1. Лепестки MLC и активная апертура
         if mlc and len(mlc) >= 2:
@@ -914,45 +914,52 @@ class DicomViewerWidget(QWidget):
                 step = total_span / num_pairs
                 leaf_bounds = [-200.0 + i * step for i in range(num_pairs + 1)]
 
-            # Находим открытые пары лепестков (апертура > 3 мм)
-            open_pairs = [i for i in range(num_pairs) if mlc[num_pairs + i] > mlc[i] + 3.0]
+            # Находим открытые пары лепестков (апертура > 5 мм, экранирование челюстями диафрагмы Y)
+            open_pairs = [
+                i for i in range(num_pairs)
+                if (mlc[num_pairs + i] > mlc[i] + 5.0) and
+                   (leaf_bounds[i + 1] > jy1 - 0.5 and leaf_bounds[i] < jy2 + 0.5)
+            ]
 
-            # Тонкие направляющие линии активных лепестков
+            # Тонкие направляющие линии активных лепестков внутри апертуры
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setPen(QPen(QColor(234, 179, 8, 40), 1))
             for i in open_pairs:
-                y_c = leaf_bounds[i]
-                painter.drawLine(coll_to_canvas(mlc[i], y_c), coll_to_canvas(mlc[num_pairs + i], y_c))
+                y_c = (leaf_bounds[i] + leaf_bounds[i + 1]) / 2.0
+                x_a = max(jx1, mlc[i])
+                x_b = min(jx2, mlc[num_pairs + i])
+                if x_b > x_a:
+                    painter.drawLine(coll_to_canvas(x_a, y_c), coll_to_canvas(x_b, y_c))
 
             # Ступенчатый золотой замкнутый контур активной апертуры поля MLC
             painter.setPen(QPen(QColor("#F59E0B"), 2.2))
             if open_pairs:
                 poly_pts = []
                 for idx_k, i in enumerate(open_pairs):
-                    y_bot = leaf_bounds[i]
-                    y_top = leaf_bounds[i + 1]
-                    pos_a = mlc[i]
+                    y_bot = max(jy1, leaf_bounds[i])
+                    y_top = min(jy2, leaf_bounds[i + 1])
+                    pos_a = max(jx1, min(jx2, mlc[i]))
                     if idx_k == 0:
                         poly_pts.append(coll_to_canvas(pos_a, y_bot))
                     else:
                         prev_i = open_pairs[idx_k - 1]
                         if prev_i == i - 1:
-                            prev_a = mlc[prev_i]
+                            prev_a = max(jx1, min(jx2, mlc[prev_i]))
                             if abs(pos_a - prev_a) > 0.1:
                                 poly_pts.append(coll_to_canvas(pos_a, y_bot))
                     poly_pts.append(coll_to_canvas(pos_a, y_top))
 
                 for idx_k in range(len(open_pairs) - 1, -1, -1):
                     i = open_pairs[idx_k]
-                    y_bot = leaf_bounds[i]
-                    y_top = leaf_bounds[i + 1]
-                    pos_b = mlc[num_pairs + i]
+                    y_bot = max(jy1, leaf_bounds[i])
+                    y_top = min(jy2, leaf_bounds[i + 1])
+                    pos_b = max(jx1, min(jx2, mlc[num_pairs + i]))
                     if idx_k == len(open_pairs) - 1:
                         poly_pts.append(coll_to_canvas(pos_b, y_top))
                     else:
                         next_i = open_pairs[idx_k + 1]
                         if next_i == i + 1:
-                            next_b = mlc[num_pairs + next_i]
+                            next_b = max(jx1, min(jx2, mlc[num_pairs + next_i]))
                             if abs(pos_b - next_b) > 0.1:
                                 poly_pts.append(coll_to_canvas(pos_b, y_top))
                     poly_pts.append(coll_to_canvas(pos_b, y_bot))

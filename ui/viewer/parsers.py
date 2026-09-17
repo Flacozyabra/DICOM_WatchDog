@@ -323,7 +323,7 @@ def load_rtplan(filepath: str) -> dict:
                 cur_coll = 0.0
                 cur_couch = 0.0
                 cur_iso = None
-                cur_jaws = {"x": [-100.0, 100.0], "y": [-100.0, 100.0]}
+                cur_jaws = {"x": [-200.0, 200.0], "y": [-200.0, 200.0], "has_x": False, "has_y": False}
                 cur_mlc = []
 
                 if hasattr(b, "ControlPointSequence"):
@@ -367,8 +367,10 @@ def load_rtplan(filepath: str) -> dict:
                                 pos = getattr(dev, "LeafJawPositions", [])
                                 if dev_type in ("ASYMX", "X") and len(pos) >= 2:
                                     cur_jaws["x"] = [float(pos[0]), float(pos[1])]
+                                    cur_jaws["has_x"] = True
                                 elif dev_type in ("ASYMY", "Y") and len(pos) >= 2:
                                     cur_jaws["y"] = [float(pos[0]), float(pos[1])]
+                                    cur_jaws["has_y"] = True
                                 elif "MLC" in dev_type and len(pos) > 0:
                                     cur_mlc = [float(p) for p in pos]
 
@@ -437,7 +439,7 @@ def load_rtplan(filepath: str) -> dict:
                     "collimator_angle": cp0.get("collimator_angle", 0.0),
                     "couch_angle": cp0.get("couch_angle", 0.0),
                     "isocenter": cp0.get("isocenter", None),
-                    "jaws": cp0.get("jaws", {"x": [-100.0, 100.0], "y": [-100.0, 100.0]}),
+                    "jaws": cp0.get("jaws", {"x": [-200.0, 200.0], "y": [-200.0, 200.0]}),
                     "mlc_leaves": cp0.get("mlc_leaves", []),
                     "leaf_boundaries": global_leaf_bounds,
                     "wedges": wedges,
