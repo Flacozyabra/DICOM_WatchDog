@@ -1,5 +1,6 @@
 import os
 import shutil
+import time
 from datetime import datetime
 from collections import defaultdict
 import pydicom
@@ -200,14 +201,41 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
         if not (ct_files or str_files or rtd_files or rtp_files):
             continue
 
-        # Выбираем репрезентативный файл для считывания общих метаданных исследования (в приоритете КТ)
-        rep_file = ct_files[0] if ct_files else (str_files[0] if str_files else (rtd_files[0] if rtd_files else files[0]))
-        fp = os.path.join(root, rep_file)
+        # Выбираем кандидатов для считывания общих метаданных исследования (в приоритете КТ)
+        rep_candidates = [f for f in ct_files[:3]] + [f for f in str_files[:2]] + [f for f in rtd_files[:2]] + [f for f in rtp_files[:2]]
+        if not rep_candidates:
+            rep_candidates = files[:3]
+
+        ds = None
+        last_err = None
+        used_fp = None
+
+        for cand_file in rep_candidates:
+            cand_fp = os.path.join(root, cand_file)
+            for attempt in range(3):
+                try:
+                    ds = pydicom.dcmread(
+                        cand_fp, stop_before_pixels=True, force=True,
+                        specific_tags=['PatientID', 'PatientName', 'Modality', 'StudyDate', 'StudyTime', 'BodyPartExamined', 'StudyDescription', 'SeriesDescription']
+                    )
+                    used_fp = cand_fp
+                    last_err = None
+                    break
+                except (PermissionError, OSError) as pe:
+                    last_err = pe
+                    time.sleep(0.35)
+                except Exception as e:
+                    last_err = e
+                    break
+            if ds is not None:
+                break
+
+        if ds is None:
+            if last_err:
+                log_message(output_field, tr_log("log_dcm_read_error", os.path.join(root, rep_candidates[0]), last_err))
+            continue
+
         try:
-            ds = pydicom.dcmread(
-                fp, stop_before_pixels=True, force=True,
-                specific_tags=['PatientID', 'PatientName', 'Modality', 'StudyDate', 'StudyTime', 'BodyPartExamined', 'StudyDescription', 'SeriesDescription']
-            )
             rel_path = os.path.relpath(root, ct_images_dir).replace('\\', '/')
             
             patient_id = getattr(ds, 'PatientID', '') or str(ds.get('PatientID', ''))
@@ -271,7 +299,7 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
             patient_data[rel_path] = study_entry
 
         except Exception as e:
-            log_message(output_field, tr_log("log_dcm_read_error", fp, e))
+            log_message(output_field, tr_log("log_dcm_read_error", used_fp or os.path.join(root, rep_candidates[0]), e))
 
     return patient_data
 

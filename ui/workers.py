@@ -63,6 +63,7 @@ class FolderScanWorker(QThread):
         self.scan_rtp = scan_rtp
         self.archived_count = 0
         self.archive_cleaned = False
+        self.has_read_errors = False
 
     def run(self):
         collector = ThreadLogCollector(emit_callback=self.log_emitted.emit)
@@ -202,6 +203,7 @@ class FolderScanWorker(QThread):
                             patient_dict.update(studies)
                             self.count_updated.emit(len(patient_dict))
                     except Exception as e:
+                        self.has_read_errors = True
                         p_path = future_map.get(future, "unknown")
                         log_message(collector, f"Error scanning folder {p_path}: {e}")
 
@@ -209,6 +211,8 @@ class FolderScanWorker(QThread):
 
         self.archived_count = total_archived
         self.archive_cleaned = archive_cleaned
+        if any(term in m for m in collector.messages for term in ("Ошибка чтения", "Error reading", "Error scanning folder", "PermissionError", "WinError")):
+            self.has_read_errors = True
 
         if not self.isInterruptionRequested():
             if self.archived_count > 0 or self.archive_cleaned:

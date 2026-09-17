@@ -402,6 +402,10 @@ class MainWindow(QMainWindow):
         self.currently_watched_dir = None
         self.is_scanning_active = False
         self.last_scan_finished_time = 0
+        self.pending_folder_scan = False
+        self.folder_scan_retry_pending = False
+        self.last_folder_heartbeat_time = 0
+        self.last_scanned_folder_snapshot = None
         
         # Создаем таймер дебаунса (debounce)
         self.debounce_timer = QTimer(self)
@@ -480,23 +484,51 @@ class MainWindow(QMainWindow):
         if self.last_checked_date != today:
             self.last_checked_date = today
             self.update_images_table_ui()
+
+        # 4. Фоновая проверка расхождения общей/сетевой папки (heartbeat каждые 30 сек)
+        # На случай если Windows File Sharing потерял watchdog-события об изменении/удалении/переименовании папок
+        if now_ts - getattr(self, 'last_folder_heartbeat_time', 0) >= 30:
+            self.last_folder_heartbeat_time = now_ts
+            if ct_dir and os.path.isdir(ct_dir) and not getattr(self, 'is_scanning_active', False):
+                try:
+                    current_snapshot = {
+                        d: os.path.getmtime(os.path.join(ct_dir, d))
+                        for d in os.listdir(ct_dir)
+                        if os.path.isdir(os.path.join(ct_dir, d))
+                    }
+                    if getattr(self, 'last_scanned_folder_snapshot', None) is not None:
+                        if current_snapshot != self.last_scanned_folder_snapshot:
+                            self.last_scanned_folder_snapshot = current_snapshot
+                            self.start_folder_scan()
+                    else:
+                        self.last_scanned_folder_snapshot = current_snapshot
+                except Exception:
+                    pass
             
         self.last_timer_timestamp = time.time()
 
     def trigger_debounce(self):
-        # Игнорируем события во время сканирования и кулдауна после него (1.5 сек)
-        if getattr(self, 'is_scanning_active', False):
-            return
-        if hasattr(self, 'scan_worker') and self.scan_worker and self.scan_worker.isRunning():
+        # Если сканирование уже идет или действует кулдаун после него (1.5 сек),
+        # откладываем повторное сканирование на момент после завершения
+        if getattr(self, 'is_scanning_active', False) or (hasattr(self, 'scan_worker') and self.scan_worker and self.scan_worker.isRunning()):
+            self.pending_folder_scan = True
             return
         import time
         if time.time() - getattr(self, 'last_scan_finished_time', 0) < 1.5:
+            self.pending_folder_scan = True
             return
         # 2 секунды задержки, чтобы дождаться окончания записи
         self.debounce_timer.start(2000)
 
     def on_watcher_timeout(self):
         self.start_folder_scan()
+
+    def _trigger_rescan_if_idle(self):
+        if hasattr(self, 'debounce_timer') and self.debounce_timer.isActive():
+            return
+        if not getattr(self, 'is_scanning_active', False):
+            if not hasattr(self, 'scan_worker') or not self.scan_worker or not self.scan_worker.isRunning():
+                self.start_folder_scan()
 
     def restart_timers(self):
         self.pacs_timer.stop()
@@ -1138,6 +1170,31 @@ class MainWindow(QMainWindow):
 
         self.update_images_table_ui()
         self.update_tab_badges()
+
+        # Сохраняем снимок папок верхнего уровня для heartbeat-проверки
+        try:
+            ct_dir = self.config.get('ct_images_dir', '')
+            if ct_dir and os.path.isdir(ct_dir):
+                self.last_scanned_folder_snapshot = {
+                    d: os.path.getmtime(os.path.join(ct_dir, d))
+                    for d in os.listdir(ct_dir)
+                    if os.path.isdir(os.path.join(ct_dir, d))
+                }
+        except Exception:
+            pass
+
+        # Проверяем, нужно ли отложенное повторное сканирование (были события во время сканирования или ошибки чтения из-за блокировок)
+        had_errors = getattr(self.scan_worker, 'has_read_errors', False) if hasattr(self, 'scan_worker') and self.scan_worker else False
+        pending = getattr(self, 'pending_folder_scan', False)
+        if pending:
+            self.pending_folder_scan = False
+            self.folder_scan_retry_pending = False
+            QTimer.singleShot(2000, self._trigger_rescan_if_idle)
+        elif had_errors and not getattr(self, 'folder_scan_retry_pending', False):
+            self.folder_scan_retry_pending = True
+            QTimer.singleShot(3000, self._trigger_rescan_if_idle)
+        else:
+            self.folder_scan_retry_pending = False
 
         # Если включена вкладка архива и настроена папка архива, подгружаем если еще не загружен или если архив изменился
         if self.config.get('show_tab_archive', 'True').lower() == 'true':
