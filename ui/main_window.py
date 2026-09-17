@@ -1940,22 +1940,20 @@ class MainWindow(QMainWindow):
     # ================= ЛОГИКА ТАБЛИЦЫ PACS =================
 
     def fill_pacs_list(self, silent=False):
-        self.start_pacs_scan(silent=silent)
+        self.start_pacs_scan(silent=silent, is_auto=False)
 
     def auto_update_pacs(self):
-        self.start_pacs_scan(silent=True)
+        self.start_pacs_scan(silent=True, is_auto=True)
 
-    def start_pacs_scan(self, silent=False):
+    def start_pacs_scan(self, silent=False, is_auto=False):
         if self.pacs_worker and self.pacs_worker.isRunning():
-            if not silent:
-                # If we manually request a scan (non-silent), disconnect the previous worker's finished signal
-                # so we can start a new scan immediately with the chosen date range without waiting for the background one.
-                try:
-                    self.pacs_worker.finished.disconnect()
-                except TypeError:
-                    pass
-            else:
+            if is_auto:
                 return
+            # Если пользователь вручную инициировал опрос (вкладка/фильтр), отключаем старый поток и запускаем новый
+            try:
+                self.pacs_worker.finished.disconnect()
+            except (TypeError, RuntimeError):
+                pass
 
         if not silent:
             log_message(self.output_field, tr_log("log_connecting_pacs"))
@@ -1963,6 +1961,10 @@ class MainWindow(QMainWindow):
             self.pacs_table.set_placeholder_text(tr_ui("placeholder_scanning"))
             self.pacs_table.update_placeholder_visibility()
             self.previous_pacs_data = {}
+        else:
+            if self.pacs_table.rowCount() == 0:
+                self.pacs_table.set_placeholder_text(tr_ui("placeholder_scanning"))
+                self.pacs_table.update_placeholder_visibility()
 
         self.selected_pacs_patient_id = None
         selected_ranges = self.pacs_table.selectedRanges()
@@ -2029,8 +2031,9 @@ class MainWindow(QMainWindow):
         if not con and not has_fail_msg:
             log_message(self.output_field, tr_log("log_failed_connect_pacs"), replace_suffix=tr_log("log_connecting_pacs"))
 
-        if con and not silent:
-            log_message(self.output_field, tr_log("log_connected_pacs"), replace_suffix=tr_log("log_connecting_pacs"))
+        if con:
+            if not silent:
+                log_message(self.output_field, tr_log("log_connected_pacs"), replace_suffix=tr_log("log_connecting_pacs"))
             
             # Фоновое уведомление о новых КТ в PACS
             master_enabled = str(self.config.get('notifications_enabled', 'False')).lower() == 'true'
@@ -2087,8 +2090,8 @@ class MainWindow(QMainWindow):
                 self.known_pacs_patient_ids = set(pacs_dict.keys())
                 display_dict = pacs_dict
 
-            data_changed = (display_dict != self.previous_pacs_data)
-            if data_changed and (auto_update_on or not silent):
+            table_needs_render = (display_dict != getattr(self, 'previous_pacs_data', {})) or (self.pacs_table.rowCount() == 0 and len(display_dict) > 0)
+            if table_needs_render:
                 self.pacs_data = display_dict.copy()
                 self.previous_pacs_data = display_dict.copy()
                 self.render_pacs_table()
@@ -2097,11 +2100,11 @@ class MainWindow(QMainWindow):
                 self.pacs_table.update_placeholder_visibility()
             self.update_tab_badges()
 
-        elif not con and not has_fail_msg:
-            if not silent:
+        elif not con:
+            if not silent and not has_fail_msg:
                 log_message(self.output_field, tr_log("log_failed_connect_pacs"), replace_suffix=tr_log("log_connecting_pacs"))
             
-            if self.previous_pacs_data:
+            if getattr(self, 'previous_pacs_data', None):
                 self.pacs_table.setUpdatesEnabled(False)
                 self.pacs_table.blockSignals(True)
                 self.pacs_table.setRowCount(0)
