@@ -437,7 +437,7 @@ class DicomViewerPanel(QWidget):
         rx_layout.setContentsMargins(2, 2, 2, 2)
         rx_layout.setSpacing(6)
 
-        self.lbl_rx_title = QLabel("100% Доза:", self.rx_container)
+        self.lbl_rx_title = QLabel(tr_ui("viewer_100_dose"), self.rx_container)
         self.lbl_rx_title.setStyleSheet("color: #E5E7EB; font-size: 11px; font-weight: bold; background: transparent; border: none;")
         rx_layout.addWidget(self.lbl_rx_title)
 
@@ -470,7 +470,7 @@ class DicomViewerPanel(QWidget):
         self.edit_rx_dose.returnPressed.connect(self.on_rx_dose_edited)
         rx_layout.addWidget(self.edit_rx_dose)
 
-        self.lbl_rx_unit = QLabel("Гр", self.rx_container)
+        self.lbl_rx_unit = QLabel(tr_ui("viewer_unit_gy"), self.rx_container)
         self.lbl_rx_unit.setStyleSheet("color: #9CA3AF; font-size: 11px; font-weight: bold; background: transparent; border: none;")
         rx_layout.addWidget(self.lbl_rx_unit)
         rx_layout.addStretch()
@@ -687,8 +687,11 @@ class DicomViewerPanel(QWidget):
 
         rx = dose_data.get("rx_dose", 0.0)
         mx = dose_data.get("max_dose", 0.0)
-        units = dose_data.get("dose_units", "Gy")
+        raw_units = dose_data.get("dose_units", "Gy")
+        units = tr_ui("viewer_unit_gy") if raw_units.upper() in ("GY", "ГР") else raw_units
         self.lbl_dose_info.setText(f"{tr_ui('viewer_rx_dose')}: {rx:.2f} {units} | {tr_ui('viewer_max_dose')}: {mx:.2f} {units}")
+        if hasattr(self, "lbl_rx_unit"):
+            self.lbl_rx_unit.setText(units)
 
         for lvl in dose_data.get("levels", []):
             name = lvl["name"]
@@ -721,9 +724,12 @@ class DicomViewerPanel(QWidget):
             return
 
         self.current_dose_data["rx_dose"] = new_rx
-        units = self.current_dose_data.get("dose_units", "Gy")
+        raw_units = self.current_dose_data.get("dose_units", "Gy")
+        units = tr_ui("viewer_unit_gy") if raw_units.upper() in ("GY", "ГР") else raw_units
         mx = self.current_dose_data.get("max_dose", 0.0)
         self.lbl_dose_info.setText(f"{tr_ui('viewer_rx_dose')}: {new_rx:.2f} {units} | {tr_ui('viewer_max_dose')}: {mx:.2f} {units}")
+        if hasattr(self, "lbl_rx_unit"):
+            self.lbl_rx_unit.setText(units)
 
         self.edit_rx_dose.blockSignals(True)
         self.edit_rx_dose.setText(f"{new_rx:.2f}")
@@ -855,6 +861,18 @@ class DicomViewerPanel(QWidget):
             self.cb_show_isodoses.setText(tr_ui("viewer_show_isodoses"))
         if hasattr(self, "cb_dose_gradient"):
             self.cb_dose_gradient.setText(tr_ui("viewer_show_dose_gradient"))
+
+        if hasattr(self, "lbl_rx_title"):
+            self.lbl_rx_title.setText(tr_ui("viewer_100_dose"))
+        if hasattr(self, "lbl_rx_unit"):
+            raw_units = self.current_dose_data.get("dose_units", "Gy") if getattr(self, "current_dose_data", None) else "Gy"
+            units = tr_ui("viewer_unit_gy") if raw_units.upper() in ("GY", "ГР") else raw_units
+            self.lbl_rx_unit.setText(units)
+            if getattr(self, "current_dose_data", None) and hasattr(self, "lbl_dose_info") and self.lbl_dose_info.text():
+                rx = self.current_dose_data.get("rx_dose", 0.0)
+                mx = self.current_dose_data.get("max_dose", 0.0)
+                if rx > 0 or mx > 0:
+                    self.lbl_dose_info.setText(f"{tr_ui('viewer_rx_dose')}: {rx:.2f} {units} | {tr_ui('viewer_max_dose')}: {mx:.2f} {units}")
 
         if hasattr(self, "btn_dose_point"):
             self.btn_dose_point.setToolTip(tr_ui("viewer_point_dose"))

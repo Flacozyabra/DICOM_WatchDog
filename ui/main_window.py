@@ -2644,5 +2644,7 @@ class MainWindow(QMainWindow):
             self.archive_tab.retranslate_ui()
         if hasattr(self, 'pacs_tab'):
             self.pacs_tab.retranslate_ui()
+        if hasattr(self, 'viewer_panel') and self.viewer_panel:
+            self.viewer_panel.retranslate_ui()
 
 

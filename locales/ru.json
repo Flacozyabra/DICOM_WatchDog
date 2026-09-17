@@ -283,6 +283,8 @@
   "viewer_no_dose": "Без изодоз",
   "viewer_no_dose_available": "Нет изодоз",
   "viewer_rx_dose": "Предписание",
+  "viewer_100_dose": "100% Доза:",
+  "viewer_unit_gy": "Гр",
   "viewer_max_dose": "Макс. доза",
   "viewer_point_dose": "Доза в точке",
   "viewer_preset_default": "По умолчанию",
