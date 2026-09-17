@@ -87,7 +87,7 @@ class PacsTab(QWidget):
         self.date_from.setDate(QDate.currentDate())
         self.date_from.setFixedHeight(30)
         if self.main_window:
-            self.date_from.dateChanged.connect(lambda: self.main_window.fill_pacs_list(silent=False))
+            self.date_from.dateChanged.connect(lambda: self.main_window.fill_pacs_list(silent=True))
         control_layout.addWidget(self.date_from)
 
         self.lbl_to = QLabel(tr_ui("lbl_to"), self)
@@ -99,7 +99,7 @@ class PacsTab(QWidget):
         self.date_to.setDate(QDate.currentDate())
         self.date_to.setFixedHeight(30)
         if self.main_window:
-            self.date_to.dateChanged.connect(lambda: self.main_window.fill_pacs_list(silent=False))
+            self.date_to.dateChanged.connect(lambda: self.main_window.fill_pacs_list(silent=True))
         control_layout.addWidget(self.date_to)
 
         # Выбор сервера

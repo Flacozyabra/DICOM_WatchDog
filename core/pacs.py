@@ -249,20 +249,52 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
     ae.network_timeout = 5
     ae.acse_timeout = 5
     ae.dimse_timeout = 5
-    ae.add_requested_context('1.2.840.10008.1.1')  # C-ECHO ONLY
+    ae.add_requested_context('1.2.840.10008.1.1')  # C-ECHO
+    ae.add_requested_context('1.2.840.10008.5.1.4.1.2.1.1')  # Patient Root C-FIND
+    ae.add_requested_context('1.2.840.10008.5.1.4.1.2.2.1')  # Study Root C-FIND
 
     try:
         assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet)
-        if assoc.is_established:
-            status = assoc.send_c_echo()
+        if not assoc.is_established:
+            return False, f"PACS сервер ({pacs_ip}:{pacs_port}) отклонил DICOM-ассоциацию."
+
+        # 1. Проверяем C-ECHO
+        echo_status = assoc.send_c_echo()
+        if not echo_status or not hasattr(echo_status, 'Status') or echo_status.Status != 0x0000:
+            st_hex = f"0x{echo_status.Status:04X}" if echo_status and hasattr(echo_status, 'Status') else "N/A"
             assoc.release()
-            if status and hasattr(status, 'Status') and status.Status == 0x0000:
-                return True, tr_ui("ping_success")
-            else:
-                st_hex = f"0x{status.Status:04X}" if status and hasattr(status, 'Status') else "N/A"
-                return False, f"PACS сервер вернул статус {st_hex} на C-ECHO."
+            return False, tr_ui("ping_echo_bad_status", st_hex)
+
+        # 2. Проверяем C-FIND (поиск исследований)
+        from pydicom.dataset import Dataset
+        ds = Dataset()
+        ds.QueryRetrieveLevel = 'STUDY'
+        ds.StudyDate = ''
+        ds.PatientID = ''
+        ds.PatientName = ''
+        ds.StudyInstanceUID = ''
+
+        found_studies = 0
+        cfind_ok = True
+        try:
+            responses = assoc.send_c_find(ds, '1.2.840.10008.5.1.4.1.2.1.1')
+            for (st, ident) in responses:
+                if ident:
+                    found_studies += 1
+            if assoc.is_aborted or assoc.is_rejected:
+                cfind_ok = False
+        except Exception:
+            cfind_ok = False
+
+        assoc.release()
+
+        if not cfind_ok:
+            return False, tr_ui("ping_cfind_unregistered", calling_aet, called_aet)
+
+        if found_studies > 0:
+            return True, tr_ui("ping_success", found_studies)
         else:
-            return False, f"PACS сервер ({pacs_ip}:{pacs_port}) отклонил DICOM-ассоциацию C-ECHO."
+            return True, tr_ui("ping_success_empty_or_unregistered", calling_aet)
     except Exception as e:
         return False, f"Ошибка при подключении к PACS: {e}"
 

@@ -886,7 +886,7 @@ class MainWindow(QMainWindow):
                 self.update_archive_table_ui()
             QTimer.singleShot(0, self.focus_ct_archive_search)
         elif current_widget == self.pacs_tab:  # PACS
-            self.fill_pacs_list()
+            self.fill_pacs_list(silent=True)
             # Запускаем таймер PACS только если включено автообновление
             if pacs_auto_scan_on:
                 self.pacs_timer.start(self.config.get('pacs_scan_time', 10000))
@@ -1963,16 +1963,17 @@ class MainWindow(QMainWindow):
         has_fail_msg = False
         for msg in log_messages:
             if "подключиться к серверу PACS" in msg or "Failed to connect" in msg:
-                if not silent:
-                    log_message(self.output_field, msg, replace_suffix=tr_log("log_connecting_pacs"))
+                log_message(self.output_field, msg, replace_suffix=tr_log("log_connecting_pacs"))
                 has_fail_msg = True
             else:
                 if not silent:
                     log_message(self.output_field, msg)
 
-        if con:
-            if not silent:
-                log_message(self.output_field, tr_log("log_connected_pacs"), replace_suffix=tr_log("log_connecting_pacs"))
+        if not con and not has_fail_msg:
+            log_message(self.output_field, tr_log("log_failed_connect_pacs"), replace_suffix=tr_log("log_connecting_pacs"))
+
+        if con and not silent:
+            log_message(self.output_field, tr_log("log_connected_pacs"), replace_suffix=tr_log("log_connecting_pacs"))
             
             # Фоновое уведомление о новых КТ в PACS
             master_enabled = str(self.config.get('notifications_enabled', 'False')).lower() == 'true'
@@ -2236,7 +2237,7 @@ class MainWindow(QMainWindow):
         self.pacs_date_to.setDate(QDate.currentDate())
         self.pacs_date_from.blockSignals(False)
         self.pacs_date_to.blockSignals(False)
-        self.fill_pacs_list(silent=False)
+        self.fill_pacs_list(silent=True)
 
     def pacs_set_3days(self):
         self.pacs_date_from.blockSignals(True)
@@ -2245,7 +2246,7 @@ class MainWindow(QMainWindow):
         self.pacs_date_to.setDate(QDate.currentDate())
         self.pacs_date_from.blockSignals(False)
         self.pacs_date_to.blockSignals(False)
-        self.fill_pacs_list(silent=False)
+        self.fill_pacs_list(silent=True)
 
     def send_to_ct_images_cmd(self):
         selected_ranges = self.pacs_table.selectedRanges()
