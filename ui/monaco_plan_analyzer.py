@@ -312,8 +312,8 @@ class PlanKinematicsAnalyzer:
                             risk_level = 'WARNING'
 
                     # 4. Heavy MU/deg modulation (gantry deceleration)
-                    if mu_per_deg > 20.0:
-                        reasons.append(f"Высокая локальная доза ({mu_per_deg:.1f} MU/deg, замедление гентри до {gantry_speed:.1f}°/с)")
+                    if mu_per_deg >= 15.0:
+                        reasons.append(f"Высокая плотность дозы ({mu_per_deg:.1f} MU/deg, замедление гентри до {gantry_speed:.1f}°/с)")
                         if risk_level != 'CRITICAL':
                             risk_level = 'WARNING'
 
@@ -745,27 +745,16 @@ class ModulationTimelineWidget(QWidget):
                 painter.drawText(QRectF(0, y - 8, margin_l - 6, 16), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, f"{v:.0f}")
                 painter.setPen(QPen(QColor("#2c2c2e"), 1, Qt.PenStyle.DashLine))
 
-        # Draw Safety Thresholds
-        # Red line for low dose rate danger (< 0.25 MU/deg)
-        y_low = val_to_y(0.25)
-        painter.setPen(QPen(QColor("#ff453a"), 1, Qt.PenStyle.DashLine))
-        painter.drawLine(margin_l, int(y_low), w - margin_r, int(y_low))
-
-        # Yellow line for extreme modulation (> 15 MU/deg)
-        y_high = val_to_y(15.0)
-        painter.setPen(QPen(QColor("#ffd60a"), 1, Qt.PenStyle.DashLine))
-        painter.drawLine(margin_l, int(y_high), w - margin_r, int(y_high))
-
         # Plot Bars / Stepped Curve
         n = len(intervals)
         step_px = plot_w / float(n)
+        base_y = margin_t + plot_h
 
         for i, item in enumerate(intervals):
             mpd = item['mu_per_deg']
             risk = item['risk_level']
             x = margin_l + i * step_px
             y = val_to_y(mpd)
-            base_y = margin_t + plot_h
 
             if risk == 'CRITICAL':
                 color = QColor("#ff453a")
@@ -777,6 +766,39 @@ class ModulationTimelineWidget(QWidget):
             painter.setPen(QPen(color, 1))
             painter.setBrush(QBrush(QColor(color.red(), color.green(), color.blue(), 100)))
             painter.drawRect(QRectF(x, y, max(1.0, step_px - 1), base_y - y))
+
+        # Draw Safety Thresholds and descriptive labels on top of bars
+        # 1. Red line for low dose rate danger (< 0.20 MU/deg)
+        y_low = val_to_y(0.20)
+        painter.setPen(QPen(QColor("#ff453a"), 1, Qt.PenStyle.DashLine))
+        painter.drawLine(margin_l, int(y_low), w - margin_r, int(y_low))
+
+        text_low = " 0.20 MU/° — риск DOSE RATE MON (< 45 MU/мин) "
+        painter.setFont(QFont("Segoe UI", 8, QFont.Weight.DemiBold))
+        fm = painter.fontMetrics()
+        w_low = fm.horizontalAdvance(text_low)
+        badge_low_x = w - margin_r - w_low - 12
+        badge_low_rect = QRectF(badge_low_x, y_low - 15, w_low, 14)
+        painter.setPen(QPen(QColor("#ff453a"), 1))
+        painter.setBrush(QBrush(QColor("#1a1a1c")))
+        painter.drawRoundedRect(badge_low_rect, 3, 3)
+        painter.setPen(QPen(QColor("#ff8585")))
+        painter.drawText(badge_low_rect, Qt.AlignmentFlag.AlignCenter, text_low)
+
+        # 2. Yellow line for heavy modulation (>= 15.0 MU/deg)
+        y_high = val_to_y(15.0)
+        painter.setPen(QPen(QColor("#ffd60a"), 1, Qt.PenStyle.DashLine))
+        painter.drawLine(margin_l, int(y_high), w - margin_r, int(y_high))
+
+        text_high = " 15.0 MU/° — замедление гентри (< 0.7°/с) "
+        w_high = fm.horizontalAdvance(text_high)
+        badge_high_x = w - margin_r - w_high - 12
+        badge_high_rect = QRectF(badge_high_x, y_high - 15, w_high, 14)
+        painter.setPen(QPen(QColor("#ffd60a"), 1))
+        painter.setBrush(QBrush(QColor("#1a1a1c")))
+        painter.drawRoundedRect(badge_high_rect, 3, 3)
+        painter.setPen(QPen(QColor("#ffd60a")))
+        painter.drawText(badge_high_rect, Qt.AlignmentFlag.AlignCenter, text_high)
 
         # X Axis labels
         painter.setPen(QPen(QColor("#8e8e93")))
