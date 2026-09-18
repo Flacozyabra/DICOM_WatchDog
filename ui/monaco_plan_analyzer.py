@@ -1245,7 +1245,7 @@ class MonacoPlanAnalyzerDialog(QDialog):
             title = QLabel("🔴 ВЫСОКИЙ РИСК СБОЯ АППАРАТА (DOSE RATE MON)", self.verdict_card)
             title.setStyleSheet("font-size: 13px; font-weight: bold; color: #fca5a5;")
             desc = QLabel(
-                f"В пучке обнаружено <b>{crit_count} критических секторов</b> с падением мощности дозы ниже порога стабильности Elekta (< 45 MU/мин) "
+                f"В пучке обнаружено <b>{crit_count} критических секторов</b> с падением мощности дозы ниже порога стабильности Elekta (&lt; 45 MU/мин) "
                 f"или резким торможением гентри. Аппарат с высокой вероятностью выдаст ошибку <code>DOSE RATE MON</code> при отпуске.",
                 self.verdict_card
             )
@@ -1374,12 +1374,12 @@ class MonacoPlanAnalyzerDialog(QDialog):
                 g_str = f"{item['gantry_start']:.1f}° → {item['gantry_end']:.1f}°"
                 dg_str = f"{item['delta_gantry']:.1f}°"
                 mpd_str = f"{item['mu_per_deg']:.2f}"
-                default_ok = "OK (штатный сектор)"
+                default_ok = "OK"
             else:
                 g_str = f"{item['gantry_start']:.1f}°"
                 dg_str = "0.0°"
                 mpd_str = "Статика"
-                default_ok = "OK (штатный сегмент)"
+                default_ok = "OK"
 
             dmu_str = f"{item['delta_mu']:.2f}"
             dr_str = f"{item['est_dose_rate']:.0f} MU/мин"
