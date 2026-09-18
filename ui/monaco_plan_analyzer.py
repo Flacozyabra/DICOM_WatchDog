@@ -919,8 +919,8 @@ class MonacoPlanAnalyzerDialog(QDialog):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
 
         # 1. Non-Monaco Warning Banner (if applicable)
         if not self.analyzer.is_monaco:
@@ -963,8 +963,9 @@ class MonacoPlanAnalyzerDialog(QDialog):
         # Build patient label text (stored for later update via _on_plan_changed)
         self._tps_info_template = tps_info
 
-        # 3. Main Body Splitter: Left (Polar Arc) + Right (Verdict & Analysis)
+        # Main Body Splitter: Left (Polar Arc) + Right (Verdict & Analysis)
         body_splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        body_splitter.setStyleSheet("QSplitter::handle { background: #2c2c2e; width: 1px; }")
 
         # Left Panel: Polar Diagram + Legend
         left_panel = QWidget(body_splitter)
@@ -972,11 +973,11 @@ class MonacoPlanAnalyzerDialog(QDialog):
         left_layout.setContentsMargins(0, 0, 8, 0)
         left_layout.setSpacing(8)
 
-        # Plan + Beam selectors — single row
+        # Plan + Beam selectors — single row, no border
         plan_ctrl_frame = QFrame(left_panel)
-        plan_ctrl_frame.setStyleSheet("background-color: #1e1e20; border: 1px solid #2c2c2e; border-radius: 4px;")
+        plan_ctrl_frame.setStyleSheet("QFrame { background: transparent; border: none; }")
         ctrl_row = QHBoxLayout(plan_ctrl_frame)
-        ctrl_row.setContentsMargins(8, 5, 8, 5)
+        ctrl_row.setContentsMargins(0, 0, 0, 4)
         ctrl_row.setSpacing(8)
 
         lbl_plan_sel = QLabel("План:", plan_ctrl_frame)
@@ -1015,23 +1016,19 @@ class MonacoPlanAnalyzerDialog(QDialog):
         self.polar_widget.intervalClicked.connect(self._on_interval_clicked)
         left_layout.addWidget(self.polar_widget, 1)
 
-        # Legend
+        # Legend — no box, just inline labels under polar widget
         legend_box = QFrame(left_panel)
-        legend_box.setStyleSheet("background-color: #1e1e20; border: 1px solid #2c2c2e; border-radius: 4px; padding: 6px;")
+        legend_box.setStyleSheet("QFrame { background: transparent; border: none; }")
         leg_l = QVBoxLayout(legend_box)
-        leg_l.setContentsMargins(8, 6, 8, 6)
-        leg_l.setSpacing(4)
-
-        leg_title = QLabel("Цветовая индикация секторов дуги:", legend_box)
-        leg_title.setStyleSheet("font-size: 11px; font-weight: 600; color: #a1a1aa;")
-        leg_l.addWidget(leg_title)
+        leg_l.setContentsMargins(2, 4, 2, 0)
+        leg_l.setSpacing(2)
 
         def make_leg_row(color_hex, text):
             row = QHBoxLayout()
             dot = QLabel("●")
-            dot.setStyleSheet(f"color: {color_hex}; font-size: 14px;")
+            dot.setStyleSheet(f"color: {color_hex}; font-size: 12px;")
             lbl = QLabel(text)
-            lbl.setStyleSheet("font-size: 11px; color: #e5e5ea;")
+            lbl.setStyleSheet("font-size: 10px; color: #6b7280;")
             row.addWidget(dot)
             row.addWidget(lbl, 1)
             return row
@@ -1046,16 +1043,16 @@ class MonacoPlanAnalyzerDialog(QDialog):
         # Right Panel: Patient info header + Verdict Banner + Metrics Cards + Detailed Tabs
         right_panel = QWidget(body_splitter)
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(8, 0, 0, 0)
+        right_layout.setContentsMargins(10, 0, 0, 0)
         right_layout.setSpacing(6)
 
-        # Compact patient info header (right side, same width as verdict card below)
+        # Compact patient info — plain row, no box
         patient_frame = QFrame(right_panel)
-        patient_frame.setFixedHeight(30)
-        patient_frame.setStyleSheet("background-color: #1e1e20; border: 1px solid #2c2c2e; border-radius: 4px;")
+        patient_frame.setFixedHeight(26)
+        patient_frame.setStyleSheet("QFrame { background: transparent; border: none; }")
         pf_layout = QHBoxLayout(patient_frame)
-        pf_layout.setContentsMargins(10, 0, 10, 0)
-        pf_layout.setSpacing(12)
+        pf_layout.setContentsMargins(2, 0, 2, 0)
+        pf_layout.setSpacing(10)
 
         self.lbl_patient = QLabel(
             f"<b style='color: #ffffff;'>{self.analyzer.patient_name}</b>"
@@ -1095,11 +1092,11 @@ class MonacoPlanAnalyzerDialog(QDialog):
         self.verdict_layout.setContentsMargins(14, 10, 14, 10)
         right_layout.addWidget(self.verdict_card)
 
-        # Summary Metrics Grid
+        # Summary Metrics — no box border, just background
         metrics_frame = QFrame(right_panel)
-        metrics_frame.setStyleSheet("background-color: #1e1e20; border: 1px solid #2c2c2e; border-radius: 6px;")
+        metrics_frame.setStyleSheet("QFrame { background: transparent; border: none; border-top: 1px solid #2c2c2e; }")
         m_layout = QHBoxLayout(metrics_frame)
-        m_layout.setContentsMargins(12, 8, 12, 8)
+        m_layout.setContentsMargins(4, 6, 4, 2)
 
         self.lbl_metric_mu = QLabel(metrics_frame)
         self.lbl_metric_dr = QLabel(metrics_frame)
