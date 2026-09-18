@@ -291,13 +291,13 @@ class PlanKinematicsAnalyzer:
                     # 2. Extreme Modulation Shock (Severe jumps between adjacent active CPs)
                     if len(mu_per_deg_list) > 1:
                         prev_mpd = mu_per_deg_list[-2]
-                        if prev_mpd > 0.01:
-                            ratio = mu_per_deg / prev_mpd
-                            if (ratio > 10.0 or ratio < 0.10) and (mu_per_deg > 14.0 or prev_mpd > 14.0):
-                                reasons.append(f"Экстремальный скачок модуляции в {ratio:.1f}× ({prev_mpd:.2f} → {mu_per_deg:.2f} MU/deg)")
+                        if prev_mpd > 0.01 and mu_per_deg > 0.01:
+                            factor = max(mu_per_deg, prev_mpd) / min(mu_per_deg, prev_mpd)
+                            if factor > 10.0 and (mu_per_deg > 14.0 or prev_mpd > 14.0):
+                                reasons.append(f"Экстремальный перепад модуляции в {factor:.1f}× ({prev_mpd:.2f} → {mu_per_deg:.2f} MU/deg)")
                                 risk_level = 'CRITICAL'
-                            elif (ratio > 6.0 or ratio < 0.16) and (mu_per_deg > 10.0 or prev_mpd > 10.0):
-                                reasons.append(f"Резкий перепад модуляции в {ratio:.1f}× ({prev_mpd:.2f} → {mu_per_deg:.2f} MU/deg)")
+                            elif factor > 6.0 and (mu_per_deg > 10.0 or prev_mpd > 10.0):
+                                reasons.append(f"Резкий перепад модуляции в {factor:.1f}× ({prev_mpd:.2f} → {mu_per_deg:.2f} MU/deg)")
                                 if risk_level != 'CRITICAL':
                                     risk_level = 'WARNING'
 
