@@ -810,9 +810,11 @@ class ModulationTimelineWidget(QWidget):
 class MonacoPlanAnalyzerDialog(QDialog):
     """Main window for Monaco plan deliverability inspection."""
 
-    def __init__(self, parent=None, plan_path: str = ""):
+    def __init__(self, parent=None, plan_path: str = "", plan_paths: list = None):
         super().__init__(parent)
         self.plan_path = plan_path
+        # All available RTPLAN files for this patient
+        self.plan_paths: list = plan_paths if plan_paths else ([plan_path] if plan_path else [])
         self.analyzer = PlanKinematicsAnalyzer(plan_path)
 
         if not self.analyzer.is_monaco:
@@ -952,44 +954,49 @@ class MonacoPlanAnalyzerDialog(QDialog):
             warn_layout.addWidget(text_lbl, 1)
             layout.addWidget(warn_banner)
 
-        # 2. Plan Header Bar
+        # 2. Plan Header Bar — patient info + technical details
         header_frame = QFrame(self)
         header_frame.setStyleSheet("background-color: #1e1e20; border: 1px solid #2c2c2e; border-radius: 6px; padding: 6px;")
         h_layout = QHBoxLayout(header_frame)
         h_layout.setContentsMargins(12, 6, 12, 6)
+        h_layout.setSpacing(16)
 
         tps_info = (
             f"<span style='color: #4ade80; font-weight: bold;'>{self.analyzer.tps_name}</span>"
             if self.analyzer.is_monaco else
             f"<span style='color: #fb923c; font-weight: bold;'>{self.analyzer.tps_name} [Не Monaco]</span>"
         )
-        title_info = (
+        # Patient name + ID
+        self.lbl_patient = QLabel(
             f"<b style='font-size: 14px; color: #ffffff;'>{self.analyzer.patient_name}</b> "
-            f"<span style='color: #8e8e93;'>({self.analyzer.patient_id})</span> &nbsp;|&nbsp; "
-            f"План: <b style='color: #38bdf8;'>{self.analyzer.plan_label}</b> &nbsp;|&nbsp; "
-            f"ПО: {tps_info} &nbsp;|&nbsp; "
-            f"Фракций: <b>{self.analyzer.num_fractions}</b>"
+            f"<span style='color: #8e8e93;'>({self.analyzer.patient_id})</span>",
+            header_frame
         )
-        lbl_plan_info = QLabel(title_info, header_frame)
-        lbl_plan_info.setTextFormat(Qt.TextFormat.RichText)
-        h_layout.addWidget(lbl_plan_info)
+        self.lbl_patient.setTextFormat(Qt.TextFormat.RichText)
+        h_layout.addWidget(self.lbl_patient)
+
+        sep1 = QLabel("|", header_frame)
+        sep1.setStyleSheet("color: #3a3a3c; font-size: 16px;")
+        h_layout.addWidget(sep1)
+
+        # Software
+        self.lbl_tps = QLabel(tps_info, header_frame)
+        self.lbl_tps.setTextFormat(Qt.TextFormat.RichText)
+        h_layout.addWidget(self.lbl_tps)
+
+        sep2 = QLabel("|", header_frame)
+        sep2.setStyleSheet("color: #3a3a3c; font-size: 16px;")
+        h_layout.addWidget(sep2)
+
+        # Fractions
+        self.lbl_fractions = QLabel(
+            f"Фракций: <b>{self.analyzer.num_fractions}</b>",
+            header_frame
+        )
+        self.lbl_fractions.setTextFormat(Qt.TextFormat.RichText)
+        h_layout.addWidget(self.lbl_fractions)
+
         h_layout.addStretch()
-
-        # Beam selector
-        lbl_beam = QLabel("Пучок / Дуга:", header_frame)
-        lbl_beam.setStyleSheet("color: #a1a1aa; font-weight: 600;")
-        h_layout.addWidget(lbl_beam)
-
-        self.beam_combo = QComboBox(header_frame)
-        for b in self.analyzer.beams:
-            if b['is_vmat']:
-                kind = f"VMAT Arc ({b['total_gantry_travel']:.0f}°, {b['total_mu']:.0f} MU)"
-            else:
-                kind = f"{b['beam_mode']} {b['fixed_gantry_angle']:.0f}° ({b['num_control_points']} CP, {b['total_mu']:.0f} MU)"
-            self.beam_combo.addItem(f"Beam #{b['beam_number']}: {b['beam_name']} — {kind}", b)
-        self.beam_combo.currentIndexChanged.connect(self._on_beam_changed)
-        h_layout.addWidget(self.beam_combo)
-
         layout.addWidget(header_frame)
 
         # 3. Main Body Splitter: Left (Polar Arc) + Right (Verdict & Analysis)
@@ -999,7 +1006,48 @@ class MonacoPlanAnalyzerDialog(QDialog):
         left_panel = QWidget(body_splitter)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 8, 0)
-        left_layout.setSpacing(10)
+        left_layout.setSpacing(8)
+
+        # Plan selector (top of left panel)
+        plan_ctrl_frame = QFrame(left_panel)
+        plan_ctrl_frame.setStyleSheet("background-color: #1e1e20; border: 1px solid #2c2c2e; border-radius: 4px; padding: 4px;")
+        plan_ctrl_layout = QVBoxLayout(plan_ctrl_frame)
+        plan_ctrl_layout.setContentsMargins(8, 6, 8, 6)
+        plan_ctrl_layout.setSpacing(6)
+
+        lbl_plan_sel = QLabel("ПЛАН:", plan_ctrl_frame)
+        lbl_plan_sel.setStyleSheet("font-size: 10px; font-weight: 700; color: #8e8e93; letter-spacing: 1px;")
+        plan_ctrl_layout.addWidget(lbl_plan_sel)
+
+        self.plan_combo = QComboBox(plan_ctrl_frame)
+        self.plan_combo.setMinimumWidth(200)
+        for pp in self.plan_paths:
+            try:
+                ds_tmp = __import__('pydicom').dcmread(pp, stop_before_pixels=True, force=True,
+                    specific_tags=['RTPlanLabel', 'RTPlanName'])
+                lbl = str(getattr(ds_tmp, 'RTPlanLabel', '') or getattr(ds_tmp, 'RTPlanName', '') or os.path.basename(pp))
+            except Exception:
+                lbl = os.path.basename(pp)
+            self.plan_combo.addItem(lbl, pp)
+        # Select current plan
+        cur_idx = self.plan_combo.findData(self.plan_path)
+        if cur_idx >= 0:
+            self.plan_combo.setCurrentIndex(cur_idx)
+        self.plan_combo.currentIndexChanged.connect(self._on_plan_changed)
+        self.plan_combo.setEnabled(len(self.plan_paths) > 1)
+        plan_ctrl_layout.addWidget(self.plan_combo)
+
+        # Beam selector
+        lbl_beam_sel = QLabel("ПУЧОК / ДУГА:", plan_ctrl_frame)
+        lbl_beam_sel.setStyleSheet("font-size: 10px; font-weight: 700; color: #8e8e93; letter-spacing: 1px; margin-top: 4px;")
+        plan_ctrl_layout.addWidget(lbl_beam_sel)
+
+        self.beam_combo = QComboBox(plan_ctrl_frame)
+        self._populate_beam_combo()
+        self.beam_combo.currentIndexChanged.connect(self._on_beam_changed)
+        plan_ctrl_layout.addWidget(self.beam_combo)
+
+        left_layout.addWidget(plan_ctrl_frame)
 
         self.polar_widget = PolarArcWidget(left_panel)
         self.polar_widget.intervalHovered.connect(self._on_interval_hovered)
@@ -1126,6 +1174,60 @@ class MonacoPlanAnalyzerDialog(QDialog):
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
         table.verticalHeader().setVisible(False)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+
+    def _populate_beam_combo(self) -> None:
+        """Fill beam_combo from current analyzer beams."""
+        self.beam_combo.blockSignals(True)
+        self.beam_combo.clear()
+        for b in self.analyzer.beams:
+            if b['is_vmat']:
+                kind = f"VMAT Arc ({b['total_gantry_travel']:.0f}°, {b['total_mu']:.0f} MU)"
+            else:
+                kind = f"{b['beam_mode']} {b['fixed_gantry_angle']:.0f}° ({b['num_control_points']} CP, {b['total_mu']:.0f} MU)"
+            self.beam_combo.addItem(f"Beam #{b['beam_number']}: {b['beam_name']} — {kind}", b)
+        self.beam_combo.blockSignals(False)
+
+    def _on_plan_changed(self, index: int) -> None:
+        """Reload analyzer when a different RTPLAN is selected."""
+        if index < 0 or index >= len(self.plan_paths):
+            return
+        new_path = self.plan_combo.itemData(index)
+        if not new_path or new_path == self.plan_path:
+            return
+        try:
+            self.plan_path = new_path
+            self.analyzer = PlanKinematicsAnalyzer(new_path)
+        except Exception as e:
+            log_message(None, f"Ошибка загрузки плана: {e}")
+            return
+
+        # Update header labels
+        tps_info = (
+            f"<span style='color: #4ade80; font-weight: bold;'>{self.analyzer.tps_name}</span>"
+            if self.analyzer.is_monaco else
+            f"<span style='color: #fb923c; font-weight: bold;'>{self.analyzer.tps_name} [Не Monaco]</span>"
+        )
+        self.lbl_patient.setText(
+            f"<b style='font-size: 14px; color: #ffffff;'>{self.analyzer.patient_name}</b> "
+            f"<span style='color: #8e8e93;'>({self.analyzer.patient_id})</span>"
+        )
+        self.lbl_tps.setText(tps_info)
+        self.lbl_fractions.setText(f"Фракций: <b>{self.analyzer.num_fractions}</b>")
+
+        # Update window title
+        if not self.analyzer.is_monaco:
+            self.setWindowTitle(f"[НЕ MONACO] Анализ плана — {self.analyzer.patient_name} [{self.analyzer.patient_id}]")
+        else:
+            self.setWindowTitle(f"Анализ плана Monaco — {self.analyzer.patient_name} [{self.analyzer.patient_id}]")
+
+        # Repopulate beams and render first beam
+        self._populate_beam_combo()
+        if self.analyzer.beams:
+            self._on_beam_changed(0)
+        else:
+            self.polar_widget.set_beam_data(None)
+            self.graph_widget.set_beam_data(None)
+
 
     def _on_beam_changed(self, index: int):
         if index < 0 or index >= len(self.analyzer.beams):
@@ -1352,10 +1454,32 @@ class MonacoPlanAnalyzerDialog(QDialog):
 
 def open_plan_analyzer(parent, folder_or_plan_path: str, patient_id: str = "", patient_name: str = ""):
     """Helper to find RTPLAN in folder (or direct plan path) and show the MonacoPlanAnalyzerDialog."""
+    plan_file = None
+    all_plan_files: list = []
+
     if folder_or_plan_path and os.path.isfile(folder_or_plan_path):
         plan_file = folder_or_plan_path
+        # Also look for other plans in the same folder
+        folder = os.path.dirname(folder_or_plan_path)
     else:
-        plan_file = find_rtplan_file(folder_or_plan_path)
+        folder = folder_or_plan_path
+
+    # Collect all RTPLAN files from patient folder
+    if folder and os.path.isdir(folder):
+        for root, dirs, files in os.walk(folder):
+            for f in files:
+                fp = os.path.join(root, f)
+                try:
+                    ds_tmp = pydicom.dcmread(fp, stop_before_pixels=True, force=True, specific_tags=['Modality'])
+                    if str(getattr(ds_tmp, 'Modality', '')).upper() == 'RTPLAN':
+                        all_plan_files.append(fp)
+                except Exception:
+                    pass
+
+    if all_plan_files and plan_file is None:
+        plan_file = all_plan_files[0]
+    elif plan_file and plan_file not in all_plan_files:
+        all_plan_files.insert(0, plan_file)
 
     if not plan_file:
         from PyQt6.QtWidgets import QMessageBox
@@ -1363,10 +1487,11 @@ def open_plan_analyzer(parent, folder_or_plan_path: str, patient_id: str = "", p
         return
 
     try:
-        dlg = MonacoPlanAnalyzerDialog(parent, plan_file)
+        dlg = MonacoPlanAnalyzerDialog(parent, plan_file, plan_paths=all_plan_files)
         dlg.showMaximized()
         dlg.exec()
     except Exception as e:
         log_message(getattr(parent, 'output_field', None), f"Ошибка анализа плана Monaco: {e}")
         from PyQt6.QtWidgets import QMessageBox
         QMessageBox.critical(parent, "Ошибка анализа плана", f"Не удалось проанализировать файл плана:\n{e}")
+
