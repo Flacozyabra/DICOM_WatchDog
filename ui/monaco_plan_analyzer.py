@@ -1216,10 +1216,12 @@ class MonacoPlanAnalyzerDialog(QDialog):
         self.lbl_metric_mu.setText(f"<span style='color: #8e8e93;'>Суммарно:</span><br><b style='font-size: 13px;'>{b['total_mu']:.1f} MU</b>")
         self.lbl_metric_dr.setText(f"<span style='color: #8e8e93;'>Мощность дозы:</span><br><b style='font-size: 13px;'>{b['min_dose_rate']:.0f} – {b['max_dose_rate']:.0f} MU/мин</b>")
         if b['is_vmat']:
-            self.lbl_metric_mpd.setText(f"<span style='color: #8e8e93;'>Плотность (MU/°):</span><br><b style='font-size: 13px;'>{b['min_mu_per_deg']:.2f} / {b['avg_mu_per_deg']:.2f} / {b['max_mu_per_deg']:.2f}</b>")
+            self.lbl_metric_mpd.setText(f"<span style='color: #8e8e93;'>Плотность дозы:</span><br><b style='font-size: 13px;'>{b['min_mu_per_deg']:.2f} – {b['max_mu_per_deg']:.2f} MU/°</b>")
+            self.lbl_metric_mpd.setToolTip(f"Диапазон плотности дозы: {b['min_mu_per_deg']:.2f} – {b['max_mu_per_deg']:.2f} MU/° (среднее: {b['avg_mu_per_deg']:.2f} MU/°)")
             self.tabs.setTabText(1, "График модуляции (MU/deg)")
         else:
             self.lbl_metric_mpd.setText(f"<span style='color: #8e8e93;'>Угол гентри:</span><br><b style='font-size: 13px;'>{b['fixed_gantry_angle']:.1f}° (статика)</b>")
+            self.lbl_metric_mpd.setToolTip("")
             self.tabs.setTabText(1, "График сегментов (ΔMU)")
 
         j_y = b.get('jaws_y')
