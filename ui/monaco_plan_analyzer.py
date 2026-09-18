@@ -1249,9 +1249,10 @@ class MonacoPlanAnalyzerDialog(QDialog):
         if verdict == 'CRITICAL':
             self.verdict_card.setStyleSheet("""
                 QFrame {
-                    background-color: #3b1212;
-                    border: 1px solid #ef4444;
-                    border-radius: 6px;
+                    background-color: #2a1010;
+                    border: none;
+                    border-left: 3px solid #ef4444;
+                    border-radius: 4px;
                 }
             """)
             title = QLabel("🔴 ВЫСОКИЙ РИСК СБОЯ АППАРАТА (DOSE RATE MON)", self.verdict_card)
@@ -1268,9 +1269,10 @@ class MonacoPlanAnalyzerDialog(QDialog):
         elif verdict == 'WARNING':
             self.verdict_card.setStyleSheet("""
                 QFrame {
-                    background-color: #352605;
-                    border: 1px solid #f59e0b;
-                    border-radius: 6px;
+                    background-color: #271c05;
+                    border: none;
+                    border-left: 3px solid #f59e0b;
+                    border-radius: 4px;
                 }
             """)
             title = QLabel("🟡 ПОВЫШЕННАЯ СЛОЖНОСТЬ ПЛАНА (ТРЕБУЕТ ВНИМАНИЯ)", self.verdict_card)
@@ -1287,9 +1289,10 @@ class MonacoPlanAnalyzerDialog(QDialog):
         elif verdict == 'STATIC':
             self.verdict_card.setStyleSheet("""
                 QFrame {
-                    background-color: #0c2438;
-                    border: 1px solid #38bdf8;
-                    border-radius: 6px;
+                    background-color: #081a2a;
+                    border: none;
+                    border-left: 3px solid #38bdf8;
+                    border-radius: 4px;
                 }
             """)
             title = QLabel(f"ℹ️ СТАТИЧЕСКИЙ ПУЧОК ({b['beam_mode']})", self.verdict_card)
@@ -1307,9 +1310,10 @@ class MonacoPlanAnalyzerDialog(QDialog):
         else:
             self.verdict_card.setStyleSheet("""
                 QFrame {
-                    background-color: #0f2e1a;
-                    border: 1px solid #22c55e;
-                    border-radius: 6px;
+                    background-color: #0a2015;
+                    border: none;
+                    border-left: 3px solid #22c55e;
+                    border-radius: 4px;
                 }
             """)
             title = QLabel("🟢 ПЛАН БЕЗОПАСЕН ДЛЯ ОТПУСКА", self.verdict_card)
