@@ -62,6 +62,7 @@
   "ctx_delete_patient": "Удалить пациента",
   "ctx_move_to_archive": "Переместить в архив",
   "ctx_delete_str": "Удалить лишние STR",
+  "ctx_check_monaco_plan": "Проверить план Monaco",
   "ctx_restore_from_archive": "Восстановить из архива",
   "ctx_delete_archive_patient": "Удалить из архива",
   "dlg_change_id_title": "Изменение ID пациента",

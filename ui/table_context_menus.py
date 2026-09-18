@@ -158,6 +158,22 @@ class TableContextMenuManager:
         if not is_child_row and ('/' in str(patient_id) or '\\' in str(patient_id)):
             folder_to_open = str(patient_id).replace('\\', '/').split('/')[0]
 
+        ct_dir = self.mw.config.get('ct_images_dir', '')
+        folder_name = folder_to_open
+        if self.mw.images_cache and patient_id in self.mw.images_cache:
+            folder_name = self.mw.images_cache[patient_id].get('folder_name', folder_name)
+        study_folder = os.path.normpath(os.path.join(ct_dir, folder_name)) if ct_dir else ""
+
+        from ui.monaco_plan_analyzer import find_rtplan_file, open_plan_analyzer
+        plan_file = find_rtplan_file(study_folder) if study_folder and os.path.isdir(study_folder) else None
+
+        check_plan_action = QAction(tr_ui("ctx_check_monaco_plan"), self.mw)
+        if plan_file:
+            check_plan_action.setEnabled(True)
+            check_plan_action.triggered.connect(lambda: open_plan_analyzer(self.mw, plan_file, patient_id, patient_name))
+        else:
+            check_plan_action.setEnabled(False)
+
         menu = QMenu(self.mw)
 
         open_folder_action = QAction(tr_ui("ctx_open_folder"), self.mw)
@@ -176,6 +192,8 @@ class TableContextMenuManager:
         clean_str_action.triggered.connect(lambda: self.mw.clean_str_action(patient_id))
 
         menu.addAction(open_folder_action)
+        menu.addAction(check_plan_action)
+        menu.addSeparator()
         menu.addAction(change_id_action)
         menu.addAction(delete_action)
         if self.mw.config.get('show_tab_archive', 'True').lower() == 'true':
@@ -203,6 +221,22 @@ class TableContextMenuManager:
         if not is_child_row and ('/' in str(patient_id) or '\\' in str(patient_id)):
             folder_to_open = str(patient_id).replace('\\', '/').split('/')[0]
 
+        archive_dir = self.mw.config.get('archive_dir', '')
+        folder_name = folder_to_open
+        if self.mw.archive_cache and patient_id in self.mw.archive_cache:
+            folder_name = self.mw.archive_cache[patient_id].get('folder_name', folder_name)
+        study_folder = os.path.normpath(os.path.join(archive_dir, folder_name)) if archive_dir else ""
+
+        from ui.monaco_plan_analyzer import find_rtplan_file, open_plan_analyzer
+        plan_file = find_rtplan_file(study_folder) if study_folder and os.path.isdir(study_folder) else None
+
+        check_plan_action = QAction(tr_ui("ctx_check_monaco_plan"), self.mw)
+        if plan_file:
+            check_plan_action.setEnabled(True)
+            check_plan_action.triggered.connect(lambda: open_plan_analyzer(self.mw, plan_file, patient_id, patient_name))
+        else:
+            check_plan_action.setEnabled(False)
+
         menu = QMenu(self.mw)
 
         open_folder_action = QAction(tr_ui("ctx_open_folder"), self.mw)
@@ -218,6 +252,8 @@ class TableContextMenuManager:
         delete_action.triggered.connect(lambda: self.mw.delete_archive_patient_action(patient_id, patient_name))
 
         menu.addAction(open_folder_action)
+        menu.addAction(check_plan_action)
+        menu.addSeparator()
         menu.addAction(change_id_action)
         menu.addAction(restore_action)
         menu.addAction(delete_action)

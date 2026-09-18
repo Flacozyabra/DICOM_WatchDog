@@ -62,6 +62,7 @@
   "ctx_delete_patient": "Delete patient",
   "ctx_move_to_archive": "Move to Archive",
   "ctx_delete_str": "Delete redundant STR",
+  "ctx_check_monaco_plan": "Check Monaco Plan",
   "ctx_restore_from_archive": "Restore from Archive",
   "ctx_delete_archive_patient": "Delete from Archive",
   "dlg_change_id_title": "Change Patient ID",
