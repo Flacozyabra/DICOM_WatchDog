@@ -1032,8 +1032,8 @@ class MonacoPlanAnalyzerDialog(QDialog):
             return row
 
         leg_l.addLayout(make_leg_row("#30d158", "Безопасный отпуск (стабильная мощность и скорость)"))
-        leg_l.addLayout(make_leg_row("#ffd60a", "Повышенная модуляция (замедление гентри / быстрый MLC)"))
-        leg_l.addLayout(make_leg_row("#ff453a", "КРИТИЧЕСКИЙ РИСК СБОЯ 'DOSE RATE MON' (< 45 MU/мин или скачок > 10×)"))
+        leg_l.addLayout(make_leg_row("#ffd60a", "Повышенная модуляция (замедление гентри / перепад MU/deg)"))
+        leg_l.addLayout(make_leg_row("#ff453a", "КРИТИЧЕСКИЙ РИСК СБОЯ 'DOSE RATE MON' (< 45 MU/мин или перепад > 10×)"))
         left_layout.addWidget(legend_box)
 
         body_splitter.addWidget(left_panel)
