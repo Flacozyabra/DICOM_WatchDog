@@ -972,19 +972,17 @@ class MonacoPlanAnalyzerDialog(QDialog):
         left_layout.setContentsMargins(0, 0, 8, 0)
         left_layout.setSpacing(8)
 
-        # Plan selector (top of left panel) — inline rows
+        # Plan + Beam selectors — single row
         plan_ctrl_frame = QFrame(left_panel)
         plan_ctrl_frame.setStyleSheet("background-color: #1e1e20; border: 1px solid #2c2c2e; border-radius: 4px;")
-        plan_ctrl_layout = QVBoxLayout(plan_ctrl_frame)
-        plan_ctrl_layout.setContentsMargins(8, 5, 8, 5)
-        plan_ctrl_layout.setSpacing(4)
+        ctrl_row = QHBoxLayout(plan_ctrl_frame)
+        ctrl_row.setContentsMargins(8, 5, 8, 5)
+        ctrl_row.setSpacing(8)
 
-        # Row 1: Plan
-        plan_row = QHBoxLayout()
-        plan_row.setSpacing(6)
         lbl_plan_sel = QLabel("План:", plan_ctrl_frame)
-        lbl_plan_sel.setStyleSheet("font-size: 11px; font-weight: 700; color: #8e8e93; min-width: 42px;")
-        plan_row.addWidget(lbl_plan_sel)
+        lbl_plan_sel.setStyleSheet("font-size: 11px; font-weight: 700; color: #8e8e93;")
+        ctrl_row.addWidget(lbl_plan_sel)
+
         self.plan_combo = QComboBox(plan_ctrl_frame)
         for pp in self.plan_paths:
             try:
@@ -999,20 +997,16 @@ class MonacoPlanAnalyzerDialog(QDialog):
             self.plan_combo.setCurrentIndex(cur_idx)
         self.plan_combo.currentIndexChanged.connect(self._on_plan_changed)
         self.plan_combo.setEnabled(len(self.plan_paths) > 1)
-        plan_row.addWidget(self.plan_combo, 1)
-        plan_ctrl_layout.addLayout(plan_row)
+        ctrl_row.addWidget(self.plan_combo, 1)
 
-        # Row 2: Beam
-        beam_row = QHBoxLayout()
-        beam_row.setSpacing(6)
         lbl_beam_sel = QLabel("Пучок:", plan_ctrl_frame)
-        lbl_beam_sel.setStyleSheet("font-size: 11px; font-weight: 700; color: #8e8e93; min-width: 42px;")
-        beam_row.addWidget(lbl_beam_sel)
+        lbl_beam_sel.setStyleSheet("font-size: 11px; font-weight: 700; color: #8e8e93;")
+        ctrl_row.addWidget(lbl_beam_sel)
+
         self.beam_combo = QComboBox(plan_ctrl_frame)
         self._populate_beam_combo()
         self.beam_combo.currentIndexChanged.connect(self._on_beam_changed)
-        beam_row.addWidget(self.beam_combo, 1)
-        plan_ctrl_layout.addLayout(beam_row)
+        ctrl_row.addWidget(self.beam_combo, 2)
 
         left_layout.addWidget(plan_ctrl_frame)
 
