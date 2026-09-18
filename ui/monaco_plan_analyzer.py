@@ -822,6 +822,11 @@ class MonacoPlanAnalyzerDialog(QDialog):
         else:
             self.setWindowTitle(f"Анализ плана Monaco — {self.analyzer.patient_name} [{self.analyzer.patient_id}]")
         self.resize(1200, 800)
+        self.setWindowFlags(
+            self.windowFlags()
+            | Qt.WindowType.WindowMaximizeButtonHint
+            | Qt.WindowType.WindowMinimizeButtonHint
+        )
         self.setWindowState(Qt.WindowState.WindowMaximized)
         self.setStyleSheet("""
             QDialog {
@@ -851,8 +856,7 @@ class MonacoPlanAnalyzerDialog(QDialog):
                 border: 1px solid #2c2c2e;
                 background-color: #1a1a1c;
                 border-radius: 4px;
-                top: 0px;
-                margin-top: 0px;
+                margin-top: 6px;
             }
             QTabBar {
                 qproperty-drawBase: 0;
@@ -864,14 +868,10 @@ class MonacoPlanAnalyzerDialog(QDialog):
             QTabBar::tab {
                 background-color: #242426;
                 color: #8e8e93;
-                padding: 7px 18px;
+                padding: 6px 16px;
                 margin-right: 4px;
-                margin-top: 0px;
-                margin-bottom: 0px;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
                 border: 1px solid #2c2c2e;
-                border-bottom: none;
+                border-radius: 4px;
                 font-size: 12px;
             }
             QTabBar::tab:hover {
@@ -883,7 +883,6 @@ class MonacoPlanAnalyzerDialog(QDialog):
                 color: #38bdf8;
                 font-weight: bold;
                 border: 1px solid #38bdf8;
-                border-bottom: 1px solid #1a1a1c;
             }
             QTableWidget {
                 background-color: #1a1a1c;
@@ -997,7 +996,6 @@ class MonacoPlanAnalyzerDialog(QDialog):
         if cur_idx >= 0:
             self.plan_combo.setCurrentIndex(cur_idx)
         self.plan_combo.currentIndexChanged.connect(self._on_plan_changed)
-        self.plan_combo.setEnabled(len(self.plan_paths) > 1)
         ctrl_row.addWidget(self.plan_combo, 1)
 
         lbl_beam_sel = QLabel("Пучок:", plan_ctrl_frame)
@@ -1072,22 +1070,13 @@ class MonacoPlanAnalyzerDialog(QDialog):
         self.lbl_tps.setStyleSheet("font-size: 12px;")
         pf_layout.addWidget(self.lbl_tps)
 
-        _sep2 = QLabel("|", patient_frame)
-        _sep2.setStyleSheet("color: #3a3a3c;")
-        pf_layout.addWidget(_sep2)
-
-        self.lbl_fractions = QLabel(
-            f"Фр.: <b>{self.analyzer.num_fractions}</b>", patient_frame
-        )
-        self.lbl_fractions.setTextFormat(Qt.TextFormat.RichText)
-        self.lbl_fractions.setStyleSheet("font-size: 12px; color: #a1a1aa;")
-        pf_layout.addWidget(self.lbl_fractions)
         pf_layout.addStretch()
 
         right_layout.addWidget(patient_frame)
 
         # Verdict Card
         self.verdict_card = QFrame(right_panel)
+        self.verdict_card.setObjectName("verdictCard")
         self.verdict_layout = QVBoxLayout(self.verdict_card)
         self.verdict_layout.setContentsMargins(14, 10, 14, 10)
         right_layout.addWidget(self.verdict_card)
@@ -1101,9 +1090,8 @@ class MonacoPlanAnalyzerDialog(QDialog):
         self.lbl_metric_mu = QLabel(metrics_frame)
         self.lbl_metric_dr = QLabel(metrics_frame)
         self.lbl_metric_mpd = QLabel(metrics_frame)
-        self.lbl_metric_jaws = QLabel(metrics_frame)
 
-        for lbl in (self.lbl_metric_mu, self.lbl_metric_dr, self.lbl_metric_mpd, self.lbl_metric_jaws):
+        for lbl in (self.lbl_metric_mu, self.lbl_metric_dr, self.lbl_metric_mpd):
             lbl.setTextFormat(Qt.TextFormat.RichText)
             m_layout.addWidget(lbl)
             m_layout.addStretch()
@@ -1142,10 +1130,6 @@ class MonacoPlanAnalyzerDialog(QDialog):
         self.status_lbl.setStyleSheet("color: #8e8e93; font-size: 12px;")
         bottom_bar.addWidget(self.status_lbl)
         bottom_bar.addStretch()
-
-        btn_close = QPushButton("Закрыть", self)
-        btn_close.clicked.connect(self.accept)
-        bottom_bar.addWidget(btn_close)
         layout.addLayout(bottom_bar)
 
         # Initial render for first beam
@@ -1210,7 +1194,6 @@ class MonacoPlanAnalyzerDialog(QDialog):
             f"<span style='color: #8e8e93;'>({self.analyzer.patient_id})</span>"
         )
         self.lbl_tps.setText(tps_info)
-        self.lbl_fractions.setText(f"Фракций: <b>{self.analyzer.num_fractions}</b>")
 
         # Update window title
         if not self.analyzer.is_monaco:
@@ -1248,11 +1231,15 @@ class MonacoPlanAnalyzerDialog(QDialog):
 
         if verdict == 'CRITICAL':
             self.verdict_card.setStyleSheet("""
-                QFrame {
+                #verdictCard {
                     background-color: #2a1010;
                     border: none;
                     border-left: 3px solid #ef4444;
                     border-radius: 4px;
+                }
+                #verdictCard QLabel {
+                    border: none;
+                    background: transparent;
                 }
             """)
             title = QLabel("🔴 ВЫСОКИЙ РИСК СБОЯ АППАРАТА (DOSE RATE MON)", self.verdict_card)
@@ -1268,11 +1255,15 @@ class MonacoPlanAnalyzerDialog(QDialog):
             self.verdict_layout.addWidget(desc)
         elif verdict == 'WARNING':
             self.verdict_card.setStyleSheet("""
-                QFrame {
+                #verdictCard {
                     background-color: #271c05;
                     border: none;
                     border-left: 3px solid #f59e0b;
                     border-radius: 4px;
+                }
+                #verdictCard QLabel {
+                    border: none;
+                    background: transparent;
                 }
             """)
             title = QLabel("🟡 ПОВЫШЕННАЯ СЛОЖНОСТЬ ПЛАНА (ТРЕБУЕТ ВНИМАНИЯ)", self.verdict_card)
@@ -1288,11 +1279,15 @@ class MonacoPlanAnalyzerDialog(QDialog):
             self.verdict_layout.addWidget(desc)
         elif verdict == 'STATIC':
             self.verdict_card.setStyleSheet("""
-                QFrame {
+                #verdictCard {
                     background-color: #081a2a;
                     border: none;
                     border-left: 3px solid #38bdf8;
                     border-radius: 4px;
+                }
+                #verdictCard QLabel {
+                    border: none;
+                    background: transparent;
                 }
             """)
             title = QLabel(f"ℹ️ СТАТИЧЕСКИЙ ПУЧОК ({b['beam_mode']})", self.verdict_card)
@@ -1309,11 +1304,15 @@ class MonacoPlanAnalyzerDialog(QDialog):
             self.verdict_layout.addWidget(desc)
         else:
             self.verdict_card.setStyleSheet("""
-                QFrame {
+                #verdictCard {
                     background-color: #0a2015;
                     border: none;
                     border-left: 3px solid #22c55e;
                     border-radius: 4px;
+                }
+                #verdictCard QLabel {
+                    border: none;
+                    background: transparent;
                 }
             """)
             title = QLabel("🟢 ПЛАН БЕЗОПАСЕН ДЛЯ ОТПУСКА", self.verdict_card)
@@ -1350,9 +1349,7 @@ class MonacoPlanAnalyzerDialog(QDialog):
             self.lbl_metric_mpd.setToolTip("")
             self.tabs.setTabText(1, "График сегментов (ΔMU)")
 
-        j_y = b.get('jaws_y')
-        j_text = f"Y: {abs(j_y[1] - j_y[0]):.1f} см" if j_y and len(j_y) == 2 else "N/A"
-        self.lbl_metric_jaws.setText(f"<span style='color: #8e8e93;'>Раскрытие челюстей:</span><br><b style='font-size: 13px;'>{j_text}</b>")
+
 
         # Setup Table Headers according to mode
         self._setup_table_headers(self.critical_table, is_vmat=b['is_vmat'])
