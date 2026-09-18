@@ -167,6 +167,7 @@ class PlanKinematicsAnalyzer:
                 jaws_y = pos
 
         # Calculate rotation span to check if it's VMAT
+        # Calculate rotation span to check if it's VMAT
         total_gantry_travel = 0.0
         for i in range(len(cps) - 1):
             g1 = float(getattr(cps[i], 'GantryAngle', 0.0))
@@ -176,7 +177,11 @@ class PlanKinematicsAnalyzer:
                 dg = 360 - dg
             total_gantry_travel += dg
 
-        is_vmat = (b_type == 'DYNAMIC' or total_gantry_travel > 10.0)
+        # A beam is an arc (VMAT) only if the gantry actually rotates
+        g_rot_dir = str(getattr(cp0, 'GantryRotationDirection', 'NONE')).upper()
+        is_vmat = (total_gantry_travel > 5.0) and (g_rot_dir in ('CW', 'CCW', 'CC') or total_gantry_travel >= 10.0)
+        fixed_gantry_angle = float(getattr(cp0, 'GantryAngle', 0.0))
+        beam_mode = 'VMAT' if is_vmat else ('Static IMRT' if len(cps) > 2 else 'Static 3D-CRT')
 
         # Control points evaluation
         intervals: List[Dict[str, Any]] = []
@@ -208,12 +213,12 @@ class PlanKinematicsAnalyzer:
             if diff_g > 180:
                 diff_g = 360 - diff_g
 
-            # MU per degree
-            if diff_g > 0.001:
+            # MU per degree (meaningful only for rotational VMAT)
+            if is_vmat and diff_g > 0.001:
                 mu_per_deg = d_mu / diff_g
+                mu_per_deg_list.append(mu_per_deg)
             else:
-                mu_per_deg = 0.0 if d_mu == 0 else 999.0
-            mu_per_deg_list.append(mu_per_deg)
+                mu_per_deg = 0.0
 
             # Max MLC displacement
             mlc_curr = []
@@ -350,13 +355,15 @@ class PlanKinematicsAnalyzer:
             'total_mu': total_mu,
             'num_control_points': len(cps),
             'total_gantry_travel': total_gantry_travel,
+            'fixed_gantry_angle': fixed_gantry_angle,
+            'beam_mode': beam_mode,
             'is_vmat': is_vmat,
             'jaws_x': jaws_x,
             'jaws_y': jaws_y,
             'intervals': intervals,
-            'min_mu_per_deg': min(mu_per_deg_list) if mu_per_deg_list else 0.0,
-            'max_mu_per_deg': max(mu_per_deg_list) if mu_per_deg_list else 0.0,
-            'avg_mu_per_deg': sum(mu_per_deg_list) / len(mu_per_deg_list) if mu_per_deg_list else 0.0,
+            'min_mu_per_deg': min(mu_per_deg_list) if (is_vmat and mu_per_deg_list) else 0.0,
+            'max_mu_per_deg': max(mu_per_deg_list) if (is_vmat and mu_per_deg_list) else 0.0,
+            'avg_mu_per_deg': (sum(mu_per_deg_list) / len(mu_per_deg_list)) if (is_vmat and mu_per_deg_list) else 0.0,
             'min_dose_rate': min(est_dose_rates) if est_dose_rates else 0.0,
             'max_dose_rate': max(est_dose_rates) if est_dose_rates else 0.0,
             'critical_count': critical_count,
@@ -436,13 +443,64 @@ class PolarArcWidget(QWidget):
                 rect = QRectF(lx - 16, ly - 10, 32, 20)
                 painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
 
-        # Draw Arc Segments if beam data exists
+        # Draw Arc Segments or Static Beam Vector
         if not self.beam_data or not self.beam_data.get('is_vmat'):
-            # Display Static Beam indication
-            painter.setPen(QPen(QColor("#8e8e93")))
-            painter.setFont(QFont("Segoe UI", 10))
-            msg = "Статическое поле (IMRT)\nВращение гентри отсутствует" if self.beam_data else "Нет данных пучка"
-            painter.drawText(QRectF(center.x() - 120, center.y() - 30, 240, 60), Qt.AlignmentFlag.AlignCenter, msg)
+            if self.beam_data:
+                g_angle = self.beam_data.get('fixed_gantry_angle', 0.0)
+                math_ang = math.radians(self._gantry_to_math_angle(g_angle))
+
+                # Draw incident radiation beam line from gantry perimeter to isocenter
+                x_start = center.x() + radius * math.cos(math_ang)
+                y_start = center.y() - radius * math.sin(math_ang)
+
+                # Beam line
+                painter.setPen(QPen(QColor("#38bdf8"), 2.5))
+                painter.drawLine(QPointF(x_start, y_start), center)
+
+                # Arrowhead pointing towards isocenter
+                arrow_size = 10.0
+                vx = center.x() - x_start
+                vy = center.y() - y_start
+                v_len = math.hypot(vx, vy)
+                if v_len > 0.001:
+                    ux = vx / v_len
+                    uy = vy / v_len
+                    nx = -uy
+                    ny = ux
+                    p_base = QPointF(center.x() - ux * arrow_size * 2, center.y() - uy * arrow_size * 2)
+                    p1 = QPointF(p_base.x() + nx * arrow_size, p_base.y() + ny * arrow_size)
+                    p2 = QPointF(p_base.x() - nx * arrow_size, p_base.y() - ny * arrow_size)
+                    poly = QPolygonF([center, p1, p2])
+                    painter.setBrush(QBrush(QColor("#38bdf8")))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.drawPolygon(poly)
+
+                # Source Head Marker on perimeter
+                painter.setBrush(QBrush(QColor("#f59e0b")))
+                painter.setPen(QPen(QColor("#ffffff"), 1.5))
+                painter.drawEllipse(QPointF(x_start, y_start), 6, 6)
+
+                # Center Isocenter Circle & Badge
+                painter.setBrush(QBrush(QColor("#1f1f21")))
+                painter.setPen(QPen(QColor("#38bdf8"), 1.5))
+                center_r = radius - 55
+                painter.drawEllipse(center, center_r, center_r)
+
+                painter.setPen(QPen(QColor("#ffffff")))
+                painter.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+                painter.drawText(QRectF(center.x() - 80, center.y() - 30, 160, 20), Qt.AlignmentFlag.AlignCenter, "STATIC IMRT")
+                painter.setFont(QFont("Segoe UI", 9))
+                painter.setPen(QPen(QColor("#38bdf8")))
+                painter.drawText(QRectF(center.x() - 80, center.y() - 10, 160, 18), Qt.AlignmentFlag.AlignCenter, f"Гентри: {g_angle:.1f}°")
+                painter.setFont(QFont("Segoe UI", 8))
+                painter.setPen(QPen(QColor("#8e8e93")))
+                cps_cnt = self.beam_data.get('num_control_points', 0)
+                tot_mu = self.beam_data.get('total_mu', 0.0)
+                painter.drawText(QRectF(center.x() - 80, center.y() + 10, 160, 18), Qt.AlignmentFlag.AlignCenter, f"{cps_cnt} CP | {tot_mu:.1f} MU")
+            else:
+                painter.setPen(QPen(QColor("#8e8e93")))
+                painter.setFont(QFont("Segoe UI", 10))
+                painter.drawText(QRectF(center.x() - 120, center.y() - 30, 240, 60), Qt.AlignmentFlag.AlignCenter, "Нет данных пучка")
             return
 
         intervals = self.beam_data.get('intervals', [])
@@ -603,16 +661,62 @@ class ModulationTimelineWidget(QWidget):
         plot_w = w - margin_l - margin_r
         plot_h = h - margin_t - margin_b
 
-        painter.fillRect(self.rect(), QColor("#1a1a1a"))
-
-        if not self.beam_data or not self.beam_data.get('is_vmat'):
+        if not self.beam_data:
             painter.setPen(QPen(QColor("#8e8e93")))
             painter.setFont(QFont("Segoe UI", 9))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "График доступен только для ротационных дуг VMAT")
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Нет данных пучка")
             return
 
         intervals = self.beam_data.get('intervals', [])
         if not intervals:
+            return
+
+        is_vmat = self.beam_data.get('is_vmat', False)
+
+        if not is_vmat:
+            # Render Segment Dose (ΔMU per CP) for static IMRT
+            max_dmu = max([it['delta_mu'] for it in intervals] or [1.0])
+            max_val = max(5.0, max_dmu * 1.25)
+
+            def val_to_y_static(val):
+                ratio = min(1.0, max(0.0, val / max_val))
+                return margin_t + plot_h * (1.0 - ratio)
+
+            # Draw grid & Y labels
+            painter.setFont(QFont("Segoe UI", 8))
+            painter.setPen(QPen(QColor("#2c2c2e"), 1, Qt.PenStyle.DashLine))
+
+            grid_steps = [0.0, max_val * 0.25, max_val * 0.5, max_val * 0.75, max_val]
+            for v in grid_steps:
+                y = val_to_y_static(v)
+                painter.drawLine(margin_l, int(y), w - margin_r, int(y))
+                painter.setPen(QPen(QColor("#8e8e93")))
+                painter.drawText(QRectF(0, y - 8, margin_l - 6, 16), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, f"{v:.1f}")
+                painter.setPen(QPen(QColor("#2c2c2e"), 1, Qt.PenStyle.DashLine))
+
+            # Y axis Title
+            painter.setPen(QPen(QColor("#38bdf8")))
+            painter.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+            painter.drawText(margin_l, margin_t - 4, "Доза сегментов IMRT (ΔMU на контрольную точку)")
+
+            # Plot bars for each segment
+            n = len(intervals)
+            step_px = plot_w / float(n)
+            base_y = margin_t + plot_h
+
+            for i, item in enumerate(intervals):
+                dmu = item['delta_mu']
+                x = margin_l + i * step_px
+                y = val_to_y_static(dmu)
+                painter.setPen(QPen(QColor("#38bdf8"), 1))
+                painter.setBrush(QBrush(QColor(56, 189, 248, 120)))
+                painter.drawRect(QRectF(x, y, max(1.0, step_px - 1), base_y - y))
+
+            # X Axis labels
+            painter.setPen(QPen(QColor("#8e8e93")))
+            painter.setFont(QFont("Segoe UI", 8))
+            painter.drawText(margin_l, h - 10, f"CP 00 (0.0 MU)")
+            painter.drawText(w - margin_r - 90, h - 10, f"CP {n:02d} ({self.beam_data.get('total_mu', 0.0):.1f} MU)")
             return
 
         # Determine scale: max MU/deg capped at 25 for display
@@ -826,8 +930,11 @@ class MonacoPlanAnalyzerDialog(QDialog):
 
         self.beam_combo = QComboBox(header_frame)
         for b in self.analyzer.beams:
-            kind = "VMAT" if b['is_vmat'] else "Static"
-            self.beam_combo.addItem(f"Beam #{b['beam_number']}: {b['beam_name']} ({kind}, {b['total_mu']:.0f} MU)", b)
+            if b['is_vmat']:
+                kind = f"VMAT Arc ({b['total_gantry_travel']:.0f}°, {b['total_mu']:.0f} MU)"
+            else:
+                kind = f"{b['beam_mode']} {b['fixed_gantry_angle']:.0f}° ({b['num_control_points']} CP, {b['total_mu']:.0f} MU)"
+            self.beam_combo.addItem(f"Beam #{b['beam_number']}: {b['beam_name']} — {kind}", b)
         self.beam_combo.currentIndexChanged.connect(self._on_beam_changed)
         h_layout.addWidget(self.beam_combo)
 
@@ -947,11 +1054,16 @@ class MonacoPlanAnalyzerDialog(QDialog):
         if self.analyzer.beams:
             self._on_beam_changed(0)
 
-    def _setup_table_headers(self, table: QTableWidget):
+    def _setup_table_headers(self, table: QTableWidget, is_vmat: bool = True):
         table.setColumnCount(7)
-        table.setHorizontalHeaderLabels([
-            "CP", "Сектор гентри", "Δ Гентри", "Δ MU", "MU/deg", "Расч. мощность", "Диагностика риска"
-        ])
+        if is_vmat:
+            table.setHorizontalHeaderLabels([
+                "CP", "Сектор гентри", "Δ Гентри", "Δ MU", "MU/deg", "Расч. мощность", "Диагностика риска"
+            ])
+        else:
+            table.setHorizontalHeaderLabels([
+                "CP", "Угол гентри", "Δ Гентри", "Δ MU", "Тип доставки", "Расч. мощность", "Статус сегмента"
+            ])
         header = table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -1023,15 +1135,21 @@ class MonacoPlanAnalyzerDialog(QDialog):
         elif verdict == 'STATIC':
             self.verdict_card.setStyleSheet("""
                 QFrame {
-                    background-color: #1e293b;
-                    border: 1px solid #3b82f6;
+                    background-color: #0c2438;
+                    border: 1px solid #38bdf8;
                     border-radius: 6px;
                 }
             """)
-            title = QLabel("ℹ️ СТАТИЧЕСКИЙ ПУЧОК (Step-and-Shoot IMRT)", self.verdict_card)
-            title.setStyleSheet("font-size: 13px; font-weight: bold; color: #93c5fd;")
-            desc = QLabel("Пучок доставляется на фиксированном угле гентри. Ротационные кинематические риски VMAT отсутствуют.", self.verdict_card)
-            desc.setStyleSheet("font-size: 12px; color: #dbeafe;")
+            title = QLabel(f"ℹ️ СТАТИЧЕСКИЙ ПУЧОК ({b['beam_mode']})", self.verdict_card)
+            title.setStyleSheet("font-size: 13px; font-weight: bold; color: #7dd3fc;")
+            desc = QLabel(
+                f"Пучок доставляется на фиксированном угле гентри <b>{b['fixed_gantry_angle']:.1f}°</b> "
+                f"({b['num_control_points']} контрольных точек / сегментов). "
+                f"Вращение гентри отсутствует, поэтому ротационные риски VMAT и сбои мощности <code>DOSE RATE MON</code> при прохождении дуги <b>не применимы</b>.",
+                self.verdict_card
+            )
+            desc.setWordWrap(True)
+            desc.setStyleSheet("font-size: 12px; color: #e0f2fe; margin-top: 2px;")
             self.verdict_layout.addWidget(title)
             self.verdict_layout.addWidget(desc)
         else:
@@ -1067,33 +1185,50 @@ class MonacoPlanAnalyzerDialog(QDialog):
         # Update Metrics Card
         self.lbl_metric_mu.setText(f"<span style='color: #8e8e93;'>Суммарно:</span><br><b style='font-size: 13px;'>{b['total_mu']:.1f} MU</b>")
         self.lbl_metric_dr.setText(f"<span style='color: #8e8e93;'>Мощность дозы:</span><br><b style='font-size: 13px;'>{b['min_dose_rate']:.0f} – {b['max_dose_rate']:.0f} MU/мин</b>")
-        self.lbl_metric_mpd.setText(f"<span style='color: #8e8e93;'>Плотность (MU/°):</span><br><b style='font-size: 13px;'>{b['min_mu_per_deg']:.2f} / {b['avg_mu_per_deg']:.2f} / {b['max_mu_per_deg']:.2f}</b>")
+        if b['is_vmat']:
+            self.lbl_metric_mpd.setText(f"<span style='color: #8e8e93;'>Плотность (MU/°):</span><br><b style='font-size: 13px;'>{b['min_mu_per_deg']:.2f} / {b['avg_mu_per_deg']:.2f} / {b['max_mu_per_deg']:.2f}</b>")
+            self.tabs.setTabText(1, "График модуляции (MU/deg)")
+        else:
+            self.lbl_metric_mpd.setText(f"<span style='color: #8e8e93;'>Угол гентри:</span><br><b style='font-size: 13px;'>{b['fixed_gantry_angle']:.1f}° (статика)</b>")
+            self.tabs.setTabText(1, "График сегментов (ΔMU)")
 
         j_y = b.get('jaws_y')
         j_text = f"Y: {abs(j_y[1] - j_y[0]):.1f} см" if j_y and len(j_y) == 2 else "N/A"
         self.lbl_metric_jaws.setText(f"<span style='color: #8e8e93;'>Раскрытие челюстей:</span><br><b style='font-size: 13px;'>{j_text}</b>")
 
+        # Setup Table Headers according to mode
+        self._setup_table_headers(self.critical_table, is_vmat=b['is_vmat'])
+        self._setup_table_headers(self.all_table, is_vmat=b['is_vmat'])
+
         # Fill Critical Points Table
         intervals = b.get('intervals', [])
         crit_items = [item for item in intervals if item['risk_level'] in ('CRITICAL', 'WARNING')]
-        self._populate_table(self.critical_table, crit_items)
+        self._populate_table(self.critical_table, crit_items, is_vmat=b['is_vmat'])
         self.tabs.setTabText(0, f"Критические точки ({len(crit_items)})")
 
         # Fill All Points Table
-        self._populate_table(self.all_table, intervals)
+        self._populate_table(self.all_table, intervals, is_vmat=b['is_vmat'])
 
-    def _populate_table(self, table: QTableWidget, items: List[Dict[str, Any]]):
+    def _populate_table(self, table: QTableWidget, items: List[Dict[str, Any]], is_vmat: bool = True):
         table.setRowCount(0)
         table.setRowCount(len(items))
 
         for row, item in enumerate(items):
             cp_idx = item['index']
-            g_str = f"{item['gantry_start']:.1f}° → {item['gantry_end']:.1f}°"
-            dg_str = f"{item['delta_gantry']:.1f}°"
+            if is_vmat:
+                g_str = f"{item['gantry_start']:.1f}° → {item['gantry_end']:.1f}°"
+                dg_str = f"{item['delta_gantry']:.1f}°"
+                mpd_str = f"{item['mu_per_deg']:.2f}"
+                default_ok = "OK (штатный сектор)"
+            else:
+                g_str = f"{item['gantry_start']:.1f}°"
+                dg_str = "0.0°"
+                mpd_str = "Статика"
+                default_ok = "OK (штатный сегмент)"
+
             dmu_str = f"{item['delta_mu']:.2f}"
-            mpd_str = f"{item['mu_per_deg']:.2f}"
             dr_str = f"{item['est_dose_rate']:.0f} MU/мин"
-            reason_str = "; ".join(item['reasons']) if item['reasons'] else "OK (штатный сектор)"
+            reason_str = "; ".join(item['reasons']) if item['reasons'] else default_ok
 
             risk = item['risk_level']
             if risk == 'CRITICAL':
@@ -1140,7 +1275,11 @@ class MonacoPlanAnalyzerDialog(QDialog):
     def _on_interval_hovered(self, cp_info: Dict[str, Any]):
         dr = cp_info['est_dose_rate']
         mpd = cp_info['mu_per_deg']
-        msg = f"CP {cp_info['index']:02d}: Гентри {cp_info['gantry_start']:.1f}° → {cp_info['gantry_end']:.1f}° | ΔMU: {cp_info['delta_mu']:.2f} | MU/deg: {mpd:.2f} | Мощность: {dr:.0f} MU/мин"
+        is_vmat = (cp_info.get('delta_gantry', 0.0) > 0.001)
+        if is_vmat:
+            msg = f"CP {cp_info['index']:02d}: Гентри {cp_info['gantry_start']:.1f}° → {cp_info['gantry_end']:.1f}° | ΔMU: {cp_info['delta_mu']:.2f} | MU/deg: {mpd:.2f} | Мощность: {dr:.0f} MU/мин"
+        else:
+            msg = f"CP {cp_info['index']:02d}: Гентри {cp_info['gantry_start']:.1f}° (статика) | ΔMU: {cp_info['delta_mu']:.2f} | Мощность: {dr:.0f} MU/мин"
         if cp_info['reasons']:
             msg += f" — ⚠️ {'; '.join(cp_info['reasons'])}"
         self.status_lbl.setText(msg)
