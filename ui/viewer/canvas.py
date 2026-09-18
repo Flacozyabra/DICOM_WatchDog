@@ -1761,12 +1761,11 @@ class DicomViewerWidget(QWidget):
                     painter.drawText(rect_info, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, line)
                     y_offset_b -= rect_info.height() + 5
 
-                # Срезы
+                # Правый нижний HUD (Срезы, шаг и положение пациента)
+                lines_right = []
                 if self.total_slices > 0:
-                    painter.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
-                    slice_info = tr_ui("hud_slice", self.current_slice, self.total_slices)
+                    lines_right.append(tr_ui("hud_slice", self.current_slice, self.total_slices))
                     
-                    spacing_text = ""
                     if self.current_dataset:
                         spacing = getattr(self.current_dataset, "SliceThickness", None)
                         if spacing is None:
@@ -1774,26 +1773,30 @@ class DicomViewerWidget(QWidget):
                         if spacing is not None:
                             try:
                                 spacing_val = float(spacing)
-                                spacing_text = tr_ui("hud_spacing", spacing_val)
+                                lines_right.append(tr_ui("hud_spacing", spacing_val))
                             except (ValueError, TypeError):
                                 pass
 
+                patient_pos = ""
+                if self.current_dataset:
+                    patient_pos = getattr(self.current_dataset, "PatientPosition", "")
+                if not patient_pos and self.plan_data:
+                    patient_pos = self.plan_data.get("patient_position", "")
+                if patient_pos:
+                    lines_right.append(tr_ui("hud_position", str(patient_pos).upper()))
+
+                if lines_right:
+                    painter.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
                     metrics_r = painter.fontMetrics()
-                    
-                    rect_slice = metrics_r.boundingRect(slice_info)
-                    rect_slice.setWidth(rect_slice.width() + 15)
-                    rect_slice.moveBottomRight(QPoint(self.width() - 15, self.height() - 15))
-                    painter.fillRect(rect_slice.adjusted(-4, -2, 4, 2), QColor(0, 0, 0, 150))
-                    painter.setPen(QColor("#E5E7EB"))
-                    painter.drawText(rect_slice, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, slice_info)
-                    
-                    if spacing_text:
-                        rect_spacing = metrics_r.boundingRect(spacing_text)
-                        rect_spacing.setWidth(rect_spacing.width() + 15)
-                        rect_spacing.moveBottomRight(QPoint(self.width() - 15, rect_slice.top() - 8))
-                        painter.fillRect(rect_spacing.adjusted(-4, -2, 4, 2), QColor(0, 0, 0, 150))
+                    y_offset_r = self.height() - 15
+                    for line in lines_right:
+                        rect_r = metrics_r.boundingRect(line)
+                        rect_r.setWidth(rect_r.width() + 15)
+                        rect_r.moveBottomRight(QPoint(self.width() - 15, y_offset_r))
+                        painter.fillRect(rect_r.adjusted(-4, -2, 4, 2), QColor(0, 0, 0, 150))
                         painter.setPen(QColor("#E5E7EB"))
-                        painter.drawText(rect_spacing, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, spacing_text)
+                        painter.drawText(rect_r, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, line)
+                        y_offset_r -= rect_r.height() + 8
 
     def draw_tick(self, painter: QPainter, pt1: QPointF, pt2: QPointF) -> None:
         dx = pt2.x() - pt1.x()

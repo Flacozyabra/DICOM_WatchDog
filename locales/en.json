@@ -211,6 +211,7 @@
   "hud_mm": "mm",
   "hud_slice": "Slice: {} / {}",
   "hud_spacing": "Spacing: {:.1f} mm",
+  "hud_position": "Position: {}",
   "loading_title_data": "Loading data",
   "loading_preparing_table": "Preparing to fill the table...",
   "loading_rendering_table": "Rendering table: {} of {} patients...",

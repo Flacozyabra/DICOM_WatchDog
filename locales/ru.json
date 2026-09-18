@@ -211,6 +211,7 @@
   "hud_mm": "мм",
   "hud_slice": "Срез: {} / {}",
   "hud_spacing": "Шаг: {:.1f} мм",
+  "hud_position": "Положение: {}",
   "loading_title_data": "Загрузка данных",
   "loading_preparing_table": "Подготовка к заполнению таблицы...",
   "loading_rendering_table": "Отрисовка таблицы: {} из {} пациентов...",
