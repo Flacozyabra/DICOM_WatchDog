@@ -21,7 +21,7 @@ from ui.toggle_switch import ToggleSwitch
 from core.config_utils import get_resource_path
 from core.locale_utils import tr_ui
 
-from .parsers import safe_dcmread
+from .parsers import safe_dcmread, load_rtplan
 from .workers import (
     PatientSeriesLoaderWorker, StructureLoaderWorker,
     DoseLoaderWorker, DRRPrecomputeWorker, BEVStructurePrecomputeWorker
@@ -41,6 +41,7 @@ class DicomViewerPanel(QWidget):
         self.struct_files = []
         self.dose_files = []
         self.plan_files = []
+        self.plans_info = []
         self.current_index = -1
         self.is_loading = False
         self.loader_worker = None
@@ -84,14 +85,14 @@ class DicomViewerPanel(QWidget):
 
         top_layout.addStretch()
 
-        # Метка и выпадающий список для выбора файла дозы RTDOSE
-        self.lbl_dose = QLabel("RTD", self)
-        self.lbl_dose.setStyleSheet("font-size: 11px; font-weight: bold; color: #9CA3AF;")
-        top_layout.addWidget(self.lbl_dose)
+        # Метка и выпадающий список для выбора плана RTPLAN (и связанной дозы RTDOSE)
+        self.lbl_plan = QLabel("PLAN", self)
+        self.lbl_plan.setStyleSheet("font-size: 11px; font-weight: bold; color: #9CA3AF;")
+        top_layout.addWidget(self.lbl_plan)
 
-        self.cb_dose = QComboBox(self)
-        self.cb_dose.setFixedWidth(160)
-        self.cb_dose.setStyleSheet("""
+        self.cb_plan = QComboBox(self)
+        self.cb_plan.setFixedWidth(160)
+        self.cb_plan.setStyleSheet("""
             QComboBox {
                 background-color: #2A2A2A;
                 border: 1px solid #374151;
@@ -109,9 +110,9 @@ class DicomViewerPanel(QWidget):
                 selection-background-color: #3B82F6;
             }
         """)
-        self.cb_dose.addItem(tr_ui("viewer_no_dose_available"), None)
-        self.cb_dose.setEnabled(False)
-        top_layout.addWidget(self.cb_dose)
+        self.cb_plan.addItem(tr_ui("viewer_no_plan_available"), None)
+        self.cb_plan.setEnabled(False)
+        top_layout.addWidget(self.cb_plan)
 
         # Метка и выпадающий список для выбора набора структур RTSTRUCT
         self.lbl_structures = QLabel("STR", self)
@@ -293,7 +294,7 @@ class DicomViewerPanel(QWidget):
         root_layout.addLayout(right_layout, stretch=1)
 
         self.retranslate_ui()
-        self.cb_dose.currentIndexChanged.connect(self.on_dose_file_changed)
+        self.cb_plan.currentIndexChanged.connect(self.on_plan_file_changed)
         self.cb_structures.currentIndexChanged.connect(self.on_structure_file_changed)
         self.cb_presets.currentIndexChanged.connect(self.apply_preset)
         self.update_buttons_style()
@@ -754,24 +755,71 @@ class DicomViewerPanel(QWidget):
         self.viewer.set_dose_data(self.current_dose_data)
         self.viewer.update()
 
-    def on_dose_file_changed(self, index: int) -> None:
+    def on_plan_file_changed(self, index: int) -> None:
         if self.dose_worker is not None and self.dose_worker.isRunning():
             self.dose_worker.quit()
             self.dose_worker.wait()
 
-        self.apply_dose_data({})
-        self.viewer.update()
+        self.viewer.drr_cache.clear()
 
-        if index >= 0:
-            dose_path = self.cb_dose.itemData(index)
-            if dose_path and os.path.exists(dose_path):
-                self.dose_worker = DoseLoaderWorker(dose_path, self.plan_files)
-                self.dose_worker.finished_signal.connect(self._on_dose_loaded)
-                self.dose_worker.start()
+        if index <= 0:
+            self.viewer.set_plan_data({})
+            self.apply_dose_data({})
+            if hasattr(self, "btn_bev"):
+                self.btn_bev.setEnabled(False)
+            if hasattr(self, "btn_beams"):
+                self.btn_beams.setEnabled(False)
+            if self.viewer.bev_active:
+                self.toggle_bev()
+            self.update_buttons_style()
+            self.viewer.update()
+            return
+
+        plan_item = self.cb_plan.itemData(index)
+        if not plan_item or not isinstance(plan_item, dict):
+            return
+
+        pf = plan_item.get("path")
+        df = plan_item.get("dose_path")
+
+        # 1. Загрузка параметров плана RTPLAN
+        parsed_plan = {}
+        if pf and os.path.exists(pf):
+            try:
+                parsed_plan = load_rtplan(pf)
+            except Exception as e:
+                print(f"Error loading RTPLAN {pf}: {e}")
+
+        self.viewer.set_plan_data(parsed_plan)
+        has_beams = bool(parsed_plan and parsed_plan.get("beams"))
+        if hasattr(self, "btn_bev"):
+            self.btn_bev.setEnabled(has_beams)
+        if hasattr(self, "btn_beams"):
+            self.btn_beams.setEnabled(has_beams)
+
+        if self.viewer.bev_active:
+            if not has_beams:
+                self.toggle_bev()
+            else:
+                self.viewer.bev_selected_beam_idx = 0
+                self.viewer.bev_control_point_idx = 0
+                self.start_bev_struct_precompute()
+                self._sync_bev_slider()
+
+        self.update_buttons_style()
+
+        # 2. Загрузка связанной дозы RTDOSE
+        if df and os.path.exists(df):
+            self.dose_worker = DoseLoaderWorker(df, [pf] if pf else self.plan_files)
+            self.dose_worker.finished_signal.connect(self._on_dose_loaded)
+            self.dose_worker.start()
+        else:
+            self.apply_dose_data({})
+            self.viewer.update()
 
     def _on_dose_loaded(self, dose_path: str, parsed: dict) -> None:
-        current_path = self.cb_dose.currentData()
-        if current_path == dose_path:
+        current_plan_item = self.cb_plan.currentData()
+        if isinstance(current_plan_item, dict) and current_plan_item.get("dose_path") == dose_path:
             self.apply_dose_data(parsed)
 
     def setup_hu_panel(self) -> None:
@@ -834,13 +882,16 @@ class DicomViewerPanel(QWidget):
             self.cb_presets.setCurrentIndex(cur_idx)
         self.cb_presets.blockSignals(False)
 
-        self.cb_dose.blockSignals(True)
-        if not getattr(self, "dose_files", []):
-            self.cb_dose.clear()
-            self.cb_dose.addItem(tr_ui("viewer_no_dose_available"), None)
-        else:
-            self.cb_dose.setItemText(0, tr_ui("viewer_no_dose"))
-        self.cb_dose.blockSignals(False)
+        if hasattr(self, "lbl_plan"):
+            self.lbl_plan.setText("PLAN")
+        if hasattr(self, "cb_plan"):
+            self.cb_plan.blockSignals(True)
+            if not getattr(self, "plans_info", []):
+                self.cb_plan.clear()
+                self.cb_plan.addItem(tr_ui("viewer_no_plan_available"), None)
+            else:
+                self.cb_plan.setItemText(0, tr_ui("viewer_no_plan"))
+            self.cb_plan.blockSignals(False)
 
         self.cb_structures.blockSignals(True)
         if not getattr(self, "struct_files", []):
@@ -911,14 +962,15 @@ class DicomViewerPanel(QWidget):
             }}
         """
         self.cb_presets.setStyleSheet(style_combo)
-        self.cb_dose.setStyleSheet(style_combo)
+        if hasattr(self, "cb_plan"):
+            self.cb_plan.setStyleSheet(style_combo)
         self.cb_structures.setStyleSheet(style_combo)
         if hasattr(self, "cb_beam"):
             self.cb_beam.setStyleSheet(style_combo)
 
         lbl_style = f"font-size: 11px; font-weight: bold; color: {palette.get('TEXT_MUTED', '#9CA3AF')}; background: transparent; border: none;"
-        if hasattr(self, "lbl_dose"):
-            self.lbl_dose.setStyleSheet(lbl_style)
+        if hasattr(self, "lbl_plan"):
+            self.lbl_plan.setStyleSheet(lbl_style)
         if hasattr(self, "lbl_structures"):
             self.lbl_structures.setStyleSheet(lbl_style)
         if hasattr(self, "lbl_presets"):
@@ -1352,9 +1404,10 @@ class DicomViewerPanel(QWidget):
             self.start_bev_struct_precompute()
             self._sync_bev_slider()
 
-            if hasattr(self, "lbl_dose"):
-                self.lbl_dose.hide()
-            self.cb_dose.hide()
+            if hasattr(self, "lbl_plan"):
+                self.lbl_plan.show()
+            if hasattr(self, "cb_plan"):
+                self.cb_plan.show()
             if hasattr(self, "lbl_structures"):
                 self.lbl_structures.hide()
             self.cb_structures.hide()
@@ -1394,9 +1447,10 @@ class DicomViewerPanel(QWidget):
                 self.list_structures.blockSignals(False)
                 self.viewer.rebuild_contour_index()
 
-            if hasattr(self, "lbl_dose"):
-                self.lbl_dose.show()
-            self.cb_dose.show()
+            if hasattr(self, "lbl_plan"):
+                self.lbl_plan.show()
+            if hasattr(self, "cb_plan"):
+                self.cb_plan.show()
             if hasattr(self, "lbl_structures"):
                 self.lbl_structures.show()
             self.cb_structures.show()
@@ -1554,10 +1608,10 @@ class DicomViewerPanel(QWidget):
         if hasattr(self, "hu_panel"):
             self.hu_panel.hide()
 
-        if hasattr(self, "lbl_dose"):
-            self.lbl_dose.show()
-        if hasattr(self, "cb_dose"):
-            self.cb_dose.show()
+        if hasattr(self, "lbl_plan"):
+            self.lbl_plan.show()
+        if hasattr(self, "cb_plan"):
+            self.cb_plan.show()
         if hasattr(self, "lbl_structures"):
             self.lbl_structures.show()
         if hasattr(self, "cb_structures"):
@@ -1572,10 +1626,13 @@ class DicomViewerPanel(QWidget):
         self.struct_files.clear()
         self.dose_files.clear()
         self.plan_files.clear()
+        self.plans_info = []
 
-        self.cb_dose.blockSignals(True)
-        self.cb_dose.clear()
-        self.cb_dose.blockSignals(False)
+        self.cb_plan.blockSignals(True)
+        self.cb_plan.clear()
+        self.cb_plan.addItem(tr_ui("viewer_no_plan_available"), None)
+        self.cb_plan.setEnabled(False)
+        self.cb_plan.blockSignals(False)
 
         self.cb_structures.blockSignals(True)
         self.cb_structures.clear()
@@ -1621,14 +1678,18 @@ class DicomViewerPanel(QWidget):
         self.cb_presets.setCurrentIndex(0)
         self.cb_presets.blockSignals(False)
 
-        self.cb_dose.blockSignals(True)
-        self.cb_dose.clear()
+        self.cb_plan.blockSignals(True)
+        self.cb_plan.clear()
+        self.cb_plan.addItem(tr_ui("viewer_no_plan_available"), None)
+        self.cb_plan.setEnabled(False)
+        self.cb_plan.blockSignals(False)
         self.dose_files = []
+        self.plan_files = []
+        self.plans_info = []
 
         self.cb_structures.blockSignals(True)
         self.cb_structures.clear()
         self.struct_files = []
-        self.plan_files = []
 
         if self.loader_worker is not None and self.loader_worker.isRunning():
             self.loader_worker.quit()
@@ -1669,38 +1730,35 @@ class DicomViewerPanel(QWidget):
         self.struct_files = result.get("struct_files", [])
         self.dose_files = result.get("dose_files", [])
         self.plan_files = result.get("plan_files", [])
+        self.plans_info = result.get("plans_info", [])
         
         selected_struct_idx = result.get("selected_struct_idx", -1)
         parsed_structures = result.get("parsed_structures", {})
-        
-        selected_dose_idx = result.get("selected_dose_idx", -1)
+        selected_plan_idx = result.get("selected_plan_idx", -1)
         parsed_dose = result.get("parsed_dose", {})
         
         self.sorted_files = result.get("sorted_files", [])
 
-        # Настройка выпадающего списка RTDOSE
-        self.cb_dose.blockSignals(True)
-        self.cb_dose.clear()
-        if self.dose_files:
-            self.cb_dose.addItem(tr_ui("viewer_no_dose"), None)
-            for df in self.dose_files:
-                display_name = os.path.basename(df)
-                if df == parsed_dose.get("filepath") and parsed_dose.get("plan_label"):
-                    display_name = f"Dose: {parsed_dose['plan_label']}"
-                self.cb_dose.addItem(display_name, df)
+        # Настройка выпадающего списка PLAN (RTPLAN + привязанный RTDOSE)
+        self.cb_plan.blockSignals(True)
+        self.cb_plan.clear()
+        if self.plans_info:
+            self.cb_plan.addItem(tr_ui("viewer_no_plan"), None)
+            for pi in self.plans_info:
+                label = pi.get("label") or os.path.basename(pi.get("path") or pi.get("dose_path") or "")
+                has_dose = bool(pi.get("dose_path"))
+                display = f"{label} ✓" if has_dose else label
+                self.cb_plan.addItem(display, pi)
 
-            if selected_dose_idx > 0:
-                self.cb_dose.setCurrentIndex(selected_dose_idx)
-            else:
-                self.cb_dose.setCurrentIndex(0)
-
-            self.cb_dose.setEnabled(True)
+            target_idx = selected_plan_idx if selected_plan_idx > 0 else 1
+            self.cb_plan.setCurrentIndex(target_idx)
+            self.cb_plan.setEnabled(True)
         else:
-            self.cb_dose.addItem(tr_ui("viewer_no_dose_available"), None)
-            self.cb_dose.setCurrentIndex(0)
-            self.cb_dose.setEnabled(False)
-        self.cb_dose.show()
-        self.cb_dose.blockSignals(False)
+            self.cb_plan.addItem(tr_ui("viewer_no_plan_available"), None)
+            self.cb_plan.setCurrentIndex(0)
+            self.cb_plan.setEnabled(False)
+        self.cb_plan.show()
+        self.cb_plan.blockSignals(False)
 
         # Настройка выпадающего списка RTSTRUCT
         self.cb_structures.blockSignals(True)
@@ -1723,8 +1781,8 @@ class DicomViewerPanel(QWidget):
         self.cb_structures.show()
         self.cb_structures.blockSignals(False)
 
-        if hasattr(self, "lbl_dose"):
-            self.lbl_dose.show()
+        if hasattr(self, "lbl_plan"):
+            self.lbl_plan.show()
         if hasattr(self, "lbl_structures"):
             self.lbl_structures.show()
         if hasattr(self, "lbl_presets"):

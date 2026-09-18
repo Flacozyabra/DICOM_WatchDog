@@ -126,31 +126,82 @@ class PatientSeriesLoaderWorker(QThread):
             else:
                 self.progress_signal.emit(85, 100, "Завершение обработки КТ...")
 
-            # 4. Выбор и предпарсинг наиболее свежего файла RTDOSE (85% -> 95%)
-            selected_dose_idx = -1
-            parsed_dose = {}
-            if dose_files:
-                if self._is_cancelled:
-                    return
-                dose_files.sort(key=lambda x: os.path.basename(x))
-                latest_dose_file = max(dose_files, key=lambda x: os.path.getmtime(x))
-                selected_dose_idx = dose_files.index(latest_dose_file) + 1
+            # 4. Анализ связей RTPLAN и RTDOSE
+            dose_by_plan_uid = {}
+            for df in dose_files:
+                try:
+                    ds_dose = safe_dcmread(df, stop_before_pixels=True)
+                    if hasattr(ds_dose, "ReferencedRTPlanSequence") and len(ds_dose.ReferencedRTPlanSequence) > 0:
+                        p_uid = str(getattr(ds_dose.ReferencedRTPlanSequence[0], "ReferencedSOPInstanceUID", ""))
+                        if p_uid:
+                            dose_by_plan_uid[p_uid] = df
+                except Exception:
+                    pass
 
-                self.progress_signal.emit(87, 100, tr_ui("loading_rtdose_data"))
-                parsed_dose = load_rtdose(latest_dose_file, plan_files)
-                self.progress_signal.emit(95, 100, tr_ui("loading_rtdose_data"))
-            else:
-                self.progress_signal.emit(95, 100, "Подготовка данных...")
-
-            # 5. Выбор и предпарсинг файла RTPLAN (95% -> 100%)
-            parsed_plan = {}
+            plans_info = []
             if plan_files:
-                if self._is_cancelled:
-                    return
                 plan_files.sort(key=lambda x: os.path.basename(x))
-                latest_plan_file = max(plan_files, key=lambda x: os.path.getmtime(x))
-                self.progress_signal.emit(96, 100, "Загрузка параметров плана RTPLAN...")
-                parsed_plan = load_rtplan(latest_plan_file)
+                for pf in plan_files:
+                    try:
+                        ds_p = safe_dcmread(pf, stop_before_pixels=True)
+                        p_uid = str(getattr(ds_p, "SOPInstanceUID", ""))
+                        label = str(getattr(ds_p, "RTPlanName", "") or getattr(ds_p, "RTPlanLabel", "") or getattr(ds_p, "RTPlanDescription", "") or os.path.basename(pf)).strip()
+                        matched_dose = dose_by_plan_uid.get(p_uid)
+                        if not matched_dose and len(plan_files) == 1 and len(dose_files) == 1:
+                            matched_dose = dose_files[0]
+                        plans_info.append({
+                            "path": pf,
+                            "uid": p_uid,
+                            "label": label,
+                            "dose_path": matched_dose,
+                            "mtime": os.path.getmtime(pf) if os.path.exists(pf) else 0
+                        })
+                    except Exception:
+                        plans_info.append({
+                            "path": pf,
+                            "uid": "",
+                            "label": os.path.basename(pf),
+                            "dose_path": None,
+                            "mtime": os.path.getmtime(pf) if os.path.exists(pf) else 0
+                        })
+
+            # Добавляем файлы доз, не привязанные ни к одному плану
+            matched_doses = set(p["dose_path"] for p in plans_info if p.get("dose_path"))
+            for df in dose_files:
+                if df not in matched_doses:
+                    plans_info.append({
+                        "path": None,
+                        "uid": "",
+                        "label": f"RTDOSE: {os.path.basename(df)}",
+                        "dose_path": df,
+                        "mtime": os.path.getmtime(df) if os.path.exists(df) else 0
+                    })
+
+            # Выбор плана по умолчанию:
+            # Приоритет плану с рассчитанной дозой и наиболее свежим временем изменения
+            selected_plan_idx = -1
+            selected_plan_info = None
+            if plans_info:
+                best_plan = max(plans_info, key=lambda x: (1 if x.get("dose_path") else 0, x.get("mtime", 0)))
+                selected_plan_idx = plans_info.index(best_plan) + 1  # 1-based (0 - "Без плана")
+                selected_plan_info = best_plan
+
+            # 5. Выбор и предпарсинг активного плана и дозы (87% -> 100%)
+            parsed_plan = {}
+            parsed_dose = {}
+            if selected_plan_info:
+                pf = selected_plan_info.get("path")
+                df = selected_plan_info.get("dose_path")
+                if pf and os.path.exists(pf):
+                    self.progress_signal.emit(88, 100, "Загрузка параметров плана RTPLAN...")
+                    parsed_plan = load_rtplan(pf)
+                if df and os.path.exists(df):
+                    self.progress_signal.emit(92, 100, tr_ui("loading_rtdose_data"))
+                    parsed_dose = load_rtdose(df, [pf] if pf else plan_files)
+            elif dose_files:
+                latest_dose_file = max(dose_files, key=lambda x: os.path.getmtime(x))
+                self.progress_signal.emit(92, 100, tr_ui("loading_rtdose_data"))
+                parsed_dose = load_rtdose(latest_dose_file, plan_files)
 
             self.progress_signal.emit(99, 100, "Инициализация отображения...")
 
@@ -161,11 +212,12 @@ class PatientSeriesLoaderWorker(QThread):
                 "struct_files": struct_files,
                 "selected_struct_idx": selected_struct_idx,
                 "parsed_structures": parsed_structures,
-                "dose_files": dose_files,
-                "selected_dose_idx": selected_dose_idx,
+                "plans_info": plans_info,
+                "selected_plan_idx": selected_plan_idx,
+                "parsed_plan": parsed_plan,
                 "parsed_dose": parsed_dose,
                 "plan_files": plan_files,
-                "parsed_plan": parsed_plan,
+                "dose_files": dose_files,
                 "sorted_files": sorted_files
             }
             self.finished_signal.emit(result)
