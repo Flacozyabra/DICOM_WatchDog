@@ -193,7 +193,6 @@ class TableContextMenuManager:
 
         menu.addAction(open_folder_action)
         menu.addAction(check_plan_action)
-        menu.addSeparator()
         menu.addAction(change_id_action)
         menu.addAction(delete_action)
         if self.mw.config.get('show_tab_archive', 'True').lower() == 'true':
@@ -253,7 +252,6 @@ class TableContextMenuManager:
 
         menu.addAction(open_folder_action)
         menu.addAction(check_plan_action)
-        menu.addSeparator()
         menu.addAction(change_id_action)
         menu.addAction(restore_action)
         menu.addAction(delete_action)
