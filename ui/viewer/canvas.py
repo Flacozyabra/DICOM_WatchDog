@@ -236,7 +236,14 @@ class DicomViewerWidget(QWidget):
         if not iso or len(iso) < 3:
             return None
 
-        cache_key = (round(float(g_angle), 1), round(float(iso[0]), 2), round(float(iso[1]), 2), round(float(iso[2]), 2), round(float(sad), 1))
+        patient_pos = str(self.plan_data.get("patient_position") or getattr(self.current_dataset, "PatientPosition", "HFS") or "HFS").upper()
+        is_ff = "FF" in patient_pos
+        is_prone = "P" in patient_pos
+        sx = -1.0 if (is_ff ^ is_prone) else 1.0
+        sy = -1.0 if is_prone else 1.0
+        sz = -1.0 if is_ff else 1.0
+
+        cache_key = (round(float(g_angle), 1), round(float(iso[0]), 2), round(float(iso[1]), 2), round(float(iso[2]), 2), round(float(sad), 1), patient_pos)
         if cache_key in self.drr_cache:
             return self.drr_cache[cache_key]
 
@@ -305,29 +312,27 @@ class DicomViewerWidget(QWidget):
             v = np.linspace(drr_fov / 2.0, -drr_fov / 2.0, drr_h, dtype=np.float32)
             U, V = np.meshgrid(u, v)
 
-            Sx = iso[0] + sad * sin_g
-            Sy = iso[1] - sad * cos_g
-            Sz = iso[2]
+            Sx_m = sad * sin_g
+            Sy_m = -sad * cos_g
+            P_iso_x_m = U * cos_g
+            P_iso_y_m = U * sin_g
+            P_iso_z_m = V
 
-            P_iso_x = iso[0] + U * cos_g
-            P_iso_y = iso[1] + U * sin_g
-            P_iso_z = iso[2] + V
-
-            Dx = P_iso_x - Sx
-            Dy = P_iso_y - Sy
-            Dz = P_iso_z - Sz
-            D_len = np.sqrt(Dx * Dx + Dy * Dy + Dz * Dz)
-            Dx /= D_len
-            Dy /= D_len
-            Dz /= D_len
+            Dx_m = P_iso_x_m - Sx_m
+            Dy_m = P_iso_y_m - Sy_m
+            Dz_m = P_iso_z_m
+            D_len = np.sqrt(Dx_m * Dx_m + Dy_m * Dy_m + Dz_m * Dz_m)
+            Dx_m /= D_len
+            Dy_m /= D_len
+            Dz_m /= D_len
 
             steps = np.arange(sad - 200.0, sad + 200.0, 6.0, dtype=np.float32)
             drr = np.zeros((drr_h, drr_w), dtype=np.float32)
 
             for t in steps:
-                Px = Sx + Dx * t
-                Py = Sy + Dy * t
-                Pz = Sz + Dz * t
+                Px = iso[0] + (Sx_m + Dx_m * t) * sx
+                Py = iso[1] + (Sy_m + Dy_m * t) * sy
+                Pz = iso[2] + (Dz_m * t) * sz
                 ix = np.round((Px - ipp0[0]) / dx).astype(np.int32)
                 iy = np.round((Py - ipp0[1]) / dy).astype(np.int32)
                 iz = np.round((Pz - ipp0[2]) / dz).astype(np.int32)
@@ -752,17 +757,24 @@ class DicomViewerWidget(QWidget):
 
         # 2.2. Проекция 3D контуров RTSTRUCT на плоскость детектора / изоцентра BEV (непрерывный объемный силуэт)
         if self.show_structures_globally and self.structures and iso and len(iso) >= 3:
+            patient_pos = str(self.plan_data.get("patient_position") or getattr(self.current_dataset, "PatientPosition", "HFS") or "HFS").upper()
+            is_ff = "FF" in patient_pos
+            is_prone = "P" in patient_pos
+            sx = -1.0 if (is_ff ^ is_prone) else 1.0
+            sy = -1.0 if is_prone else 1.0
+            sz = -1.0 if is_ff else 1.0
+
             g_rad = math.radians(g_angle)
             sin_g = math.sin(g_rad)
             cos_g = math.cos(g_rad)
-            Sx = iso[0] + sad * sin_g
-            Sy = iso[1] - sad * cos_g
-            Sz = iso[2]
 
             def project_pt_mm(x, y, z):
-                rx = x - Sx
-                ry = y - Sy
-                rz = z - Sz
+                dx_m = (x - iso[0]) * sx
+                dy_m = (y - iso[1]) * sy
+                dz_m = (z - iso[2]) * sz
+                rx = dx_m - sad * sin_g
+                ry = dy_m + sad * cos_g
+                rz = dz_m
                 dz_p = -rx * sin_g + ry * cos_g
                 if dz_p > 50.0:
                     M = sad / dz_p
@@ -793,7 +805,8 @@ class DicomViewerWidget(QWidget):
                     round(float(iso[0]), 1),
                     round(float(iso[1]), 1),
                     round(float(iso[2]), 1),
-                    round(float(sad), 1)
+                    round(float(sad), 1),
+                    patient_pos
                 )
                 if cache_key in self.bev_struct_cache:
                     struct_path_mm, pois_mm = self.bev_struct_cache[cache_key]
@@ -982,13 +995,22 @@ class DicomViewerWidget(QWidget):
         painter.drawLine(QPointF(cx, cy - 15), QPointF(cx, cy + 15))
         painter.drawEllipse(QPointF(cx, cy), 3, 3)
 
-        # 6. Направления осей (неподвижная система отсчета пациента)
+        # 6. Направления осей (система координат пациента)
+        patient_pos = str(self.plan_data.get("patient_position") or getattr(self.current_dataset, "PatientPosition", "HFS") or "HFS").upper()
+        is_ff = "FF" in patient_pos
+        is_prone = "P" in patient_pos
+        sx = -1.0 if (is_ff ^ is_prone) else 1.0
+
         painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
         painter.setPen(QColor("#94A3B8"))
         painter.drawText(int(cx + 6), int(cy - r_field + 16), "GUN / TOP (Y+)")
         painter.drawText(int(cx + 6), int(cy + r_field - 6), "TARGET / BOT (Y-)")
-        painter.drawText(int(cx - r_field + 6), int(cy - 6), "RIGHT (X-)")
-        painter.drawText(int(cx + r_field - 70), int(cy - 6), "LEFT (X+)")
+        if sx < 0:
+            painter.drawText(int(cx - r_field + 6), int(cy - 6), "LEFT (X-)")
+            painter.drawText(int(cx + r_field - 70), int(cy - 6), "RIGHT (X+)")
+        else:
+            painter.drawText(int(cx - r_field + 6), int(cy - 6), "RIGHT (X-)")
+            painter.drawText(int(cx + r_field - 70), int(cy - 6), "LEFT (X+)")
 
         # 8. Заголовок и селектор полей
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)

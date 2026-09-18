@@ -269,6 +269,11 @@ def load_rtplan(filepath: str) -> dict:
         tps_name = clean_tps_name(model_name, manufacturer)
         approval_status = str(getattr(ds, "ApprovalStatus", ""))
 
+        patient_position = "HFS"
+        if hasattr(ds, "PatientSetupSequence") and len(ds.PatientSetupSequence) > 0:
+            ps0 = ds.PatientSetupSequence[0]
+            patient_position = str(getattr(ps0, "PatientPosition", "HFS") or "HFS").upper()
+
         rx_dose = 0.0
         if hasattr(ds, "DoseReferenceSequence"):
             for dref in ds.DoseReferenceSequence:
@@ -450,6 +455,7 @@ def load_rtplan(filepath: str) -> dict:
             "filepath": filepath,
             "sop_instance_uid": sop_instance_uid,
             "plan_label": plan_label,
+            "patient_position": patient_position,
             "tps_name": tps_name,
             "approval_status": approval_status,
             "rx_dose": rx_dose,
