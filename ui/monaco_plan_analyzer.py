@@ -213,10 +213,11 @@ class PlanKinematicsAnalyzer:
             if diff_g > 180:
                 diff_g = 360 - diff_g
 
-            # MU per degree (meaningful only for rotational VMAT)
+            # MU per degree (meaningful only for active rotational VMAT)
             if is_vmat and diff_g > 0.001:
                 mu_per_deg = d_mu / diff_g
-                mu_per_deg_list.append(mu_per_deg)
+                if d_mu > 0.01:
+                    mu_per_deg_list.append(mu_per_deg)
             else:
                 mu_per_deg = 0.0
 
@@ -254,14 +255,16 @@ class PlanKinematicsAnalyzer:
                     est_dr = raw_dr
                     gantry_speed = diff_g / step_time
             else:
-                # Static segment
-                step_time = d_mu / max_dose_rate * 60.0 if d_mu > 0 else 0.1
-                est_dr = max_dose_rate
+                # Static segment or beam-off turnaround
+                time_leaf = max_leaf_disp / safe_leaf_speed
+                step_time = max(d_mu / max_dose_rate * 60.0 if d_mu > 0 else 0.0, time_leaf, 0.1)
+                est_dr = max_dose_rate if d_mu > 0 else 0.0
                 gantry_speed = 0.0
 
-            est_dose_rates.append(est_dr)
+            if d_mu > 0.01:
+                est_dose_rates.append(est_dr)
 
-            # Gantry acceleration demand
+            # Gantry acceleration demand (informative, smoothed by linac controller)
             gantry_accel = 0.0
             if i > 0 and step_time > 0:
                 gantry_accel = abs(gantry_speed - prev_gantry_speed) / step_time
@@ -272,44 +275,47 @@ class PlanKinematicsAnalyzer:
             risk_level = 'OK'
 
             if is_vmat:
-                # 1. Low Dose Rate Drop-out (Causes DOSE RATE MON)
-                if (mu_per_deg < 0.22 and d_mu > 0.01) or (est_dr < min_stable_dose_rate and d_mu > 0.01):
-                    reasons.append(f"Мощность дозы ({est_dr:.0f} MU/мин) ниже предела стабильности (< {min_stable_dose_rate:.0f} MU/мин)")
-                    risk_level = 'CRITICAL'
-                elif mu_per_deg < 0.38 and d_mu > 0.01:
-                    reasons.append(f"Пониженная плотность дозы ({mu_per_deg:.2f} MU/deg)")
-                    if risk_level != 'CRITICAL':
-                        risk_level = 'WARNING'
-
-                # 2. Extreme Gantry Deceleration / Modulation Jump
-                if len(mu_per_deg_list) > 1:
-                    prev_mpd = mu_per_deg_list[-2]
-                    ratio = mu_per_deg / max(prev_mpd, 0.05)
-                    if (ratio > 5.5 or ratio < 0.18) and (mu_per_deg > 5.0 or prev_mpd > 5.0):
-                        reasons.append(f"Резкий перепад модуляции (в {ratio:.1f} раз)")
+                # When beam is OFF (e.g. dual-arc turnaround or pause), no deliverability error
+                if d_mu < 0.01:
+                    pass
+                else:
+                    # 1. Low Dose Rate Drop-out (Causes DOSE RATE MON on Elekta below 45 MU/min)
+                    if est_dr < min_stable_dose_rate or mu_per_deg < 0.14:
+                        reasons.append(f"Мощность дозы ({est_dr:.0f} MU/мин, {mu_per_deg:.2f} MU/deg) ниже предела стабильности (< {min_stable_dose_rate:.0f} MU/мин)")
                         risk_level = 'CRITICAL'
+                    elif est_dr < 55.0 or mu_per_deg < 0.20:
+                        reasons.append(f"Пониженная плотность дозы ({mu_per_deg:.2f} MU/deg, ~{est_dr:.0f} MU/мин)")
+                        if risk_level != 'CRITICAL':
+                            risk_level = 'WARNING'
 
-                # 3. Gantry Acceleration exceeded
-                if gantry_accel > 1.8:
-                    reasons.append(f"Инерционный конфликт: ускорение гентри {gantry_accel:.1f}°/с² (лимит 1.5°/с²)")
-                    risk_level = 'CRITICAL'
-                elif gantry_accel > 1.2:
-                    reasons.append(f"Повышенная динамика гентри ({gantry_accel:.1f}°/с²)")
-                    if risk_level != 'CRITICAL':
-                        risk_level = 'WARNING'
+                    # 2. Extreme Modulation Shock (Severe jumps between adjacent active CPs)
+                    if len(mu_per_deg_list) > 1:
+                        prev_mpd = mu_per_deg_list[-2]
+                        if prev_mpd > 0.01:
+                            ratio = mu_per_deg / prev_mpd
+                            if (ratio > 10.0 or ratio < 0.10) and (mu_per_deg > 14.0 or prev_mpd > 14.0):
+                                reasons.append(f"Экстремальный скачок модуляции в {ratio:.1f}× ({prev_mpd:.2f} → {mu_per_deg:.2f} MU/deg)")
+                                risk_level = 'CRITICAL'
+                            elif (ratio > 6.0 or ratio < 0.16) and (mu_per_deg > 10.0 or prev_mpd > 10.0):
+                                reasons.append(f"Резкий перепад модуляции в {ratio:.1f}× ({prev_mpd:.2f} → {mu_per_deg:.2f} MU/deg)")
+                                if risk_level != 'CRITICAL':
+                                    risk_level = 'WARNING'
 
-                # 4. Extreme MU/deg (crawling gantry)
-                if mu_per_deg > 16.0:
-                    reasons.append(f"Экстремально высокая доза ({mu_per_deg:.1f} MU/deg, гентри замедляется до {gantry_speed:.1f}°/с)")
-                    if risk_level != 'CRITICAL':
-                        risk_level = 'WARNING'
+                    # 3. High leaf movement speed during active beam
+                    leaf_speed = max_leaf_disp / step_time if step_time > 0 else 0
+                    if leaf_speed > 65.0:
+                        reasons.append(f"Конфликт MLC: скорость лепестков {leaf_speed:.0f} мм/с превышает лимит Agility (65 мм/с)")
+                        risk_level = 'CRITICAL'
+                    elif leaf_speed > 48.0:
+                        reasons.append(f"Высокая скорость движения лепестков ({leaf_speed:.0f} мм/с)")
+                        if risk_level != 'CRITICAL':
+                            risk_level = 'WARNING'
 
-                # 5. Fast leaf movement
-                leaf_speed = max_leaf_disp / step_time if step_time > 0 else 0
-                if leaf_speed > 55.0:
-                    reasons.append(f"Высокая скорость движения лепестков ({leaf_speed:.0f} мм/с)")
-                    if risk_level != 'CRITICAL':
-                        risk_level = 'WARNING'
+                    # 4. Heavy MU/deg modulation (gantry deceleration)
+                    if mu_per_deg > 20.0:
+                        reasons.append(f"Высокая локальная доза ({mu_per_deg:.1f} MU/deg, замедление гентри до {gantry_speed:.1f}°/с)")
+                        if risk_level != 'CRITICAL':
+                            risk_level = 'WARNING'
 
             if risk_level == 'CRITICAL':
                 critical_count += 1
@@ -337,9 +343,9 @@ class PlanKinematicsAnalyzer:
         # Overall beam verdict
         if not is_vmat:
             verdict = 'STATIC'
-        elif critical_count >= 2:
+        elif critical_count >= 1:
             verdict = 'CRITICAL'
-        elif critical_count == 1 or warning_count >= 4:
+        elif warning_count >= 4:
             verdict = 'WARNING'
         else:
             verdict = 'OK'
@@ -791,7 +797,8 @@ class MonacoPlanAnalyzerDialog(QDialog):
             self.setWindowTitle(f"[НЕ MONACO — РЕЗУЛЬТАТ НЕ БУДЕТ СООТВЕТСТВОВАТЬ ДЕЙСТВИТЕЛЬНОСТИ] Анализ плана — {self.analyzer.patient_name} [{self.analyzer.patient_id}]")
         else:
             self.setWindowTitle(f"Анализ плана Monaco — {self.analyzer.patient_name} [{self.analyzer.patient_id}]")
-        self.resize(1060, 720)
+        self.resize(1200, 800)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
         self.setStyleSheet("""
             QDialog {
                 background-color: #141414;
@@ -813,23 +820,46 @@ class MonacoPlanAnalyzerDialog(QDialog):
                 border: none;
                 width: 20px;
             }
+            QTabWidget::tab-bar {
+                alignment: left;
+            }
             QTabWidget::pane {
                 border: 1px solid #2c2c2e;
                 background-color: #1a1a1c;
                 border-radius: 4px;
+                top: 0px;
+                margin-top: 0px;
+            }
+            QTabBar {
+                qproperty-drawBase: 0;
+                background: transparent;
+                border: none;
+                margin: 0px;
+                padding: 0px;
             }
             QTabBar::tab {
                 background-color: #242426;
                 color: #8e8e93;
-                padding: 7px 16px;
-                margin-right: 2px;
+                padding: 7px 18px;
+                margin-right: 4px;
+                margin-top: 0px;
+                margin-bottom: 0px;
                 border-top-left-radius: 4px;
                 border-top-right-radius: 4px;
+                border: 1px solid #2c2c2e;
+                border-bottom: none;
+                font-size: 12px;
+            }
+            QTabBar::tab:hover {
+                background-color: #2c2c2e;
+                color: #ffffff;
             }
             QTabBar::tab:selected {
                 background-color: #1a1a1c;
                 color: #38bdf8;
                 font-weight: bold;
+                border: 1px solid #38bdf8;
+                border-bottom: 1px solid #1a1a1c;
             }
             QTableWidget {
                 background-color: #1a1a1c;
@@ -977,7 +1007,7 @@ class MonacoPlanAnalyzerDialog(QDialog):
 
         leg_l.addLayout(make_leg_row("#30d158", "Безопасный отпуск (стабильная мощность и скорость)"))
         leg_l.addLayout(make_leg_row("#ffd60a", "Повышенная модуляция (замедление гентри / быстрый MLC)"))
-        leg_l.addLayout(make_leg_row("#ff453a", "КРИТИЧЕСКИЙ РИСК СБОЯ 'DOSE RATE MON' (< 45 MU/мин или скачок > 5×)"))
+        leg_l.addLayout(make_leg_row("#ff453a", "КРИТИЧЕСКИЙ РИСК СБОЯ 'DOSE RATE MON' (< 45 MU/мин или скачок > 10×)"))
         left_layout.addWidget(legend_box)
 
         body_splitter.addWidget(left_panel)
@@ -1310,6 +1340,7 @@ def open_plan_analyzer(parent, folder_or_plan_path: str, patient_id: str = "", p
 
     try:
         dlg = MonacoPlanAnalyzerDialog(parent, plan_file)
+        dlg.showMaximized()
         dlg.exec()
     except Exception as e:
         log_message(getattr(parent, 'output_field', None), f"Ошибка анализа плана Monaco: {e}")
