@@ -954,50 +954,14 @@ class MonacoPlanAnalyzerDialog(QDialog):
             warn_layout.addWidget(text_lbl, 1)
             layout.addWidget(warn_banner)
 
-        # 2. Plan Header Bar — patient info + technical details
-        header_frame = QFrame(self)
-        header_frame.setStyleSheet("background-color: #1e1e20; border: 1px solid #2c2c2e; border-radius: 6px; padding: 6px;")
-        h_layout = QHBoxLayout(header_frame)
-        h_layout.setContentsMargins(12, 6, 12, 6)
-        h_layout.setSpacing(16)
-
+        # (patient info header will be placed in the right panel above the verdict card)
         tps_info = (
             f"<span style='color: #4ade80; font-weight: bold;'>{self.analyzer.tps_name}</span>"
             if self.analyzer.is_monaco else
             f"<span style='color: #fb923c; font-weight: bold;'>{self.analyzer.tps_name} [Не Monaco]</span>"
         )
-        # Patient name + ID
-        self.lbl_patient = QLabel(
-            f"<b style='font-size: 14px; color: #ffffff;'>{self.analyzer.patient_name}</b> "
-            f"<span style='color: #8e8e93;'>({self.analyzer.patient_id})</span>",
-            header_frame
-        )
-        self.lbl_patient.setTextFormat(Qt.TextFormat.RichText)
-        h_layout.addWidget(self.lbl_patient)
-
-        sep1 = QLabel("|", header_frame)
-        sep1.setStyleSheet("color: #3a3a3c; font-size: 16px;")
-        h_layout.addWidget(sep1)
-
-        # Software
-        self.lbl_tps = QLabel(tps_info, header_frame)
-        self.lbl_tps.setTextFormat(Qt.TextFormat.RichText)
-        h_layout.addWidget(self.lbl_tps)
-
-        sep2 = QLabel("|", header_frame)
-        sep2.setStyleSheet("color: #3a3a3c; font-size: 16px;")
-        h_layout.addWidget(sep2)
-
-        # Fractions
-        self.lbl_fractions = QLabel(
-            f"Фракций: <b>{self.analyzer.num_fractions}</b>",
-            header_frame
-        )
-        self.lbl_fractions.setTextFormat(Qt.TextFormat.RichText)
-        h_layout.addWidget(self.lbl_fractions)
-
-        h_layout.addStretch()
-        layout.addWidget(header_frame)
+        # Build patient label text (stored for later update via _on_plan_changed)
+        self._tps_info_template = tps_info
 
         # 3. Main Body Splitter: Left (Polar Arc) + Right (Verdict & Analysis)
         body_splitter = QSplitter(Qt.Orientation.Horizontal, self)
@@ -1008,19 +972,20 @@ class MonacoPlanAnalyzerDialog(QDialog):
         left_layout.setContentsMargins(0, 0, 8, 0)
         left_layout.setSpacing(8)
 
-        # Plan selector (top of left panel)
+        # Plan selector (top of left panel) — inline rows
         plan_ctrl_frame = QFrame(left_panel)
-        plan_ctrl_frame.setStyleSheet("background-color: #1e1e20; border: 1px solid #2c2c2e; border-radius: 4px; padding: 4px;")
+        plan_ctrl_frame.setStyleSheet("background-color: #1e1e20; border: 1px solid #2c2c2e; border-radius: 4px;")
         plan_ctrl_layout = QVBoxLayout(plan_ctrl_frame)
-        plan_ctrl_layout.setContentsMargins(8, 6, 8, 6)
-        plan_ctrl_layout.setSpacing(6)
+        plan_ctrl_layout.setContentsMargins(8, 5, 8, 5)
+        plan_ctrl_layout.setSpacing(4)
 
-        lbl_plan_sel = QLabel("ПЛАН:", plan_ctrl_frame)
-        lbl_plan_sel.setStyleSheet("font-size: 10px; font-weight: 700; color: #8e8e93; letter-spacing: 1px;")
-        plan_ctrl_layout.addWidget(lbl_plan_sel)
-
+        # Row 1: Plan
+        plan_row = QHBoxLayout()
+        plan_row.setSpacing(6)
+        lbl_plan_sel = QLabel("План:", plan_ctrl_frame)
+        lbl_plan_sel.setStyleSheet("font-size: 11px; font-weight: 700; color: #8e8e93; min-width: 42px;")
+        plan_row.addWidget(lbl_plan_sel)
         self.plan_combo = QComboBox(plan_ctrl_frame)
-        self.plan_combo.setMinimumWidth(200)
         for pp in self.plan_paths:
             try:
                 ds_tmp = __import__('pydicom').dcmread(pp, stop_before_pixels=True, force=True,
@@ -1029,23 +994,25 @@ class MonacoPlanAnalyzerDialog(QDialog):
             except Exception:
                 lbl = os.path.basename(pp)
             self.plan_combo.addItem(lbl, pp)
-        # Select current plan
         cur_idx = self.plan_combo.findData(self.plan_path)
         if cur_idx >= 0:
             self.plan_combo.setCurrentIndex(cur_idx)
         self.plan_combo.currentIndexChanged.connect(self._on_plan_changed)
         self.plan_combo.setEnabled(len(self.plan_paths) > 1)
-        plan_ctrl_layout.addWidget(self.plan_combo)
+        plan_row.addWidget(self.plan_combo, 1)
+        plan_ctrl_layout.addLayout(plan_row)
 
-        # Beam selector
-        lbl_beam_sel = QLabel("ПУЧОК / ДУГА:", plan_ctrl_frame)
-        lbl_beam_sel.setStyleSheet("font-size: 10px; font-weight: 700; color: #8e8e93; letter-spacing: 1px; margin-top: 4px;")
-        plan_ctrl_layout.addWidget(lbl_beam_sel)
-
+        # Row 2: Beam
+        beam_row = QHBoxLayout()
+        beam_row.setSpacing(6)
+        lbl_beam_sel = QLabel("Пучок:", plan_ctrl_frame)
+        lbl_beam_sel.setStyleSheet("font-size: 11px; font-weight: 700; color: #8e8e93; min-width: 42px;")
+        beam_row.addWidget(lbl_beam_sel)
         self.beam_combo = QComboBox(plan_ctrl_frame)
         self._populate_beam_combo()
         self.beam_combo.currentIndexChanged.connect(self._on_beam_changed)
-        plan_ctrl_layout.addWidget(self.beam_combo)
+        beam_row.addWidget(self.beam_combo, 1)
+        plan_ctrl_layout.addLayout(beam_row)
 
         left_layout.addWidget(plan_ctrl_frame)
 
@@ -1082,11 +1049,51 @@ class MonacoPlanAnalyzerDialog(QDialog):
 
         body_splitter.addWidget(left_panel)
 
-        # Right Panel: Verdict Banner + Metrics Cards + Detailed Tabs
+        # Right Panel: Patient info header + Verdict Banner + Metrics Cards + Detailed Tabs
         right_panel = QWidget(body_splitter)
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(8, 0, 0, 0)
-        right_layout.setSpacing(10)
+        right_layout.setSpacing(6)
+
+        # Compact patient info header (right side, same width as verdict card below)
+        patient_frame = QFrame(right_panel)
+        patient_frame.setFixedHeight(30)
+        patient_frame.setStyleSheet("background-color: #1e1e20; border: 1px solid #2c2c2e; border-radius: 4px;")
+        pf_layout = QHBoxLayout(patient_frame)
+        pf_layout.setContentsMargins(10, 0, 10, 0)
+        pf_layout.setSpacing(12)
+
+        self.lbl_patient = QLabel(
+            f"<b style='color: #ffffff;'>{self.analyzer.patient_name}</b>"
+            f"<span style='color: #6b7280;'> ({self.analyzer.patient_id})</span>",
+            patient_frame
+        )
+        self.lbl_patient.setTextFormat(Qt.TextFormat.RichText)
+        self.lbl_patient.setStyleSheet("font-size: 13px;")
+        pf_layout.addWidget(self.lbl_patient)
+
+        _sep = QLabel("|", patient_frame)
+        _sep.setStyleSheet("color: #3a3a3c;")
+        pf_layout.addWidget(_sep)
+
+        self.lbl_tps = QLabel(self._tps_info_template, patient_frame)
+        self.lbl_tps.setTextFormat(Qt.TextFormat.RichText)
+        self.lbl_tps.setStyleSheet("font-size: 12px;")
+        pf_layout.addWidget(self.lbl_tps)
+
+        _sep2 = QLabel("|", patient_frame)
+        _sep2.setStyleSheet("color: #3a3a3c;")
+        pf_layout.addWidget(_sep2)
+
+        self.lbl_fractions = QLabel(
+            f"Фр.: <b>{self.analyzer.num_fractions}</b>", patient_frame
+        )
+        self.lbl_fractions.setTextFormat(Qt.TextFormat.RichText)
+        self.lbl_fractions.setStyleSheet("font-size: 12px; color: #a1a1aa;")
+        pf_layout.addWidget(self.lbl_fractions)
+        pf_layout.addStretch()
+
+        right_layout.addWidget(patient_frame)
 
         # Verdict Card
         self.verdict_card = QFrame(right_panel)
