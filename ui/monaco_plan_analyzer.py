@@ -773,7 +773,7 @@ class ModulationTimelineWidget(QWidget):
         painter.setPen(QPen(QColor("#ff453a"), 1, Qt.PenStyle.DashLine))
         painter.drawLine(margin_l, int(y_low), w - margin_r, int(y_low))
 
-        text_low = " 0.20 MU/° — риск DOSE RATE MON (< 45 MU/мин) "
+        text_low = " 0.20 MU/deg — риск DOSE RATE MON (< 45 MU/мин) "
         painter.setFont(QFont("Segoe UI", 8, QFont.Weight.DemiBold))
         fm = painter.fontMetrics()
         w_low = fm.horizontalAdvance(text_low)
@@ -790,7 +790,7 @@ class ModulationTimelineWidget(QWidget):
         painter.setPen(QPen(QColor("#ffd60a"), 1, Qt.PenStyle.DashLine))
         painter.drawLine(margin_l, int(y_high), w - margin_r, int(y_high))
 
-        text_high = " 15.0 MU/° — замедление гентри (< 0.7°/с) "
+        text_high = " 15.0 MU/deg — замедление гентри (< 0.7°/с) "
         w_high = fm.horizontalAdvance(text_high)
         badge_high_x = w - margin_r - w_high - 12
         badge_high_rect = QRectF(badge_high_x, y_high - 15, w_high, 14)
@@ -1341,8 +1341,8 @@ class MonacoPlanAnalyzerDialog(QDialog):
         self.lbl_metric_mu.setText(f"<span style='color: #8e8e93;'>Суммарно:</span><br><b style='font-size: 13px;'>{b['total_mu']:.1f} MU</b>")
         self.lbl_metric_dr.setText(f"<span style='color: #8e8e93;'>Мощность дозы:</span><br><b style='font-size: 13px;'>{b['min_dose_rate']:.0f} – {b['max_dose_rate']:.0f} MU/мин</b>")
         if b['is_vmat']:
-            self.lbl_metric_mpd.setText(f"<span style='color: #8e8e93;'>Плотность дозы:</span><br><b style='font-size: 13px;'>{b['min_mu_per_deg']:.2f} – {b['max_mu_per_deg']:.2f} MU/°</b>")
-            self.lbl_metric_mpd.setToolTip(f"Диапазон плотности дозы: {b['min_mu_per_deg']:.2f} – {b['max_mu_per_deg']:.2f} MU/° (среднее: {b['avg_mu_per_deg']:.2f} MU/°)")
+            self.lbl_metric_mpd.setText(f"<span style='color: #8e8e93;'>Плотность дозы:</span><br><b style='font-size: 13px;'>{b['min_mu_per_deg']:.2f} – {b['max_mu_per_deg']:.2f} MU/deg</b>")
+            self.lbl_metric_mpd.setToolTip(f"Диапазон плотности дозы: {b['min_mu_per_deg']:.2f} – {b['max_mu_per_deg']:.2f} MU/deg (среднее: {b['avg_mu_per_deg']:.2f} MU/deg)")
             self.tabs.setTabText(1, "График модуляции (MU/deg)")
         else:
             self.lbl_metric_mpd.setText(f"<span style='color: #8e8e93;'>Угол гентри:</span><br><b style='font-size: 13px;'>{b['fixed_gantry_angle']:.1f}° (статика)</b>")
