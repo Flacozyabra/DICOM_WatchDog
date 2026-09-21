@@ -410,10 +410,53 @@ def load_rtplan(filepath: str) -> dict:
                     w_first = wedges[0]
                     wedge_suffix = f" [▲ {w_first['id']} ({w_first['angle']}°)]"
 
+                # Calculate total angular travel and detect arc passes (handles bidirectional/dual-arc and 360-deg arcs)
+                total_gantry_travel = 0.0
+                arc_passes = []
+                if len(cps) > 1:
+                    for i in range(len(cps) - 1):
+                        g1 = float(cps[i]["gantry_angle"])
+                        g2 = float(cps[i+1]["gantry_angle"])
+                        dg = abs(g2 - g1)
+                        if dg > 180.0:
+                            dg = 360.0 - dg
+                        total_gantry_travel += dg
+
+                    cur_pass = {"start": None, "stop": None, "dir": None}
+                    for i in range(len(cps) - 1):
+                        g1 = float(cps[i]["gantry_angle"])
+                        g2 = float(cps[i+1]["gantry_angle"])
+                        rdir = "NONE"
+                        if hasattr(b, "ControlPointSequence") and len(b.ControlPointSequence) > i:
+                            rdir = str(getattr(b.ControlPointSequence[i], "GantryRotationDirection", "NONE") or "NONE").upper()
+                        if not rdir or rdir == "NONE":
+                            d_raw = (g2 - g1) % 360.0
+                            if 0.001 < d_raw <= 180.0:
+                                rdir = "CW"
+                            elif d_raw > 180.0 and (360.0 - d_raw) > 0.001:
+                                rdir = "CC"
+                            else:
+                                rdir = "NONE"
+
+                        norm_dir = "CCW" if rdir in ("CC", "CCW", "COUNTER_CLOCKWISE") else ("CW" if rdir in ("CW", "CLOCKWISE") else None)
+                        if norm_dir:
+                            if cur_pass["dir"] is None:
+                                cur_pass["dir"] = norm_dir
+                                cur_pass["start"] = g1
+                            elif cur_pass["dir"] != norm_dir:
+                                cur_pass["stop"] = g1
+                                arc_passes.append(dict(cur_pass))
+                                cur_pass = {"start": g1, "stop": None, "dir": norm_dir}
+                            cur_pass["stop"] = g2
+                    if cur_pass["dir"] is not None and cur_pass["start"] is not None and cur_pass["stop"] is not None:
+                        arc_passes.append(dict(cur_pass))
+
+                is_vmat = (total_gantry_travel > 5.0) and (len(arc_passes) > 0)
+
                 g_start = cps[0]["gantry_angle"] if cps else 0.0
                 g_stop = cps[-1]["gantry_angle"] if cps else g_start
-                rot_dir = "NONE"
-                if hasattr(b, "ControlPointSequence") and len(b.ControlPointSequence) > 0:
+                rot_dir = arc_passes[0]["dir"] if arc_passes else "NONE"
+                if rot_dir == "NONE" and hasattr(b, "ControlPointSequence") and len(b.ControlPointSequence) > 0:
                     rot_dir = str(getattr(b.ControlPointSequence[0], "GantryRotationDirection", "NONE") or "NONE").upper()
                 if rot_dir == "NONE" and hasattr(b, "GantryRotationDirection"):
                     rot_dir = str(getattr(b, "GantryRotationDirection", "NONE") or "NONE").upper()
@@ -422,7 +465,14 @@ def load_rtplan(filepath: str) -> dict:
                 if not clean_name or clean_name == f"Beam {b_num}":
                     clean_name = f"Поле {b_num}"
 
-                if is_dynamic and abs(g_start - g_stop) > 0.5:
+                if is_vmat and arc_passes:
+                    if len(arc_passes) == 1:
+                        p = arc_passes[0]
+                        display_name = f"{clean_name} ({p['start']:.0f}°->{p['stop']:.0f}° {p['dir']})"
+                    else:
+                        passes_str = " | ".join(f"{p['start']:.0f}°->{p['stop']:.0f}° {p['dir']}" for p in arc_passes)
+                        display_name = f"{clean_name} ({passes_str})"
+                elif is_dynamic and abs(g_start - g_stop) > 0.5:
                     dir_txt = " (CW)" if rot_dir in ("CW", "CLOCKWISE") else (" (CCW)" if rot_dir in ("CC", "CCW", "COUNTER_CLOCKWISE") else "")
                     display_name = f"{clean_name} ({g_start:.0f}°->{g_stop:.0f}°{dir_txt})"
                 else:
@@ -434,6 +484,9 @@ def load_rtplan(filepath: str) -> dict:
                     "display_name": display_name,
                     "type": b_type,
                     "is_dynamic": is_dynamic,
+                    "is_vmat": is_vmat,
+                    "total_gantry_travel": total_gantry_travel,
+                    "arc_passes": arc_passes,
                     "radiation_type": rad_type,
                     "machine_name": mach_name,
                     "sad": sad,

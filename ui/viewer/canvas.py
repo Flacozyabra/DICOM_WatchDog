@@ -1412,102 +1412,123 @@ class DicomViewerWidget(QWidget):
 
                             is_exact_iso_slice = (abs(dp_z) <= thickness / 2.0 + 0.5)
 
+                            is_vmat = beam.get("is_vmat", False)
+                            arc_passes = beam.get("arc_passes", [])
+                            if not arc_passes and is_dynamic and abs(g_start - g_stop) > 0.5:
+                                arc_passes = [{"start": g_start, "stop": g_stop, "dir": rot_dir}]
+                                is_vmat = True
+
                             # 1. Если это динамическая ротационная дуга (VMAT / Arc) с вращением гантри
-                            if is_dynamic and abs(g_start - g_stop) > 0.5:
-                                # Каскадный радиус для каждой дуги (предотвращает наложение при нескольких дугах)
-                                arc_radius = (135.0 + dyn_arc_idx * 28.0) * self.zoom_factor
-                                dyn_arc_idx += 1
+                            if is_vmat and arc_passes:
+                                for p_idx, pass_info in enumerate(arc_passes):
+                                    p_start = pass_info.get("start", g_start)
+                                    p_stop = pass_info.get("stop", g_stop)
+                                    p_dir = pass_info.get("dir", rot_dir)
+                                    is_ccw = p_dir in ("CC", "CCW", "COUNTER_CLOCKWISE")
 
-                                pts_arc = []
-                                if rot_dir in ("CW", "CLOCKWISE"):
-                                    span = (g_stop - g_start) if g_stop >= g_start else (g_stop + 360.0 - g_start)
-                                    steps = max(2, int(span / 4.0))
-                                    angles = [(g_start + (span * s / steps)) % 360.0 for s in range(steps + 1)]
-                                elif rot_dir in ("CC", "CCW", "COUNTER_CLOCKWISE"):
-                                    span = (g_start - g_stop) if g_start >= g_stop else (g_start + 360.0 - g_stop)
-                                    steps = max(2, int(span / 4.0))
-                                    angles = [(g_start - (span * s / steps)) % 360.0 for s in range(steps + 1)]
-                                else:
-                                    span = abs(g_stop - g_start)
-                                    steps = max(2, int(span / 4.0))
-                                    angles = [g_start + (g_stop - g_start) * (s / steps) for s in range(steps + 1)]
+                                    # Каскадный радиус для каждой дуги/прохода (предотвращает наложение при нескольких дугах)
+                                    arc_radius = (135.0 + dyn_arc_idx * 28.0) * self.zoom_factor
+                                    dyn_arc_idx += 1
 
-                                for ang in angles:
-                                    rad_a = math.radians(ang)
-                                    pts_arc.append(QPointF(wx_iso + math.sin(rad_a) * arc_radius, wy_iso - math.cos(rad_a) * arc_radius))
+                                    pts_arc = []
+                                    if abs(p_start - p_stop) < 0.001:
+                                        # Полная круговая дуга 360°
+                                        span = 360.0
+                                        steps = 90
+                                        if is_ccw:
+                                            angles = [(p_start - (span * s / steps)) % 360.0 for s in range(steps + 1)]
+                                        else:
+                                            angles = [(p_start + (span * s / steps)) % 360.0 for s in range(steps + 1)]
+                                    elif not is_ccw:
+                                        span = (p_stop - p_start) if p_stop >= p_start else (p_stop + 360.0 - p_start)
+                                        steps = max(2, int(span / 4.0))
+                                        angles = [(p_start + (span * s / steps)) % 360.0 for s in range(steps + 1)]
+                                    else:
+                                        span = (p_start - p_stop) if p_start >= p_stop else (p_start + 360.0 - p_stop)
+                                        steps = max(2, int(span / 4.0))
+                                        angles = [(p_start - (span * s / steps)) % 360.0 for s in range(steps + 1)]
 
-                                is_ccw = rot_dir in ("CC", "CCW", "COUNTER_CLOCKWISE")
-                                arc_color = QColor("#06B6D4") if is_ccw else QColor("#F59E0B")
-                                arc_fill = QColor(6, 182, 212, 22) if is_ccw else QColor(245, 158, 11, 22)
-
-                                # Полупрозрачная кольцевая полоса дуги
-                                if len(pts_arc) >= 2:
-                                    pts_inner = []
-                                    r_in = max(10.0, arc_radius - 8.0 * self.zoom_factor)
-                                    r_out = arc_radius + 8.0 * self.zoom_factor
                                     for ang in angles:
                                         rad_a = math.radians(ang)
-                                        pts_inner.append(QPointF(wx_iso + math.sin(rad_a) * r_in, wy_iso - math.cos(rad_a) * r_in))
-                                    pts_outer = []
-                                    for ang in reversed(angles):
-                                        rad_a = math.radians(ang)
-                                        pts_outer.append(QPointF(wx_iso + math.sin(rad_a) * r_out, wy_iso - math.cos(rad_a) * r_out))
-                                    
-                                    painter.setPen(Qt.PenStyle.NoPen)
-                                    painter.setBrush(QBrush(arc_fill))
-                                    painter.drawPolygon(QPolygonF(pts_inner + pts_outer))
+                                        pts_arc.append(QPointF(wx_iso + math.sin(rad_a) * arc_radius, wy_iso - math.cos(rad_a) * arc_radius))
 
-                                # Граничные направляющие
-                                pen_ray = QPen(arc_color, 1.4, Qt.PenStyle.DashLine)
-                                painter.setPen(pen_ray)
-                                if pts_arc:
-                                    painter.drawLine(QPointF(wx_iso, wy_iso), pts_arc[0])
-                                    painter.drawLine(QPointF(wx_iso, wy_iso), pts_arc[-1])
+                                    arc_color = QColor("#06B6D4") if is_ccw else QColor("#F59E0B")
+                                    arc_fill = QColor(6, 182, 212, 22) if is_ccw else QColor(245, 158, 11, 22)
 
-                                # Дуговая линия
-                                pen_arc = QPen(arc_color, 2.0, Qt.PenStyle.SolidLine)
-                                painter.setPen(pen_arc)
-                                for i in range(len(pts_arc) - 1):
-                                    painter.drawLine(pts_arc[i], pts_arc[i+1])
-
-                                # Стрелка направления в середине дуги
-                                mid_idx = len(pts_arc) // 2
-                                if len(pts_arc) > 2 and mid_idx > 0:
-                                    p_prev = pts_arc[mid_idx - 1]
-                                    p_mid = pts_arc[mid_idx]
-                                    d_vec = p_mid - p_prev
-                                    len_d = math.hypot(d_vec.x(), d_vec.y())
-                                    if len_d > 0.001:
-                                        ux = d_vec.x() / len_d
-                                        uy = d_vec.y() / len_d
-                                        perp_x = -uy
-                                        perp_y = ux
-                                        a_head = p_mid
-                                        a1 = p_mid - QPointF(ux * 10 - perp_x * 5, uy * 10 - perp_y * 5)
-                                        a2 = p_mid - QPointF(ux * 10 + perp_x * 5, uy * 10 + perp_y * 5)
-                                        painter.setBrush(QBrush(arc_color))
+                                    # Полупрозрачная кольцевая полоса дуги
+                                    if len(pts_arc) >= 2:
+                                        pts_inner = []
+                                        r_in = max(10.0, arc_radius - 8.0 * self.zoom_factor)
+                                        r_out = arc_radius + 8.0 * self.zoom_factor
+                                        for ang in angles:
+                                            rad_a = math.radians(ang)
+                                            pts_inner.append(QPointF(wx_iso + math.sin(rad_a) * r_in, wy_iso - math.cos(rad_a) * r_in))
+                                        pts_outer = []
+                                        for ang in reversed(angles):
+                                            rad_a = math.radians(ang)
+                                            pts_outer.append(QPointF(wx_iso + math.sin(rad_a) * r_out, wy_iso - math.cos(rad_a) * r_out))
+                                        
                                         painter.setPen(Qt.PenStyle.NoPen)
-                                        painter.drawPolygon(QPolygonF([a_head, a1, a2]))
+                                        painter.setBrush(QBrush(arc_fill))
+                                        painter.drawPolygon(QPolygonF(pts_inner + pts_outer))
 
-                                # Плашка арки (размещается на своем каскадном радиусе)
-                                mid_pt = pts_arc[mid_idx] if pts_arc else QPointF(wx_iso, wy_iso - arc_radius)
-                                dir_txt = "CCW" if is_ccw else "CW"
-                                badge_text = f"[{b_num}] {g_start:.0f}°->{g_stop:.0f}° {dir_txt}".strip()
-                                
-                                painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
-                                m_b = painter.fontMetrics()
-                                rect_b_txt = m_b.boundingRect(badge_text)
-                                badge_rect = QRectF(
-                                    mid_pt.x() - rect_b_txt.width() / 2 - 6,
-                                    mid_pt.y() - rect_b_txt.height() / 2 - 3,
-                                    rect_b_txt.width() + 12,
-                                    rect_b_txt.height() + 6
-                                )
-                                painter.setPen(QPen(arc_color, 1.2))
-                                painter.setBrush(QBrush(QColor(15, 23, 42, 230)))
-                                painter.drawRoundedRect(badge_rect, 4, 4)
-                                painter.setPen(QColor("#FFFFFF"))
-                                painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_text)
+                                    # Граничные направляющие
+                                    pen_ray = QPen(arc_color, 1.4, Qt.PenStyle.DashLine)
+                                    painter.setPen(pen_ray)
+                                    if pts_arc:
+                                        painter.drawLine(QPointF(wx_iso, wy_iso), pts_arc[0])
+                                        painter.drawLine(QPointF(wx_iso, wy_iso), pts_arc[-1])
+
+                                    # Дуговая линия
+                                    pen_arc = QPen(arc_color, 2.0, Qt.PenStyle.SolidLine)
+                                    painter.setPen(pen_arc)
+                                    for i in range(len(pts_arc) - 1):
+                                        painter.drawLine(pts_arc[i], pts_arc[i+1])
+
+                                    # Стрелка направления в середине дуги
+                                    mid_idx = len(pts_arc) // 2
+                                    if len(pts_arc) > 2 and mid_idx > 0:
+                                        p_prev = pts_arc[mid_idx - 1]
+                                        p_mid = pts_arc[mid_idx]
+                                        d_vec = p_mid - p_prev
+                                        len_d = math.hypot(d_vec.x(), d_vec.y())
+                                        if len_d > 0.001:
+                                            ux = d_vec.x() / len_d
+                                            uy = d_vec.y() / len_d
+                                            perp_x = -uy
+                                            perp_y = ux
+                                            a_head = p_mid
+                                            a1 = p_mid - QPointF(ux * 10 - perp_x * 5, uy * 10 - perp_y * 5)
+                                            a2 = p_mid - QPointF(ux * 10 + perp_x * 5, uy * 10 + perp_y * 5)
+                                            painter.setBrush(QBrush(arc_color))
+                                            painter.setPen(Qt.PenStyle.NoPen)
+                                            painter.drawPolygon(QPolygonF([a_head, a1, a2]))
+
+                                    # Плашка арки (размещается с угловым смещением при нескольких проходах во избежание наложения)
+                                    if len(arc_passes) > 1:
+                                        frac = 0.28
+                                        badge_idx = max(0, min(len(pts_arc) - 1, int(len(pts_arc) * frac)))
+                                    else:
+                                        badge_idx = mid_idx
+                                    mid_pt = pts_arc[badge_idx] if pts_arc else QPointF(wx_iso, wy_iso - arc_radius)
+                                    dir_txt = "CCW" if is_ccw else "CW"
+                                    pass_tag = f" P{p_idx+1}" if len(arc_passes) > 1 else ""
+                                    badge_text = f"[{b_num}{pass_tag}] {p_start:.0f}°->{p_stop:.0f}° {dir_txt}".strip()
+                                    
+                                    painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
+                                    m_b = painter.fontMetrics()
+                                    rect_b_txt = m_b.boundingRect(badge_text)
+                                    badge_rect = QRectF(
+                                        mid_pt.x() - rect_b_txt.width() / 2 - 6,
+                                        mid_pt.y() - rect_b_txt.height() / 2 - 3,
+                                        rect_b_txt.width() + 12,
+                                        rect_b_txt.height() + 6
+                                    )
+                                    painter.setPen(QPen(arc_color, 1.2))
+                                    painter.setBrush(QBrush(QColor(15, 23, 42, 230)))
+                                    painter.drawRoundedRect(badge_rect, 4, 4)
+                                    painter.setPen(QColor("#FFFFFF"))
+                                    painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_text)
 
                             else:
                                 # 2. Статический пучок (3D-CRT / IMRT) - только центральная ось пучка
