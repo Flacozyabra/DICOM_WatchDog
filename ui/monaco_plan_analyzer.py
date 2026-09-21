@@ -192,7 +192,7 @@ class PlanKinematicsAnalyzer:
         max_gantry_speed = 6.0   # deg/s (1.0 RPM)
         safe_leaf_speed = 35.0   # mm/s continuous leaf speed for Agility
         max_dose_rate = 600.0    # MU/min nominal for flattened 6 MV
-        min_stable_dose_rate = 45.0  # MU/min minimum stable PRF output
+        min_stable_dose_rate = 60.0  # MU/min minimum stable PRF output (Elekta limit ~0.165 MU/deg at 6 deg/s)
 
         mu_per_deg_list = []
         est_dose_rates = []
@@ -296,11 +296,11 @@ class PlanKinematicsAnalyzer:
                 if d_mu < 0.01:
                     pass
                 else:
-                    # 1. Low Dose Rate Drop-out (Causes DOSE RATE MON on Elekta below 45 MU/min)
-                    if est_dr < min_stable_dose_rate or mu_per_deg < 0.14:
-                        reasons.append(f"Мощность дозы ({est_dr:.0f} MU/мин, {mu_per_deg:.2f} MU/deg) ниже предела стабильности (< {min_stable_dose_rate:.0f} MU/мин)")
+                    # 1. Low Dose Rate Drop-out (Causes DOSE RATE MON on Elekta below 60 MU/min)
+                    if est_dr < (min_stable_dose_rate - 0.2) or mu_per_deg < 0.164:
+                        reasons.append(f"Мощность дозы ({est_dr:.1f} MU/мин, {mu_per_deg:.2f} MU/deg) ниже порога стабильности (< {min_stable_dose_rate:.0f} MU/мин)")
                         risk_level = 'CRITICAL'
-                    elif est_dr < 55.0 or mu_per_deg < 0.20:
+                    elif est_dr < 75.0 or mu_per_deg < 0.20:
                         reasons.append(f"Пониженная плотность дозы ({mu_per_deg:.2f} MU/deg, ~{est_dr:.0f} MU/мин)")
                         if risk_level != 'CRITICAL':
                             risk_level = 'WARNING'
@@ -736,16 +736,16 @@ class PolarArcWidget(QWidget):
                 painter.drawText(QRectF(row_rect.right() - 75, y, 75, 15), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_str)
 
             # 1. Dose rate status
-            if dr < 45.0:
+            if dr < 60.0:
                 dr_col, dr_st = QColor('#ef4444'), 'Сбой'
-            elif dr < 55.0:
+            elif dr < 75.0:
                 dr_col, dr_st = QColor('#f59e0b'), 'Низкая'
             else:
                 dr_col, dr_st = QColor('#22c55e'), 'Норма'
             draw_param_row(center.y() - 5, 'Мощность:', f"{dr:.0f} MU/мин", dr_col, dr_st)
 
             # 2. Dose density status
-            if mpd < 0.14:
+            if mpd < 0.165:
                 mpd_col, mpd_st = QColor('#ef4444'), 'Провал'
             elif mpd > 15.0 or mpd < 0.20:
                 mpd_col, mpd_st = QColor('#f59e0b'), 'Перегруз' if mpd > 15 else 'Низкая'
@@ -984,12 +984,12 @@ class ModulationTimelineWidget(QWidget):
             painter.drawRect(QRectF(x, y, max(1.0, step_px - 1), base_y - y))
 
         # Draw Safety Thresholds and descriptive labels on top of bars
-        # 1. Red line for low dose rate danger (< 0.20 MU/deg)
-        y_low = val_to_y(0.20)
+        # 1. Red line for low dose rate danger (< 0.165 MU/deg)
+        y_low = val_to_y(0.165)
         painter.setPen(QPen(QColor("#ff453a"), 1, Qt.PenStyle.DashLine))
         painter.drawLine(margin_l, int(y_low), w - margin_r, int(y_low))
 
-        text_low = " 0.20 MU/deg — риск DOSE RATE MON (< 45 MU/мин) "
+        text_low = " 0.165 MU/deg — порог DOSE RATE MON (< 60 MU/мин) "
         painter.setFont(QFont("Segoe UI", 8, QFont.Weight.DemiBold))
         fm = painter.fontMetrics()
         w_low = fm.horizontalAdvance(text_low)
@@ -1256,7 +1256,7 @@ class MonacoPlanAnalyzerDialog(QDialog):
 
         leg_l.addLayout(make_leg_row("#30d158", "Безопасный отпуск (стабильная мощность и скорость)"))
         leg_l.addLayout(make_leg_row("#ffd60a", "Повышенная сложность (замедление гентри / перепад плотности дозы)"))
-        leg_l.addLayout(make_leg_row("#ff453a", "КРИТИЧЕСКИЙ РИСК СБОЯ 'DOSE RATE MON' (< 45 MU/мин или перепад > 10×)"))
+        leg_l.addLayout(make_leg_row("#ff453a", "КРИТИЧЕСКИЙ РИСК СБОЯ 'DOSE RATE MON' (< 60 MU/мин или перепад > 10×)"))
 
         self.multitrack_leg_label = QLabel(legend_box)
         self.multitrack_leg_label.setStyleSheet("font-size: 10px; color: #38bdf8; font-weight: 600; margin-top: 3px;")
@@ -1488,7 +1488,7 @@ class MonacoPlanAnalyzerDialog(QDialog):
             title = QLabel("🔴 ВЫСОКИЙ РИСК СБОЯ АППАРАТА (DOSE RATE MON)", self.verdict_card)
             title.setStyleSheet("font-size: 13px; font-weight: bold; color: #fca5a5;")
             desc = QLabel(
-                f"В пучке обнаружено <b>{crit_count} критических секторов</b> с падением мощности дозы ниже порога стабильности Elekta (&lt; 45 MU/мин) "
+                f"В пучке обнаружено <b>{crit_count} критических секторов</b> с падением мощности дозы ниже порога стабильности Elekta (&lt; 60 MU/мин) "
                 f"или резким торможением гентри. Аппарат с высокой вероятностью выдаст ошибку <code>DOSE RATE MON</code> при отпуске.",
                 self.verdict_card
             )
