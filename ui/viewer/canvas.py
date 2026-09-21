@@ -1359,8 +1359,34 @@ class DicomViewerWidget(QWidget):
                     sign_x = -1.0 if (is_ff ^ is_prone) else 1.0
                     sign_y = 1.0 if is_prone else -1.0
 
+                    # Определение анатомического габарита тела на текущем срезе для выноса дуг наружу
+                    r_body = 0.0
+                    sop_uid = getattr(self.current_dataset, "SOPInstanceUID", None)
+                    if self.structures:
+                        for roi_id, roi_data in self.structures.items():
+                            name = roi_data.get("name", "").upper()
+                            if any(k in name for k in ("BODY", "EXTERNAL", "КОЖА", "ТЕЛО")):
+                                for c in roi_data.get("contours", []):
+                                    if c.get("sop_uid") == sop_uid or (c.get("z") is not None and abs(c.get("z") - ipp_z) < 0.8):
+                                        pts = c.get("points", [])
+                                        if pts and beams and beams[0].get("isocenter"):
+                                            iso0 = beams[0]["isocenter"]
+                                            iso0_wx = offset_x + (((iso0[0] - ipp_x) * xr + (iso0[1] - ipp_y) * yr + (iso0[2] - ipp_z) * zr) / dx) * scale_x
+                                            iso0_wy = offset_y + (((iso0[0] - ipp_x) * xc + (iso0[1] - ipp_y) * yc + (iso0[2] - ipp_z) * zc) / dy) * scale_y
+                                            dists = []
+                                            for pt in pts:
+                                                pt_px = ((pt[0] - ipp_x) * xr + (pt[1] - ipp_y) * yr + (pt[2] - ipp_z) * zr) / dx
+                                                pt_py = ((pt[0] - ipp_x) * xc + (pt[1] - ipp_y) * yc + (pt[2] - ipp_z) * zc) / dy
+                                                pt_wx = offset_x + pt_px * scale_x
+                                                pt_wy = offset_y + pt_py * scale_y
+                                                dists.append(math.hypot(pt_wx - iso0_wx, pt_wy - iso0_wy))
+                                            if dists:
+                                                dists.sort()
+                                                r_body = max(r_body, dists[int(len(dists) * 0.80)])
+
                     # 1. Отслеживаем индекс динамических дуг для каскадных радиусов
                     dyn_arc_idx = 0
+                    arc_badge_items = []
 
                     for beam in beams:
                         iso = beam.get("isocenter")
@@ -1419,6 +1445,17 @@ class DicomViewerWidget(QWidget):
 
                             is_exact_iso_slice = (abs(dp_z) <= thickness / 2.0 + 0.5)
 
+                            # Адаптивный базовый радиус дуг (выносится наружу контура тела с защитой от вылета за экран)
+                            dist_to_edges = [wx_iso, wy_iso, view_w - wx_iso, view_h - wy_iso]
+                            max_safe_r = max(110.0 * self.zoom_factor, min(dist_to_edges) - 36.0 * self.zoom_factor)
+                            if r_body > 30.0:
+                                base_arc_radius = r_body + 26.0 * self.zoom_factor
+                            else:
+                                base_arc_radius = 150.0 * self.zoom_factor
+                            if base_arc_radius > max_safe_r:
+                                base_arc_radius = max_safe_r
+                            base_arc_radius = max(base_arc_radius, 100.0 * self.zoom_factor)
+
                             is_vmat = beam.get("is_vmat", False)
                             arc_passes = beam.get("arc_passes", [])
                             if not arc_passes and is_dynamic and abs(g_start - g_stop) > 0.5:
@@ -1433,8 +1470,8 @@ class DicomViewerWidget(QWidget):
                                     p_dir = pass_info.get("dir", rot_dir)
                                     is_ccw = p_dir in ("CC", "CCW", "COUNTER_CLOCKWISE")
 
-                                    # Каскадный радиус для каждой дуги/прохода (предотвращает наложение при нескольких дугах)
-                                    arc_radius = (135.0 + dyn_arc_idx * 28.0) * self.zoom_factor
+                                    # Каскадный радиус для каждой дуги/прохода
+                                    arc_radius = base_arc_radius + dyn_arc_idx * 22.0 * self.zoom_factor
                                     dyn_arc_idx += 1
 
                                     pts_arc = []
@@ -1511,35 +1548,26 @@ class DicomViewerWidget(QWidget):
                                             painter.setPen(Qt.PenStyle.NoPen)
                                             painter.drawPolygon(QPolygonF([a_head, a1, a2]))
 
-                                    # Плашка арки (размещается с угловым смещением при нескольких проходах во избежание наложения)
-                                    if len(arc_passes) > 1:
-                                        frac = 0.28
-                                        badge_idx = max(0, min(len(pts_arc) - 1, int(len(pts_arc) * frac)))
-                                    else:
-                                        badge_idx = mid_idx
-                                    mid_pt = pts_arc[badge_idx] if pts_arc else QPointF(wx_iso, wy_iso + sign_y * arc_radius)
+                                    # Добавляем дугу в очередь отрисовки неперекрывающихся плашек
                                     dir_txt = "CCW" if is_ccw else "CW"
                                     pass_tag = f" P{p_idx+1}" if len(arc_passes) > 1 else ""
-                                    badge_text = f"[{b_num}{pass_tag}] {p_start:.0f}°->{p_stop:.0f}° {dir_txt}".strip()
-                                    
-                                    painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
-                                    m_b = painter.fontMetrics()
-                                    rect_b_txt = m_b.boundingRect(badge_text)
-                                    badge_rect = QRectF(
-                                        mid_pt.x() - rect_b_txt.width() / 2 - 6,
-                                        mid_pt.y() - rect_b_txt.height() / 2 - 3,
-                                        rect_b_txt.width() + 12,
-                                        rect_b_txt.height() + 6
-                                    )
-                                    painter.setPen(QPen(arc_color, 1.2))
-                                    painter.setBrush(QBrush(QColor(15, 23, 42, 230)))
-                                    painter.drawRoundedRect(badge_rect, 4, 4)
-                                    painter.setPen(QColor("#FFFFFF"))
-                                    painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_text)
+                                    line_text = f"[{b_num}{pass_tag}] {p_start:.0f}°->{p_stop:.0f}° {dir_txt}".strip()
+                                    mid_ang = angles[mid_idx] if angles else 0.0
+
+                                    arc_badge_items.append({
+                                        "b_num": b_num,
+                                        "line_text": line_text,
+                                        "color": arc_color,
+                                        "mid_ang": mid_ang,
+                                        "arc_radius": arc_radius,
+                                        "angles": angles,
+                                        "wx_iso": wx_iso,
+                                        "wy_iso": wy_iso
+                                    })
 
                             else:
                                 # 2. Статический пучок (3D-CRT / IMRT) - только центральная ось пучка
-                                ray_len = 160.0 * self.zoom_factor
+                                ray_len = max(160.0 * self.zoom_factor, base_arc_radius)
                                 g_angle = beam.get("gantry_angle", 0.0)
                                 rad = math.radians(g_angle)
                                 sx = math.sin(rad) * sign_x
@@ -1582,6 +1610,87 @@ class DicomViewerWidget(QWidget):
                                 painter.drawRoundedRect(badge_rect, 4, 4)
                                 painter.setPen(QColor("#FFFFFF"))
                                 painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_beam_text)
+
+                    # 3. Отрисовка неперекрывающихся плашек-стеков для VMAT-арок
+                    if arc_badge_items:
+                        painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
+                        fm = painter.fontMetrics()
+
+                        # Группируем соосные или близкие по углу дуги в единый стек
+                        badge_groups = []
+                        for item in arc_badge_items:
+                            placed = False
+                            for g in badge_groups:
+                                ang_diff = abs(item["mid_ang"] - g["mid_ang"])
+                                ang_diff = min(ang_diff, 360.0 - ang_diff)
+                                if ang_diff < 45.0 or (len(item["angles"]) > 80 and len(g["items"][0]["angles"]) > 80):
+                                    g["items"].append(item)
+                                    g["max_radius"] = max(g["max_radius"], item["arc_radius"])
+                                    placed = True
+                                    break
+                            if not placed:
+                                badge_groups.append({
+                                    "mid_ang": item["mid_ang"],
+                                    "max_radius": item["arc_radius"],
+                                    "wx_iso": item["wx_iso"],
+                                    "wy_iso": item["wy_iso"],
+                                    "items": [item]
+                                })
+
+                        for g in badge_groups:
+                            items = g["items"]
+                            line_height = fm.height() + 2
+                            max_w = max(fm.boundingRect(it["line_text"]).width() for it in items)
+                            box_w = max_w + 24
+                            box_h = len(items) * line_height + 8
+                            badge_r = g["max_radius"] + 14.0 * self.zoom_factor
+                            g_wx_iso = g["wx_iso"]
+                            g_wy_iso = g["wy_iso"]
+
+                            ref_angles = items[0]["angles"]
+                            if abs(ref_angles[0] - ref_angles[-1]) < 0.01 or len(ref_angles) > 80:
+                                # Круговая дуга 360°: центрируем сверху (0°, Anterior)
+                                cand_angles = [0.0]
+                            else:
+                                idx_mid = len(ref_angles) // 2
+                                idx_q1 = len(ref_angles) // 4
+                                idx_q3 = (len(ref_angles) * 3) // 4
+                                cand_angles = [ref_angles[idx_mid], ref_angles[idx_q1], ref_angles[idx_q3]]
+
+                            best_pos = None
+                            best_score = -999999.0
+                            for c_ang in cand_angles:
+                                c_rad = math.radians(c_ang)
+                                cx = g_wx_iso + math.sin(c_rad) * sign_x * badge_r
+                                cy = g_wy_iso + math.cos(c_rad) * sign_y * badge_r
+                                margin_x = min(cx - box_w / 2, view_w - (cx + box_w / 2))
+                                margin_y = min(cy - box_h / 2, view_h - (cy + box_h / 2))
+                                score = min(margin_x, margin_y)
+                                if score > best_score:
+                                    best_score = score
+                                    best_pos = (cx, cy)
+
+                            bx, by = best_pos if best_pos else (g_wx_iso, g_wy_iso - badge_r)
+                            bx = max(box_w / 2 + 8, min(view_w - box_w / 2 - 8, bx))
+                            by = max(box_h / 2 + 8, min(view_h - box_h / 2 - 8, by))
+
+                            badge_rect = QRectF(bx - box_w / 2, by - box_h / 2, box_w, box_h)
+
+                            border_col = items[0]["color"] if len(items) == 1 else QColor("#94A3B8")
+                            painter.setPen(QPen(border_col, 1.4))
+                            painter.setBrush(QBrush(QColor(15, 23, 42, 235)))
+                            painter.drawRoundedRect(badge_rect, 5, 5)
+
+                            for row_i, it in enumerate(items):
+                                row_y = badge_rect.top() + 4 + row_i * line_height
+                                ind_rect = QRectF(badge_rect.left() + 6, row_y + 4, 6, line_height - 8)
+                                painter.setPen(Qt.PenStyle.NoPen)
+                                painter.setBrush(QBrush(it["color"]))
+                                painter.drawRoundedRect(ind_rect, 2, 2)
+
+                                txt_rect = QRectF(badge_rect.left() + 16, row_y, box_w - 20, line_height)
+                                painter.setPen(QColor("#FFFFFF"))
+                                painter.drawText(txt_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, it["line_text"])
 
                             # 3. Маркер изоцентра
                             if is_exact_iso_slice:
