@@ -510,8 +510,9 @@ class PolarArcWidget(QWidget):
             return
 
         intervals = self.beam_data.get('intervals', [])
-        r_inner = radius - 40
-        r_outer_base = radius - 4
+        r_inner = radius - 50
+        min_thickness = 10.0
+        max_extra = 42.0
 
         # Draw each interval as a colored ribbon segment
         for item in intervals:
@@ -521,9 +522,10 @@ class PolarArcWidget(QWidget):
             risk = item['risk_level']
             mu_deg = item['mu_per_deg']
 
-            # Height modulation based on MU/deg (clamped)
-            extra_h = min(12.0, max(0.0, (mu_deg - 0.5) * 1.5))
-            r_outer = r_outer_base + extra_h
+            # Dynamic height scaling based on MU/deg (contrast power curve)
+            norm = min(1.0, max(0.0, mu_deg / 16.0))
+            thick = min_thickness + max_extra * (norm ** 0.65)
+            r_outer = r_inner + thick
 
             if risk == 'CRITICAL':
                 color = QColor("#ff453a") # Neon red
@@ -608,7 +610,7 @@ class PolarArcWidget(QWidget):
         dist = math.hypot(dx, dy)
         radius = min(w, h) / 2.0 - 24.0
 
-        if radius - 45 <= dist <= radius + 15:
+        if radius - 55 <= dist <= radius + 20:
             # Calculate angle in math coords
             math_ang = math.degrees(math.atan2(dy, dx)) % 360.0
             # Convert to gantry angle (0=top, CW)
