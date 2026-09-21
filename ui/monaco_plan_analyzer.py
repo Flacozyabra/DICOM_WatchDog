@@ -198,6 +198,8 @@ class PlanKinematicsAnalyzer:
         est_dose_rates = []
 
         prev_gantry_speed = 0.0
+        pass_idx = 0
+        prev_dir = None
 
         for i in range(len(cps) - 1):
             cp_curr = cps[i]
@@ -212,6 +214,21 @@ class PlanKinematicsAnalyzer:
             diff_g = abs(g_next - g_curr)
             if diff_g > 180:
                 diff_g = 360 - diff_g
+
+            # Gantry direction and multi-pass (reversal) detection
+            rot_dir = getattr(cp_curr, 'GantryRotationDirection', '')
+            if not rot_dir or rot_dir == 'NONE':
+                d_raw = (g_next - g_curr) % 360.0
+                if 0.001 < d_raw <= 180.0:
+                    rot_dir = 'CW'
+                elif d_raw > 180.0 and (360.0 - d_raw) > 0.001:
+                    rot_dir = 'CC'
+                else:
+                    rot_dir = prev_dir or 'CW'
+
+            if prev_dir is not None and rot_dir in ('CW', 'CC') and prev_dir in ('CW', 'CC') and rot_dir != prev_dir:
+                pass_idx += 1
+            prev_dir = rot_dir
 
             # MU per degree (meaningful only for active rotational VMAT)
             if is_vmat and diff_g > 0.001:
@@ -337,7 +354,9 @@ class PlanKinematicsAnalyzer:
                 'gantry_speed': gantry_speed,
                 'gantry_accel': gantry_accel,
                 'risk_level': risk_level,
-                'reasons': reasons
+                'reasons': reasons,
+                'pass_idx': pass_idx,
+                'direction': rot_dir
             })
 
         # Overall beam verdict
@@ -364,6 +383,7 @@ class PlanKinematicsAnalyzer:
             'fixed_gantry_angle': fixed_gantry_angle,
             'beam_mode': beam_mode,
             'is_vmat': is_vmat,
+            'num_passes': pass_idx + 1 if is_vmat else 1,
             'jaws_x': jaws_x,
             'jaws_y': jaws_y,
             'intervals': intervals,
@@ -510,7 +530,8 @@ class PolarArcWidget(QWidget):
             return
 
         intervals = self.beam_data.get('intervals', [])
-        r_inner = radius - 55
+        num_passes = self.beam_data.get('num_passes', 1)
+        r_inner_single = radius - 55.0
         min_thickness = 7.0
         max_extra = 57.0
 
@@ -522,16 +543,32 @@ class PolarArcWidget(QWidget):
             g_end = item['gantry_end']
             risk = item['risk_level']
             mu_deg = item['mu_per_deg']
+            p_idx = item.get('pass_idx', 0)
+            rot_dir = item.get('direction', 'CW')
 
             # Dynamic height scaling based on MU/deg (contrast power curve)
             norm = min(1.0, max(0.0, mu_deg / 16.0))
-            thick = min_thickness + max_extra * (norm ** 0.65)
+
+            if num_passes > 1:
+                # Multi-track concentric orbits
+                if p_idx == 0:
+                    # Inner track (Pass 1)
+                    r_inner = radius - 62.0
+                    thick = 4.0 + 22.0 * (norm ** 0.65)
+                else:
+                    # Outer track (Pass 2)
+                    r_inner = radius - 33.0
+                    thick = 4.0 + 22.0 * (norm ** 0.65)
+            else:
+                # Single-track mode
+                r_inner = r_inner_single
+                thick = min_thickness + max_extra * (norm ** 0.65)
 
             is_selected = (idx == self.selected_interval_idx)
             is_hovered = (idx == self.hovered_interval_idx)
 
             if is_selected:
-                thick += 6.0
+                thick += 4.0 if num_passes > 1 else 6.0
             r_outer = r_inner + thick
 
             if risk == 'CRITICAL':
@@ -550,14 +587,13 @@ class PolarArcWidget(QWidget):
             a1 = self._gantry_to_math_angle(g_start)
             a2 = self._gantry_to_math_angle(g_end)
 
-            # Qt drawArc uses angles in 1/16th of a degree, counter-clockwise
-            # Span angle calculation:
             diff = a2 - a1
-            # Ensure shortest directional span
-            if diff > 180:
-                diff -= 360
-            elif diff < -180:
-                diff += 360
+            if rot_dir == 'CW':
+                while diff > 0: diff -= 360
+                while diff < -360: diff += 360
+            else:
+                while diff < 0: diff += 360
+                while diff > 360: diff -= 360
 
             path = QPainterPath()
             path.arcMoveTo(QRectF(center.x() - r_outer, center.y() - r_outer, 2 * r_outer, 2 * r_outer), a1)
@@ -572,6 +608,13 @@ class PolarArcWidget(QWidget):
             else:
                 painter.setPen(QPen(QColor("#161616"), 0.5))
             painter.drawPath(path)
+
+        # Track separator dashed line if multi-track
+        if num_passes > 1:
+            sep_r = radius - 34.5
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(QColor("#3a3a3c"), 1, Qt.PenStyle.DashLine))
+            painter.drawEllipse(center, sep_r, sep_r)
 
         # Draw selected sector on top so white contour is crisp and unclipped
         if selected_to_draw_on_top:
@@ -646,11 +689,15 @@ class PolarArcWidget(QWidget):
             text_rect = QRectF(start_x + 13.0, badge_rect.top(), text_w + 4.0, badge_h)
             painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, badge_text)
 
-            # CP Sector Title
+            # CP Sector Title with Pass info if multi-track
+            p_idx = cp.get('pass_idx', 0)
+            rot_dir = cp.get('direction', 'CW')
+            dir_sym = '↻ CW' if rot_dir == 'CW' else '↺ CCW'
+            title_txt = f"CP {cp['index']:02d} → {cp['index']+1:02d} (П{p_idx+1}: {dir_sym})" if num_passes > 1 else f"Сектор CP {cp['index']:02d} → {cp['index']+1:02d}"
+
             painter.setFont(QFont('Segoe UI', 9, QFont.Weight.Bold))
             painter.setPen(QPen(QColor('#ffffff')))
-            painter.drawText(QRectF(center.x() - 90, center.y() - 42, 180, 18), Qt.AlignmentFlag.AlignCenter,
-                             f"Сектор CP {cp['index']:02d} → {cp['index']+1:02d}")
+            painter.drawText(QRectF(center.x() - 100, center.y() - 42, 200, 18), Qt.AlignmentFlag.AlignCenter, title_txt)
 
             # Gantry angle
             painter.setFont(QFont('Segoe UI', 8))
@@ -740,24 +787,39 @@ class PolarArcWidget(QWidget):
         dist = math.hypot(dx, dy)
         radius = min(w, h) / 2.0 - 24.0
 
-        if radius - 60 <= dist <= radius + 25:
+        if radius - 68 <= dist <= radius + 25:
             # Calculate angle in math coords
             math_ang = math.degrees(math.atan2(dy, dx)) % 360.0
             # Convert to gantry angle (0=top, CW)
             gantry_ang = (90.0 - math_ang) % 360.0
 
+            num_passes = self.beam_data.get('num_passes', 1)
+            target_pass = 0
+            if num_passes > 1:
+                r_split = radius - 34.0
+                target_pass = 0 if dist < r_split else 1
+
             # Find matching interval
             matched_idx = None
             intervals = self.beam_data.get('intervals', [])
             for item in intervals:
+                if num_passes > 1 and item.get('pass_idx', 0) != target_pass:
+                    continue
                 g1 = item['gantry_start']
                 g2 = item['gantry_end']
-                # Check if angle lies in [g1, g2] taking wrap into account
-                diff = (g2 - g1) % 360.0
-                rel = (gantry_ang - g1) % 360.0
-                if rel <= diff:
-                    matched_idx = item['index']
-                    break
+                rot = item.get('direction', 'CW')
+                if rot == 'CW':
+                    diff = (g2 - g1) % 360.0
+                    rel = (gantry_ang - g1) % 360.0
+                    if rel <= diff:
+                        matched_idx = item['index']
+                        break
+                else: # CC
+                    diff = (g1 - g2) % 360.0
+                    rel = (g1 - gantry_ang) % 360.0
+                    if rel <= diff:
+                        matched_idx = item['index']
+                        break
 
             if matched_idx != self.hovered_interval_idx:
                 self.hovered_interval_idx = matched_idx
@@ -1172,6 +1234,13 @@ class MonacoPlanAnalyzerDialog(QDialog):
         leg_l.addLayout(make_leg_row("#30d158", "Безопасный отпуск (стабильная мощность и скорость)"))
         leg_l.addLayout(make_leg_row("#ffd60a", "Повышенная сложность (замедление гентри / перепад плотности дозы)"))
         leg_l.addLayout(make_leg_row("#ff453a", "КРИТИЧЕСКИЙ РИСК СБОЯ 'DOSE RATE MON' (< 45 MU/мин или перепад > 10×)"))
+
+        self.multitrack_leg_label = QLabel(legend_box)
+        self.multitrack_leg_label.setStyleSheet("font-size: 10px; color: #38bdf8; font-weight: 600; margin-top: 3px;")
+        self.multitrack_leg_label.setText("Двойная дуга: Внутренний трек — Проход 1 (↻ CW) | Внешний трек — Проход 2 (↺ CCW)")
+        self.multitrack_leg_label.hide()
+        leg_l.addWidget(self.multitrack_leg_label)
+
         left_layout.addWidget(legend_box)
 
         body_splitter.addWidget(left_panel)
@@ -1355,6 +1424,11 @@ class MonacoPlanAnalyzerDialog(QDialog):
         b = self.analyzer.beams[index]
         self.polar_widget.set_beam_data(b)
         self.graph_widget.set_beam_data(b)
+
+        if b.get('num_passes', 1) > 1:
+            self.multitrack_leg_label.show()
+        else:
+            self.multitrack_leg_label.hide()
 
         # Update Verdict Card
         verdict = b['verdict']
@@ -1575,8 +1649,14 @@ class MonacoPlanAnalyzerDialog(QDialog):
         dr = cp_info['est_dose_rate']
         mpd = cp_info['mu_per_deg']
         is_vmat = (cp_info.get('delta_gantry', 0.0) > 0.001)
+        num_passes = self.polar_widget.beam_data.get('num_passes', 1) if self.polar_widget.beam_data else 1
+        p_idx = cp_info.get('pass_idx', 0)
+        rot_dir = cp_info.get('direction', 'CW')
+        dir_sym = '↻ CW' if rot_dir == 'CW' else '↺ CCW'
+        pass_tag = f" [Проход {p_idx+1}: {dir_sym}]" if num_passes > 1 else ""
+
         if is_vmat:
-            msg = f"CP {cp_info['index']:02d}: Гентри {cp_info['gantry_start']:.1f}° → {cp_info['gantry_end']:.1f}° | ΔMU: {cp_info['delta_mu']:.2f} | MU/deg: {mpd:.2f} | Мощность: {dr:.0f} MU/мин"
+            msg = f"CP {cp_info['index']:02d}{pass_tag}: Гентри {cp_info['gantry_start']:.1f}° → {cp_info['gantry_end']:.1f}° | ΔMU: {cp_info['delta_mu']:.2f} | MU/deg: {mpd:.2f} | Мощность: {dr:.0f} MU/мин"
         else:
             msg = f"CP {cp_info['index']:02d}: Гентри {cp_info['gantry_start']:.1f}° (статика) | ΔMU: {cp_info['delta_mu']:.2f} | Мощность: {dr:.0f} MU/мин"
         if cp_info['reasons']:
