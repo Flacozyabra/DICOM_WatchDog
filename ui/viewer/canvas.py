@@ -1352,6 +1352,13 @@ class DicomViewerWidget(QWidget):
 
                     beams = self.plan_data.get("beams", [])
                     
+                    # Учет положения пациента на столе для корректной проекции углов гентри на 2D-срез
+                    patient_pos = str(self.plan_data.get("patient_position") or getattr(self.current_dataset, "PatientPosition", "HFS") or "HFS").upper()
+                    is_ff = "FF" in patient_pos
+                    is_prone = "P" in patient_pos
+                    sign_x = -1.0 if (is_ff ^ is_prone) else 1.0
+                    sign_y = 1.0 if is_prone else -1.0
+
                     # 1. Отслеживаем индекс динамических дуг для каскадных радиусов
                     dyn_arc_idx = 0
 
@@ -1450,7 +1457,7 @@ class DicomViewerWidget(QWidget):
 
                                     for ang in angles:
                                         rad_a = math.radians(ang)
-                                        pts_arc.append(QPointF(wx_iso + math.sin(rad_a) * arc_radius, wy_iso - math.cos(rad_a) * arc_radius))
+                                        pts_arc.append(QPointF(wx_iso + math.sin(rad_a) * sign_x * arc_radius, wy_iso + math.cos(rad_a) * sign_y * arc_radius))
 
                                     arc_color = QColor("#06B6D4") if is_ccw else QColor("#F59E0B")
                                     arc_fill = QColor(6, 182, 212, 22) if is_ccw else QColor(245, 158, 11, 22)
@@ -1462,11 +1469,11 @@ class DicomViewerWidget(QWidget):
                                         r_out = arc_radius + 8.0 * self.zoom_factor
                                         for ang in angles:
                                             rad_a = math.radians(ang)
-                                            pts_inner.append(QPointF(wx_iso + math.sin(rad_a) * r_in, wy_iso - math.cos(rad_a) * r_in))
+                                            pts_inner.append(QPointF(wx_iso + math.sin(rad_a) * sign_x * r_in, wy_iso + math.cos(rad_a) * sign_y * r_in))
                                         pts_outer = []
                                         for ang in reversed(angles):
                                             rad_a = math.radians(ang)
-                                            pts_outer.append(QPointF(wx_iso + math.sin(rad_a) * r_out, wy_iso - math.cos(rad_a) * r_out))
+                                            pts_outer.append(QPointF(wx_iso + math.sin(rad_a) * sign_x * r_out, wy_iso + math.cos(rad_a) * sign_y * r_out))
                                         
                                         painter.setPen(Qt.PenStyle.NoPen)
                                         painter.setBrush(QBrush(arc_fill))
@@ -1510,7 +1517,7 @@ class DicomViewerWidget(QWidget):
                                         badge_idx = max(0, min(len(pts_arc) - 1, int(len(pts_arc) * frac)))
                                     else:
                                         badge_idx = mid_idx
-                                    mid_pt = pts_arc[badge_idx] if pts_arc else QPointF(wx_iso, wy_iso - arc_radius)
+                                    mid_pt = pts_arc[badge_idx] if pts_arc else QPointF(wx_iso, wy_iso + sign_y * arc_radius)
                                     dir_txt = "CCW" if is_ccw else "CW"
                                     pass_tag = f" P{p_idx+1}" if len(arc_passes) > 1 else ""
                                     badge_text = f"[{b_num}{pass_tag}] {p_start:.0f}°->{p_stop:.0f}° {dir_txt}".strip()
@@ -1535,8 +1542,8 @@ class DicomViewerWidget(QWidget):
                                 ray_len = 160.0 * self.zoom_factor
                                 g_angle = beam.get("gantry_angle", 0.0)
                                 rad = math.radians(g_angle)
-                                sx = math.sin(rad)
-                                sy = -math.cos(rad)
+                                sx = math.sin(rad) * sign_x
+                                sy = math.cos(rad) * sign_y
 
                                 wx_src = wx_iso + sx * ray_len
                                 wy_src = wy_iso + sy * ray_len
