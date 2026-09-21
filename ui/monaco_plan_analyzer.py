@@ -12,7 +12,7 @@ import sys
 import math
 from typing import Optional, Dict, Any, List
 
-from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal
+from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QTimer
 from PyQt6.QtGui import (
     QPainter, QPen, QBrush, QColor, QFont, QPolygonF,
     QPainterPath, QLinearGradient, QRadialGradient, QIcon
@@ -1043,7 +1043,7 @@ class MonacoPlanAnalyzerDialog(QDialog):
             | Qt.WindowType.WindowMaximizeButtonHint
             | Qt.WindowType.WindowMinimizeButtonHint
         )
-        self.setWindowState(Qt.WindowState.WindowMaximized)
+        self._already_maximized = False
         self.setStyleSheet("""
             QDialog {
                 background-color: #141414;
@@ -1131,6 +1131,12 @@ class MonacoPlanAnalyzerDialog(QDialog):
 
         apply_dark_title_bar(self)
         self._init_ui()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not getattr(self, '_already_maximized', False):
+            self._already_maximized = True
+            QTimer.singleShot(0, self.showMaximized)
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -1242,6 +1248,7 @@ class MonacoPlanAnalyzerDialog(QDialog):
             dot = QLabel("●")
             dot.setStyleSheet(f"color: {color_hex}; font-size: 12px;")
             lbl = QLabel(text)
+            lbl.setWordWrap(True)
             lbl.setStyleSheet("font-size: 10px; color: #6b7280;")
             row.addWidget(dot)
             row.addWidget(lbl, 1)
@@ -1554,6 +1561,7 @@ class MonacoPlanAnalyzerDialog(QDialog):
             title = QLabel("🟢 ПЛАН БЕЗОПАСЕН ДЛЯ ОТПУСКА", self.verdict_card)
             title.setStyleSheet("font-size: 13px; font-weight: bold; color: #86efac;")
             desc = QLabel("Все параметры мощности дозы, скорости вращения гентри и движения лепестков укладываются в штатные лимиты Elekta.", self.verdict_card)
+            desc.setWordWrap(True)
             desc.setStyleSheet("font-size: 12px; color: #dcfce7;")
             self.verdict_layout.addWidget(title)
             self.verdict_layout.addWidget(desc)
