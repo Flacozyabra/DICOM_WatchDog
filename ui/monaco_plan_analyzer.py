@@ -293,10 +293,10 @@ class PlanKinematicsAnalyzer:
                         prev_mpd = mu_per_deg_list[-2]
                         if prev_mpd > 0.01 and mu_per_deg > 0.01:
                             factor = max(mu_per_deg, prev_mpd) / min(mu_per_deg, prev_mpd)
-                            if factor > 10.0 and (mu_per_deg > 14.0 or prev_mpd > 14.0):
+                            if factor >= 10.0:
                                 reasons.append(f"Экстремальный перепад плотности дозы в {factor:.1f}× ({prev_mpd:.2f} → {mu_per_deg:.2f} MU/deg)")
                                 risk_level = 'CRITICAL'
-                            elif factor > 8.0 and (mu_per_deg > 10.0 or prev_mpd > 10.0):
+                            elif factor >= 8.0:
                                 reasons.append(f"Резкий перепад плотности дозы в {factor:.1f}× ({prev_mpd:.2f} → {mu_per_deg:.2f} MU/deg)")
                                 if risk_level != 'CRITICAL':
                                     risk_level = 'WARNING'
@@ -610,25 +610,41 @@ class PolarArcWidget(QWidget):
             if risk == 'CRITICAL':
                 badge_bg = QColor(239, 68, 68, 40)
                 badge_border = QColor('#ef4444')
-                badge_text = '🔴 КРИТИЧЕСКИЙ РИСК'
+                badge_text = 'КРИТИЧЕСКИЙ РИСК'
             elif risk == 'WARNING':
                 badge_bg = QColor(245, 158, 11, 40)
                 badge_border = QColor('#f59e0b')
-                badge_text = '🟡 ПОВЫШЕННАЯ СЛОЖНОСТЬ'
+                badge_text = 'ПОВЫШЕННАЯ СЛОЖНОСТЬ'
             else:
                 badge_bg = QColor(34, 197, 94, 40)
                 badge_border = QColor('#22c55e')
-                badge_text = '🟢 ПАРАМЕТРЫ В НОРМЕ'
+                badge_text = 'ПАРАМЕТРЫ В НОРМЕ'
 
-            # Draw Badge
-            badge_w, badge_h = 160, 20
+            # Draw Badge with dynamic width and crisp vector dot
+            badge_font = QFont('Segoe UI', 8, QFont.Weight.Bold)
+            painter.setFont(badge_font)
+            fm = painter.fontMetrics()
+            text_w = fm.horizontalAdvance(badge_text)
+            content_w = 7.0 + 6.0 + text_w # 7px dot + 6px gap + text
+            badge_w = content_w + 18.0
+            badge_h = 20.0
             badge_rect = QRectF(center.x() - badge_w / 2.0, center.y() - 66, badge_w, badge_h)
+
             painter.setBrush(QBrush(badge_bg))
             painter.setPen(QPen(badge_border, 1.0))
             painter.drawRoundedRect(badge_rect, 4, 4)
-            painter.setFont(QFont('Segoe UI', 8, QFont.Weight.Bold))
+
+            # Vector status dot inside badge
+            start_x = center.x() - content_w / 2.0
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(badge_border))
+            painter.drawEllipse(QPointF(start_x + 3.5, badge_rect.center().y()), 3.5, 3.5)
+
+            # Badge text
+            painter.setFont(badge_font)
             painter.setPen(QPen(badge_border))
-            painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_text)
+            text_rect = QRectF(start_x + 13.0, badge_rect.top(), text_w + 4.0, badge_h)
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, badge_text)
 
             # CP Sector Title
             painter.setFont(QFont('Segoe UI', 9, QFont.Weight.Bold))
@@ -678,7 +694,7 @@ class PolarArcWidget(QWidget):
 
             # 3. Delta jump status
             if active_idx > 0:
-                if factor >= 10.0 and (mpd > 14.0 or prev_mpd > 14.0):
+                if factor >= 10.0:
                     jump_col, jump_st = QColor('#ef4444'), 'Шок'
                 elif factor >= 8.0:
                     jump_col, jump_st = QColor('#f59e0b'), 'Перепад'
