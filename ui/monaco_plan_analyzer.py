@@ -296,7 +296,7 @@ class PlanKinematicsAnalyzer:
                             if factor > 10.0 and (mu_per_deg > 14.0 or prev_mpd > 14.0):
                                 reasons.append(f"Экстремальный перепад модуляции в {factor:.1f}× ({prev_mpd:.2f} → {mu_per_deg:.2f} MU/deg)")
                                 risk_level = 'CRITICAL'
-                            elif factor > 6.0 and (mu_per_deg > 10.0 or prev_mpd > 10.0):
+                            elif factor > 8.0 and (mu_per_deg > 10.0 or prev_mpd > 10.0):
                                 reasons.append(f"Резкий перепад модуляции в {factor:.1f}× ({prev_mpd:.2f} → {mu_per_deg:.2f} MU/deg)")
                                 if risk_level != 'CRITICAL':
                                     risk_level = 'WARNING'
@@ -510,9 +510,9 @@ class PolarArcWidget(QWidget):
             return
 
         intervals = self.beam_data.get('intervals', [])
-        r_inner = radius - 50
-        min_thickness = 10.0
-        max_extra = 42.0
+        r_inner = radius - 55
+        min_thickness = 7.0
+        max_extra = 57.0
 
         # Draw each interval as a colored ribbon segment
         for item in intervals:
@@ -568,27 +568,53 @@ class PolarArcWidget(QWidget):
         # Center orientation and info
         painter.setBrush(QBrush(QColor("#1f1f21")))
         painter.setPen(QPen(QColor("#3a3a3c"), 1.5))
-        center_r = radius - 60
+        center_r = radius - 68
         painter.drawEllipse(center, center_r, center_r)
 
         # Center text: summary or hovered CP info
         painter.setPen(QPen(QColor("#ffffff")))
         if self.hovered_interval_idx is not None and 0 <= self.hovered_interval_idx < len(intervals):
             cp_info = intervals[self.hovered_interval_idx]
+            hov_idx = self.hovered_interval_idx
             painter.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-            painter.drawText(QRectF(center.x() - 70, center.y() - 32, 140, 20), Qt.AlignmentFlag.AlignCenter,
+            painter.drawText(QRectF(center.x() - 85, center.y() - 40, 170, 18), Qt.AlignmentFlag.AlignCenter,
                              f"CP {cp_info['index']:02d} → {cp_info['index']+1:02d}")
             painter.setFont(QFont("Segoe UI", 8))
             painter.setPen(QPen(QColor("#b0b0b5")))
-            painter.drawText(QRectF(center.x() - 70, center.y() - 14, 140, 18), Qt.AlignmentFlag.AlignCenter,
+            painter.drawText(QRectF(center.x() - 85, center.y() - 22, 170, 16), Qt.AlignmentFlag.AlignCenter,
                              f"{cp_info['gantry_start']:.1f}° → {cp_info['gantry_end']:.1f}°")
+            painter.setFont(QFont("Segoe UI", 8, QFont.Weight.DemiBold))
             painter.setPen(QPen(QColor("#38bdf8")))
-            painter.drawText(QRectF(center.x() - 70, center.y() + 4, 140, 18), Qt.AlignmentFlag.AlignCenter,
-                             f"{cp_info['mu_per_deg']:.2f} MU/deg")
+            painter.drawText(QRectF(center.x() - 85, center.y() - 5, 170, 16), Qt.AlignmentFlag.AlignCenter,
+                             f"Плотность: {cp_info['mu_per_deg']:.2f} MU/deg")
+
+            # Modulation jump (delta) line
+            if hov_idx > 0:
+                prev_mpd = intervals[hov_idx - 1]['mu_per_deg']
+                delta_mpd = cp_info['mu_per_deg'] - prev_mpd
+                if min(cp_info['mu_per_deg'], prev_mpd) > 0.01:
+                    factor = max(cp_info['mu_per_deg'], prev_mpd) / min(cp_info['mu_per_deg'], prev_mpd)
+                else:
+                    factor = 1.0
+                d_sign = "+" if delta_mpd >= 0 else ""
+                if factor >= 10.0:
+                    jump_col = QColor("#ff453a")
+                elif factor >= 8.0:
+                    jump_col = QColor("#ffd60a")
+                else:
+                    jump_col = QColor("#9ca3af")
+                painter.setPen(QPen(jump_col))
+                painter.drawText(QRectF(center.x() - 85, center.y() + 13, 170, 16), Qt.AlignmentFlag.AlignCenter,
+                                 f"Перепад: {factor:.1f}× ({d_sign}{delta_mpd:.2f})")
+            else:
+                painter.setPen(QPen(QColor("#9ca3af")))
+                painter.drawText(QRectF(center.x() - 85, center.y() + 13, 170, 16), Qt.AlignmentFlag.AlignCenter,
+                                 "Перепад: — (старт)")
+
             dr_color = QColor("#ff453a") if cp_info['est_dose_rate'] < 50 else QColor("#30d158")
             painter.setPen(QPen(dr_color))
-            painter.drawText(QRectF(center.x() - 70, center.y() + 20, 140, 18), Qt.AlignmentFlag.AlignCenter,
-                             f"~{cp_info['est_dose_rate']:.0f} MU/мин")
+            painter.drawText(QRectF(center.x() - 85, center.y() + 31, 170, 16), Qt.AlignmentFlag.AlignCenter,
+                             f"Мощность: ~{cp_info['est_dose_rate']:.0f} MU/мин")
         else:
             painter.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
             painter.drawText(QRectF(center.x() - 70, center.y() - 20, 140, 20), Qt.AlignmentFlag.AlignCenter, "VMAT ARC")
@@ -610,7 +636,7 @@ class PolarArcWidget(QWidget):
         dist = math.hypot(dx, dy)
         radius = min(w, h) / 2.0 - 24.0
 
-        if radius - 55 <= dist <= radius + 20:
+        if radius - 60 <= dist <= radius + 25:
             # Calculate angle in math coords
             math_ang = math.degrees(math.atan2(dy, dx)) % 360.0
             # Convert to gantry angle (0=top, CW)
