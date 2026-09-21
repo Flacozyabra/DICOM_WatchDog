@@ -369,6 +369,19 @@ class PlanKinematicsAnalyzer:
         else:
             verdict = 'OK'
 
+        # Collect summary per pass
+        passes_info = []
+        if is_vmat and intervals:
+            for p_i in range(pass_idx + 1):
+                p_items = [it for it in intervals if it.get('pass_idx') == p_i]
+                if p_items:
+                    passes_info.append({
+                        'pass_idx': p_i,
+                        'start_angle': p_items[0]['gantry_start'],
+                        'end_angle': p_items[-1]['gantry_end'],
+                        'direction': p_items[0].get('direction', 'CW')
+                    })
+
         return {
             'beam_number': b_num,
             'beam_name': b_name,
@@ -384,6 +397,7 @@ class PlanKinematicsAnalyzer:
             'beam_mode': beam_mode,
             'is_vmat': is_vmat,
             'num_passes': pass_idx + 1 if is_vmat else 1,
+            'passes_info': passes_info,
             'jaws_x': jaws_x,
             'jaws_y': jaws_y,
             'intervals': intervals,
@@ -550,15 +564,15 @@ class PolarArcWidget(QWidget):
             norm = min(1.0, max(0.0, mu_deg / 16.0))
 
             if num_passes > 1:
-                # Multi-track concentric orbits
+                # Multi-track concentric orbits (expanded dynamic range: 3.5px to 36.5px)
                 if p_idx == 0:
                     # Inner track (Pass 1)
-                    r_inner = radius - 62.0
-                    thick = 4.0 + 22.0 * (norm ** 0.65)
+                    r_inner = radius - 76.0
+                    thick = 3.5 + 33.0 * (norm ** 0.58)
                 else:
                     # Outer track (Pass 2)
-                    r_inner = radius - 33.0
-                    thick = 4.0 + 22.0 * (norm ** 0.65)
+                    r_inner = radius - 37.0
+                    thick = 3.5 + 33.0 * (norm ** 0.58)
             else:
                 # Single-track mode
                 r_inner = r_inner_single
@@ -611,7 +625,7 @@ class PolarArcWidget(QWidget):
 
         # Track separator dashed line if multi-track
         if num_passes > 1:
-            sep_r = radius - 34.5
+            sep_r = radius - 38.5
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setPen(QPen(QColor("#3a3a3c"), 1, Qt.PenStyle.DashLine))
             painter.drawEllipse(center, sep_r, sep_r)
@@ -626,7 +640,7 @@ class PolarArcWidget(QWidget):
         # Center orientation and info
         painter.setBrush(QBrush(QColor("#1f1f21")))
         painter.setPen(QPen(QColor("#3a3a3c"), 1.5))
-        center_r = radius - 68
+        center_r = (radius - 78.0) if num_passes > 1 else (radius - 68.0)
         painter.drawEllipse(center, center_r, center_r)
 
         active_idx = self.hovered_interval_idx if self.hovered_interval_idx is not None else self.selected_interval_idx
@@ -787,16 +801,18 @@ class PolarArcWidget(QWidget):
         dist = math.hypot(dx, dy)
         radius = min(w, h) / 2.0 - 24.0
 
-        if radius - 68 <= dist <= radius + 25:
+        num_passes = self.beam_data.get('num_passes', 1)
+        min_r = (radius - 78.0) if num_passes > 1 else (radius - 68.0)
+
+        if min_r <= dist <= radius + 25:
             # Calculate angle in math coords
             math_ang = math.degrees(math.atan2(dy, dx)) % 360.0
             # Convert to gantry angle (0=top, CW)
             gantry_ang = (90.0 - math_ang) % 360.0
 
-            num_passes = self.beam_data.get('num_passes', 1)
             target_pass = 0
             if num_passes > 1:
-                r_split = radius - 34.0
+                r_split = radius - 38.0
                 target_pass = 0 if dist < r_split else 1
 
             # Find matching interval
@@ -1425,7 +1441,15 @@ class MonacoPlanAnalyzerDialog(QDialog):
         self.polar_widget.set_beam_data(b)
         self.graph_widget.set_beam_data(b)
 
-        if b.get('num_passes', 1) > 1:
+        passes_info = b.get('passes_info', [])
+        if b.get('num_passes', 1) > 1 and len(passes_info) >= 2:
+            p1 = passes_info[0]
+            p2 = passes_info[1]
+            d1_sym = '↻ CW' if p1.get('direction', 'CW') == 'CW' else '↺ CCW'
+            d2_sym = '↻ CW' if p2.get('direction', 'CW') == 'CW' else '↺ CCW'
+            txt = (f"Двойная дуга: Внутренний трек — Проход 1 ({p1['start_angle']:.1f}° → {p1['end_angle']:.1f}°, {d1_sym}) | "
+                   f"Внешний трек — Проход 2 ({p2['start_angle']:.1f}° → {p2['end_angle']:.1f}°, {d2_sym})")
+            self.multitrack_leg_label.setText(txt)
             self.multitrack_leg_label.show()
         else:
             self.multitrack_leg_label.hide()
