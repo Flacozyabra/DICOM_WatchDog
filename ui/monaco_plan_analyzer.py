@@ -294,10 +294,10 @@ class PlanKinematicsAnalyzer:
                         if prev_mpd > 0.01 and mu_per_deg > 0.01:
                             factor = max(mu_per_deg, prev_mpd) / min(mu_per_deg, prev_mpd)
                             if factor > 10.0 and (mu_per_deg > 14.0 or prev_mpd > 14.0):
-                                reasons.append(f"Экстремальный перепад модуляции в {factor:.1f}× ({prev_mpd:.2f} → {mu_per_deg:.2f} MU/deg)")
+                                reasons.append(f"Экстремальный перепад плотности дозы в {factor:.1f}× ({prev_mpd:.2f} → {mu_per_deg:.2f} MU/deg)")
                                 risk_level = 'CRITICAL'
                             elif factor > 8.0 and (mu_per_deg > 10.0 or prev_mpd > 10.0):
-                                reasons.append(f"Резкий перепад модуляции в {factor:.1f}× ({prev_mpd:.2f} → {mu_per_deg:.2f} MU/deg)")
+                                reasons.append(f"Резкий перепад плотности дозы в {factor:.1f}× ({prev_mpd:.2f} → {mu_per_deg:.2f} MU/deg)")
                                 if risk_level != 'CRITICAL':
                                     risk_level = 'WARNING'
 
@@ -515,6 +515,7 @@ class PolarArcWidget(QWidget):
         max_extra = 57.0
 
         # Draw each interval as a colored ribbon segment
+        selected_to_draw_on_top = None
         for item in intervals:
             idx = item['index']
             g_start = item['gantry_start']
@@ -525,6 +526,12 @@ class PolarArcWidget(QWidget):
             # Dynamic height scaling based on MU/deg (contrast power curve)
             norm = min(1.0, max(0.0, mu_deg / 16.0))
             thick = min_thickness + max_extra * (norm ** 0.65)
+
+            is_selected = (idx == self.selected_interval_idx)
+            is_hovered = (idx == self.hovered_interval_idx)
+
+            if is_selected:
+                thick += 6.0
             r_outer = r_inner + thick
 
             if risk == 'CRITICAL':
@@ -534,11 +541,8 @@ class PolarArcWidget(QWidget):
             else:
                 color = QColor("#30d158") # Neon green
 
-            is_selected = (idx == self.selected_interval_idx)
-            is_hovered = (idx == self.hovered_interval_idx)
-
             if is_selected:
-                color = QColor("#ffffff")
+                color = color.lighter(115)
             elif is_hovered:
                 color = color.lighter(130)
 
@@ -562,8 +566,19 @@ class PolarArcWidget(QWidget):
             path.closeSubpath()
 
             painter.setBrush(QBrush(color))
-            painter.setPen(QPen(QColor("#161616"), 0.5))
+            if is_selected:
+                painter.setPen(QPen(QColor("#ffffff"), 2.0))
+                selected_to_draw_on_top = (path, color)
+            else:
+                painter.setPen(QPen(QColor("#161616"), 0.5))
             painter.drawPath(path)
+
+        # Draw selected sector on top so white contour is crisp and unclipped
+        if selected_to_draw_on_top:
+            sel_path, sel_color = selected_to_draw_on_top
+            painter.setBrush(QBrush(sel_color))
+            painter.setPen(QPen(QColor("#ffffff"), 2.0))
+            painter.drawPath(sel_path)
 
         # Center orientation and info
         painter.setBrush(QBrush(QColor("#1f1f21")))
@@ -571,58 +586,131 @@ class PolarArcWidget(QWidget):
         center_r = radius - 68
         painter.drawEllipse(center, center_r, center_r)
 
-        # Center text: summary or hovered CP info
-        painter.setPen(QPen(QColor("#ffffff")))
-        if self.hovered_interval_idx is not None and 0 <= self.hovered_interval_idx < len(intervals):
-            cp_info = intervals[self.hovered_interval_idx]
-            hov_idx = self.hovered_interval_idx
-            painter.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-            painter.drawText(QRectF(center.x() - 85, center.y() - 40, 170, 18), Qt.AlignmentFlag.AlignCenter,
-                             f"CP {cp_info['index']:02d} → {cp_info['index']+1:02d}")
-            painter.setFont(QFont("Segoe UI", 8))
-            painter.setPen(QPen(QColor("#b0b0b5")))
-            painter.drawText(QRectF(center.x() - 85, center.y() - 22, 170, 16), Qt.AlignmentFlag.AlignCenter,
-                             f"{cp_info['gantry_start']:.1f}° → {cp_info['gantry_end']:.1f}°")
-            painter.setFont(QFont("Segoe UI", 8, QFont.Weight.DemiBold))
-            painter.setPen(QPen(QColor("#38bdf8")))
-            painter.drawText(QRectF(center.x() - 85, center.y() - 5, 170, 16), Qt.AlignmentFlag.AlignCenter,
-                             f"Плотность: {cp_info['mu_per_deg']:.2f} MU/deg")
+        active_idx = self.hovered_interval_idx if self.hovered_interval_idx is not None else self.selected_interval_idx
 
-            # Modulation jump (delta) line
-            if hov_idx > 0:
-                prev_mpd = intervals[hov_idx - 1]['mu_per_deg']
-                delta_mpd = cp_info['mu_per_deg'] - prev_mpd
-                if min(cp_info['mu_per_deg'], prev_mpd) > 0.01:
-                    factor = max(cp_info['mu_per_deg'], prev_mpd) / min(cp_info['mu_per_deg'], prev_mpd)
-                else:
-                    factor = 1.0
-                d_sign = "+" if delta_mpd >= 0 else ""
-                if factor >= 10.0:
-                    jump_col = QColor("#ff453a")
-                elif factor >= 8.0:
-                    jump_col = QColor("#ffd60a")
-                else:
-                    jump_col = QColor("#9ca3af")
-                painter.setPen(QPen(jump_col))
-                painter.drawText(QRectF(center.x() - 85, center.y() + 13, 170, 16), Qt.AlignmentFlag.AlignCenter,
-                                 f"Перепад: {factor:.1f}× ({d_sign}{delta_mpd:.2f})")
+        if active_idx is not None and 0 <= active_idx < len(intervals):
+            cp = intervals[active_idx]
+            risk = cp['risk_level']
+            mpd = cp['mu_per_deg']
+            dr = cp['est_dose_rate']
+            step_time = cp.get('est_step_time_s', 1.0)
+            leaf_disp = cp.get('max_leaf_disp_mm', 0.0)
+            leaf_spd = leaf_disp / step_time if step_time > 0.01 else 0.0
+
+            # Dose density jump (delta)
+            if active_idx > 0:
+                prev_mpd = intervals[active_idx - 1]['mu_per_deg']
+                delta_mpd = mpd - prev_mpd
+                factor = max(mpd, prev_mpd) / max(0.01, min(mpd, prev_mpd)) if min(mpd, prev_mpd) > 0.01 else 1.0
             else:
-                painter.setPen(QPen(QColor("#9ca3af")))
-                painter.drawText(QRectF(center.x() - 85, center.y() + 13, 170, 16), Qt.AlignmentFlag.AlignCenter,
-                                 "Перепад: — (старт)")
+                delta_mpd = 0.0
+                factor = 1.0
 
-            dr_color = QColor("#ff453a") if cp_info['est_dose_rate'] < 50 else QColor("#30d158")
-            painter.setPen(QPen(dr_color))
-            painter.drawText(QRectF(center.x() - 85, center.y() + 31, 170, 16), Qt.AlignmentFlag.AlignCenter,
-                             f"Мощность: ~{cp_info['est_dose_rate']:.0f} MU/мин")
+            # Status badge
+            if risk == 'CRITICAL':
+                badge_bg = QColor(239, 68, 68, 40)
+                badge_border = QColor('#ef4444')
+                badge_text = '🔴 КРИТИЧЕСКИЙ РИСК'
+            elif risk == 'WARNING':
+                badge_bg = QColor(245, 158, 11, 40)
+                badge_border = QColor('#f59e0b')
+                badge_text = '🟡 ПОВЫШЕННАЯ СЛОЖНОСТЬ'
+            else:
+                badge_bg = QColor(34, 197, 94, 40)
+                badge_border = QColor('#22c55e')
+                badge_text = '🟢 ПАРАМЕТРЫ В НОРМЕ'
+
+            # Draw Badge
+            badge_w, badge_h = 160, 20
+            badge_rect = QRectF(center.x() - badge_w / 2.0, center.y() - 66, badge_w, badge_h)
+            painter.setBrush(QBrush(badge_bg))
+            painter.setPen(QPen(badge_border, 1.0))
+            painter.drawRoundedRect(badge_rect, 4, 4)
+            painter.setFont(QFont('Segoe UI', 8, QFont.Weight.Bold))
+            painter.setPen(QPen(badge_border))
+            painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_text)
+
+            # CP Sector Title
+            painter.setFont(QFont('Segoe UI', 9, QFont.Weight.Bold))
+            painter.setPen(QPen(QColor('#ffffff')))
+            painter.drawText(QRectF(center.x() - 90, center.y() - 42, 180, 18), Qt.AlignmentFlag.AlignCenter,
+                             f"Сектор CP {cp['index']:02d} → {cp['index']+1:02d}")
+
+            # Gantry angle
+            painter.setFont(QFont('Segoe UI', 8))
+            painter.setPen(QPen(QColor('#a1a1aa')))
+            painter.drawText(QRectF(center.x() - 90, center.y() - 24, 180, 16), Qt.AlignmentFlag.AlignCenter,
+                             f"Гентри: {cp['gantry_start']:.1f}° → {cp['gantry_end']:.1f}° (Δ {cp['delta_gantry']:.1f}°)")
+
+            # Parameter rows with graphic status dots
+            def draw_param_row(y, label, val_str, status_color, status_text):
+                row_rect = QRectF(center.x() - 85, y, 170, 15)
+                # Indicator Dot
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(status_color))
+                painter.drawEllipse(QPointF(row_rect.left() + 6, y + 7.5), 3.5, 3.5)
+                # Label
+                painter.setFont(QFont('Segoe UI', 8))
+                painter.setPen(QPen(QColor('#d4d4d8')))
+                painter.drawText(QRectF(row_rect.left() + 16, y, 90, 15), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, label)
+                # Value
+                painter.setFont(QFont('Segoe UI', 8, QFont.Weight.DemiBold))
+                painter.setPen(QPen(status_color))
+                painter.drawText(QRectF(row_rect.right() - 75, y, 75, 15), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_str)
+
+            # 1. Dose rate status
+            if dr < 45.0:
+                dr_col, dr_st = QColor('#ef4444'), 'Сбой'
+            elif dr < 55.0:
+                dr_col, dr_st = QColor('#f59e0b'), 'Низкая'
+            else:
+                dr_col, dr_st = QColor('#22c55e'), 'Норма'
+            draw_param_row(center.y() - 5, 'Мощность:', f"{dr:.0f} MU/мин", dr_col, dr_st)
+
+            # 2. Dose density status
+            if mpd < 0.14:
+                mpd_col, mpd_st = QColor('#ef4444'), 'Провал'
+            elif mpd > 15.0 or mpd < 0.20:
+                mpd_col, mpd_st = QColor('#f59e0b'), 'Перегруз' if mpd > 15 else 'Низкая'
+            else:
+                mpd_col, mpd_st = QColor('#22c55e'), 'Норма'
+            draw_param_row(center.y() + 12, 'Плотность:', f"{mpd:.2f} MU/deg", mpd_col, mpd_st)
+
+            # 3. Delta jump status
+            if active_idx > 0:
+                if factor >= 10.0 and (mpd > 14.0 or prev_mpd > 14.0):
+                    jump_col, jump_st = QColor('#ef4444'), 'Шок'
+                elif factor >= 8.0:
+                    jump_col, jump_st = QColor('#f59e0b'), 'Перепад'
+                else:
+                    jump_col, jump_st = QColor('#22c55e'), 'Норма'
+                d_sign = '+' if delta_mpd >= 0 else ''
+                draw_param_row(center.y() + 29, 'Перепад:', f"{factor:.1f}× ({d_sign}{delta_mpd:.2f})", jump_col, jump_st)
+            else:
+                draw_param_row(center.y() + 29, 'Перепад:', "— (старт)", QColor('#9ca3af'), 'Старт')
+
+            # 4. MLC Leaf speed status
+            if leaf_spd > 65.0:
+                mlc_col, mlc_st = QColor('#ef4444'), 'Лимит'
+            elif leaf_spd > 48.0:
+                mlc_col, mlc_st = QColor('#f59e0b'), 'Быстрый'
+            else:
+                mlc_col, mlc_st = QColor('#22c55e'), 'Норма'
+            draw_param_row(center.y() + 46, 'Скор. MLC:', f"{leaf_spd:.0f} мм/с", mlc_col, mlc_st)
+
         else:
-            painter.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+            # Default center summary
+            painter.setFont(QFont('Segoe UI', 10, QFont.Weight.Bold))
+            painter.setPen(QPen(QColor('#ffffff')))
             painter.drawText(QRectF(center.x() - 70, center.y() - 20, 140, 20), Qt.AlignmentFlag.AlignCenter, "VMAT ARC")
-            painter.setFont(QFont("Segoe UI", 8))
-            painter.setPen(QPen(QColor("#8e8e93")))
+            painter.setFont(QFont('Segoe UI', 8))
+            painter.setPen(QPen(QColor('#8e8e93')))
             span = self.beam_data.get('total_gantry_travel', 0.0)
             mu = self.beam_data.get('total_mu', 0.0)
             painter.drawText(QRectF(center.x() - 70, center.y() + 2, 140, 18), Qt.AlignmentFlag.AlignCenter, f"{span:.0f}° | {mu:.1f} MU")
+            painter.setFont(QFont('Segoe UI', 7))
+            painter.setPen(QPen(QColor('#52525b')))
+            painter.drawText(QRectF(center.x() - 80, center.y() + 22, 160, 16), Qt.AlignmentFlag.AlignCenter, "Наведите или выберите сектор")
 
     def mouseMoveEvent(self, event):
         if not self.beam_data or not self.beam_data.get('is_vmat'):
@@ -664,6 +752,12 @@ class PolarArcWidget(QWidget):
             if self.hovered_interval_idx is not None:
                 self.hovered_interval_idx = None
                 self.update()
+
+    def leaveEvent(self, event):
+        if self.hovered_interval_idx is not None:
+            self.hovered_interval_idx = None
+            self.update()
+        super().leaveEvent(event)
 
     def mousePressEvent(self, event):
         if self.hovered_interval_idx is not None:
@@ -1060,7 +1154,7 @@ class MonacoPlanAnalyzerDialog(QDialog):
             return row
 
         leg_l.addLayout(make_leg_row("#30d158", "Безопасный отпуск (стабильная мощность и скорость)"))
-        leg_l.addLayout(make_leg_row("#ffd60a", "Повышенная модуляция (замедление гентри / перепад MU/deg)"))
+        leg_l.addLayout(make_leg_row("#ffd60a", "Повышенная сложность (замедление гентри / перепад плотности дозы)"))
         leg_l.addLayout(make_leg_row("#ff453a", "КРИТИЧЕСКИЙ РИСК СБОЯ 'DOSE RATE MON' (< 45 MU/мин или перепад > 10×)"))
         left_layout.addWidget(legend_box)
 
@@ -1453,7 +1547,13 @@ class MonacoPlanAnalyzerDialog(QDialog):
         if item0:
             cp_idx = item0.data(Qt.ItemDataRole.UserRole)
             if cp_idx is not None:
-                self.polar_widget.select_interval(int(cp_idx))
+                idx = int(cp_idx)
+                self.polar_widget.select_interval(idx)
+                if self.polar_widget.beam_data:
+                    for cp_info in self.polar_widget.beam_data.get('intervals', []):
+                        if cp_info['index'] == idx:
+                            self._on_interval_hovered(cp_info)
+                            break
 
     def _on_interval_hovered(self, cp_info: Dict[str, Any]):
         dr = cp_info['est_dose_rate']
