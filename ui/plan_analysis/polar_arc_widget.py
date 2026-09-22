@@ -479,21 +479,20 @@ class PolarArcWidget(QWidget):
             painter.drawText(QRectF(center.x() - 95, center.y() + 25, 190, 16), Qt.AlignmentFlag.AlignCenter,
                              _hint_hover)
 
-    def mouseMoveEvent(self, event):
+    def _get_interval_at_pos(self, pos: QPointF) -> Optional[int]:
         if not self.beam_data or not self.beam_data.get('is_vmat'):
-            return
+            return None
 
         w = self.width()
         h = self.height()
         center = QPointF(w / 2.0, h / 2.0)
-        pos = event.position()
         dx = pos.x() - center.x()
-        dy = pos.y() - center.y()
+        dy = center.y() - pos.y()  # Invert screen Y to standard cartesian Y
         dist = math.hypot(dx, dy)
         radius = min(w, h) / 2.0 - 24.0
 
         num_passes = self.beam_data.get('num_passes', 1)
-        min_r = (radius - 78.0) if num_passes > 1 else (radius - 60.0)
+        min_r = max(105.0, (radius - 76.0) if num_passes > 1 else (radius - 58.0))
 
         if min_r <= dist <= radius + 25:
             math_ang = math.degrees(math.atan2(dy, dx)) % 360.0
@@ -504,7 +503,6 @@ class PolarArcWidget(QWidget):
                 r_split = radius - 38.0
                 target_pass = 0 if dist < r_split else 1
 
-            matched_idx = None
             intervals = self.beam_data.get('intervals', [])
             for item in intervals:
                 if num_passes > 1 and item.get('pass_idx', 0) != target_pass:
@@ -516,24 +514,23 @@ class PolarArcWidget(QWidget):
                     diff = (g2 - g1) % 360.0
                     rel = (gantry_ang - g1) % 360.0
                     if rel <= diff:
-                        matched_idx = item['index']
-                        break
+                        return item['index']
                 else: # CC
                     diff = (g1 - g2) % 360.0
                     rel = (g1 - gantry_ang) % 360.0
                     if rel <= diff:
-                        matched_idx = item['index']
-                        break
+                        return item['index']
+        return None
 
-            if matched_idx != self.hovered_interval_idx:
-                self.hovered_interval_idx = matched_idx
-                self.update()
-                if matched_idx is not None and matched_idx < len(intervals):
+    def mouseMoveEvent(self, event):
+        matched_idx = self._get_interval_at_pos(event.position())
+        if matched_idx != self.hovered_interval_idx:
+            self.hovered_interval_idx = matched_idx
+            self.update()
+            if matched_idx is not None and self.beam_data:
+                intervals = self.beam_data.get('intervals', [])
+                if matched_idx < len(intervals):
                     self.intervalHovered.emit(intervals[matched_idx])
-        else:
-            if self.hovered_interval_idx is not None:
-                self.hovered_interval_idx = None
-                self.update()
 
     def leaveEvent(self, event):
         if self.hovered_interval_idx is not None:
@@ -542,7 +539,8 @@ class PolarArcWidget(QWidget):
         super().leaveEvent(event)
 
     def mousePressEvent(self, event):
-        if self.hovered_interval_idx is not None:
-            self.selected_interval_idx = self.hovered_interval_idx
+        idx = self._get_interval_at_pos(event.position())
+        if idx is not None:
+            self.selected_interval_idx = idx
             self.intervalClicked.emit(self.selected_interval_idx)
             self.update()
