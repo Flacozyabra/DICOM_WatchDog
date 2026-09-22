@@ -1098,9 +1098,13 @@ class MonacoPlanAnalyzerDialog(QDialog):
         self.analyzer = PlanKinematicsAnalyzer(plan_path, thresholds=self.thresholds)
 
         if not self.analyzer.is_monaco:
-            self.setWindowTitle(f"[НЕ MONACO — РЕЗУЛЬТАТ НЕ БУДЕТ СООТВЕТСТВОВАТЬ ДЕЙСТВИТЕЛЬНОСТИ] Анализ плана — {self.analyzer.patient_name} [{self.analyzer.patient_id}]")
+            _pfx = ("НЕ MONACO — РЕЗУЛЬТАТ НЕ БУДЕТ СООТВЕТСТВОВАТЬ ДЕЙСТВИТЕЛЬНОСТИ" if self.is_ru
+                    else "NOT MONACO — RESULTS MAY NOT REFLECT REALITY")
+            _ttl = "Анализ плана" if self.is_ru else "Plan Analysis"
+            self.setWindowTitle(f"[{_pfx}] {_ttl} — {self.analyzer.patient_name} [{self.analyzer.patient_id}]")
         else:
-            self.setWindowTitle(f"Анализ плана Monaco — {self.analyzer.patient_name} [{self.analyzer.patient_id}]")
+            _ttl = "Анализ плана Monaco" if self.is_ru else "Monaco Plan Analysis"
+            self.setWindowTitle(f"{_ttl} — {self.analyzer.patient_name} [{self.analyzer.patient_id}]")
         self.resize(1200, 800)
         self.setWindowFlags(
             self.windowFlags()
@@ -1226,14 +1230,24 @@ class MonacoPlanAnalyzerDialog(QDialog):
             icon_lbl.setStyleSheet("font-size: 24px;")
             warn_layout.addWidget(icon_lbl)
 
-            msg_text = (
-                f"<b style='font-size: 13px; color: #ffedd5;'>ВНИМАНИЕ: План рассчитан НЕ в системе Monaco!</b><br>"
-                f"<span style='color: #fed7aa; font-size: 12px; line-height: 1.35;'>"
-                f"Обнаруженная система: <b>{self.analyzer.tps_name}</b>.<br>"
-                f"Кинематическая модель и расчёт рисков сбоя откалиброваны исключительно под алгоритмы Monaco и линейные ускорители Elekta. "
-                f"Для сторонних систем (Varian Eclipse, RayStation и др.) <b>РЕЗУЛЬТАТ АНАЛИЗА НЕ БУДЕТ СООТВЕТСТВОВАТЬ ДЕЙСТВИТЕЛЬНОСТИ!</b>"
-                f"</span>"
-            )
+            if self.is_ru:
+                msg_text = (
+                    f"<b style='font-size: 13px; color: #ffedd5;'>ВНИМАНИЕ: План рассчитан НЕ в системе Monaco!</b><br>"
+                    f"<span style='color: #fed7aa; font-size: 12px; line-height: 1.35;'>"
+                    f"Обнаруженная система: <b>{self.analyzer.tps_name}</b>.<br>"
+                    f"Кинематическая модель и расчёт рисков сбоя откалиброваны исключительно под алгоритмы Monaco и линейные ускорители Elekta. "
+                    f"Для сторонних систем (Varian Eclipse, RayStation и др.) <b>РЕЗУЛЬТАТ АНАЛИЗА НЕ БУДЕТ СООТВЕТСТВОВАТЬ ДЕЙСТВИТЕЛЬНОСТИ!</b>"
+                    f"</span>"
+                )
+            else:
+                msg_text = (
+                    f"<b style='font-size: 13px; color: #ffedd5;'>WARNING: Plan was NOT calculated in Monaco!</b><br>"
+                    f"<span style='color: #fed7aa; font-size: 12px; line-height: 1.35;'>"
+                    f"Detected system: <b>{self.analyzer.tps_name}</b>.<br>"
+                    f"The kinematics model and failure risk analysis are calibrated exclusively for Monaco algorithms and Elekta linacs. "
+                    f"For third-party systems (Varian Eclipse, RayStation, etc.) <b>ANALYSIS RESULTS WILL NOT REFLECT REALITY!</b>"
+                    f"</span>"
+                )
             text_lbl = QLabel(msg_text, warn_banner)
             text_lbl.setWordWrap(True)
             warn_layout.addWidget(text_lbl, 1)
@@ -1243,7 +1257,7 @@ class MonacoPlanAnalyzerDialog(QDialog):
         tps_info = (
             f"<span style='color: #4ade80; font-weight: bold;'>{self.analyzer.tps_name}</span>"
             if self.analyzer.is_monaco else
-            f"<span style='color: #fb923c; font-weight: bold;'>{self.analyzer.tps_name} [Не Monaco]</span>"
+            f"<span style='color: #fb923c; font-weight: bold;'>{self.analyzer.tps_name} [{'Не Monaco' if self.is_ru else 'Not Monaco'}]</span>"
         )
         # Build patient label text (stored for later update via _on_plan_changed)
         self._tps_info_template = tps_info
@@ -1265,7 +1279,7 @@ class MonacoPlanAnalyzerDialog(QDialog):
         ctrl_row.setContentsMargins(0, 0, 0, 4)
         ctrl_row.setSpacing(8)
 
-        lbl_plan_sel = QLabel("План:", plan_ctrl_frame)
+        lbl_plan_sel = QLabel("План:" if self.is_ru else "Plan:", plan_ctrl_frame)
         lbl_plan_sel.setStyleSheet("font-size: 11px; font-weight: 700; color: #8e8e93;")
         ctrl_row.addWidget(lbl_plan_sel)
 
@@ -1284,7 +1298,7 @@ class MonacoPlanAnalyzerDialog(QDialog):
         self.plan_combo.currentIndexChanged.connect(self._on_plan_changed)
         ctrl_row.addWidget(self.plan_combo, 1)
 
-        lbl_beam_sel = QLabel("Пучок:", plan_ctrl_frame)
+        lbl_beam_sel = QLabel("Пучок:" if self.is_ru else "Beam:", plan_ctrl_frame)
         lbl_beam_sel.setStyleSheet("font-size: 11px; font-weight: 700; color: #8e8e93;")
         ctrl_row.addWidget(lbl_beam_sel)
 
@@ -1435,17 +1449,17 @@ class MonacoPlanAnalyzerDialog(QDialog):
         self.critical_table = QTableWidget(self.tabs)
         self._setup_table_headers(self.critical_table)
         self.critical_table.itemSelectionChanged.connect(self._on_table_selection_changed)
-        self.tabs.addTab(self.critical_table, "Критические точки")
+        self.tabs.addTab(self.critical_table, "Критические точки" if self.is_ru else "Critical Points")
 
         # Tab 2: Linear Graph
         self.graph_widget = ModulationTimelineWidget(self.tabs)
-        self.tabs.addTab(self.graph_widget, "График модуляции (MU/deg)")
+        self.tabs.addTab(self.graph_widget, "График модуляции (MU/deg)" if self.is_ru else "Modulation Graph (MU/deg)")
 
         # Tab 3: All Control Points Table
         self.all_table = QTableWidget(self.tabs)
         self._setup_table_headers(self.all_table)
         self.all_table.itemSelectionChanged.connect(self._on_table_selection_changed)
-        self.tabs.addTab(self.all_table, "Все точки (Sequence)")
+        self.tabs.addTab(self.all_table, "Все точки (Sequence)" if self.is_ru else "All Points (Sequence)")
 
         right_layout.addWidget(self.tabs, 1)
 
@@ -1470,11 +1484,22 @@ class MonacoPlanAnalyzerDialog(QDialog):
         table.setColumnCount(7)
         if is_vmat:
             table.setHorizontalHeaderLabels([
-                "CP", "Сектор гентри", "Δ Гентри", "Δ MU", "MU/deg", "Расч. мощность", "Диагностика риска"
+                "CP",
+                "Сектор гентри" if self.is_ru else "Gantry Sector",
+                "Δ Гентри" if self.is_ru else "Δ Gantry",
+                "Δ MU", "MU/deg",
+                "Расч. мощность" if self.is_ru else "Est. Dose Rate",
+                "Диагностика риска" if self.is_ru else "Risk Diagnosis"
             ])
         else:
             table.setHorizontalHeaderLabels([
-                "CP", "Угол гентри", "Δ Гентри", "Δ MU", "Тип доставки", "Расч. мощность", "Статус сегмента"
+                "CP",
+                "Угол гентри" if self.is_ru else "Gantry Angle",
+                "Δ Гентри" if self.is_ru else "Δ Gantry",
+                "Δ MU",
+                "Тип доставки" if self.is_ru else "Delivery Type",
+                "Расч. мощность" if self.is_ru else "Est. Dose Rate",
+                "Статус сегмента" if self.is_ru else "Segment Status"
             ])
         header = table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -1517,7 +1542,7 @@ class MonacoPlanAnalyzerDialog(QDialog):
         tps_info = (
             f"<span style='color: #4ade80; font-weight: bold;'>{self.analyzer.tps_name}</span>"
             if self.analyzer.is_monaco else
-            f"<span style='color: #fb923c; font-weight: bold;'>{self.analyzer.tps_name} [Не Monaco]</span>"
+            f"<span style='color: #fb923c; font-weight: bold;'>{self.analyzer.tps_name} [{'Не Monaco' if self.is_ru else 'Not Monaco'}]</span>"
         )
         self.lbl_patient.setText(
             f"<b style='font-size: 14px; color: #ffffff;'>{self.analyzer.patient_name}</b> "
@@ -1527,9 +1552,12 @@ class MonacoPlanAnalyzerDialog(QDialog):
 
         # Update window title
         if not self.analyzer.is_monaco:
-            self.setWindowTitle(f"[НЕ MONACO] Анализ плана — {self.analyzer.patient_name} [{self.analyzer.patient_id}]")
+            _pfx2 = "НЕ MONACO" if self.is_ru else "NOT MONACO"
+            _ttl2 = "Анализ плана" if self.is_ru else "Plan Analysis"
+            self.setWindowTitle(f"[{_pfx2}] {_ttl2} — {self.analyzer.patient_name} [{self.analyzer.patient_id}]")
         else:
-            self.setWindowTitle(f"Анализ плана Monaco — {self.analyzer.patient_name} [{self.analyzer.patient_id}]")
+            _ttl2 = "Анализ плана Monaco" if self.is_ru else "Monaco Plan Analysis"
+            self.setWindowTitle(f"{_ttl2} — {self.analyzer.patient_name} [{self.analyzer.patient_id}]")
 
         # Repopulate beams and render first beam
         self._populate_beam_combo()
@@ -1554,8 +1582,12 @@ class MonacoPlanAnalyzerDialog(QDialog):
             p2 = passes_info[1]
             d1_sym = '↻ CW' if p1.get('direction', 'CW') == 'CW' else '↺ CCW'
             d2_sym = '↻ CW' if p2.get('direction', 'CW') == 'CW' else '↺ CCW'
-            txt = (f"Двойная дуга: Внутренний трек — Проход 1 ({p1['start_angle']:.1f}° → {p1['end_angle']:.1f}°, {d1_sym}) | "
-                   f"Внешний трек — Проход 2 ({p2['start_angle']:.1f}° → {p2['end_angle']:.1f}°, {d2_sym})")
+            if self.is_ru:
+                txt = (f"Двойная дуга: Внутренний трек — Проход 1 ({p1['start_angle']:.1f}° → {p1['end_angle']:.1f}°, {d1_sym}) | "
+                       f"Внешний трек — Проход 2 ({p2['start_angle']:.1f}° → {p2['end_angle']:.1f}°, {d2_sym})")
+            else:
+                txt = (f"Dual arc: Inner track — Pass 1 ({p1['start_angle']:.1f}° → {p1['end_angle']:.1f}°, {d1_sym}) | "
+                       f"Outer track — Pass 2 ({p2['start_angle']:.1f}° → {p2['end_angle']:.1f}°, {d2_sym})")
             self.multitrack_leg_label.setText(txt)
             self.multitrack_leg_label.show()
         else:
@@ -1588,11 +1620,18 @@ class MonacoPlanAnalyzerDialog(QDialog):
             min_dr = self.thresholds['min_dose_rate']
             min_mpd = self.thresholds['min_mu_per_deg']
             max_jump = self.thresholds['max_modulation_factor']
-            title = QLabel("🔴 ВЫСОКИЙ РИСК СБОЯ АППАРАТА (DOSE RATE MON)", self.verdict_card)
+            title = QLabel(
+                "🔴 ВЫСОКИЙ РИСК СБОЯ АППАРАТА (DOSE RATE MON)" if self.is_ru
+                else "🔴 HIGH RISK OF MACHINE FAULT (DOSE RATE MON)",
+                self.verdict_card
+            )
             title.setStyleSheet("font-size: 13px; font-weight: bold; color: #fca5a5;")
             desc = QLabel(
-                f"В пучке обнаружено <b>{crit_count} критических секторов</b> с падением мощности/плотности дозы ниже порога Elekta (&lt; {min_dr:.0f} MU/мин, &lt; {min_mpd:.3f} MU/deg) "
-                f"или экстремальным перепадом модуляции (&gt; {max_jump:.0f}×). Аппарат с высокой вероятностью выдаст ошибку <code>DOSE RATE MON</code> при отпуске.",
+                (f"В пучке обнаружено <b>{crit_count} критических секторов</b> с падением мощности/плотности дозы ниже порога Elekta (&lt; {min_dr:.0f} MU/мин, &lt; {min_mpd:.3f} MU/deg) "
+                 f"или экстремальным перепадом модуляции (&gt; {max_jump:.0f}×). Аппарат с высокой вероятностью выдаст ошибку <code>DOSE RATE MON</code> при отпуске.")
+                if self.is_ru else
+                (f"Beam has <b>{crit_count} critical sectors</b> with dose rate/density below Elekta limits (&lt; {min_dr:.0f} MU/min, &lt; {min_mpd:.3f} MU/deg) "
+                 f"or extreme modulation jump (&gt; {max_jump:.0f}×). Machine will very likely trigger <code>DOSE RATE MON</code> fault during delivery."),
                 self.verdict_card
             )
             desc.setWordWrap(True)
@@ -1612,11 +1651,18 @@ class MonacoPlanAnalyzerDialog(QDialog):
                     background: transparent;
                 }
             """)
-            title = QLabel("🟡 ПОВЫШЕННАЯ СЛОЖНОСТЬ ПЛАНА (ТРЕБУЕТ ВНИМАНИЯ)", self.verdict_card)
+            title = QLabel(
+                "🟡 ПОВЫШЕННАЯ СЛОЖНОСТЬ ПЛАНА (ТРЕБУЕТ ВНИМАНИЯ)" if self.is_ru
+                else "🟡 HIGH PLAN COMPLEXITY (REQUIRES ATTENTION)",
+                self.verdict_card
+            )
             title.setStyleSheet("font-size: 13px; font-weight: bold; color: #fde68a;")
             desc = QLabel(
-                f"Обнаружено {warn_count} секторов с сильным снижением скорости гентри или высокой модуляцией. "
-                f"План может отпуститься медленнее расчетного времени.",
+                (f"Обнаружено {warn_count} секторов с сильным снижением скорости гентри или высокой модуляцией. "
+                 f"План может отпуститься медленнее расчетного времени.")
+                if self.is_ru else
+                (f"Found {warn_count} sectors with significant gantry speed reduction or high modulation. "
+                 f"Plan may be delivered slower than calculated."),
                 self.verdict_card
             )
             desc.setWordWrap(True)
@@ -1636,12 +1682,19 @@ class MonacoPlanAnalyzerDialog(QDialog):
                     background: transparent;
                 }
             """)
-            title = QLabel(f"ℹ️ СТАТИЧЕСКИЙ ПУЧОК ({b['beam_mode']})", self.verdict_card)
+            title = QLabel(
+                f"ℹ️ {'СТАТИЧЕСКИЙ ПУЧОК' if self.is_ru else 'STATIC BEAM'} ({b['beam_mode']})",
+                self.verdict_card
+            )
             title.setStyleSheet("font-size: 13px; font-weight: bold; color: #7dd3fc;")
             desc = QLabel(
-                f"Пучок доставляется на фиксированном угле гентри <b>{b['fixed_gantry_angle']:.1f}°</b> "
-                f"({b['num_control_points']} контрольных точек / сегментов). "
-                f"Вращение гентри отсутствует, поэтому ротационные риски VMAT и сбои мощности <code>DOSE RATE MON</code> при прохождении дуги <b>не применимы</b>.",
+                (f"Пучок доставляется на фиксированном угле гентри <b>{b['fixed_gantry_angle']:.1f}°</b> "
+                 f"({b['num_control_points']} контрольных точек / сегментов). "
+                 f"Вращение гентри отсутствует, поэтому ротационные риски VMAT и сбои мощности <code>DOSE RATE MON</code> при прохождении дуги <b>не применимы</b>.")
+                if self.is_ru else
+                (f"Beam delivered at fixed gantry angle <b>{b['fixed_gantry_angle']:.1f}°</b> "
+                 f"({b['num_control_points']} control points / segments). "
+                 f"No gantry rotation — VMAT rotational risks and arc-related <code>DOSE RATE MON</code> faults are <b>not applicable</b>."),
                 self.verdict_card
             )
             desc.setWordWrap(True)
@@ -1661,9 +1714,17 @@ class MonacoPlanAnalyzerDialog(QDialog):
                     background: transparent;
                 }
             """)
-            title = QLabel("🟢 ПЛАН БЕЗОПАСЕН ДЛЯ ОТПУСКА", self.verdict_card)
+            title = QLabel(
+                "🟢 ПЛАН БЕЗОПАСЕН ДЛЯ ОТПУСКА" if self.is_ru else "🟢 PLAN IS SAFE FOR DELIVERY",
+                self.verdict_card
+            )
             title.setStyleSheet("font-size: 13px; font-weight: bold; color: #86efac;")
-            desc = QLabel("Все параметры мощности дозы, скорости вращения гентри и движения лепестков укладываются в штатные лимиты Elekta.", self.verdict_card)
+            desc = QLabel(
+                "Все параметры мощности дозы, скорости вращения гентри и движения лепестков укладываются в штатные лимиты Elekta."
+                if self.is_ru else
+                "All dose rate, gantry rotation speed, and leaf motion parameters are within Elekta standard limits.",
+                self.verdict_card
+            )
             desc.setWordWrap(True)
             desc.setStyleSheet("font-size: 12px; color: #dcfce7;")
             self.verdict_layout.addWidget(title)
@@ -1671,30 +1732,46 @@ class MonacoPlanAnalyzerDialog(QDialog):
 
         # Append non-Monaco warning in verdict card if plan is from external TPS
         if not self.analyzer.is_monaco:
+            _nm_title = (
+                f"⚠️ ВНИМАНИЕ: План рассчитан не в системе Monaco ({self.analyzer.tps_name})!" if self.is_ru
+                else f"⚠️ WARNING: Plan was not calculated in Monaco ({self.analyzer.tps_name})!"
+            )
+            _nm_body = (
+                f"Модель кинематики оптимизирована под Elekta/Monaco. Для сторонних систем (Varian/RaySearch и др.) "
+                f"<b>результат анализа НЕ БУДЕТ СООТВЕТСТВОВАТЬ ДЕЙСТВИТЕЛЬНОСТИ</b>."
+                if self.is_ru else
+                f"Kinematics model is calibrated for Elekta/Monaco. For third-party systems (Varian/RaySearch, etc.) "
+                f"<b>analysis results WILL NOT REFLECT REALITY</b>."
+            )
             non_monaco_notice = QLabel(
                 f"<div style='margin-top: 6px; padding: 6px 10px; background-color: rgba(234, 88, 12, 0.25); "
                 f"border: 1px solid #ea580c; border-radius: 4px;'>"
-                f"<b style='color: #ffedd5; font-size: 11px;'>⚠️ ВНИМАНИЕ: План рассчитан не в системе Monaco ({self.analyzer.tps_name})!</b><br>"
-                f"<span style='color: #fed7aa; font-size: 11px;'>"
-                f"Модель кинематики оптимизирована под Elekta/Monaco. Для сторонних систем (Varian/RaySearch и др.) "
-                f"<b>результат анализа НЕ БУДЕТ СООТВЕТСТВОВАТЬ ДЕЙСТВИТЕЛЬНОСТИ</b>."
-                f"</span></div>",
+                f"<b style='color: #ffedd5; font-size: 11px;'>{_nm_title}</b><br>"
+                f"<span style='color: #fed7aa; font-size: 11px;'>{_nm_body}</span></div>",
                 self.verdict_card
             )
             non_monaco_notice.setWordWrap(True)
             self.verdict_layout.addWidget(non_monaco_notice)
 
         # Update Metrics Card
-        self.lbl_metric_mu.setText(f"<span style='color: #8e8e93;'>Суммарно:</span><br><b style='font-size: 13px;'>{b['total_mu']:.1f} MU</b>")
-        self.lbl_metric_dr.setText(f"<span style='color: #8e8e93;'>Мощность дозы:</span><br><b style='font-size: 13px;'>{b['min_dose_rate']:.0f} – {b['max_dose_rate']:.0f} MU/мин</b>")
+        _lbl_total = "Суммарно" if self.is_ru else "Total MU"
+        _lbl_dr = "Мощность дозы" if self.is_ru else "Dose Rate"
+        _mu_min = "MU/мин" if self.is_ru else "MU/min"
+        self.lbl_metric_mu.setText(f"<span style='color: #8e8e93;'>{_lbl_total}:</span><br><b style='font-size: 13px;'>{b['total_mu']:.1f} MU</b>")
+        self.lbl_metric_dr.setText(f"<span style='color: #8e8e93;'>{_lbl_dr}:</span><br><b style='font-size: 13px;'>{b['min_dose_rate']:.0f} – {b['max_dose_rate']:.0f} {_mu_min}</b>")
         if b['is_vmat']:
-            self.lbl_metric_mpd.setText(f"<span style='color: #8e8e93;'>Плотность дозы:</span><br><b style='font-size: 13px;'>{b['min_mu_per_deg']:.2f} – {b['max_mu_per_deg']:.2f} MU/deg</b>")
-            self.lbl_metric_mpd.setToolTip(f"Диапазон плотности дозы: {b['min_mu_per_deg']:.2f} – {b['max_mu_per_deg']:.2f} MU/deg (среднее: {b['avg_mu_per_deg']:.2f} MU/deg)")
-            self.tabs.setTabText(1, "График модуляции (MU/deg)")
+            _lbl_density = "Плотность дозы" if self.is_ru else "Dose Density"
+            self.lbl_metric_mpd.setText(f"<span style='color: #8e8e93;'>{_lbl_density}:</span><br><b style='font-size: 13px;'>{b['min_mu_per_deg']:.2f} – {b['max_mu_per_deg']:.2f} MU/deg</b>")
+            _tip_range = "Диапазон плотности дозы" if self.is_ru else "Dose density range"
+            _tip_avg = "среднее" if self.is_ru else "avg"
+            self.lbl_metric_mpd.setToolTip(f"{_tip_range}: {b['min_mu_per_deg']:.2f} – {b['max_mu_per_deg']:.2f} MU/deg ({_tip_avg}: {b['avg_mu_per_deg']:.2f} MU/deg)")
+            self.tabs.setTabText(1, "График модуляции (MU/deg)" if self.is_ru else "Modulation Graph (MU/deg)")
         else:
-            self.lbl_metric_mpd.setText(f"<span style='color: #8e8e93;'>Угол гентри:</span><br><b style='font-size: 13px;'>{b['fixed_gantry_angle']:.1f}° (статика)</b>")
+            _lbl_gantry_ang = "Угол гентри" if self.is_ru else "Gantry Angle"
+            _static_word = "статика" if self.is_ru else "static"
+            self.lbl_metric_mpd.setText(f"<span style='color: #8e8e93;'>{_lbl_gantry_ang}:</span><br><b style='font-size: 13px;'>{b['fixed_gantry_angle']:.1f}° ({_static_word})</b>")
             self.lbl_metric_mpd.setToolTip("")
-            self.tabs.setTabText(1, "График сегментов (ΔMU)")
+            self.tabs.setTabText(1, "График сегментов (ΔMU)" if self.is_ru else "Segment Graph (ΔMU)")
 
 
 
@@ -1706,7 +1783,8 @@ class MonacoPlanAnalyzerDialog(QDialog):
         intervals = b.get('intervals', [])
         crit_items = [item for item in intervals if item['risk_level'] in ('CRITICAL', 'WARNING')]
         self._populate_table(self.critical_table, crit_items, is_vmat=b['is_vmat'])
-        self.tabs.setTabText(0, f"Критические точки ({len(crit_items)})")
+        _crit_tab = "Критические точки" if self.is_ru else "Critical Points"
+        self.tabs.setTabText(0, f"{_crit_tab} ({len(crit_items)})")
 
         # Fill All Points Table
         self._populate_table(self.all_table, intervals, is_vmat=b['is_vmat'])
@@ -1725,15 +1803,16 @@ class MonacoPlanAnalyzerDialog(QDialog):
             else:
                 g_str = f"{item['gantry_start']:.1f}°"
                 dg_str = "0.0°"
-                mpd_str = "Статика"
+                mpd_str = "Статика" if self.is_ru else "Static"
                 default_ok = "OK"
 
             dmu_str = f"{item['delta_mu']:.2f}"
             dr_val = item['est_dose_rate']
+            _mu_min_t = "MU/мин" if self.is_ru else "MU/min"
             if round(dr_val) < 60 and item['delta_mu'] > 0.01:
-                dr_str = f"{dr_val:.1f} MU/мин"
+                dr_str = f"{dr_val:.1f} {_mu_min_t}"
             else:
-                dr_str = f"{dr_val:.0f} MU/мин"
+                dr_str = f"{dr_val:.0f} {_mu_min_t}"
             reason_str = "; ".join(item['reasons']) if item['reasons'] else default_ok
 
             risk = item['risk_level']
@@ -1792,13 +1871,18 @@ class MonacoPlanAnalyzerDialog(QDialog):
         p_idx = cp_info.get('pass_idx', 0)
         rot_dir = cp_info.get('direction', 'CW')
         dir_sym = '↻ CW' if rot_dir == 'CW' else '↺ CCW'
-        pass_tag = f" [Проход {p_idx+1}: {dir_sym}]" if num_passes > 1 else ""
+        _pass_word = "Проход" if self.is_ru else "Pass"
+        pass_tag = f" [{_pass_word} {p_idx+1}: {dir_sym}]" if num_passes > 1 else ""
 
         dr_fmt = f"{dr:.1f}" if round(dr) < 60 and cp_info.get('delta_mu', 0.0) > 0.01 else f"{dr:.0f}"
+        _mu_min_h = "MU/мин" if self.is_ru else "MU/min"
+        _gantry_h = "Гентри" if self.is_ru else "Gantry"
+        _power_h = "Мощность" if self.is_ru else "Dose Rate"
+        _static_h = "статика" if self.is_ru else "static"
         if is_vmat:
-            msg = f"CP {cp_info['index']:02d}{pass_tag}: Гентри {cp_info['gantry_start']:.1f}° → {cp_info['gantry_end']:.1f}° | ΔMU: {cp_info['delta_mu']:.2f} | MU/deg: {mpd:.2f} | Мощность: {dr_fmt} MU/мин"
+            msg = f"CP {cp_info['index']:02d}{pass_tag}: {_gantry_h} {cp_info['gantry_start']:.1f}° → {cp_info['gantry_end']:.1f}° | ΔMU: {cp_info['delta_mu']:.2f} | MU/deg: {mpd:.2f} | {_power_h}: {dr_fmt} {_mu_min_h}"
         else:
-            msg = f"CP {cp_info['index']:02d}: Гентри {cp_info['gantry_start']:.1f}° (статика) | ΔMU: {cp_info['delta_mu']:.2f} | Мощность: {dr_fmt} MU/мин"
+            msg = f"CP {cp_info['index']:02d}: {_gantry_h} {cp_info['gantry_start']:.1f}° ({_static_h}) | ΔMU: {cp_info['delta_mu']:.2f} | {_power_h}: {dr_fmt} {_mu_min_h}"
         if cp_info['reasons']:
             msg += f" — ⚠️ {'; '.join(cp_info['reasons'])}"
         self.status_lbl.setText(msg)
@@ -1848,8 +1932,16 @@ def open_plan_analyzer(parent, folder_or_plan_path: str, patient_id: str = "", p
         all_plan_files.insert(0, plan_file)
 
     if not plan_file:
+        _cfg_f = getattr(parent, 'config', {}) or {}
+        _is_ru_f = _cfg_f.get('interface_lang', 'en') == 'ru'
         from PyQt6.QtWidgets import QMessageBox
-        QMessageBox.warning(parent, "План не найден", f"В папке пациента {patient_name} ({patient_id}) не обнаружен файл RTPLAN.")
+        QMessageBox.warning(
+            parent,
+            "План не найден" if _is_ru_f else "Plan Not Found",
+            f"В папке пациента {patient_name} ({patient_id}) не обнаружен файл RTPLAN."
+            if _is_ru_f else
+            f"No RTPLAN file found in patient folder {patient_name} ({patient_id})."
+        )
         return
 
     try:
@@ -1857,7 +1949,13 @@ def open_plan_analyzer(parent, folder_or_plan_path: str, patient_id: str = "", p
         dlg.showMaximized()
         dlg.exec()
     except Exception as e:
-        log_message(getattr(parent, 'output_field', None), f"Ошибка анализа плана Monaco: {e}")
+        log_message(getattr(parent, 'output_field', None), f"Monaco plan analysis error: {e}")
+        _cfg_e = getattr(parent, 'config', {}) or {}
+        _is_ru_e = _cfg_e.get('interface_lang', 'en') == 'ru'
         from PyQt6.QtWidgets import QMessageBox
-        QMessageBox.critical(parent, "Ошибка анализа плана", f"Не удалось проанализировать файл плана:\n{e}")
+        QMessageBox.critical(
+            parent,
+            "Ошибка анализа плана" if _is_ru_e else "Plan Analysis Error",
+            f"Не удалось проанализировать файл плана:\n{e}" if _is_ru_e else f"Failed to analyze plan file:\n{e}"
+        )
 
