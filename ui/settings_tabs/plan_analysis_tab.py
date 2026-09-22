@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """Plan Analysis Settings Tab."""
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QFormLayout, QSpinBox, QDoubleSpinBox, QFrame)
+                             QFormLayout, QSpinBox, QDoubleSpinBox, QFrame,
+                             QPushButton)
 
 from ui.toggle_switch import ToggleSwitch
+from ui.plan_analysis_help_dialog import show_plan_analysis_help
 from core.locale_utils import tr_ui
 
 
@@ -121,26 +124,37 @@ def build_plan_analysis_tab(dialog):
 
     tab_layout.addLayout(form)
 
-    # Info card with baseline guidance
-    dialog.plan_analysis_info_card = QFrame()
-    dialog.plan_analysis_info_card.setStyleSheet(
-        "QFrame { background-color: #1a1a1c; border: 1px solid #2a2a2e; border-radius: 6px; padding: 8px; }"
-    )
-    info_layout = QVBoxLayout(dialog.plan_analysis_info_card)
-    info_layout.setContentsMargins(10, 8, 10, 8)
-    info_layout.setSpacing(4)
-
-    dialog.lbl_plan_analysis_info_title = QLabel()
-    dialog.lbl_plan_analysis_info_title.setStyleSheet("font-size: 12px; font-weight: bold; color: #38bdf8;")
-    info_layout.addWidget(dialog.lbl_plan_analysis_info_title)
-
-    dialog.lbl_plan_analysis_info_desc = QLabel()
-    dialog.lbl_plan_analysis_info_desc.setWordWrap(True)
-    dialog.lbl_plan_analysis_info_desc.setStyleSheet("font-size: 11px; color: #9ca3af; line-height: 1.4;")
-    info_layout.addWidget(dialog.lbl_plan_analysis_info_desc)
-
-    tab_layout.addWidget(dialog.plan_analysis_info_card)
     tab_layout.addStretch()
+
+    # Bottom bar with question button
+    bottom_row = QHBoxLayout()
+    bottom_row.setContentsMargins(0, 4, 0, 0)
+    bottom_row.addStretch()
+
+    dialog.btn_plan_methodology_help = QPushButton("?")
+    dialog.btn_plan_methodology_help.setFixedSize(24, 24)
+    dialog.btn_plan_methodology_help.setCursor(Qt.CursorShape.PointingHandCursor)
+    dialog.btn_plan_methodology_help.setStyleSheet(
+        "QPushButton { "
+        "  background-color: #27272a; color: #a1a1aa; border: 1px solid #3f3f46; "
+        "  border-radius: 12px; font-size: 13px; font-weight: bold; font-family: 'Segoe UI', sans-serif; "
+        "  padding: 0px; margin: 0px; "
+        "} "
+        "QPushButton:hover { "
+        "  background-color: #38bdf8; color: #09090b; border: 1px solid #38bdf8; "
+        "} "
+        "QPushButton:pressed { "
+        "  background-color: #0284c7; color: #ffffff; border: 1px solid #0284c7; "
+        "}"
+    )
+    dialog.btn_plan_methodology_help.clicked.connect(
+        lambda: show_plan_analysis_help(
+            dialog,
+            is_ru=(dialog.config.get('interface_lang', 'en') == 'ru')
+        )
+    )
+    bottom_row.addWidget(dialog.btn_plan_methodology_help)
+    tab_layout.addLayout(bottom_row)
 
     return tab_widget
 
@@ -259,14 +273,9 @@ def retranslate_plan_analysis_tab(dialog):
                "Порог предупреждения по резкому перепаду плотности дозы (по умолчанию 8.0×).",
                "Warning modulation jump threshold factor (default 8.0×).")
     )
-
-    dialog.lbl_plan_analysis_info_title.setText(
-        get_tr("settings_plan_info_title",
-               "ℹ️ Физические параметры ускорителя Elekta",
-               "ℹ️ Elekta Linac Physical Parameters")
-    )
-    dialog.lbl_plan_analysis_info_desc.setText(
-        get_tr("settings_plan_info_desc",
-               "По умолчанию установлены штатные лимиты для аппаратов Elekta с коллиматором Agility (предел мощности 60 MU/мин, плотность 0.165 MU/deg при 6.0°/с и перепад > 10×). Изменяйте эти значения только при наличии индивидуальной калибровки машины.",
-               "Defaults reflect standard limits for Elekta linacs with Agility MLC (minimum dose rate 60 MU/min, density 0.165 MU/deg at 6.0 deg/s, and modulation jump > 10×). Modify only according to specific linac calibration.")
-    )
+    if hasattr(dialog, 'btn_plan_methodology_help'):
+        dialog.btn_plan_methodology_help.setToolTip(
+            get_tr("tooltip_plan_methodology_help",
+                   "Методика кинематического анализа и обоснование физических порогов",
+                   "Kinematics Analysis Methodology & Physical Limits")
+        )
