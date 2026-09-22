@@ -43,11 +43,79 @@ def sanitize_folder_name(name):
     sanitized = re.sub(r'[\\/*?:"<>|]', '_', name_str)
     return sanitized.strip()
 
+LOCK_FILE_NAME = ".dw_processing.lock"
+LOCK_TIMEOUT_SECONDS = 60.0
+
+def is_folder_locked(folder_path: str) -> bool:
+    """
+    Проверяет, заблокирована ли папка другим процессом (например, на сетевом диске SMB).
+    Если лок-файл старше LOCK_TIMEOUT_SECONDS, считается устаревшим (deadlock prevention).
+    """
+    if not os.path.isdir(folder_path):
+        return False
+    lock_path = os.path.join(folder_path, LOCK_FILE_NAME)
+    if not os.path.exists(lock_path):
+        return False
+    try:
+        mtime = os.path.getmtime(lock_path)
+        if (time.time() - mtime) > LOCK_TIMEOUT_SECONDS:
+            try:
+                os.remove(lock_path)
+            except Exception:
+                pass
+            return False
+        return True
+    except Exception:
+        return False
+
+class FolderLock:
+    """
+    Контекстный менеджер для блокировки папки пациента на время изменения ID,
+    слияния файлов, очистки структур и переименования папки.
+    Позволяет другим процессам (ПК 2) не читать файлы в момент перезаписи.
+    """
+    def __init__(self, folder_path: str):
+        self.folder_path = folder_path
+        self.lock_path = os.path.join(folder_path, LOCK_FILE_NAME)
+        self.acquired = False
+
+    def __enter__(self):
+        if not os.path.isdir(self.folder_path):
+            return self
+        if is_folder_locked(self.folder_path):
+            return self
+        try:
+            import socket
+            hostname = socket.gethostname()
+            pid = os.getpid()
+            with open(self.lock_path, 'w', encoding='utf-8') as f:
+                f.write(f"host={hostname};pid={pid};time={time.time()}\n")
+            self.acquired = True
+        except Exception:
+            self.acquired = False
+        return self
+
+    def update_path(self, new_folder_path: str):
+        """Если папка была переименована, обновляем путь к лок-файлу."""
+        self.folder_path = new_folder_path
+        self.lock_path = os.path.join(new_folder_path, LOCK_FILE_NAME)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.acquired:
+            try:
+                if os.path.exists(self.lock_path):
+                    os.remove(self.lock_path)
+            except Exception:
+                pass
+            self.acquired = False
+
 def safe_merge_folders(src, dest, new_id):
     if os.path.normcase(os.path.abspath(src)) == os.path.normcase(os.path.abspath(dest)):
         return
     for dirpath, dirnames, filenames in os.walk(src):
         for filename in filenames:
+            if filename == LOCK_FILE_NAME or filename.lower().endswith('.lock'):
+                continue
             src_file = os.path.join(dirpath, filename)
             rel_path = os.path.relpath(dirpath, src)
             dest_dir = os.path.join(dest, rel_path)
@@ -78,11 +146,13 @@ def safe_merge_folders(src, dest, new_id):
 
 def safe_update_patient_ids(folder_path, new_id, output_field=None, rt_only=False):
     if not new_id:
-        return
+        return 0, False
+    updated_count = 0
+    has_errors = False
     for dirpath, dirnames, filenames in os.walk(folder_path):
         for filename in filenames:
             fn_lower = filename.lower()
-            if fn_lower == 'dicomdir':
+            if fn_lower in ('dicomdir', LOCK_FILE_NAME.lower()) or fn_lower.endswith('.lock'):
                 continue
 
             # Если включен режим rt_only, проверяем только файлы структур/доз/планов, пропуская явные КТ-срезы
@@ -100,13 +170,36 @@ def safe_update_patient_ids(folder_path, new_id, output_field=None, rt_only=Fals
                 if not current_id or current_id == str(new_id):
                     continue
                 
-                # Только если ID действительно отличается - загружаем полностью и перезаписываем
+                # Только если ID действительно отличается - загружаем и перезаписываем с Retry механизмом
                 ds_file = pydicom.dcmread(src_file, force=True)
                 ds_file.PatientID = str(new_id)
-                ds_file.save_as(src_file)
+
+                file_saved = False
+                last_err = None
+                for attempt in range(5):
+                    try:
+                        ds_file.save_as(src_file)
+                        file_saved = True
+                        break
+                    except (PermissionError, OSError) as pe:
+                        last_err = pe
+                        time.sleep(0.15 * (attempt + 1))
+                    except Exception as e:
+                        last_err = e
+                        break
+
+                if file_saved:
+                    updated_count += 1
+                else:
+                    has_errors = True
+                    if output_field:
+                        log_message(output_field, tr_log("log_dcm_update_id_warning", filename, last_err))
             except Exception as e:
+                has_errors = True
                 if output_field:
                     log_message(output_field, tr_log("log_dcm_update_id_warning", filename, e))
+
+    return updated_count, has_errors
 
 def get_folder_study_info(folder_path):
     """
@@ -358,145 +451,77 @@ def make_folder_hierarchical(parent_path, output_field=None):
 
 def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=None, rename_folder=False, rename_mode='id'):
     if not os.path.isdir(path):
-        return
+        return path
 
-    patient_folder = os.path.basename(path)
-    info = get_folder_study_info(path)
-    if not info:
-        return
+    with FolderLock(path) as lock:
+        if not lock.acquired:
+            # Папка заблокирована другим процессом или недоступна
+            return path
 
-    ds = info['ds']
-    raw_patient_id = str(info['patient_id'])
-    new_patient_id = raw_patient_id
+        patient_folder = os.path.basename(path)
+        info = get_folder_study_info(path)
+        if not info:
+            return path
 
-    # 1. Если включено исправление ID (fix_patient_id)
-    if fix_patient_id:
-        if prefixes:
-            for prefix in prefixes:
-                prefix = prefix.strip()
-                if prefix and new_patient_id.startswith(prefix):
-                    new_patient_id = new_patient_id[len(prefix):]
-                    break
-        if not new_patient_id.isdigit():
-            new_patient_id = remove_non_digits(new_patient_id)
+        ds = info['ds']
+        raw_patient_id = str(info['patient_id'])
+        new_patient_id = raw_patient_id
 
-    id_changed = fix_patient_id and (new_patient_id != raw_patient_id)
+        # 1. Если включено исправление ID (fix_patient_id)
+        if fix_patient_id:
+            if prefixes:
+                for prefix in prefixes:
+                    prefix = prefix.strip()
+                    if prefix and new_patient_id.startswith(prefix):
+                        new_patient_id = new_patient_id[len(prefix):]
+                        break
+            if not new_patient_id.isdigit():
+                new_patient_id = remove_non_digits(new_patient_id)
 
-    # 2. Если ID изменился у КТ, обновляем все файлы в папке.
-    # Если у КТ ID уже правильный, проверяем только структуры/дозы/планы (rt_only=True) за долю миллисекунды.
-    if fix_patient_id:
-        if id_changed:
-            safe_update_patient_ids(path, new_patient_id, output_field, rt_only=False)
-        else:
-            safe_update_patient_ids(path, new_patient_id, output_field, rt_only=True)
+        id_changed = fix_patient_id and (new_patient_id != raw_patient_id)
 
-    # 3. Если включено переименование папки исследования (rename_folder)
-    if rename_folder:
-        raw_name = str(info['patient_name'])
-        clean_name = raw_name.replace('^', ' ').replace('_', ' ').strip()
-        clean_name = re.sub(r'\s+', ' ', clean_name)
-        name_part = sanitize_folder_name(clean_name)
-        if rename_mode == 'id':
-            target_folder_name = str(new_patient_id)
-        elif rename_mode == 'name':
-            target_folder_name = name_part if name_part else str(new_patient_id)
-        elif rename_mode == 'name_id':
-            target_folder_name = f"{name_part} [{new_patient_id}]" if name_part else str(new_patient_id)
-        elif rename_mode == 'id_name':
-            target_folder_name = f"[{new_patient_id}] {name_part}" if name_part else str(new_patient_id)
-        else:
-            target_folder_name = patient_folder
+        # 2. Если включен fix_patient_id:
+        # Всегда проверяем все файлы папки (rt_only=False), потому что предварительное чтение
+        # только тега PatientID (без пикселей) занимает доли секунды на всю папку,
+        # но надежно выявляет и исправляет любые файлы с отставшим/неисправленным ID.
+        had_update_errors = False
+        if fix_patient_id:
+            updated_count, had_update_errors = safe_update_patient_ids(path, new_patient_id, output_field, rt_only=False)
+            if updated_count > 0:
+                id_changed = True
 
-        study_date_str = info['study_date_str']
-        date_only_str = info['date_only_str']
+        # Если при обновлении файлов возникли ошибки блокировки, отложим переименование папки до следующего цикла
+        if had_update_errors:
+            return path
 
-        parent_path = os.path.join(os.path.dirname(path), target_folder_name)
-
-        if not os.path.exists(parent_path):
-            success = False
-            last_error = None
-            for attempt in range(5):
-                try:
-                    os.rename(path, parent_path)
-                    success = True
-                    break
-                except OSError as e:
-                    last_error = e
-                    import time
-                    time.sleep(0.2)
-            
-            if success:
-                if id_changed:
-                    log_message(output_field, tr_log("log_folder_renamed_success_with_id", patient_folder, target_folder_name, new_patient_id))
-                else:
-                    log_message(output_field, tr_log("log_folder_renamed_success", patient_folder, target_folder_name))
-                return parent_path
+        # 3. Если включено переименование папки исследования (rename_folder)
+        if rename_folder:
+            raw_name = str(info['patient_name'])
+            clean_name = raw_name.replace('^', ' ').replace('_', ' ').strip()
+            clean_name = re.sub(r'\s+', ' ', clean_name)
+            name_part = sanitize_folder_name(clean_name)
+            if rename_mode == 'id':
+                target_folder_name = str(new_patient_id)
+            elif rename_mode == 'name':
+                target_folder_name = name_part if name_part else str(new_patient_id)
+            elif rename_mode == 'name_id':
+                target_folder_name = f"{name_part} [{new_patient_id}]" if name_part else str(new_patient_id)
+            elif rename_mode == 'id_name':
+                target_folder_name = f"[{new_patient_id}] {name_part}" if name_part else str(new_patient_id)
             else:
-                log_message(output_field, tr_log("log_folder_rename_error", patient_folder, last_error))
-                return path
+                target_folder_name = patient_folder
 
-        else:
-            # Папка пациента уже существует.
-            if os.path.normcase(os.path.abspath(path)) == os.path.normcase(os.path.abspath(parent_path)):
-                auto_heal_split_patient_folders(parent_path, new_patient_id, output_field)
-                return parent_path
+            study_date_str = info['study_date_str']
+            date_only_str = info['date_only_str']
 
-            incoming_uid = info.get('study_instance_uid', '')
-            is_incoming_struct_only = is_structure_only_folder(path)
+            parent_path = os.path.join(os.path.dirname(path), target_folder_name)
 
-            # Проверим, лежит ли существующее исследование в корне parent_path (плоская структура)
-            exist_info = get_folder_study_info(parent_path)
-            is_parent_flat = exist_info and (os.path.dirname(os.path.abspath(exist_info['target_file'])) == os.path.abspath(parent_path))
-
-            if is_parent_flat:
-                exist_uid = exist_info.get('study_instance_uid', '')
-                if (exist_uid and incoming_uid and exist_uid == incoming_uid) or is_incoming_struct_only or (exist_info.get('date_only_str') == date_only_str):
-                    # Совпадает по StudyInstanceUID или структуре, сливаем в корень parent_path
-                    try:
-                        safe_merge_folders(path, parent_path, new_patient_id)
-                        if id_changed:
-                            log_message(output_field, tr_log("log_files_merged_success_with_id", os.path.basename(parent_path), new_patient_id, patient_folder))
-                        else:
-                            log_message(output_field, tr_log("log_files_merged_success", os.path.basename(parent_path), patient_folder))
-                    except Exception as e:
-                        log_message(output_field, tr_log("log_folders_merge_error", patient_folder, os.path.basename(parent_path), e))
-                    return parent_path
-
-            # Если целевая папка плоская, переведем её в иерархическую структуру
-            if not make_folder_hierarchical(parent_path, output_field):
-                return path
-                
-            # Ищем подпапку исследования для совпадения по StudyInstanceUID (или по дате)
-            matching_sub = find_matching_study_subfolder(parent_path, incoming_uid, date_only_str, study_date_str)
-            
-            # Если входящая папка - только структуры, но точного UID не нашлось, берем подпапку со срезами КТ
-            if not matching_sub and is_incoming_struct_only:
-                try:
-                    for item in os.listdir(parent_path):
-                        sub_path = os.path.join(parent_path, item)
-                        if os.path.isdir(sub_path) and not is_structure_only_folder(sub_path):
-                            matching_sub = sub_path
-                            break
-                except Exception:
-                    pass
-
-            target_sub = matching_sub if matching_sub else os.path.join(parent_path, f"[{study_date_str}]")
-            
-            if os.path.exists(target_sub):
-                try:
-                    safe_merge_folders(path, target_sub, new_patient_id)
-                    if id_changed:
-                        log_message(output_field, tr_log("log_files_merged_success_with_id", os.path.basename(target_sub), new_patient_id, patient_folder))
-                    else:
-                        log_message(output_field, tr_log("log_files_merged_success", os.path.basename(target_sub), patient_folder))
-                except Exception as e:
-                    log_message(output_field, tr_log("log_folders_merge_error", patient_folder, os.path.basename(target_sub), e))
-            else:
+            if not os.path.exists(parent_path):
                 success = False
                 last_error = None
                 for attempt in range(5):
                     try:
-                        os.rename(path, target_sub)
+                        os.rename(path, parent_path)
                         success = True
                         break
                     except OSError as e:
@@ -505,17 +530,100 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
                         time.sleep(0.2)
                 
                 if success:
+                    lock.update_path(parent_path)
                     if id_changed:
-                        log_message(output_field, tr_log("log_folder_renamed_success_with_id", patient_folder, f"{target_folder_name}/{os.path.basename(target_sub)}", new_patient_id))
+                        log_message(output_field, tr_log("log_folder_renamed_success_with_id", patient_folder, target_folder_name, new_patient_id))
                     else:
-                        log_message(output_field, tr_log("log_folder_renamed_success", patient_folder, f"{target_folder_name}/{os.path.basename(target_sub)}"))
+                        log_message(output_field, tr_log("log_folder_renamed_success", patient_folder, target_folder_name))
+                    return parent_path
                 else:
                     log_message(output_field, tr_log("log_folder_rename_error", patient_folder, last_error))
+                    return path
 
-            # Автолечение на случай ранее разделенных папок
-            auto_heal_split_patient_folders(parent_path, new_patient_id, output_field)
-            return parent_path
-    return path
+            else:
+                # Папка пациента уже существует.
+                if os.path.normcase(os.path.abspath(path)) == os.path.normcase(os.path.abspath(parent_path)):
+                    auto_heal_split_patient_folders(parent_path, new_patient_id, output_field)
+                    return parent_path
+
+                incoming_uid = info.get('study_instance_uid', '')
+                is_incoming_struct_only = is_structure_only_folder(path)
+
+                # Проверим, лежит ли существующее исследование в корне parent_path (плоская структура)
+                exist_info = get_folder_study_info(parent_path)
+                is_parent_flat = exist_info and (os.path.dirname(os.path.abspath(exist_info['target_file'])) == os.path.abspath(parent_path))
+
+                if is_parent_flat:
+                    exist_uid = exist_info.get('study_instance_uid', '')
+                    if (exist_uid and incoming_uid and exist_uid == incoming_uid) or is_incoming_struct_only or (exist_info.get('date_only_str') == date_only_str):
+                        # Совпадает по StudyInstanceUID или структуре, сливаем в корень parent_path
+                        try:
+                            safe_merge_folders(path, parent_path, new_patient_id)
+                            lock.update_path(parent_path)
+                            if id_changed:
+                                log_message(output_field, tr_log("log_files_merged_success_with_id", os.path.basename(parent_path), new_patient_id, patient_folder))
+                            else:
+                                log_message(output_field, tr_log("log_files_merged_success", os.path.basename(parent_path), patient_folder))
+                        except Exception as e:
+                            log_message(output_field, tr_log("log_folders_merge_error", patient_folder, os.path.basename(parent_path), e))
+                        return parent_path
+
+                # Если целевая папка плоская, переведем её в иерархическую структуру
+                if not make_folder_hierarchical(parent_path, output_field):
+                    return path
+                    
+                # Ищем подпапку исследования для совпадения по StudyInstanceUID (или по дате)
+                matching_sub = find_matching_study_subfolder(parent_path, incoming_uid, date_only_str, study_date_str)
+                
+                # Если входящая папка - только структуры, но точного UID не нашлось, берем подпапку со срезами КТ
+                if not matching_sub and is_incoming_struct_only:
+                    try:
+                        for item in os.listdir(parent_path):
+                            sub_path = os.path.join(parent_path, item)
+                            if os.path.isdir(sub_path) and not is_structure_only_folder(sub_path):
+                                matching_sub = sub_path
+                                break
+                    except Exception:
+                        pass
+
+                target_sub = matching_sub if matching_sub else os.path.join(parent_path, f"[{study_date_str}]")
+                
+                if os.path.exists(target_sub):
+                    try:
+                        safe_merge_folders(path, target_sub, new_patient_id)
+                        lock.update_path(parent_path)
+                        if id_changed:
+                            log_message(output_field, tr_log("log_files_merged_success_with_id", os.path.basename(target_sub), new_patient_id, patient_folder))
+                        else:
+                            log_message(output_field, tr_log("log_files_merged_success", os.path.basename(target_sub), patient_folder))
+                    except Exception as e:
+                        log_message(output_field, tr_log("log_folders_merge_error", patient_folder, os.path.basename(target_sub), e))
+                else:
+                    success = False
+                    last_error = None
+                    for attempt in range(5):
+                        try:
+                            os.rename(path, target_sub)
+                            success = True
+                            break
+                        except OSError as e:
+                            last_error = e
+                            import time
+                            time.sleep(0.2)
+                    
+                    if success:
+                        lock.update_path(parent_path)
+                        if id_changed:
+                            log_message(output_field, tr_log("log_folder_renamed_success_with_id", patient_folder, f"{target_folder_name}/{os.path.basename(target_sub)}", new_patient_id))
+                        else:
+                            log_message(output_field, tr_log("log_folder_renamed_success", patient_folder, f"{target_folder_name}/{os.path.basename(target_sub)}"))
+                    else:
+                        log_message(output_field, tr_log("log_folder_rename_error", patient_folder, last_error))
+
+                # Автолечение на случай ранее разделенных папок
+                auto_heal_split_patient_folders(parent_path, new_patient_id, output_field)
+                return parent_path
+        return path
 
 
 def move_single_study_folder(src_study_path: str, dest_patient_path: str, output_field=None) -> bool:

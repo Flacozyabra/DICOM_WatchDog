@@ -113,12 +113,29 @@ class FolderScanWorker(QThread):
         if total_folders > 0:
             self.status_changed.emit(tr_ui("loading_scanning_folders_status"))
             now = datetime.now()
-            from core.rename_utils import move_study_folder_hierarchical, get_folder_study_info
+            from core.rename_utils import move_study_folder_hierarchical, get_folder_study_info, is_folder_locked
             from concurrent.futures import ThreadPoolExecutor, as_completed
             
             def process_single(path):
                 if not os.path.exists(path):
                     return {}, 0
+
+                # Если папка заблокирована другим процессом (ПК 1 пишет файлы / меняет ID)
+                if is_folder_locked(path):
+                    with cache_lock:
+                        cached_entry = ct_cache.get(path)
+                    if cached_entry:
+                        with cache_lock:
+                            studies = collect_patient_studies(
+                                path, self.ct_images_dir, collector,
+                                cleanup_structures=False,
+                                scan_rtd=self.scan_rtd,
+                                scan_rtp=self.scan_rtp,
+                                cache=ct_cache
+                            )
+                        return studies, 0
+                    return {}, 0
+
                 active_path = path
                 archived_in_study = 0
 

@@ -18,7 +18,7 @@ def classify_dicom_file(filename: str, filepath: str = None) -> str:
     Возвращает: 'RTSTRUCT', 'RTDOSE', 'RTPLAN', 'CT', или 'IGNORE' (для DICOMDIR).
     """
     fn = filename.upper()
-    if fn == 'DICOMDIR':
+    if fn in ('DICOMDIR', '.DW_PROCESSING.LOCK', 'DW_PROCESSING.LOCK') or fn.endswith('.LOCK') or fn.startswith('.'):
         return 'IGNORE'
 
     # 1. RTSTRUCT (STR, RS, RTSTRUCT, STRUCT, STRCTR, CONTOUR, .STR)
