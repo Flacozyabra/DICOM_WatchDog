@@ -148,10 +148,36 @@ class MainWindow(QMainWindow):
         self.images_table.setItemDelegate(self.table_delegate)
         self.archive_table.setItemDelegate(self.table_delegate)
         
+        # Мгновенная предзагрузка КТ и Архива из сохраненного кэша для мгновенного старта
+        ct_dir = self.config.get('ct_images_dir', '')
+        if ct_dir and os.path.exists(ct_dir):
+            try:
+                from core.dicom_utils import load_ct_cache_as_patient_dict
+                cached_images = load_ct_cache_as_patient_dict(ct_dir)
+                if cached_images:
+                    self.images_cache = cached_images
+                    self.update_images_table_ui()
+            except Exception:
+                pass
+
+        show_archive = self.config.get('show_tab_archive', 'True').lower() == 'true'
+        archive_dir = self.config.get('archive_dir', '') if show_archive else ''
+        if archive_dir and os.path.exists(archive_dir):
+            try:
+                from core.archive import load_archive_cache_as_patient_dict
+                cached_archive = load_archive_cache_as_patient_dict(archive_dir)
+                if cached_archive:
+                    self.archive_cache = cached_archive
+                    self.update_archive_table_ui()
+            except Exception:
+                pass
+
+        self.update_tab_badges()
+
         # Запуск таймеров и мониторинга
         self.restart_timers()
         
-        # Первоначальное заполнение
+        # Первоначальное заполнение / фоновое сканирование
         self.show_patient_list()
         if not getattr(self, 'scan_worker', None) or not self.scan_worker.isRunning():
             self.fill_archive_list(silent=True)
@@ -195,11 +221,8 @@ class MainWindow(QMainWindow):
                 patient_entry = self.images_cache.pop(patient_id, None)
             if self.archive_cache is not None and patient_entry:
                 self.archive_cache[patient_id] = patient_entry
-                try:
-                    from core.archive import save_cache
-                    save_cache(self.archive_cache)
-                except Exception:
-                    pass
+            self.sync_ct_cache_to_disk()
+            self.sync_archive_cache_to_disk()
             self.update_images_table_ui()
             self.update_archive_table_ui()
             self.update_tab_badges()
@@ -208,6 +231,7 @@ class MainWindow(QMainWindow):
             log_message(self.output_field, tr_log("log_patient_deleted", result))
             if self.images_cache and patient_id in self.images_cache:
                 self.images_cache.pop(patient_id, None)
+            self.sync_ct_cache_to_disk()
             self.update_images_table_ui()
             self.update_tab_badges()
 
@@ -215,11 +239,7 @@ class MainWindow(QMainWindow):
             log_message(self.output_field, tr_log("log_patient_deleted", result))
             if self.archive_cache is not None and patient_id in self.archive_cache:
                 self.archive_cache.pop(patient_id, None)
-                try:
-                    from core.archive import save_cache
-                    save_cache(self.archive_cache)
-                except Exception:
-                    pass
+            self.sync_archive_cache_to_disk()
             self.update_archive_table_ui()
             self.update_tab_badges()
 
@@ -228,6 +248,7 @@ class MainWindow(QMainWindow):
             log_message(self.output_field, tr_log("log_cleaned_str_files", deleted, folder_desc))
             if self.images_cache and patient_id in self.images_cache:
                 self.images_cache[patient_id]['str'] = False
+            self.sync_ct_cache_to_disk()
             self.update_images_table_ui()
 
         elif op_type == 'restore':
@@ -235,14 +256,11 @@ class MainWindow(QMainWindow):
             patient_entry = None
             if self.archive_cache is not None and patient_id in self.archive_cache:
                 patient_entry = self.archive_cache.pop(patient_id, None)
-                try:
-                    from core.archive import save_cache
-                    save_cache(self.archive_cache)
-                except Exception:
-                    pass
             if self.images_cache is not None and patient_entry:
                 self.images_cache[patient_id] = patient_entry
             self.restored_patient_ids.add(patient_id)
+            self.sync_archive_cache_to_disk()
+            self.sync_ct_cache_to_disk()
             self.update_images_table_ui()
             self.update_archive_table_ui()
             self.update_tab_badges()
@@ -279,13 +297,10 @@ class MainWindow(QMainWindow):
                     target_cache[new_key] = entry
 
                 if is_archive:
-                    try:
-                        from core.archive import save_cache
-                        save_cache(self.archive_cache)
-                    except Exception:
-                        pass
+                    self.sync_archive_cache_to_disk()
                     self.update_archive_table_ui()
                 else:
+                    self.sync_ct_cache_to_disk()
                     self.update_images_table_ui()
 
                 self.update_tab_badges()
@@ -2454,7 +2469,79 @@ class MainWindow(QMainWindow):
         self.show_patient_list()
         self.fill_archive_list(silent=True)
 
+    def sync_ct_cache_to_disk(self):
+        if not hasattr(self, 'images_cache') or self.images_cache is None:
+            return
+        ct_dir = self.config.get('ct_images_dir', '')
+        if not ct_dir:
+            return
+        try:
+            from core.dicom_utils import save_ct_cache
+            cache_data = {}
+            for rel_p, d in self.images_cache.items():
+                full_p = os.path.normpath(os.path.join(ct_dir, rel_p))
+                if os.path.exists(full_p):
+                    try:
+                        mtime = os.path.getmtime(full_p)
+                    except Exception:
+                        mtime = 0.0
+                    cache_data[full_p] = {
+                        'patient_id': d.get('patient_id', ''),
+                        'patient_name': d.get('patient_name', ''),
+                        'modality': d.get('modality', 'CT'),
+                        'study_datetime': d.get('study_datetime'),
+                        'body_part': d.get('body_part', 'Unknown'),
+                        'folder_datetime': d.get('folder_datetime'),
+                        'str': d.get('str', 0),
+                        'rtd': d.get('rtd', 0),
+                        'rtp': d.get('rtp', 0),
+                        'slices': d.get('slices', 0),
+                        'mtime': mtime
+                    }
+            save_ct_cache(cache_data)
+        except Exception:
+            pass
+
+    def sync_archive_cache_to_disk(self):
+        if not hasattr(self, 'archive_cache') or self.archive_cache is None:
+            return
+        archive_dir = self.config.get('archive_dir', '')
+        if not archive_dir:
+            return
+        try:
+            from core.archive import save_cache
+            cache_data = {}
+            for rel_p, d in self.archive_cache.items():
+                full_p = os.path.normpath(os.path.join(archive_dir, rel_p))
+                if os.path.exists(full_p):
+                    try:
+                        mtime = os.path.getmtime(full_p)
+                    except Exception:
+                        mtime = 0.0
+                    cache_data[full_p] = {
+                        'patient_id': d.get('patient_id', ''),
+                        'patient_name': d.get('patient_name', ''),
+                        'modality': d.get('modality', 'CT'),
+                        'study_datetime': d.get('study_datetime'),
+                        'body_part': d.get('body_part', 'Unknown'),
+                        'folder_datetime': d.get('folder_datetime'),
+                        'str': d.get('str', 0),
+                        'rtd': d.get('rtd', 0),
+                        'rtp': d.get('rtp', 0),
+                        'slices': d.get('slices', 0),
+                        'mtime': mtime
+                    }
+            save_cache(cache_data)
+        except Exception:
+            pass
+
     def closeEvent(self, event):
+        # Сохраняем актуальные кэши на диск перед выходом
+        try:
+            self.sync_ct_cache_to_disk()
+            self.sync_archive_cache_to_disk()
+        except Exception:
+            pass
         # Останавливаем наблюдатель перед выходом, чтобы не зависал фоновый поток
         self.stop_file_watcher()
         

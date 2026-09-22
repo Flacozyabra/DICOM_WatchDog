@@ -32,7 +32,7 @@ def migrate_files():
     # Root directory of the project
     project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     
-    files_to_migrate = ["config.json", "archive_cache.json", "pacs_error.log"]
+    files_to_migrate = ["config.json", "archive_cache.json", "ct_images_cache.json", "pacs_error.log"]
     
     for filename in files_to_migrate:
         src = os.path.join(project_dir, filename)
@@ -75,6 +75,9 @@ def load_config():
 
 def get_cache_path():
     return os.path.join(get_app_data_dir(), "archive_cache.json")
+
+def get_ct_cache_path():
+    return os.path.join(get_app_data_dir(), "ct_images_cache.json")
 
 def get_log_path():
     return os.path.join(get_app_data_dir(), "pacs_error.log")

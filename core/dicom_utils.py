@@ -1,12 +1,14 @@
 import os
 import shutil
 import time
-from datetime import datetime
+import json
+from datetime import datetime, date
 from collections import defaultdict
 import pydicom
 
 from core.logger import log_message
 from core.locale_utils import tr_log
+from core.config_utils import get_ct_cache_path
 
 
 def classify_dicom_file(filename: str, filepath: str = None) -> str:
@@ -159,11 +161,97 @@ def delete_redundant_str(patient_dir, output_field=None):
     return deleted_count
 
 
-def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, cleanup_structures=False, scan_rtd=False, scan_rtp=False):
+def _json_serialize_default(obj):
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    return str(obj)
+
+
+def load_ct_cache():
+    cache_path = get_ct_cache_path()
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def save_ct_cache(cache_data):
+    try:
+        with open(get_ct_cache_path(), "w", encoding="utf-8") as f:
+            json.dump(cache_data, f, ensure_ascii=False, indent=4, default=_json_serialize_default)
+    except Exception as e:
+        try:
+            from core.config_utils import get_log_path
+            with open(get_log_path(), "a", encoding="utf-8") as log_f:
+                log_f.write(f"[{datetime.now()}] Failed to save CT cache: {e}\n")
+        except Exception:
+            pass
+
+
+def load_ct_cache_as_patient_dict(ct_images_dir):
+    """
+    Быстро восстанавливает словарь пациентов КТ из кэша для мгновенного
+    отображения в UI при старте программы (до завершения фонового сканирования).
+    """
+    cache = load_ct_cache()
+    if not cache or not ct_images_dir or not os.path.exists(ct_images_dir):
+        return {}
+
+    abs_ct_dir = os.path.abspath(ct_images_dir)
+    patient_data = {}
+    for root, cached_item in cache.items():
+        if not os.path.isdir(root):
+            continue
+        try:
+            abs_root = os.path.abspath(root)
+            if os.path.commonpath([abs_root, abs_ct_dir]) != abs_ct_dir or abs_root == abs_ct_dir:
+                continue
+            rel_path = os.path.relpath(root, ct_images_dir).replace('\\', '/')
+            s_dt = cached_item.get('study_datetime')
+            if isinstance(s_dt, str):
+                try:
+                    s_dt = datetime.fromisoformat(s_dt)
+                except Exception:
+                    s_dt = datetime.fromtimestamp(os.path.getmtime(root))
+            elif not isinstance(s_dt, datetime):
+                s_dt = datetime.fromtimestamp(os.path.getmtime(root))
+
+            f_dt = cached_item.get('folder_datetime')
+            if isinstance(f_dt, str):
+                try:
+                    f_dt = datetime.fromisoformat(f_dt)
+                except Exception:
+                    f_dt = s_dt
+            elif not isinstance(f_dt, datetime):
+                f_dt = s_dt
+
+            patient_data[rel_path] = {
+                'patient_id': str(cached_item.get('patient_id', os.path.basename(root))),
+                'patient_name': str(cached_item.get('patient_name', os.path.basename(root))),
+                'modality': str(cached_item.get('modality', 'CT')),
+                'study_datetime': s_dt,
+                'body_part': str(cached_item.get('body_part', 'Unknown')),
+                'folder_datetime': f_dt,
+                'str': int(cached_item.get('str', 0)),
+                'rtd': int(cached_item.get('rtd', 0)),
+                'rtp': int(cached_item.get('rtp', 0)),
+                'slices': int(cached_item.get('slices', 0)),
+                'folder_name': rel_path
+            }
+        except Exception:
+            continue
+    return patient_data
+
+
+def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, cleanup_structures=False, scan_rtd=False, scan_rtp=False, cache=None):
     """
     Сканирует одну конкретную папку пациента (включая возможные подпапки исследований)
     и возвращает словарь исследований для таблицы.
     Выполняется в один быстрый проход без повторных обращений к диску.
+    При передаче cache сверяет mtime папки и мгновенно использует кэш без pydicom.
     """
     patient_data = {}
     if not os.path.exists(patient_dir):
@@ -178,6 +266,72 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
     for root, dirs, files in os.walk(patient_dir):
         if not files:
             continue
+
+        try:
+            mtime = os.path.getmtime(root)
+        except Exception:
+            mtime = 0.0
+
+        rel_path = os.path.relpath(root, ct_images_dir).replace('\\', '/')
+
+        # Проверка актуальности кэша по mtime
+        if cache is not None:
+            cached_item = cache.get(root)
+            if cached_item and cached_item.get('mtime') == mtime:
+                s_dt = cached_item.get('study_datetime')
+                if isinstance(s_dt, str):
+                    try:
+                        s_dt = datetime.fromisoformat(s_dt)
+                    except Exception:
+                        s_dt = datetime.fromtimestamp(mtime)
+                elif not isinstance(s_dt, datetime):
+                    s_dt = datetime.fromtimestamp(mtime)
+
+                f_dt = cached_item.get('folder_datetime')
+                if isinstance(f_dt, str):
+                    try:
+                        f_dt = datetime.fromisoformat(f_dt)
+                    except Exception:
+                        f_dt = s_dt
+                elif not isinstance(f_dt, datetime):
+                    f_dt = s_dt
+
+                rtd_val = cached_item.get('rtd', 0)
+                if scan_rtd and 'rtd' not in cached_item:
+                    rtd_val = len([f for f in files if is_dose_file(os.path.join(root, f))])
+                    cached_item['rtd'] = rtd_val
+                elif not scan_rtd:
+                    rtd_val = 0
+
+                rtp_val = cached_item.get('rtp', 0)
+                if scan_rtp and 'rtp' not in cached_item:
+                    rtp_val = len([f for f in files if is_plan_file(os.path.join(root, f))])
+                    cached_item['rtp'] = rtp_val
+                elif not scan_rtp:
+                    rtp_val = 0
+
+                str_val = cached_item.get('str', 0)
+                if is_cleanup_on and str_val > 1:
+                    delete_redundant_str(root, output_field)
+                    str_files = [f for f in os.listdir(root) if classify_dicom_file(f, os.path.join(root, f)) == 'RTSTRUCT']
+                    str_val = len(str_files)
+                    cached_item['str'] = str_val
+                    cached_item['mtime'] = os.path.getmtime(root)
+
+                patient_data[rel_path] = {
+                    'patient_id': str(cached_item.get('patient_id', os.path.basename(root))),
+                    'patient_name': str(cached_item.get('patient_name', os.path.basename(root))),
+                    'modality': str(cached_item.get('modality', 'CT')),
+                    'study_datetime': s_dt,
+                    'body_part': str(cached_item.get('body_part', 'Unknown')),
+                    'folder_datetime': f_dt,
+                    'str': str_val,
+                    'rtd': rtd_val,
+                    'rtp': rtp_val,
+                    'slices': int(cached_item.get('slices', 0)),
+                    'folder_name': rel_path
+                }
+                continue
 
         ct_files = []
         str_files = []
@@ -297,6 +451,21 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
                 study_entry['str'] = len(str_files)
 
             patient_data[rel_path] = study_entry
+
+            if cache is not None:
+                cache[root] = {
+                    'patient_id': study_entry['patient_id'],
+                    'patient_name': study_entry['patient_name'],
+                    'modality': study_entry['modality'],
+                    'study_datetime': study_entry['study_datetime'].isoformat() if isinstance(study_entry['study_datetime'], (datetime, date)) else str(study_entry['study_datetime']),
+                    'body_part': study_entry['body_part'],
+                    'folder_datetime': study_entry['folder_datetime'].isoformat() if isinstance(study_entry['folder_datetime'], (datetime, date)) else str(study_entry['folder_datetime']),
+                    'str': study_entry['str'],
+                    'rtd': study_entry['rtd'],
+                    'rtp': study_entry['rtp'],
+                    'slices': study_entry['slices'],
+                    'mtime': mtime
+                }
 
         except Exception as e:
             log_message(output_field, tr_log("log_dcm_read_error", used_fp or os.path.join(root, rep_candidates[0]), e))

@@ -2,6 +2,7 @@
 """Background Worker Threads for DICOM WatchDog."""
 
 import os
+import threading
 from datetime import datetime
 from watchdog.events import FileSystemEventHandler
 
@@ -11,7 +12,7 @@ except ImportError:
     from PyQt5.QtCore import QThread, pyqtSignal, QObject
 
 from core.logger import log_message
-from core.dicom_utils import dict_create, collect_patient_studies
+from core.dicom_utils import dict_create, collect_patient_studies, load_ct_cache, save_ct_cache
 from core.rename_utils import process_patient_folder, move_study_folder_hierarchical, get_folder_study_info
 from core.pacs import pacs_dict_create, download_patient_from_pacs
 from core.locale_utils import tr_log, tr_ui
@@ -106,6 +107,9 @@ class FolderScanWorker(QThread):
         patient_dict = {}
         total_archived = 0
 
+        ct_cache = load_ct_cache()
+        cache_lock = threading.Lock()
+
         if total_folders > 0:
             self.status_changed.emit(tr_ui("loading_scanning_folders_status"))
             now = datetime.now()
@@ -118,8 +122,18 @@ class FolderScanWorker(QThread):
                 active_path = path
                 archived_in_study = 0
 
-                # 2a. Исправление ID и переименование
-                if is_fix_id_on or is_rename_folder_on:
+                # 2a. Исправление ID и переименование (только если папка изменилась или не в кэше)
+                folder_mtime = 0.0
+                try:
+                    folder_mtime = os.path.getmtime(path)
+                except Exception:
+                    pass
+
+                with cache_lock:
+                    cached_entry = ct_cache.get(path)
+                is_unmodified = (cached_entry is not None and cached_entry.get('mtime') == folder_mtime)
+
+                if (is_fix_id_on or is_rename_folder_on) and not is_unmodified:
                     res_path = process_patient_folder(
                         path, collector,
                         fix_patient_id=is_fix_id_on,
@@ -175,14 +189,16 @@ class FolderScanWorker(QThread):
                             except Exception as e:
                                 log_message(collector, tr_log("log_patient_move_to_archive_error", os.path.basename(target_folder), e))
 
-                # 2c. Считывание исследования сразу в patient_dict
+                # 2c. Считывание исследования сразу в patient_dict (с использованием кэша)
                 if not is_fully_archived and os.path.exists(active_path):
-                    studies = collect_patient_studies(
-                        active_path, self.ct_images_dir, collector,
-                        cleanup_structures=is_cleanup_struct_on,
-                        scan_rtd=self.scan_rtd,
-                        scan_rtp=self.scan_rtp
-                    )
+                    with cache_lock:
+                        studies = collect_patient_studies(
+                            active_path, self.ct_images_dir, collector,
+                            cleanup_structures=is_cleanup_struct_on,
+                            scan_rtd=self.scan_rtd,
+                            scan_rtp=self.scan_rtp,
+                            cache=ct_cache
+                        )
                     return studies, archived_in_study
                 return {}, archived_in_study
 
@@ -208,6 +224,25 @@ class FolderScanWorker(QThread):
                         log_message(collector, f"Error scanning folder {p_path}: {e}")
 
             self.progress.emit(total_folders, total_folders)
+
+        # Сохраняем актуальный кэш на диск
+        try:
+            abs_ct = os.path.abspath(self.ct_images_dir) if self.ct_images_dir else None
+            cleaned_cache = {}
+            for p, data in ct_cache.items():
+                if not os.path.exists(p):
+                    continue
+                if abs_ct:
+                    try:
+                        abs_p = os.path.abspath(p)
+                        if os.path.commonpath([abs_p, abs_ct]) != abs_ct or abs_p == abs_ct:
+                            continue
+                    except ValueError:
+                        continue
+                cleaned_cache[p] = data
+            save_ct_cache(cleaned_cache)
+        except Exception:
+            pass
 
         self.archived_count = total_archived
         self.archive_cleaned = archive_cleaned

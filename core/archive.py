@@ -2,13 +2,19 @@ import os
 import shutil
 import json
 import pydicom
-from datetime import datetime
+from datetime import datetime, date
 from collections import defaultdict
 
 from core.logger import log_message
 from core.config_utils import get_cache_path
 from core.locale_utils import tr_log
 from core.dicom_utils import is_structure_file, is_dose_file, is_plan_file, is_dicom_file
+
+
+def _json_serialize_default(obj):
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    return str(obj)
 
 
 def load_cache():
@@ -25,7 +31,7 @@ def load_cache():
 def save_cache(cache_data):
     try:
         with open(get_cache_path(), "w", encoding="utf-8") as f:
-            json.dump(cache_data, f, ensure_ascii=False, indent=4)
+            json.dump(cache_data, f, ensure_ascii=False, indent=4, default=_json_serialize_default)
     except Exception as e:
         try:
             from core.config_utils import get_log_path
@@ -33,6 +39,61 @@ def save_cache(cache_data):
                 log_f.write(f"[{datetime.now()}] Failed to save archive cache: {e}\n")
         except Exception:
             pass
+
+
+def load_archive_cache_as_patient_dict(archive_dir):
+    """
+    Быстро восстанавливает словарь пациентов архива из кэша для мгновенного
+    отображения в UI при старте программы (без ожидания фонового сканирования).
+    """
+    cache = load_cache()
+    if not cache or not archive_dir or not os.path.exists(archive_dir):
+        return {}
+
+    abs_arch_dir = os.path.abspath(archive_dir)
+    patient_data = {}
+    for root, cached_item in cache.items():
+        if not os.path.isdir(root):
+            continue
+        try:
+            abs_root = os.path.abspath(root)
+            if os.path.commonpath([abs_root, abs_arch_dir]) != abs_arch_dir or abs_root == abs_arch_dir:
+                continue
+            rel_path = os.path.relpath(root, archive_dir).replace('\\', '/')
+            s_dt = cached_item.get('study_datetime')
+            if isinstance(s_dt, str):
+                try:
+                    s_dt = datetime.fromisoformat(s_dt)
+                except Exception:
+                    s_dt = datetime.fromtimestamp(os.path.getmtime(root))
+            elif not isinstance(s_dt, datetime):
+                s_dt = datetime.fromtimestamp(os.path.getmtime(root))
+
+            f_dt = cached_item.get('folder_datetime')
+            if isinstance(f_dt, str):
+                try:
+                    f_dt = datetime.fromisoformat(f_dt)
+                except Exception:
+                    f_dt = s_dt
+            elif not isinstance(f_dt, datetime):
+                f_dt = s_dt
+
+            patient_data[rel_path] = {
+                'patient_id': str(cached_item.get('patient_id', os.path.basename(root))),
+                'patient_name': str(cached_item.get('patient_name', os.path.basename(root))),
+                'modality': str(cached_item.get('modality', 'CT')),
+                'study_datetime': s_dt,
+                'body_part': str(cached_item.get('body_part', 'Unknown')),
+                'folder_datetime': f_dt,
+                'str': int(cached_item.get('str', 0)),
+                'rtd': int(cached_item.get('rtd', 0)),
+                'rtp': int(cached_item.get('rtp', 0)),
+                'slices': int(cached_item.get('slices', 0)),
+                'folder_name': rel_path
+            }
+        except Exception:
+            continue
+    return patient_data
 
 
 def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False, progress_callback=None, count_callback=None, is_interrupted=None, scan_rtd=False, scan_rtp=False):
