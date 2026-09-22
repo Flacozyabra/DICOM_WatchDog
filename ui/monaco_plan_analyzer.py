@@ -296,8 +296,8 @@ class PlanKinematicsAnalyzer:
                 if d_mu < 0.01:
                     pass
                 else:
-                    # 1. Low Dose Rate Drop-out (Causes DOSE RATE MON on Elekta below 60 MU/min)
-                    if est_dr < (min_stable_dose_rate - 0.2) or mu_per_deg < 0.164:
+                    # 1. Low Dose Rate Drop-out (Causes DOSE RATE MON on Elekta strictly below 60 MU/min)
+                    if round(est_dr) < min_stable_dose_rate or mu_per_deg < 0.160:
                         reasons.append(f"Мощность дозы ({est_dr:.1f} MU/мин, {mu_per_deg:.2f} MU/deg) ниже порога стабильности (< {min_stable_dose_rate:.0f} MU/мин)")
                         risk_level = 'CRITICAL'
                     elif est_dr < 75.0 or mu_per_deg < 0.20:
@@ -733,13 +733,16 @@ class PolarArcWidget(QWidget):
                 painter.drawText(QRectF(row_rect.right() - 75, y, 75, 15), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_str)
 
             # 1. Dose rate status
-            if dr < 60.0:
+            if round(dr) < 60.0:
                 dr_col, dr_st = QColor('#ef4444'), 'Сбой'
+                dr_val_str = f"{dr:.1f} MU/мин"
             elif dr < 75.0:
                 dr_col, dr_st = QColor('#f59e0b'), 'Низкая'
+                dr_val_str = f"{dr:.0f} MU/мин"
             else:
                 dr_col, dr_st = QColor('#22c55e'), 'Норма'
-            draw_param_row(center.y() - 3, 'Мощность:', f"{dr:.0f} MU/мин", dr_col, dr_st)
+                dr_val_str = f"{dr:.0f} MU/мин"
+            draw_param_row(center.y() - 3, 'Мощность:', dr_val_str, dr_col, dr_st)
 
             # 2. Dose density status
             if mpd < 0.165:
@@ -1614,7 +1617,11 @@ class MonacoPlanAnalyzerDialog(QDialog):
                 default_ok = "OK"
 
             dmu_str = f"{item['delta_mu']:.2f}"
-            dr_str = f"{item['est_dose_rate']:.0f} MU/мин"
+            dr_val = item['est_dose_rate']
+            if round(dr_val) < 60 and item['delta_mu'] > 0.01:
+                dr_str = f"{dr_val:.1f} MU/мин"
+            else:
+                dr_str = f"{dr_val:.0f} MU/мин"
             reason_str = "; ".join(item['reasons']) if item['reasons'] else default_ok
 
             risk = item['risk_level']
@@ -1675,10 +1682,11 @@ class MonacoPlanAnalyzerDialog(QDialog):
         dir_sym = '↻ CW' if rot_dir == 'CW' else '↺ CCW'
         pass_tag = f" [Проход {p_idx+1}: {dir_sym}]" if num_passes > 1 else ""
 
+        dr_fmt = f"{dr:.1f}" if round(dr) < 60 and cp_info.get('delta_mu', 0.0) > 0.01 else f"{dr:.0f}"
         if is_vmat:
-            msg = f"CP {cp_info['index']:02d}{pass_tag}: Гентри {cp_info['gantry_start']:.1f}° → {cp_info['gantry_end']:.1f}° | ΔMU: {cp_info['delta_mu']:.2f} | MU/deg: {mpd:.2f} | Мощность: {dr:.0f} MU/мин"
+            msg = f"CP {cp_info['index']:02d}{pass_tag}: Гентри {cp_info['gantry_start']:.1f}° → {cp_info['gantry_end']:.1f}° | ΔMU: {cp_info['delta_mu']:.2f} | MU/deg: {mpd:.2f} | Мощность: {dr_fmt} MU/мин"
         else:
-            msg = f"CP {cp_info['index']:02d}: Гентри {cp_info['gantry_start']:.1f}° (статика) | ΔMU: {cp_info['delta_mu']:.2f} | Мощность: {dr:.0f} MU/мин"
+            msg = f"CP {cp_info['index']:02d}: Гентри {cp_info['gantry_start']:.1f}° (статика) | ΔMU: {cp_info['delta_mu']:.2f} | Мощность: {dr_fmt} MU/мин"
         if cp_info['reasons']:
             msg += f" — ⚠️ {'; '.join(cp_info['reasons'])}"
         self.status_lbl.setText(msg)
