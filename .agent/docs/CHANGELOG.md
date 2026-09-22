@@ -7,6 +7,16 @@
   - Умное отображение верхнего порога: предупреждающая черта `15.0 MU/deg` (замедление гентри) отображается только тогда, когда модуляция в плане реально приближается к этому значению, не искажая масштаб обычных планов.
   - Двусторонняя интерактивная синхронизация: выбор столбца на графике кликом мыши теперь автоматически выбирает соответствующий сектор на полярной диаграмме, подсвечивает строку в таблице и выводит детальную информацию в строку состояния; выбор на круговой диаграмме или в таблице также выделяет столбец на графике с контрастной белой обводкой.
 
+- **Modularization of Monaco Plan Analyzer into `ui.plan_analysis`**:
+  - Монолитный модуль `ui/monaco_plan_analyzer.py` (2090 строк) разделен на структурированный пакет `ui/plan_analysis/`:
+    - `kinematics.py` — чистый математический движок расчета кинематики пучков Elekta/Monaco (без зависимости от PyQt6) с поддержкой двуязычных диагностических причин (`reasons`).
+    - `polar_arc_widget.py` — интерактивная круговая диаграмма с полной поддержкой RU/EN в центральном HUD.
+    - `timeline_widget.py` — линейный график модуляции с интерактивным выбором и адаптивным масштабированием.
+    - `dialog.py` — главное диалоговое окно `MonacoPlanAnalyzerDialog` и функция запуска `open_plan_analyzer`.
+    - `help_dialog.py` — справочное окно методики `PlanAnalysisHelpDialog`.
+    - `utils.py` — вспомогательные утилиты поиска планов и темного заголовка.
+  - Сохранена 100% обратная совместимость: `ui/monaco_plan_analyzer.py` и `ui/plan_analysis_help_dialog.py` выступают прозрачными прокси-модулями.
+
 ## [1.8.3] - 2026-09-22
 
 - **Full EN localization of Monaco Plan Analyzer dialog** — all UI strings (titles, tabs, table headers, verdict cards, status bar, metric labels, error dialogs) now switch between Russian and English based on the active interface language setting.
