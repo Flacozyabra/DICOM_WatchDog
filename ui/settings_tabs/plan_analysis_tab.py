@@ -1,0 +1,169 @@
+# -*- coding: utf-8 -*-
+"""Plan Analysis Settings Tab."""
+
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+                             QFormLayout, QSpinBox, QDoubleSpinBox, QFrame)
+
+from ui.toggle_switch import ToggleSwitch
+from core.locale_utils import tr_ui
+
+
+def build_plan_analysis_tab(dialog):
+    tab_widget = QWidget()
+    tab_layout = QVBoxLayout(tab_widget)
+    tab_layout.setContentsMargins(15, 15, 15, 15)
+    tab_layout.setSpacing(12)
+
+    form = QFormLayout()
+    form.setSpacing(12)
+
+    # 1. Master toggle: Enable context menu item
+    dialog.plan_analyzer_context_menu_cb = ToggleSwitch()
+    dialog.plan_analyzer_context_menu_cb.setChecked(
+        dialog.config.get('plan_analyzer_context_menu_enabled', 'False').lower() == 'true'
+    )
+    dialog.lbl_plan_analyzer_context_menu = QLabel()
+    form.addRow(dialog.lbl_plan_analyzer_context_menu, dialog.plan_analyzer_context_menu_cb)
+
+    # Separator
+    sep_line = QFrame()
+    sep_line.setFrameShape(QFrame.Shape.HLine)
+    sep_line.setFrameShadow(QFrame.Shadow.Sunken)
+    sep_line.setStyleSheet("background-color: #2d2d2d; margin-top: 4px; margin-bottom: 4px;")
+    form.addRow(sep_line)
+
+    spin_style = (
+        "QSpinBox, QDoubleSpinBox { background-color: #1e1e1e; color: #ffffff; border: 1px solid #2d2d2d; padding: 4px 6px; border-radius: 4px; font-weight: 600; font-size: 12px; }"
+        "QSpinBox:focus, QDoubleSpinBox:focus { border: 1px solid #007acc; }"
+        "QSpinBox:disabled, QDoubleSpinBox:disabled { background-color: #141414; color: #666666; border: 1px solid #1c1c1c; }"
+    )
+
+    # 2. Dose rate threshold
+    dialog.plan_min_dose_rate_spin = QSpinBox()
+    dialog.plan_min_dose_rate_spin.setRange(20, 300)
+    dialog.plan_min_dose_rate_spin.setSingleStep(5)
+    dialog.plan_min_dose_rate_spin.setValue(int(dialog.config.get('plan_min_dose_rate', 60)))
+    dialog.plan_min_dose_rate_spin.setFixedWidth(120)
+    dialog.plan_min_dose_rate_spin.setStyleSheet(spin_style)
+    dialog.lbl_plan_min_dose_rate = QLabel()
+    form.addRow(dialog.lbl_plan_min_dose_rate, dialog.plan_min_dose_rate_spin)
+
+    # 3. Dose density threshold (MU/deg)
+    dialog.plan_min_mu_per_deg_spin = QDoubleSpinBox()
+    dialog.plan_min_mu_per_deg_spin.setRange(0.010, 1.000)
+    dialog.plan_min_mu_per_deg_spin.setDecimals(3)
+    dialog.plan_min_mu_per_deg_spin.setSingleStep(0.005)
+    dialog.plan_min_mu_per_deg_spin.setValue(float(dialog.config.get('plan_min_mu_per_deg', 0.165)))
+    dialog.plan_min_mu_per_deg_spin.setFixedWidth(120)
+    dialog.plan_min_mu_per_deg_spin.setStyleSheet(spin_style)
+    dialog.lbl_plan_min_mu_per_deg = QLabel()
+    form.addRow(dialog.lbl_plan_min_mu_per_deg, dialog.plan_min_mu_per_deg_spin)
+
+    # 4. Modulation jump factor threshold
+    dialog.plan_max_modulation_factor_spin = QDoubleSpinBox()
+    dialog.plan_max_modulation_factor_spin.setRange(2.0, 50.0)
+    dialog.plan_max_modulation_factor_spin.setDecimals(1)
+    dialog.plan_max_modulation_factor_spin.setSingleStep(0.5)
+    dialog.plan_max_modulation_factor_spin.setValue(float(dialog.config.get('plan_max_modulation_factor', 10.0)))
+    dialog.plan_max_modulation_factor_spin.setFixedWidth(120)
+    dialog.plan_max_modulation_factor_spin.setStyleSheet(spin_style)
+    dialog.lbl_plan_max_modulation_factor = QLabel()
+    form.addRow(dialog.lbl_plan_max_modulation_factor, dialog.plan_max_modulation_factor_spin)
+
+    tab_layout.addLayout(form)
+
+    # Info card with baseline guidance
+    dialog.plan_analysis_info_card = QFrame()
+    dialog.plan_analysis_info_card.setStyleSheet(
+        "QFrame { background-color: #1a1a1c; border: 1px solid #2a2a2e; border-radius: 6px; padding: 8px; }"
+    )
+    info_layout = QVBoxLayout(dialog.plan_analysis_info_card)
+    info_layout.setContentsMargins(10, 8, 10, 8)
+    info_layout.setSpacing(4)
+
+    dialog.lbl_plan_analysis_info_title = QLabel()
+    dialog.lbl_plan_analysis_info_title.setStyleSheet("font-size: 12px; font-weight: bold; color: #38bdf8;")
+    info_layout.addWidget(dialog.lbl_plan_analysis_info_title)
+
+    dialog.lbl_plan_analysis_info_desc = QLabel()
+    dialog.lbl_plan_analysis_info_desc.setWordWrap(True)
+    dialog.lbl_plan_analysis_info_desc.setStyleSheet("font-size: 11px; color: #9ca3af; line-height: 1.4;")
+    info_layout.addWidget(dialog.lbl_plan_analysis_info_desc)
+
+    tab_layout.addWidget(dialog.plan_analysis_info_card)
+    tab_layout.addStretch()
+
+    return tab_widget
+
+
+def retranslate_plan_analysis_tab(dialog):
+    is_ru = (dialog.config.get('interface_lang', 'en') == 'ru')
+
+    def get_tr(key, ru_txt, en_txt):
+        val = tr_ui(key)
+        if val == key:
+            return ru_txt if is_ru else en_txt
+        return val
+
+    dialog.lbl_plan_analyzer_context_menu.setText(
+        get_tr("settings_plan_analyzer_context_menu",
+               "Пункт «Проверить план Monaco» в контекстном меню:",
+               "Show 'Check Monaco Plan' in context menu:")
+    )
+    dialog.lbl_plan_analyzer_context_menu.setToolTip(
+        get_tr("tooltip_plan_analyzer_context_menu",
+               "Включает отображение пункта запуска анализатора кинематики плана в контекстных меню таблиц пациентов.",
+               "Enables the Monaco plan kinematics check option in patient tables context menus.")
+    )
+    dialog.plan_analyzer_context_menu_cb.setToolTip(dialog.lbl_plan_analyzer_context_menu.toolTip())
+
+    dialog.lbl_plan_min_dose_rate.setText(
+        get_tr("settings_plan_min_dose_rate",
+               "Порог мощности дозы (сбой 'DOSE RATE MON'):",
+               "Minimum dose rate threshold (DOSE RATE MON):")
+    )
+    dialog.plan_min_dose_rate_spin.setSuffix(
+        get_tr("settings_unit_mu_min", " MU/мин", " MU/min")
+    )
+    dialog.plan_min_dose_rate_spin.setToolTip(
+        get_tr("tooltip_plan_min_dose_rate",
+               "Минимальная стабильная мощность дозы излучателя (по умолчанию 60 MU/мин). Падение ниже порога отмечает сектор сбоем.",
+               "Minimum stable PRF dose rate output (default 60 MU/min). Drop below this threshold flags sector as critical.")
+    )
+
+    dialog.lbl_plan_min_mu_per_deg.setText(
+        get_tr("settings_plan_min_mu_per_deg",
+               "Порог плотности дозы:",
+               "Minimum dose density threshold:")
+    )
+    dialog.plan_min_mu_per_deg_spin.setSuffix(
+        get_tr("settings_unit_mu_deg", " MU/deg", " MU/deg")
+    )
+    dialog.plan_min_mu_per_deg_spin.setToolTip(
+        get_tr("tooltip_plan_min_mu_per_deg",
+               "Минимальная плотность дозы дуги (по умолчанию 0.165 MU/deg, эквивалент 60 MU/мин при 6.0°/с).",
+               "Minimum arc dose density limit (default 0.165 MU/deg, corresponds to 60 MU/min at 6.0 deg/s).")
+    )
+
+    dialog.lbl_plan_max_modulation_factor.setText(
+        get_tr("settings_plan_max_modulation_factor",
+               "Критический перепад плотности дозы:",
+               "Critical modulation jump threshold:")
+    )
+    dialog.plan_max_modulation_factor_spin.setSuffix(" ×")
+    dialog.plan_max_modulation_factor_spin.setToolTip(
+        get_tr("tooltip_plan_max_modulation_factor",
+               "Порог кратности резкого скачка между соседними активными точками (по умолчанию 10×).",
+               "Threshold factor for sudden jumps between adjacent active control points (default 10×).")
+    )
+
+    dialog.lbl_plan_analysis_info_title.setText(
+        get_tr("settings_plan_info_title",
+               "ℹ️ Физические параметры ускорителя Elekta",
+               "ℹ️ Elekta Linac Physical Parameters")
+    )
+    dialog.lbl_plan_analysis_info_desc.setText(
+        get_tr("settings_plan_info_desc",
+               "По умолчанию установлены штатные лимиты для аппаратов Elekta с коллиматором Agility (предел мощности 60 MU/мин, плотность 0.165 MU/deg при 6.0°/с и перепад > 10×). Изменяйте эти значения только при наличии индивидуальной калибровки машины.",
+               "Defaults reflect standard limits for Elekta linacs with Agility MLC (minimum dose rate 60 MU/min, density 0.165 MU/deg at 6.0 deg/s, and modulation jump > 10×). Modify only according to specific linac calibration.")
+    )

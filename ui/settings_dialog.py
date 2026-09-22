@@ -30,6 +30,7 @@ from ui.settings_tabs.archive_tab import build_archive_tab, retranslate_archive_
 from ui.settings_tabs.ui_tab import build_ui_tab, retranslate_ui_tab
 from ui.settings_tabs.notifications_tab import build_notifications_tab, retranslate_notifications_tab
 from ui.settings_tabs.pacs_tab import build_pacs_tab, retranslate_pacs_tab, PacsPingWorker
+from ui.settings_tabs.plan_analysis_tab import build_plan_analysis_tab, retranslate_plan_analysis_tab
 
 
 class SettingsDialog(QDialog):
@@ -89,6 +90,10 @@ class SettingsDialog(QDialog):
             'highlight_no_slices_enabled': 'False',
             'rename_study_folder_enabled': 'False',
             'rename_study_folder_mode': 'id',
+            'plan_analyzer_context_menu_enabled': 'False',
+            'plan_min_dose_rate': 60,
+            'plan_min_mu_per_deg': 0.165,
+            'plan_max_modulation_factor': 10.0,
             'interface_lang': 'en',
             'log_lang': 'en'
         }
@@ -234,6 +239,10 @@ class SettingsDialog(QDialog):
         # 5. Вкладка PACS
         pacs_widget = build_pacs_tab(self)
         self.stacked_widget.addWidget(pacs_widget)
+
+        # 6. Вкладка Plan Analysis
+        plan_analysis_widget = build_plan_analysis_tab(self)
+        self.stacked_widget.addWidget(plan_analysis_widget)
 
         # Инициализация списка серверов
         self.populate_server_combo()
@@ -470,6 +479,10 @@ class SettingsDialog(QDialog):
         self.pacs_local_port_spin.valueChanged.connect(self.on_setting_changed)
         self.pacs_called_aet_edit.textChanged.connect(self.on_setting_changed)
         self.pacs_calling_aet_edit.textChanged.connect(self.on_setting_changed)
+        self.plan_analyzer_context_menu_cb.toggled.connect(self.on_setting_changed)
+        self.plan_min_dose_rate_spin.valueChanged.connect(self.on_setting_changed)
+        self.plan_min_mu_per_deg_spin.valueChanged.connect(self.on_setting_changed)
+        self.plan_max_modulation_factor_spin.valueChanged.connect(self.on_setting_changed)
 
     def on_highlighting_toggled(self, checked):
         self.highlight_new_cb.blockSignals(True)
@@ -535,6 +548,10 @@ class SettingsDialog(QDialog):
             self.config['rename_study_folder_mode'] = 'id_name'
         else:
             self.config['rename_study_folder_mode'] = 'id'
+        self.config['plan_analyzer_context_menu_enabled'] = 'True' if self.plan_analyzer_context_menu_cb.isChecked() else 'False'
+        self.config['plan_min_dose_rate'] = self.plan_min_dose_rate_spin.value()
+        self.config['plan_min_mu_per_deg'] = self.plan_min_mu_per_deg_spin.value()
+        self.config['plan_max_modulation_factor'] = self.plan_max_modulation_factor_spin.value()
         self.config['archive_enabled'] = 'True' if self.archive_enabled_cb.isChecked() else 'False'
         self.config['archive_days'] = self.archive_days_spin.value()
         self.config['archive_cleanup_enabled'] = 'True' if self.archive_cleanup_enabled_cb.isChecked() else 'False'
@@ -681,12 +698,18 @@ Copy-VoiceTokens $src $dst32
         self.sidebar.blockSignals(True)
         current_row = self.sidebar.currentRow()
         self.sidebar.clear()
+        is_ru = (self.config.get('interface_lang', 'en') == 'ru')
+        plan_tab_title = tr_ui("settings_tab_plan_analysis")
+        if plan_tab_title == "settings_tab_plan_analysis":
+            plan_tab_title = "Анализ плана" if is_ru else "Plan Analysis"
+
         self.sidebar.addItems([
             tr_ui("settings_tab_general"),
             tr_ui("settings_tab_archive"),
             tr_ui("settings_tab_ui"),
             tr_ui("settings_tab_notifications"),
-            tr_ui("settings_tab_pacs")
+            tr_ui("settings_tab_pacs"),
+            plan_tab_title
         ])
         if current_row >= 0:
             self.sidebar.setCurrentRow(current_row)
@@ -703,6 +726,7 @@ Copy-VoiceTokens $src $dst32
         retranslate_ui_tab(self)
         retranslate_notifications_tab(self)
         retranslate_pacs_tab(self)
+        retranslate_plan_analysis_tab(self)
         
         # Standard buttons Save/Cancel
         save_btn = self.button_box.button(QDialogButtonBox.StandardButton.Save)

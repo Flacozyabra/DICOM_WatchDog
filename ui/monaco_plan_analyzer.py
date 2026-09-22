@@ -90,9 +90,29 @@ def find_rtplan_file(folder_path: str) -> Optional[str]:
 class PlanKinematicsAnalyzer:
     """Parses and simulates machine kinematics for an RTPLAN file."""
 
-    def __init__(self, plan_path: str):
+    def __init__(self, plan_path: str, thresholds: Optional[Dict[str, float]] = None):
         self.plan_path = plan_path
         self.ds = pydicom.dcmread(plan_path, force=True)
+
+        if thresholds is None:
+            thresholds = {}
+            try:
+                from core.config_utils import get_config_path
+                import json
+                cp = get_config_path()
+                if os.path.exists(cp):
+                    with open(cp, "r", encoding="utf-8") as f:
+                        cfg = json.load(f)
+                        thresholds['min_dose_rate'] = float(cfg.get('plan_min_dose_rate', 60.0))
+                        thresholds['min_mu_per_deg'] = float(cfg.get('plan_min_mu_per_deg', 0.165))
+                        thresholds['max_modulation_factor'] = float(cfg.get('plan_max_modulation_factor', 10.0))
+            except Exception:
+                pass
+
+        self.min_dose_rate = float(thresholds.get('min_dose_rate', 60.0))
+        self.min_mu_per_deg = float(thresholds.get('min_mu_per_deg', 0.165))
+        self.max_modulation_factor = float(thresholds.get('max_modulation_factor', 10.0))
+
         self.plan_label = str(getattr(self.ds, 'RTPlanLabel', '') or getattr(self.ds, 'RTPlanName', 'Unnamed Plan'))
         self.plan_date = str(getattr(self.ds, 'RTPlanDate', ''))
         self.patient_name = str(getattr(self.ds, 'PatientName', 'Unknown'))
@@ -192,7 +212,9 @@ class PlanKinematicsAnalyzer:
         max_gantry_speed = 6.0   # deg/s (1.0 RPM)
         safe_leaf_speed = 35.0   # mm/s continuous leaf speed for Agility
         max_dose_rate = 600.0    # MU/min nominal for flattened 6 MV
-        min_stable_dose_rate = 60.0  # MU/min minimum stable PRF output (Elekta limit ~0.165 MU/deg at 6 deg/s)
+        min_stable_dose_rate = self.min_dose_rate
+        min_density_limit = self.min_mu_per_deg
+        max_mod_jump = self.max_modulation_factor
 
         mu_per_deg_list = []
         est_dose_rates = []
@@ -296,11 +318,11 @@ class PlanKinematicsAnalyzer:
                 if d_mu < 0.01:
                     pass
                 else:
-                    # 1. Low Dose Rate Drop-out (Causes DOSE RATE MON on Elekta strictly below 60 MU/min)
-                    if round(est_dr) < min_stable_dose_rate or mu_per_deg < 0.160:
-                        reasons.append(f"Мощность дозы ({est_dr:.1f} MU/мин, {mu_per_deg:.2f} MU/deg) ниже порога стабильности (< {min_stable_dose_rate:.0f} MU/мин)")
+                    # 1. Low Dose Rate Drop-out (Causes DOSE RATE MON on Elekta strictly below min_stable_dose_rate)
+                    if round(est_dr) < min_stable_dose_rate or mu_per_deg < (min_density_limit - 0.005):
+                        reasons.append(f"Мощность дозы ({est_dr:.1f} MU/мин, {mu_per_deg:.2f} MU/deg) ниже порога стабильности (< {min_stable_dose_rate:.0f} MU/мин, < {min_density_limit:.3f} MU/deg)")
                         risk_level = 'CRITICAL'
-                    elif est_dr < 75.0 or mu_per_deg < 0.20:
+                    elif est_dr < (min_stable_dose_rate + 15.0) or mu_per_deg < (min_density_limit + 0.035):
                         reasons.append(f"Пониженная плотность дозы ({mu_per_deg:.2f} MU/deg, ~{est_dr:.0f} MU/мин)")
                         if risk_level != 'CRITICAL':
                             risk_level = 'WARNING'
@@ -310,10 +332,10 @@ class PlanKinematicsAnalyzer:
                         prev_mpd = mu_per_deg_list[-2]
                         if prev_mpd > 0.01 and mu_per_deg > 0.01:
                             factor = max(mu_per_deg, prev_mpd) / min(mu_per_deg, prev_mpd)
-                            if factor >= 10.0:
+                            if factor >= max_mod_jump:
                                 reasons.append(f"Экстремальный перепад плотности дозы в {factor:.1f}× ({prev_mpd:.2f} → {mu_per_deg:.2f} MU/deg)")
                                 risk_level = 'CRITICAL'
-                            elif factor >= 8.0:
+                            elif factor >= (max_mod_jump * 0.8):
                                 reasons.append(f"Резкий перепад плотности дозы в {factor:.1f}× ({prev_mpd:.2f} → {mu_per_deg:.2f} MU/deg)")
                                 if risk_level != 'CRITICAL':
                                     risk_level = 'WARNING'
@@ -408,7 +430,12 @@ class PlanKinematicsAnalyzer:
             'max_dose_rate': max(est_dose_rates) if est_dose_rates else 0.0,
             'critical_count': critical_count,
             'warning_count': warning_count,
-            'verdict': verdict
+            'verdict': verdict,
+            'thresholds': {
+                'min_dose_rate': self.min_dose_rate,
+                'min_mu_per_deg': self.min_mu_per_deg,
+                'max_modulation_factor': self.max_modulation_factor
+            }
         }
 
 
@@ -732,11 +759,16 @@ class PolarArcWidget(QWidget):
                 painter.setPen(QPen(status_color))
                 painter.drawText(QRectF(row_rect.right() - 75, y, 75, 15), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_str)
 
+            th = self.beam_data.get('thresholds', {}) if self.beam_data else {}
+            min_dr = float(th.get('min_dose_rate', 60.0))
+            min_mpd = float(th.get('min_mu_per_deg', 0.165))
+            max_jump = float(th.get('max_modulation_factor', 10.0))
+
             # 1. Dose rate status
-            if round(dr) < 60.0:
+            if round(dr) < min_dr:
                 dr_col, dr_st = QColor('#ef4444'), 'Сбой'
                 dr_val_str = f"{dr:.1f} MU/мин"
-            elif dr < 75.0:
+            elif dr < (min_dr + 15.0):
                 dr_col, dr_st = QColor('#f59e0b'), 'Низкая'
                 dr_val_str = f"{dr:.0f} MU/мин"
             else:
@@ -745,9 +777,9 @@ class PolarArcWidget(QWidget):
             draw_param_row(center.y() - 3, 'Мощность:', dr_val_str, dr_col, dr_st)
 
             # 2. Dose density status
-            if mpd < 0.165:
+            if mpd < min_mpd:
                 mpd_col, mpd_st = QColor('#ef4444'), 'Провал'
-            elif mpd > 15.0 or mpd < 0.20:
+            elif mpd > 15.0 or mpd < (min_mpd + 0.035):
                 mpd_col, mpd_st = QColor('#f59e0b'), 'Перегруз' if mpd > 15 else 'Низкая'
             else:
                 mpd_col, mpd_st = QColor('#22c55e'), 'Норма'
@@ -755,9 +787,9 @@ class PolarArcWidget(QWidget):
 
             # 3. Delta jump status
             if active_idx > 0:
-                if factor >= 10.0:
+                if factor >= max_jump:
                     jump_col, jump_st = QColor('#ef4444'), 'Шок'
-                elif factor >= 8.0:
+                elif factor >= (max_jump * 0.8):
                     jump_col, jump_st = QColor('#f59e0b'), 'Перепад'
                 else:
                     jump_col, jump_st = QColor('#22c55e'), 'Норма'
@@ -974,13 +1006,17 @@ class ModulationTimelineWidget(QWidget):
             painter.setBrush(QBrush(QColor(color.red(), color.green(), color.blue(), 100)))
             painter.drawRect(QRectF(x, y, max(1.0, step_px - 1), base_y - y))
 
+        th = self.beam_data.get('thresholds', {}) if self.beam_data else {}
+        min_dr = float(th.get('min_dose_rate', 60.0))
+        min_mpd = float(th.get('min_mu_per_deg', 0.165))
+
         # Draw Safety Thresholds and descriptive labels on top of bars
-        # 1. Red line for low dose rate danger (< 0.165 MU/deg)
-        y_low = val_to_y(0.165)
+        # 1. Red line for low dose rate danger (< min_mpd MU/deg)
+        y_low = val_to_y(min_mpd)
         painter.setPen(QPen(QColor("#ff453a"), 1, Qt.PenStyle.DashLine))
         painter.drawLine(margin_l, int(y_low), w - margin_r, int(y_low))
 
-        text_low = " 0.165 MU/deg — порог DOSE RATE MON (< 60 MU/мин) "
+        text_low = f" {min_mpd:.3f} MU/deg — порог DOSE RATE MON (< {min_dr:.0f} MU/мин) "
         painter.setFont(QFont("Segoe UI", 8, QFont.Weight.DemiBold))
         fm = painter.fontMetrics()
         w_low = fm.horizontalAdvance(text_low)
@@ -1017,12 +1053,29 @@ class ModulationTimelineWidget(QWidget):
 class MonacoPlanAnalyzerDialog(QDialog):
     """Main window for Monaco plan deliverability inspection."""
 
-    def __init__(self, parent=None, plan_path: str = "", plan_paths: list = None):
+    def __init__(self, parent=None, plan_path: str = "", plan_paths: list = None, config: Optional[Dict[str, Any]] = None):
         super().__init__(parent)
+        self.config = config or getattr(parent, 'config', {}) or {}
+        if not self.config:
+            try:
+                from core.config_utils import get_config_path
+                import json
+                cp = get_config_path()
+                if os.path.exists(cp):
+                    with open(cp, "r", encoding="utf-8") as f:
+                        self.config = json.load(f)
+            except Exception:
+                self.config = {}
+
+        self.thresholds = {
+            'min_dose_rate': float(self.config.get('plan_min_dose_rate', 60.0)),
+            'min_mu_per_deg': float(self.config.get('plan_min_mu_per_deg', 0.165)),
+            'max_modulation_factor': float(self.config.get('plan_max_modulation_factor', 10.0)),
+        }
         self.plan_path = plan_path
         # All available RTPLAN files for this patient
         self.plan_paths: list = plan_paths if plan_paths else ([plan_path] if plan_path else [])
-        self.analyzer = PlanKinematicsAnalyzer(plan_path)
+        self.analyzer = PlanKinematicsAnalyzer(plan_path, thresholds=self.thresholds)
 
         if not self.analyzer.is_monaco:
             self.setWindowTitle(f"[НЕ MONACO — РЕЗУЛЬТАТ НЕ БУДЕТ СООТВЕТСТВОВАТЬ ДЕЙСТВИТЕЛЬНОСТИ] Анализ плана — {self.analyzer.patient_name} [{self.analyzer.patient_id}]")
@@ -1245,9 +1298,12 @@ class MonacoPlanAnalyzerDialog(QDialog):
             row.addWidget(lbl, 1)
             return row
 
+        min_dr = self.thresholds['min_dose_rate']
+        min_mpd = self.thresholds['min_mu_per_deg']
+        max_jump = self.thresholds['max_modulation_factor']
         leg_l.addLayout(make_leg_row("#30d158", "Безопасный отпуск (стабильная мощность и скорость)"))
         leg_l.addLayout(make_leg_row("#ffd60a", "Повышенная сложность (замедление гентри / перепад плотности дозы)"))
-        leg_l.addLayout(make_leg_row("#ff453a", "КРИТИЧЕСКИЙ РИСК СБОЯ 'DOSE RATE MON' (< 60 MU/мин, < 0.165 MU/deg или перепад > 10×)"))
+        leg_l.addLayout(make_leg_row("#ff453a", f"КРИТИЧЕСКИЙ РИСК СБОЯ 'DOSE RATE MON' (< {min_dr:.0f} MU/мин, < {min_mpd:.3f} MU/deg или перепад > {max_jump:.0f}×)"))
 
         self.multitrack_leg_label = QLabel(legend_box)
         self.multitrack_leg_label.setStyleSheet("font-size: 10px; color: #38bdf8; font-weight: 600; margin-top: 3px;")
@@ -1399,7 +1455,7 @@ class MonacoPlanAnalyzerDialog(QDialog):
             return
         try:
             self.plan_path = new_path
-            self.analyzer = PlanKinematicsAnalyzer(new_path)
+            self.analyzer = PlanKinematicsAnalyzer(new_path, thresholds=self.thresholds)
         except Exception as e:
             log_message(None, f"Ошибка загрузки плана: {e}")
             return
@@ -1476,11 +1532,14 @@ class MonacoPlanAnalyzerDialog(QDialog):
                     background: transparent;
                 }
             """)
+            min_dr = self.thresholds['min_dose_rate']
+            min_mpd = self.thresholds['min_mu_per_deg']
+            max_jump = self.thresholds['max_modulation_factor']
             title = QLabel("🔴 ВЫСОКИЙ РИСК СБОЯ АППАРАТА (DOSE RATE MON)", self.verdict_card)
             title.setStyleSheet("font-size: 13px; font-weight: bold; color: #fca5a5;")
             desc = QLabel(
-                f"В пучке обнаружено <b>{crit_count} критических секторов</b> с падением мощности/плотности дозы ниже порога Elekta (&lt; 60 MU/мин, &lt; 0.165 MU/deg) "
-                f"или экстремальным перепадом модуляции (&gt; 10×). Аппарат с высокой вероятностью выдаст ошибку <code>DOSE RATE MON</code> при отпуске.",
+                f"В пучке обнаружено <b>{crit_count} критических секторов</b> с падением мощности/плотности дозы ниже порога Elekta (&lt; {min_dr:.0f} MU/мин, &lt; {min_mpd:.3f} MU/deg) "
+                f"или экстремальным перепадом модуляции (&gt; {max_jump:.0f}×). Аппарат с высокой вероятностью выдаст ошибку <code>DOSE RATE MON</code> при отпуске.",
                 self.verdict_card
             )
             desc.setWordWrap(True)
@@ -1738,7 +1797,7 @@ def open_plan_analyzer(parent, folder_or_plan_path: str, patient_id: str = "", p
         return
 
     try:
-        dlg = MonacoPlanAnalyzerDialog(parent, plan_file, plan_paths=all_plan_files)
+        dlg = MonacoPlanAnalyzerDialog(parent, plan_file, plan_paths=all_plan_files, config=getattr(parent, 'config', None))
         dlg.showMaximized()
         dlg.exec()
     except Exception as e:

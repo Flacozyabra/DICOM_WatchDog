@@ -192,7 +192,8 @@ class TableContextMenuManager:
         clean_str_action.triggered.connect(lambda: self.mw.clean_str_action(patient_id))
 
         menu.addAction(open_folder_action)
-        menu.addAction(check_plan_action)
+        if self.mw.config.get('plan_analyzer_context_menu_enabled', 'False').lower() == 'true':
+            menu.addAction(check_plan_action)
         menu.addAction(change_id_action)
         menu.addAction(delete_action)
         if self.mw.config.get('show_tab_archive', 'True').lower() == 'true':
@@ -251,7 +252,8 @@ class TableContextMenuManager:
         delete_action.triggered.connect(lambda: self.mw.delete_archive_patient_action(patient_id, patient_name))
 
         menu.addAction(open_folder_action)
-        menu.addAction(check_plan_action)
+        if self.mw.config.get('plan_analyzer_context_menu_enabled', 'False').lower() == 'true':
+            menu.addAction(check_plan_action)
         menu.addAction(change_id_action)
         menu.addAction(restore_action)
         menu.addAction(delete_action)
