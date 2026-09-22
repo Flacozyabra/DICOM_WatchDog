@@ -153,7 +153,9 @@ class MainWindow(QMainWindow):
         if ct_dir and os.path.exists(ct_dir):
             try:
                 from core.dicom_utils import load_ct_cache_as_patient_dict
-                cached_images = load_ct_cache_as_patient_dict(ct_dir)
+                scan_ct_rtd = not self.images_table.isColumnHidden(8) if hasattr(self, 'images_table') and self.images_table.columnCount() > 8 else False
+                scan_ct_rtp = not self.images_table.isColumnHidden(9) if hasattr(self, 'images_table') and self.images_table.columnCount() > 9 else False
+                cached_images = load_ct_cache_as_patient_dict(ct_dir, scan_rtd=scan_ct_rtd, scan_rtp=scan_ct_rtp)
                 if cached_images:
                     self.images_cache = cached_images
                     self.update_images_table_ui()
@@ -165,7 +167,9 @@ class MainWindow(QMainWindow):
         if archive_dir and os.path.exists(archive_dir):
             try:
                 from core.archive import load_archive_cache_as_patient_dict
-                cached_archive = load_archive_cache_as_patient_dict(archive_dir)
+                scan_arch_rtd = not self.archive_table.isColumnHidden(8) if hasattr(self, 'archive_table') and self.archive_table.columnCount() > 8 else False
+                scan_arch_rtp = not self.archive_table.isColumnHidden(9) if hasattr(self, 'archive_table') and self.archive_table.columnCount() > 9 else False
+                cached_archive = load_archive_cache_as_patient_dict(archive_dir, scan_rtd=scan_arch_rtd, scan_rtp=scan_arch_rtp)
                 if cached_archive:
                     self.archive_cache = cached_archive
                     self.update_archive_table_ui()
@@ -976,7 +980,7 @@ class MainWindow(QMainWindow):
         else:
             self.start_folder_scan()
 
-    def start_folder_scan(self, force=False):
+    def start_folder_scan(self, force=False, clear_table=True):
         if self.scan_worker and self.scan_worker.isRunning():
             if force:
                 try:
@@ -990,7 +994,7 @@ class MainWindow(QMainWindow):
             else:
                 return
 
-        if force:
+        if force and clear_table:
             self.is_first_scan = True
             self.images_cache = None
             self.images_table.setRowCount(0)
@@ -1537,7 +1541,10 @@ class MainWindow(QMainWindow):
 
     # ================= ЛОГИКА ТАБЛИЦЫ CT ARCHIVE =================
 
-    def fill_archive_list(self, silent=False, force=False):
+    def start_archive_scan(self, force=False, clear_table=True):
+        self.fill_archive_list(silent=False, force=force, clear_table=clear_table)
+
+    def fill_archive_list(self, silent=False, force=False, clear_table=True):
         if self.archive_worker and self.archive_worker.isRunning():
             if force:
                 try:
@@ -1552,7 +1559,7 @@ class MainWindow(QMainWindow):
                 self._pending_archive_scan = True
                 return
 
-        if force:
+        if force and clear_table:
             self.archive_cache = None
             self.archive_table.setRowCount(0)
             if hasattr(self, 'archive_tab') and hasattr(self.archive_tab, 'badge') and self.archive_tab.badge:

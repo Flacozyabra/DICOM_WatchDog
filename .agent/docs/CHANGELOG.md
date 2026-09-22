@@ -1,6 +1,14 @@
 # Changelog
 ## [Unreleased]
 
+- **Count RTD and RTP Files Strictly When Columns Are Enabled**:
+  - В `core/dicom_utils.py` и `core/archive.py` реализован учет состояния сканирования колонок доз (`RTDOSE`) и планов (`RTPLAN`): файлы сканируются и подсчитываются только тогда, когда соответствующие столбцы включены в таблице.
+  - Устранена ошибка, из-за которой сохраненные при выключенных колонках нули блокировали повторный подсчет при включении столбцов; введены флаги `rtd_scanned` и `rtp_scanned`.
+  - Исправлена опечатка в ветке `elif not scan_rtp:` (сброс `rtd_val` вместо `rtp_val`).
+  - В `load_ct_cache_as_patient_dict` и `load_archive_cache_as_patient_dict` добавлена передача флагов видимости колонок `scan_rtd` и `scan_rtp`.
+  - В `ui/main_window.py` добавлен метод `start_archive_scan(force=False, clear_table=True)` и поддержан флаг `clear_table=False` для бесшовного обновления данных без мерцания и сброса строк.
+  - В `ui/table_context_menus.py` при включении чекбоксов RTD/RTP в меню заголовка запускается фоновое сканирование с обновлением данных в таблице.
+
 - **Persistent Disk Caching & Instant Startup for CT Images and Archive**:
   - Реализовано персистентное дисковое кэширование метаданных для папок `ct_images` (`%LOCALAPPDATA%\DICOM_WatchDog\ct_images_cache.json`) и `archive` (`archive_cache.json`).
   - При запуске приложения списки исследований из кэша мгновенно отображаются в таблицах «КТ-снимки» и «Архив» (0 мс) до запуска фоновых воркеров, устраняя задержку и пустые экраны с ожиданием сканирования.

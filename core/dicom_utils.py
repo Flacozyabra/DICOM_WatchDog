@@ -191,10 +191,11 @@ def save_ct_cache(cache_data):
             pass
 
 
-def load_ct_cache_as_patient_dict(ct_images_dir):
+def load_ct_cache_as_patient_dict(ct_images_dir, scan_rtd=False, scan_rtp=False):
     """
     Быстро восстанавливает словарь пациентов КТ из кэша для мгновенного
     отображения в UI при старте программы (до завершения фонового сканирования).
+    Значения RTD и RTP отдаются только если соответствующие колонки включены и были отсканированы.
     """
     cache = load_ct_cache()
     if not cache or not ct_images_dir or not os.path.exists(ct_images_dir):
@@ -228,6 +229,9 @@ def load_ct_cache_as_patient_dict(ct_images_dir):
             elif not isinstance(f_dt, datetime):
                 f_dt = s_dt
 
+            rtd_val = int(cached_item.get('rtd', 0)) if (scan_rtd and cached_item.get('rtd_scanned')) else 0
+            rtp_val = int(cached_item.get('rtp', 0)) if (scan_rtp and cached_item.get('rtp_scanned')) else 0
+
             patient_data[rel_path] = {
                 'patient_id': str(cached_item.get('patient_id', os.path.basename(root))),
                 'patient_name': str(cached_item.get('patient_name', os.path.basename(root))),
@@ -236,8 +240,8 @@ def load_ct_cache_as_patient_dict(ct_images_dir):
                 'body_part': str(cached_item.get('body_part', 'Unknown')),
                 'folder_datetime': f_dt,
                 'str': int(cached_item.get('str', 0)),
-                'rtd': int(cached_item.get('rtd', 0)),
-                'rtp': int(cached_item.get('rtp', 0)),
+                'rtd': rtd_val,
+                'rtp': rtp_val,
                 'slices': int(cached_item.get('slices', 0)),
                 'folder_name': rel_path
             }
@@ -296,18 +300,24 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
                 elif not isinstance(f_dt, datetime):
                     f_dt = s_dt
 
-                rtd_val = cached_item.get('rtd', 0)
-                if scan_rtd and 'rtd' not in cached_item:
-                    rtd_val = len([f for f in files if is_dose_file(os.path.join(root, f))])
-                    cached_item['rtd'] = rtd_val
-                elif not scan_rtd:
+                if scan_rtd:
+                    if not cached_item.get('rtd_scanned'):
+                        rtd_val = len([f for f in files if is_dose_file(os.path.join(root, f))])
+                        cached_item['rtd'] = rtd_val
+                        cached_item['rtd_scanned'] = True
+                    else:
+                        rtd_val = cached_item.get('rtd', 0)
+                else:
                     rtd_val = 0
 
-                rtp_val = cached_item.get('rtp', 0)
-                if scan_rtp and 'rtp' not in cached_item:
-                    rtp_val = len([f for f in files if is_plan_file(os.path.join(root, f))])
-                    cached_item['rtp'] = rtp_val
-                elif not scan_rtp:
+                if scan_rtp:
+                    if not cached_item.get('rtp_scanned'):
+                        rtp_val = len([f for f in files if is_plan_file(os.path.join(root, f))])
+                        cached_item['rtp'] = rtp_val
+                        cached_item['rtp_scanned'] = True
+                    else:
+                        rtp_val = cached_item.get('rtp', 0)
+                else:
                     rtp_val = 0
 
                 str_val = cached_item.get('str', 0)
@@ -453,6 +463,7 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
             patient_data[rel_path] = study_entry
 
             if cache is not None:
+                prev_entry = cache.get(root, {})
                 cache[root] = {
                     'patient_id': study_entry['patient_id'],
                     'patient_name': study_entry['patient_name'],
@@ -461,8 +472,10 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
                     'body_part': study_entry['body_part'],
                     'folder_datetime': study_entry['folder_datetime'].isoformat() if isinstance(study_entry['folder_datetime'], (datetime, date)) else str(study_entry['folder_datetime']),
                     'str': study_entry['str'],
-                    'rtd': study_entry['rtd'],
-                    'rtp': study_entry['rtp'],
+                    'rtd': len(rtd_files) if scan_rtd else prev_entry.get('rtd', 0),
+                    'rtd_scanned': scan_rtd or prev_entry.get('rtd_scanned', False),
+                    'rtp': len(rtp_files) if scan_rtp else prev_entry.get('rtp', 0),
+                    'rtp_scanned': scan_rtp or prev_entry.get('rtp_scanned', False),
                     'slices': study_entry['slices'],
                     'mtime': mtime
                 }

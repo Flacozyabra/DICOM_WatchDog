@@ -42,9 +42,9 @@ class TableContextMenuManager:
             # Если был включен столбец RTD (8) или RTP (9), запускаем фоновое сканирование для загрузки данных
             if checked and idx in (8, 9):
                 if t == getattr(self.mw, 'images_table', None):
-                    self.mw.start_folder_scan()
+                    self.mw.start_folder_scan(force=True, clear_table=False)
                 elif t == getattr(self.mw, 'archive_table', None):
-                    self.mw.start_archive_scan()
+                    self.mw.start_archive_scan(force=True, clear_table=False)
 
         column_count = table.columnCount()
         for i in range(column_count):
