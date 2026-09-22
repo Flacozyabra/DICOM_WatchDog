@@ -136,15 +136,15 @@ def build_plan_analysis_tab(dialog):
     dialog.btn_plan_methodology_help.setCursor(Qt.CursorShape.PointingHandCursor)
     dialog.btn_plan_methodology_help.setStyleSheet(
         "QPushButton { "
-        "  background-color: #27272a; color: #38bdf8; border: 2px solid #38bdf8; "
-        "  border-radius: 24px; font-size: 22px; font-weight: bold; font-family: 'Segoe UI', sans-serif; "
+        "  background-color: #1a1a1c; color: #38bdf8; border: 1px solid #38bdf8; "
+        "  border-radius: 4px; font-size: 22px; font-weight: bold; font-family: 'Segoe UI', sans-serif; "
         "  padding: 0px; margin: 0px; "
         "} "
         "QPushButton:hover { "
-        "  background-color: #0284c7; color: #ffffff; border: 2px solid #38bdf8; "
+        "  background-color: #27272a; color: #7dd3fc; border: 1px solid #38bdf8; "
         "} "
         "QPushButton:pressed { "
-        "  background-color: #0369a1; color: #ffffff; border: 2px solid #0284c7; "
+        "  background-color: #0f172a; color: #38bdf8; border: 1px solid #0284c7; "
         "}"
     )
     dialog.btn_plan_methodology_help.clicked.connect(
