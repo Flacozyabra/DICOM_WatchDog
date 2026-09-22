@@ -650,9 +650,6 @@ class PolarArcWidget(QWidget):
             risk = cp['risk_level']
             mpd = cp['mu_per_deg']
             dr = cp['est_dose_rate']
-            step_time = cp.get('est_step_time_s', 1.0)
-            leaf_disp = cp.get('max_leaf_disp_mm', 0.0)
-            leaf_spd = leaf_disp / step_time if step_time > 0.01 else 0.0
 
             # Dose density jump (delta)
             if active_idx > 0:
@@ -742,7 +739,7 @@ class PolarArcWidget(QWidget):
                 dr_col, dr_st = QColor('#f59e0b'), 'Низкая'
             else:
                 dr_col, dr_st = QColor('#22c55e'), 'Норма'
-            draw_param_row(center.y() - 5, 'Мощность:', f"{dr:.0f} MU/мин", dr_col, dr_st)
+            draw_param_row(center.y() - 3, 'Мощность:', f"{dr:.0f} MU/мин", dr_col, dr_st)
 
             # 2. Dose density status
             if mpd < 0.165:
@@ -751,7 +748,7 @@ class PolarArcWidget(QWidget):
                 mpd_col, mpd_st = QColor('#f59e0b'), 'Перегруз' if mpd > 15 else 'Низкая'
             else:
                 mpd_col, mpd_st = QColor('#22c55e'), 'Норма'
-            draw_param_row(center.y() + 12, 'Плотность:', f"{mpd:.2f} MU/deg", mpd_col, mpd_st)
+            draw_param_row(center.y() + 15, 'Плотность:', f"{mpd:.2f} MU/deg", mpd_col, mpd_st)
 
             # 3. Delta jump status
             if active_idx > 0:
@@ -762,18 +759,9 @@ class PolarArcWidget(QWidget):
                 else:
                     jump_col, jump_st = QColor('#22c55e'), 'Норма'
                 d_sign = '+' if delta_mpd >= 0 else ''
-                draw_param_row(center.y() + 29, 'Перепад:', f"{factor:.1f}× ({d_sign}{delta_mpd:.2f})", jump_col, jump_st)
+                draw_param_row(center.y() + 33, 'Перепад:', f"{factor:.1f}× ({d_sign}{delta_mpd:.2f})", jump_col, jump_st)
             else:
-                draw_param_row(center.y() + 29, 'Перепад:', "— (старт)", QColor('#9ca3af'), 'Старт')
-
-            # 4. MLC Leaf speed status
-            if leaf_spd > 65.0:
-                mlc_col, mlc_st = QColor('#ef4444'), 'Лимит'
-            elif leaf_spd > 48.0:
-                mlc_col, mlc_st = QColor('#f59e0b'), 'Быстрый'
-            else:
-                mlc_col, mlc_st = QColor('#22c55e'), 'Норма'
-            draw_param_row(center.y() + 46, 'Скор. MLC:', f"{leaf_spd:.0f} мм/с", mlc_col, mlc_st)
+                draw_param_row(center.y() + 33, 'Перепад:', "— (старт)", QColor('#9ca3af'), 'Старт')
 
         else:
             # Default center summary
