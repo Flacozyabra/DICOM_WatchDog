@@ -132,19 +132,19 @@ def build_plan_analysis_tab(dialog):
     bottom_row.addStretch()
 
     dialog.btn_plan_methodology_help = QPushButton("?")
-    dialog.btn_plan_methodology_help.setFixedSize(24, 24)
+    dialog.btn_plan_methodology_help.setFixedSize(48, 48)
     dialog.btn_plan_methodology_help.setCursor(Qt.CursorShape.PointingHandCursor)
     dialog.btn_plan_methodology_help.setStyleSheet(
         "QPushButton { "
-        "  background-color: #27272a; color: #a1a1aa; border: 1px solid #3f3f46; "
-        "  border-radius: 12px; font-size: 13px; font-weight: bold; font-family: 'Segoe UI', sans-serif; "
+        "  background-color: #27272a; color: #38bdf8; border: 2px solid #38bdf8; "
+        "  border-radius: 24px; font-size: 22px; font-weight: bold; font-family: 'Segoe UI', sans-serif; "
         "  padding: 0px; margin: 0px; "
         "} "
         "QPushButton:hover { "
-        "  background-color: #38bdf8; color: #09090b; border: 1px solid #38bdf8; "
+        "  background-color: #0284c7; color: #ffffff; border: 2px solid #38bdf8; "
         "} "
         "QPushButton:pressed { "
-        "  background-color: #0284c7; color: #ffffff; border: 1px solid #0284c7; "
+        "  background-color: #0369a1; color: #ffffff; border: 2px solid #0284c7; "
         "}"
     )
     dialog.btn_plan_methodology_help.clicked.connect(
