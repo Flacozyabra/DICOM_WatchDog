@@ -94,6 +94,9 @@ class SettingsDialog(QDialog):
             'plan_min_dose_rate': 60,
             'plan_min_mu_per_deg': 0.165,
             'plan_max_modulation_factor': 10.0,
+            'plan_warn_dose_rate': 75,
+            'plan_warn_mu_per_deg': 0.200,
+            'plan_warn_modulation_factor': 8.0,
             'interface_lang': 'en',
             'log_lang': 'en'
         }
@@ -483,6 +486,9 @@ class SettingsDialog(QDialog):
         self.plan_min_dose_rate_spin.valueChanged.connect(self.on_setting_changed)
         self.plan_min_mu_per_deg_spin.valueChanged.connect(self.on_setting_changed)
         self.plan_max_modulation_factor_spin.valueChanged.connect(self.on_setting_changed)
+        self.plan_warn_dose_rate_spin.valueChanged.connect(self.on_setting_changed)
+        self.plan_warn_mu_per_deg_spin.valueChanged.connect(self.on_setting_changed)
+        self.plan_warn_modulation_factor_spin.valueChanged.connect(self.on_setting_changed)
 
     def on_highlighting_toggled(self, checked):
         self.highlight_new_cb.blockSignals(True)
@@ -552,6 +558,9 @@ class SettingsDialog(QDialog):
         self.config['plan_min_dose_rate'] = self.plan_min_dose_rate_spin.value()
         self.config['plan_min_mu_per_deg'] = self.plan_min_mu_per_deg_spin.value()
         self.config['plan_max_modulation_factor'] = self.plan_max_modulation_factor_spin.value()
+        self.config['plan_warn_dose_rate'] = self.plan_warn_dose_rate_spin.value()
+        self.config['plan_warn_mu_per_deg'] = self.plan_warn_mu_per_deg_spin.value()
+        self.config['plan_warn_modulation_factor'] = self.plan_warn_modulation_factor_spin.value()
         self.config['archive_enabled'] = 'True' if self.archive_enabled_cb.isChecked() else 'False'
         self.config['archive_days'] = self.archive_days_spin.value()
         self.config['archive_cleanup_enabled'] = 'True' if self.archive_cleanup_enabled_cb.isChecked() else 'False'
