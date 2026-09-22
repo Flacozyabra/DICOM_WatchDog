@@ -1084,7 +1084,11 @@ class PlanAnalysisHelpDialog(QDialog):
 
         # Header card
         header_frame = QFrame(self)
-        header_frame.setStyleSheet("background-color: #1a1a1e; border: 1px solid #27272a; border-radius: 8px;")
+        header_frame.setObjectName("helpHeaderFrame")
+        header_frame.setStyleSheet(
+            "QFrame#helpHeaderFrame { background-color: #1a1a1e; border: 1px solid #27272a; border-radius: 8px; } "
+            "QLabel { border: none; background: transparent; }"
+        )
         h_layout = QVBoxLayout(header_frame)
         h_layout.setContentsMargins(14, 12, 14, 12)
         h_layout.setSpacing(4)
@@ -1097,8 +1101,8 @@ class PlanAnalysisHelpDialog(QDialog):
         h_layout.addWidget(lbl_title)
 
         lbl_sub = QLabel(
-            "Физическая природа интерлока DOSE RATE MON, ограничения коллиматора Agility и обоснование порогов по умолчанию" if is_ru
-            else "Linac DOSE RATE MON physics, Agility MLC constraints, and derivation of default thresholds"
+            "Физическая природа интерлока DOSE RATE MON и обоснование порогов по умолчанию" if is_ru
+            else "Linac DOSE RATE MON physics and derivation of default thresholds"
         )
         lbl_sub.setStyleSheet("font-size: 11px; color: #9ca3af;")
         h_layout.addWidget(lbl_sub)
@@ -1193,10 +1197,10 @@ class PlanAnalysisHelpDialog(QDialog):
     <td>
       <b>Физико-математический вывод:</b><br>
       Максимальная угловая скорость вращения гентри Elekta равна <b>6.0°/с</b> (1.0 об/мин).<br>
-      При мощности 60 MU/мин расход дозы составляет <b>1.0 MU/с</b> (60 MU / 60 c).<br>
+      При мощности 60 MU/мин темп отпуска дозы составляет <b>1.0 MU/с</b> (60 MU / 60 с).<br>
       Минимально допустимая плотность дозы на градус дуги:<br>
       <code>Плотность = 1.0 MU/с ÷ 6.0°/с ≈ 0.1667 MU/deg ≈ 0.165 MU/deg</code>.<br>
-      Если плотность дозы ниже 0.165 MU/deg, гентри даже на предельной скорости вращения (6.0°/с) не успевает "растянуть" дозу, что вынуждает linac опускать мощность ниже 60 MU/мин и вызывает <code>DOSE RATE MON</code>.
+      Если плотность дозы ниже 0.165 MU/deg, гентри даже на предельной скорости вращения (6.0°/с) получает избыточную дозу на градус, что вынуждает ускоритель опускать мощность ниже стабильного предела 60 MU/мин и вызывает сбой <code>DOSE RATE MON</code>.
     </td>
   </tr>
   <tr>
@@ -1221,14 +1225,7 @@ class PlanAnalysisHelpDialog(QDialog):
   </tr>
 </table>
 
-<h2>4. Ограничения многолепесткового коллиматора Agility (MLC)</h2>
-<ul>
-  <li><b>Непрерывная скорость движения лепестков:</b> до <code>35 мм/с</code> (штатный безызносный режим для 160 лепестков шириной 5 мм).</li>
-  <li><b>Максимальная пиковая скорость:</b> до <code>65 мм/с</code>.</li>
-  <li><b>Алгоритм Monaco:</b> если лепесткам необходимо пройти большое расстояние за сектор, Monaco принудительно замедляет гентри (до 1.0–2.0°/с). Плотность дозы (MU/deg) при этом возрастает.</li>
-</ul>
-
-<h2>5. Особенности алгоритмов Monaco и сторонние СППР</h2>
+<h2>4. Особенности алгоритмов Monaco и сторонние СППР</h2>
 <p>
   Анализатор откалиброван строго под дискретизацию ротационных дуг Monaco (шаг контрольных точек 2–3° с переменной скоростью гентри). В сторонних системах (Varian Eclipse, RayStation) используются иные кинематические модели, поэтому для не-Monaco планов программа выводит предупреждение о нерелевантности оценки.
 </p>
@@ -1317,14 +1314,7 @@ class PlanAnalysisHelpDialog(QDialog):
   </tr>
 </table>
 
-<h2>4. Elekta Agility MLC Kinematics</h2>
-<ul>
-  <li><b>Continuous Leaf Speed:</b> up to <code>35 mm/s</code> (standard continuous operation for 160 leaves of 5 mm resolution).</li>
-  <li><b>Maximum Peak Speed:</b> up to <code>65 mm/s</code>.</li>
-  <li><b>Monaco Behavior:</b> when leaves must travel large distances within a sector, Monaco automatically decelerates the gantry, raising the local MU/deg.</li>
-</ul>
-
-<h2>5. Monaco Algorithm Specifics & Third-Party TPS Notice</h2>
+<h2>4. Monaco Algorithm Specifics & Third-Party TPS Notice</h2>
 <p>
   This model is calibrated specifically for Monaco arc sequencing (2–3° control point spacing with variable gantry speed). Other systems (Varian Eclipse, RayStation) utilize different delivery physics (such as constant gantry speed with wide-range dose rate modulation). Hence, evaluation for non-Monaco plans is strictly informative.
 </p>
