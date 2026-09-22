@@ -229,18 +229,13 @@ class MonacoPlanAnalyzerDialog(QDialog):
         left_layout.setContentsMargins(0, 0, 8, 0)
         left_layout.setSpacing(8)
 
-        # Plan + Beam selectors — single row, no border
-        plan_ctrl_frame = QFrame(left_panel)
-        plan_ctrl_frame.setStyleSheet("QFrame { background: transparent; border: none; }")
-        ctrl_row = QHBoxLayout(plan_ctrl_frame)
-        ctrl_row.setContentsMargins(0, 0, 0, 4)
-        ctrl_row.setSpacing(8)
+        self.polar_widget = PolarArcWidget(left_panel, is_ru=self.is_ru)
+        self.polar_widget.intervalHovered.connect(self._on_interval_hovered)
+        self.polar_widget.intervalClicked.connect(self._on_interval_clicked)
+        left_layout.addWidget(self.polar_widget, 1)
 
-        lbl_plan_sel = QLabel("План:" if self.is_ru else "Plan:", plan_ctrl_frame)
-        lbl_plan_sel.setStyleSheet("font-size: 11px; font-weight: 700; color: #8e8e93;")
-        ctrl_row.addWidget(lbl_plan_sel)
-
-        self.plan_combo = QComboBox(plan_ctrl_frame)
+        # Connect / populate embedded plan & beam selectors
+        self.plan_combo = self.polar_widget.plan_combo
         for pp in self.plan_paths:
             try:
                 ds_tmp = pydicom.dcmread(pp, stop_before_pixels=True, force=True,
@@ -253,23 +248,10 @@ class MonacoPlanAnalyzerDialog(QDialog):
         if cur_idx >= 0:
             self.plan_combo.setCurrentIndex(cur_idx)
         self.plan_combo.currentIndexChanged.connect(self._on_plan_changed)
-        ctrl_row.addWidget(self.plan_combo, 1)
 
-        lbl_beam_sel = QLabel("Пучок:" if self.is_ru else "Beam:", plan_ctrl_frame)
-        lbl_beam_sel.setStyleSheet("font-size: 11px; font-weight: 700; color: #8e8e93;")
-        ctrl_row.addWidget(lbl_beam_sel)
-
-        self.beam_combo = QComboBox(plan_ctrl_frame)
+        self.beam_combo = self.polar_widget.beam_combo
         self._populate_beam_combo()
         self.beam_combo.currentIndexChanged.connect(self._on_beam_changed)
-        ctrl_row.addWidget(self.beam_combo, 2)
-
-        left_layout.addWidget(plan_ctrl_frame)
-
-        self.polar_widget = PolarArcWidget(left_panel, is_ru=self.is_ru)
-        self.polar_widget.intervalHovered.connect(self._on_interval_hovered)
-        self.polar_widget.intervalClicked.connect(self._on_interval_clicked)
-        left_layout.addWidget(self.polar_widget, 1)
 
         # Legend — inline rows under polar widget with help '?' button
         legend_box = QFrame(left_panel)

@@ -24,7 +24,7 @@ class ModulationTimelineWidget(QWidget):
     def __init__(self, parent=None, is_ru: bool = True):
         super().__init__(parent)
         self.is_ru = is_ru
-        self.setMinimumHeight(140)
+        self.setMinimumHeight(150)
         self.setMouseTracking(True)
         self.beam_data: Optional[Dict[str, Any]] = None
         self.hovered_interval_idx: Optional[int] = None
@@ -47,7 +47,7 @@ class ModulationTimelineWidget(QWidget):
         if not intervals:
             return None
         margin_l, margin_r = 50, 20
-        margin_t, margin_b = 20, 30
+        margin_t, margin_b = 20, 38
         plot_w = self.width() - margin_l - margin_r
         plot_h = self.height() - margin_t - margin_b
         x = pos.x()
@@ -92,7 +92,7 @@ class ModulationTimelineWidget(QWidget):
         w = self.width()
         h = self.height()
         margin_l, margin_r = 50, 20
-        margin_t, margin_b = 20, 30
+        margin_t, margin_b = 20, 38
         plot_w = w - margin_l - margin_r
         plot_h = h - margin_t - margin_b
 
@@ -131,8 +131,8 @@ class ModulationTimelineWidget(QWidget):
 
             # Y axis Title
             painter.setPen(QPen(QColor("#38bdf8")))
-            painter.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-            painter.drawText(margin_l, margin_t - 4, "Доза сегментов IMRT (ΔMU на контрольную точку)" if self.is_ru else "IMRT Segment Dose (ΔMU per CP)")
+            painter.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+            painter.drawText(margin_l, margin_t - 5, "Доза сегментов IMRT (ΔMU)" if self.is_ru else "IMRT Segment Dose (ΔMU)")
 
             # Plot bars for each segment
             n = len(intervals)
@@ -165,8 +165,14 @@ class ModulationTimelineWidget(QWidget):
             # X Axis labels
             painter.setPen(QPen(QColor("#8e8e93")))
             painter.setFont(QFont("Segoe UI", 8))
-            painter.drawText(margin_l, h - 10, f"CP 00 (0.0 MU)")
-            painter.drawText(w - margin_r - 90, h - 10, f"CP {n:02d} ({self.beam_data.get('total_mu', 0.0):.1f} MU)")
+            painter.drawText(margin_l, int(base_y + 14), "CP 00 (0.0 MU)")
+            painter.drawText(w - margin_r - 90, int(base_y + 14), f"CP {n:02d} ({self.beam_data.get('total_mu', 0.0):.1f} MU)")
+
+            # Centered X Axis Title
+            painter.setPen(QPen(QColor("#a1a1aa")))
+            painter.setFont(QFont("Segoe UI", 8, QFont.Weight.DemiBold))
+            x_title_rect = QRectF(margin_l, base_y + 18, plot_w, 16)
+            painter.drawText(x_title_rect, Qt.AlignmentFlag.AlignCenter, "Контрольные точки (сегменты IMRT)" if self.is_ru else "Control Points (IMRT Segments)")
             return
 
         # Determine scale dynamically based on actual plan data
@@ -194,6 +200,11 @@ class ModulationTimelineWidget(QWidget):
         def val_to_y(val):
             ratio = min(1.0, max(0.0, val / max_val))
             return margin_t + plot_h * (1.0 - ratio)
+
+        # Y axis Title
+        painter.setPen(QPen(QColor("#38bdf8")))
+        painter.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        painter.drawText(margin_l, margin_t - 5, "Плотность дозы (MU/deg)" if self.is_ru else "Dose Density (MU/deg)")
 
         # Draw grid & Y labels
         painter.setFont(QFont("Segoe UI", 8))
@@ -296,5 +307,11 @@ class ModulationTimelineWidget(QWidget):
         # X Axis labels
         painter.setPen(QPen(QColor("#8e8e93")))
         painter.setFont(QFont("Segoe UI", 8))
-        painter.drawText(margin_l, h - 10, f"CP 00 ({intervals[0]['gantry_start']:.0f}°)")
-        painter.drawText(w - margin_r - 80, h - 10, f"CP {n-1:02d} ({intervals[-1]['gantry_end']:.0f}°)")
+        painter.drawText(margin_l, int(base_y + 14), f"CP 00 ({intervals[0]['gantry_start']:.0f}°)")
+        painter.drawText(w - margin_r - 80, int(base_y + 14), f"CP {n-1:02d} ({intervals[-1]['gantry_end']:.0f}°)")
+
+        # Centered X Axis Title
+        painter.setPen(QPen(QColor("#a1a1aa")))
+        painter.setFont(QFont("Segoe UI", 8, QFont.Weight.DemiBold))
+        x_title_rect = QRectF(margin_l, base_y + 18, plot_w, 16)
+        painter.drawText(x_title_rect, Qt.AlignmentFlag.AlignCenter, "Контрольные точки (CP) и угол гентри" if self.is_ru else "Control Points (CP) & Gantry Angle")

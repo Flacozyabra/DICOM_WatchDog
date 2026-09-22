@@ -13,13 +13,13 @@ from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal
 from PyQt6.QtGui import (
     QPainter, QPen, QBrush, QColor, QFont, QPainterPath
 )
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox
 
 
 class PolarArcWidget(QWidget):
     """
     Renders an interactive polar circular arc diagram conforming to IEC 61217
-    with gantry rotation trajectory and color-coded risk levels.
+    with gantry rotation trajectory, embedded plan/beam selectors, and color-coded risk levels.
     """
     intervalHovered = pyqtSignal(dict)
     intervalClicked = pyqtSignal(int)
@@ -27,11 +27,90 @@ class PolarArcWidget(QWidget):
     def __init__(self, parent=None, is_ru: bool = True):
         super().__init__(parent)
         self.is_ru = is_ru
-        self.setMinimumSize(360, 360)
+        self.setMinimumSize(360, 420)
         self.setMouseTracking(True)
         self.beam_data: Optional[Dict[str, Any]] = None
         self.hovered_interval_idx: Optional[int] = None
         self.selected_interval_idx: Optional[int] = None
+
+        self._init_embedded_controls()
+
+    def _init_embedded_controls(self):
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(10, 6, 10, 6)
+        root_layout.setSpacing(0)
+
+        # Top Bar: Plan Selector
+        top_bar = QWidget(self)
+        top_bar.setStyleSheet("background: transparent;")
+        top_layout = QHBoxLayout(top_bar)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(6)
+
+        self.lbl_plan = QLabel("План:" if self.is_ru else "Plan:", top_bar)
+        self.lbl_plan.setStyleSheet("font-size: 11px; font-weight: 700; color: #8e8e93; background: transparent;")
+        self.plan_combo = QComboBox(top_bar)
+        self.plan_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #242426;
+                color: #f4f4f5;
+                border: 1px solid #3f3f46;
+                border-radius: 4px;
+                padding: 3px 8px;
+                font-size: 12px;
+            }
+            QComboBox:hover {
+                border-color: #52525b;
+                background-color: #2a2a2d;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1f1f21;
+                color: #f4f4f5;
+                selection-background-color: #1e3a8a;
+                selection-color: #ffffff;
+                border: 1px solid #3f3f46;
+            }
+        """)
+        top_layout.addWidget(self.lbl_plan)
+        top_layout.addWidget(self.plan_combo, 1)
+        root_layout.addWidget(top_bar, 0, Qt.AlignmentFlag.AlignTop)
+
+        root_layout.addStretch(1)
+
+        # Bottom Bar: Beam Selector
+        bottom_bar = QWidget(self)
+        bottom_bar.setStyleSheet("background: transparent;")
+        bottom_layout = QHBoxLayout(bottom_bar)
+        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_layout.setSpacing(6)
+
+        self.lbl_beam = QLabel("Пучок:" if self.is_ru else "Beam:", bottom_bar)
+        self.lbl_beam.setStyleSheet("font-size: 11px; font-weight: 700; color: #8e8e93; background: transparent;")
+        self.beam_combo = QComboBox(bottom_bar)
+        self.beam_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #242426;
+                color: #f4f4f5;
+                border: 1px solid #3f3f46;
+                border-radius: 4px;
+                padding: 3px 8px;
+                font-size: 12px;
+            }
+            QComboBox:hover {
+                border-color: #52525b;
+                background-color: #2a2a2d;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1f1f21;
+                color: #f4f4f5;
+                selection-background-color: #1e3a8a;
+                selection-color: #ffffff;
+                border: 1px solid #3f3f46;
+            }
+        """)
+        bottom_layout.addWidget(self.lbl_beam)
+        bottom_layout.addWidget(self.beam_combo, 1)
+        root_layout.addWidget(bottom_bar, 0, Qt.AlignmentFlag.AlignBottom)
 
     def set_beam_data(self, beam_data: Optional[Dict[str, Any]]):
         self.beam_data = beam_data
@@ -53,8 +132,11 @@ class PolarArcWidget(QWidget):
 
         w = self.width()
         h = self.height()
-        center = QPointF(w / 2.0, h / 2.0)
-        radius = min(w, h) / 2.0 - 24.0
+        margin_top = 48.0
+        margin_bottom = 48.0
+        avail_h = h - margin_top - margin_bottom
+        center = QPointF(w / 2.0, margin_top + avail_h / 2.0)
+        radius = max(60.0, min(w - 36.0, avail_h - 28.0) / 2.0)
 
         # Background fill
         painter.fillRect(self.rect(), QColor("#161616"))
@@ -419,12 +501,15 @@ class PolarArcWidget(QWidget):
 
         w = self.width()
         h = self.height()
-        center = QPointF(w / 2.0, h / 2.0)
+        margin_top = 48.0
+        margin_bottom = 48.0
+        avail_h = h - margin_top - margin_bottom
+        center = QPointF(w / 2.0, margin_top + avail_h / 2.0)
         pos = event.position()
         dx = pos.x() - center.x()
         dy = pos.y() - center.y()
         dist = math.hypot(dx, dy)
-        radius = min(w, h) / 2.0 - 24.0
+        radius = max(60.0, min(w - 36.0, avail_h - 28.0) / 2.0)
 
         num_passes = self.beam_data.get('num_passes', 1)
         min_r = (radius - 78.0) if num_passes > 1 else (radius - 68.0)
