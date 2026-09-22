@@ -13,13 +13,13 @@ from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal
 from PyQt6.QtGui import (
     QPainter, QPen, QBrush, QColor, QFont, QPainterPath
 )
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox
+from PyQt6.QtWidgets import QWidget, QComboBox
 
 
 class PolarArcWidget(QWidget):
     """
     Renders an interactive polar circular arc diagram conforming to IEC 61217
-    with gantry rotation trajectory, embedded plan/beam selectors, and color-coded risk levels.
+    with gantry rotation trajectory, embedded center HUD plan/beam selectors, and color-coded risk levels.
     """
     intervalHovered = pyqtSignal(dict)
     intervalClicked = pyqtSignal(int)
@@ -27,7 +27,7 @@ class PolarArcWidget(QWidget):
     def __init__(self, parent=None, is_ru: bool = True):
         super().__init__(parent)
         self.is_ru = is_ru
-        self.setMinimumSize(360, 420)
+        self.setMinimumSize(360, 360)
         self.setMouseTracking(True)
         self.beam_data: Optional[Dict[str, Any]] = None
         self.hovered_interval_idx: Optional[int] = None
@@ -36,86 +36,72 @@ class PolarArcWidget(QWidget):
         self._init_embedded_controls()
 
     def _init_embedded_controls(self):
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(10, 6, 10, 6)
-        root_layout.setSpacing(0)
-
-        # Top Bar: Plan Selector
-        top_bar = QWidget(self)
-        top_bar.setStyleSheet("background: transparent;")
-        top_layout = QHBoxLayout(top_bar)
-        top_layout.setContentsMargins(0, 0, 0, 0)
-        top_layout.setSpacing(6)
-
-        self.lbl_plan = QLabel("План:" if self.is_ru else "Plan:", top_bar)
-        self.lbl_plan.setStyleSheet("font-size: 11px; font-weight: 700; color: #8e8e93; background: transparent;")
-        self.plan_combo = QComboBox(top_bar)
-        self.plan_combo.setStyleSheet("""
+        combo_style = """
             QComboBox {
                 background-color: #242426;
                 color: #f4f4f5;
                 border: 1px solid #3f3f46;
                 border-radius: 4px;
-                padding: 3px 8px;
-                font-size: 12px;
+                padding: 2px 6px;
+                font-size: 11px;
             }
             QComboBox:hover {
-                border-color: #52525b;
+                border-color: #38bdf8;
                 background-color: #2a2a2d;
             }
+            QComboBox::drop-down {
+                border: none;
+                width: 16px;
+            }
             QComboBox QAbstractItemView {
-                background-color: #1f1f21;
+                background-color: #18181b;
                 color: #f4f4f5;
                 selection-background-color: #1e3a8a;
                 selection-color: #ffffff;
                 border: 1px solid #3f3f46;
+                min-width: 200px;
             }
-        """)
-        top_layout.addWidget(self.lbl_plan)
-        top_layout.addWidget(self.plan_combo, 1)
-        root_layout.addWidget(top_bar, 0, Qt.AlignmentFlag.AlignTop)
+        """
+        self.plan_combo = QComboBox(self)
+        self.plan_combo.setToolTip("Выбор плана" if self.is_ru else "Select plan")
+        self.plan_combo.setStyleSheet(combo_style)
 
-        root_layout.addStretch(1)
+        self.beam_combo = QComboBox(self)
+        self.beam_combo.setToolTip("Выбор пучка" if self.is_ru else "Select beam")
+        self.beam_combo.setStyleSheet(combo_style)
 
-        # Bottom Bar: Beam Selector
-        bottom_bar = QWidget(self)
-        bottom_bar.setStyleSheet("background: transparent;")
-        bottom_layout = QHBoxLayout(bottom_bar)
-        bottom_layout.setContentsMargins(0, 0, 0, 0)
-        bottom_layout.setSpacing(6)
+    def _update_controls_geometry(self):
+        w = self.width()
+        h = self.height()
+        cx = w / 2.0
+        cy = h / 2.0
+        radius = min(w, h) / 2.0 - 24.0
+        num_passes = self.beam_data.get('num_passes', 1) if self.beam_data else 1
+        center_r = (radius - 78.0) if num_passes > 1 else (radius - 60.0)
+        center_r = max(50.0, center_r)
 
-        self.lbl_beam = QLabel("Пучок:" if self.is_ru else "Beam:", bottom_bar)
-        self.lbl_beam.setStyleSheet("font-size: 11px; font-weight: 700; color: #8e8e93; background: transparent;")
-        self.beam_combo = QComboBox(bottom_bar)
-        self.beam_combo.setStyleSheet("""
-            QComboBox {
-                background-color: #242426;
-                color: #f4f4f5;
-                border: 1px solid #3f3f46;
-                border-radius: 4px;
-                padding: 3px 8px;
-                font-size: 12px;
-            }
-            QComboBox:hover {
-                border-color: #52525b;
-                background-color: #2a2a2d;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #1f1f21;
-                color: #f4f4f5;
-                selection-background-color: #1e3a8a;
-                selection-color: #ffffff;
-                border: 1px solid #3f3f46;
-            }
-        """)
-        bottom_layout.addWidget(self.lbl_beam)
-        bottom_layout.addWidget(self.beam_combo, 1)
-        root_layout.addWidget(bottom_bar, 0, Qt.AlignmentFlag.AlignBottom)
+        combo_w = max(130, min(230, int(center_r * 1.42)))
+        combo_h = 24
+
+        plan_y = int(cy - center_r * 0.70)
+        self.plan_combo.setGeometry(int(cx - combo_w / 2.0), plan_y, combo_w, combo_h)
+
+        beam_y = int(cy + center_r * 0.70 - combo_h)
+        self.beam_combo.setGeometry(int(cx - combo_w / 2.0), beam_y, combo_w, combo_h)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_controls_geometry()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._update_controls_geometry()
 
     def set_beam_data(self, beam_data: Optional[Dict[str, Any]]):
         self.beam_data = beam_data
         self.hovered_interval_idx = None
         self.selected_interval_idx = None
+        self._update_controls_geometry()
         self.update()
 
     def select_interval(self, index: int):
@@ -132,11 +118,10 @@ class PolarArcWidget(QWidget):
 
         w = self.width()
         h = self.height()
-        margin_top = 48.0
-        margin_bottom = 48.0
-        avail_h = h - margin_top - margin_bottom
-        center = QPointF(w / 2.0, margin_top + avail_h / 2.0)
-        radius = max(60.0, min(w - 36.0, avail_h - 28.0) / 2.0)
+        cx = w / 2.0
+        cy = h / 2.0
+        center = QPointF(cx, cy)
+        radius = min(w, h) / 2.0 - 24.0
 
         # Background fill
         painter.fillRect(self.rect(), QColor("#161616"))
@@ -214,24 +199,34 @@ class PolarArcWidget(QWidget):
                 # Center Isocenter Circle & Badge
                 painter.setBrush(QBrush(QColor("#1f1f21")))
                 painter.setPen(QPen(QColor("#38bdf8"), 1.5))
-                center_r = radius - 55
+                center_r = radius - 60.0
                 painter.drawEllipse(center, center_r, center_r)
 
+                combo_h = 24
+                plan_y = int(cy - center_r * 0.70)
+                beam_y = int(cy + center_r * 0.70 - combo_h)
+
+                # Section headers above embedded combo boxes
+                painter.setFont(QFont("Segoe UI", 7, QFont.Weight.Bold))
+                painter.setPen(QPen(QColor("#71717a")))
+                painter.drawText(QRectF(cx - 60, plan_y - 12, 120, 11), Qt.AlignmentFlag.AlignCenter, "ПЛАН" if self.is_ru else "PLAN")
+                painter.drawText(QRectF(cx - 60, beam_y - 12, 120, 11), Qt.AlignmentFlag.AlignCenter, "ПУЧОК" if self.is_ru else "BEAM")
+
                 painter.setPen(QPen(QColor("#ffffff")))
-                painter.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-                painter.drawText(QRectF(center.x() - 80, center.y() - 30, 160, 20), Qt.AlignmentFlag.AlignCenter, "STATIC IMRT")
-                painter.setFont(QFont("Segoe UI", 9))
+                painter.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                painter.drawText(QRectF(cx - 80, cy - 20, 160, 18), Qt.AlignmentFlag.AlignCenter, "STATIC IMRT")
+                painter.setFont(QFont("Segoe UI", 8))
                 painter.setPen(QPen(QColor("#38bdf8")))
-                painter.drawText(QRectF(center.x() - 80, center.y() - 10, 160, 18), Qt.AlignmentFlag.AlignCenter, f"{'Гентри' if self.is_ru else 'Gantry'}: {g_angle:.1f}°")
+                painter.drawText(QRectF(cx - 80, cy - 3, 160, 16), Qt.AlignmentFlag.AlignCenter, f"{'Гентри' if self.is_ru else 'Gantry'}: {g_angle:.1f}°")
                 painter.setFont(QFont("Segoe UI", 8))
                 painter.setPen(QPen(QColor("#8e8e93")))
                 cps_cnt = self.beam_data.get('num_control_points', 0)
                 tot_mu = self.beam_data.get('total_mu', 0.0)
-                painter.drawText(QRectF(center.x() - 80, center.y() + 10, 160, 18), Qt.AlignmentFlag.AlignCenter, f"{cps_cnt} CP | {tot_mu:.1f} MU")
+                painter.drawText(QRectF(cx - 80, cy + 13, 160, 16), Qt.AlignmentFlag.AlignCenter, f"{cps_cnt} CP | {tot_mu:.1f} MU")
             else:
                 painter.setPen(QPen(QColor("#8e8e93")))
-                painter.setFont(QFont("Segoe UI", 10))
-                painter.drawText(QRectF(center.x() - 120, center.y() - 30, 240, 60), Qt.AlignmentFlag.AlignCenter, "Нет данных пучка" if self.is_ru else "No beam data")
+                painter.setFont(QFont("Segoe UI", 9))
+                painter.drawText(QRectF(cx - 100, cy - 10, 200, 20), Qt.AlignmentFlag.AlignCenter, "Нет данных пучка" if self.is_ru else "No beam data")
             return
 
         intervals = self.beam_data.get('intervals', [])
@@ -329,8 +324,18 @@ class PolarArcWidget(QWidget):
         # Center orientation and info
         painter.setBrush(QBrush(QColor("#1f1f21")))
         painter.setPen(QPen(QColor("#3a3a3c"), 1.5))
-        center_r = (radius - 78.0) if num_passes > 1 else (radius - 68.0)
+        center_r = (radius - 78.0) if num_passes > 1 else (radius - 60.0)
         painter.drawEllipse(center, center_r, center_r)
+
+        # Draw section headers above embedded combo boxes inside center circle
+        combo_h = 24
+        plan_y = int(cy - center_r * 0.70)
+        beam_y = int(cy + center_r * 0.70 - combo_h)
+
+        painter.setFont(QFont("Segoe UI", 7, QFont.Weight.Bold))
+        painter.setPen(QPen(QColor("#71717a")))
+        painter.drawText(QRectF(cx - 60, plan_y - 12, 120, 11), Qt.AlignmentFlag.AlignCenter, "ПЛАН" if self.is_ru else "PLAN")
+        painter.drawText(QRectF(cx - 60, beam_y - 12, 120, 11), Qt.AlignmentFlag.AlignCenter, "ПУЧОК" if self.is_ru else "BEAM")
 
         active_idx = self.hovered_interval_idx if self.hovered_interval_idx is not None else self.selected_interval_idx
 
@@ -349,150 +354,60 @@ class PolarArcWidget(QWidget):
                 delta_mpd = 0.0
                 factor = 1.0
 
-            # Status badge
             if risk == 'CRITICAL':
-                badge_bg = QColor(239, 68, 68, 40)
-                badge_border = QColor('#ef4444')
-                badge_text = 'КРИТИЧЕСКИЙ РИСК' if self.is_ru else 'CRITICAL RISK'
+                risk_color = QColor('#ef4444')
+                risk_text = 'КРИТИЧЕСКИЙ РИСК' if self.is_ru else 'CRITICAL RISK'
             elif risk == 'WARNING':
-                badge_bg = QColor(245, 158, 11, 40)
-                badge_border = QColor('#f59e0b')
-                badge_text = 'ПОВЫШЕННАЯ СЛОЖНОСТЬ' if self.is_ru else 'HIGH COMPLEXITY'
+                risk_color = QColor('#f59e0b')
+                risk_text = 'ПОВЫШЕННАЯ СЛОЖНОСТЬ' if self.is_ru else 'HIGH COMPLEXITY'
             else:
-                badge_bg = QColor(34, 197, 94, 40)
-                badge_border = QColor('#22c55e')
-                badge_text = 'ПАРАМЕТРЫ В НОРМЕ' if self.is_ru else 'NORMAL PARAMETERS'
+                risk_color = QColor('#22c55e')
+                risk_text = 'ПАРАМЕТРЫ В НОРМЕ' if self.is_ru else 'NORMAL'
 
-            # Draw Badge with dynamic width and crisp vector dot
-            badge_font = QFont('Segoe UI', 8, QFont.Weight.Bold)
-            painter.setFont(badge_font)
-            fm = painter.fontMetrics()
-            text_w = fm.horizontalAdvance(badge_text)
-            content_w = 7.0 + 6.0 + text_w # 7px dot + 6px gap + text
-            badge_w = content_w + 18.0
-            badge_h = 20.0
-            badge_rect = QRectF(center.x() - badge_w / 2.0, center.y() - 66, badge_w, badge_h)
-
-            painter.setBrush(QBrush(badge_bg))
-            painter.setPen(QPen(badge_border, 1.0))
-            painter.drawRoundedRect(badge_rect, 4, 4)
-
-            # Vector status dot inside badge
-            start_x = center.x() - content_w / 2.0
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(badge_border))
-            painter.drawEllipse(QPointF(start_x + 3.5, badge_rect.center().y()), 3.5, 3.5)
-
-            # Badge text
-            painter.setFont(badge_font)
-            painter.setPen(QPen(badge_border))
-            text_rect = QRectF(start_x + 13.0, badge_rect.top(), text_w + 4.0, badge_h)
-            painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, badge_text)
-
-            # CP Sector Title with Pass info if multi-track
             p_idx = cp.get('pass_idx', 0)
             rot_dir = cp.get('direction', 'CW')
-            dir_sym = '↻ CW' if rot_dir == 'CW' else '↺ CCW'
-            if self.is_ru:
-                title_txt = f"CP {cp['index']:02d} → {cp['index']+1:02d} (П{p_idx+1}: {dir_sym})" if num_passes > 1 else f"Сектор CP {cp['index']:02d} → {cp['index']+1:02d}"
-            else:
-                title_txt = f"CP {cp['index']:02d} → {cp['index']+1:02d} (P{p_idx+1}: {dir_sym})" if num_passes > 1 else f"CP Sector {cp['index']:02d} → {cp['index']+1:02d}"
+            dir_sym = '↻' if rot_dir == 'CW' else '↺'
+            title_txt = f"CP {cp['index']:02d}→{cp['index']+1:02d} ({dir_sym})" if num_passes > 1 else f"CP {cp['index']:02d} → {cp['index']+1:02d}"
 
-            painter.setFont(QFont('Segoe UI', 9, QFont.Weight.Bold))
+            # Row 1: CP title
+            painter.setFont(QFont('Segoe UI', 8, QFont.Weight.Bold))
             painter.setPen(QPen(QColor('#ffffff')))
-            painter.drawText(QRectF(center.x() - 100, center.y() - 42, 200, 18), Qt.AlignmentFlag.AlignCenter, title_txt)
+            painter.drawText(QRectF(cx - 85, cy - 25, 170, 14), Qt.AlignmentFlag.AlignCenter, title_txt)
 
-            # Gantry angle
+            # Row 2: Status color dot and risk label
+            painter.setFont(QFont('Segoe UI', 8, QFont.Weight.DemiBold))
+            painter.setPen(QPen(risk_color))
+            painter.drawText(QRectF(cx - 85, cy - 11, 170, 14), Qt.AlignmentFlag.AlignCenter, f"● {risk_text}")
+
+            # Row 3: Gantry angles
             painter.setFont(QFont('Segoe UI', 8))
             painter.setPen(QPen(QColor('#a1a1aa')))
-            _gantry_word = "Гентри" if self.is_ru else "Gantry"
-            painter.drawText(QRectF(center.x() - 90, center.y() - 24, 180, 16), Qt.AlignmentFlag.AlignCenter,
-                             f"{_gantry_word}: {cp['gantry_start']:.1f}° → {cp['gantry_end']:.1f}° (Δ {cp['delta_gantry']:.1f}°)")
+            painter.drawText(QRectF(cx - 85, cy + 3, 170, 14), Qt.AlignmentFlag.AlignCenter,
+                             f"{'Гентри' if self.is_ru else 'Gantry'}: {cp['gantry_start']:.0f}° → {cp['gantry_end']:.0f}°")
 
-            # Parameter rows with graphic status dots
-            def draw_param_row(y, label, val_str, status_color, status_text):
-                row_rect = QRectF(center.x() - 85, y, 170, 15)
-                # Indicator Dot
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(QBrush(status_color))
-                painter.drawEllipse(QPointF(row_rect.left() + 6, y + 7.5), 3.5, 3.5)
-                # Label
-                painter.setFont(QFont('Segoe UI', 8))
-                painter.setPen(QPen(QColor('#d4d4d8')))
-                painter.drawText(QRectF(row_rect.left() + 16, y, 90, 15), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, label)
-                # Value
-                painter.setFont(QFont('Segoe UI', 8, QFont.Weight.DemiBold))
-                painter.setPen(QPen(status_color))
-                painter.drawText(QRectF(row_rect.right() - 75, y, 75, 15), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, val_str)
-
-            th = self.beam_data.get('thresholds', {}) if self.beam_data else {}
-            min_dr = float(th.get('min_dose_rate', 60.0))
-            min_mpd = float(th.get('min_mu_per_deg', 0.165))
-            max_jump = float(th.get('max_modulation_factor', 10.0))
-            warn_dr = float(th.get('warn_dose_rate', 75.0))
-            warn_mpd = float(th.get('warn_mu_per_deg', 0.200))
-            warn_jump = float(th.get('warn_modulation_factor', 8.0))
-
-            _mu_min = "MU/мин" if self.is_ru else "MU/min"
-
-            # 1. Dose rate status
-            if round(dr) < min_dr:
-                dr_col, dr_st = QColor('#ef4444'), ('Сбой' if self.is_ru else 'Fault')
-                dr_val_str = f"{dr:.1f} {_mu_min}"
-            elif dr < warn_dr:
-                dr_col, dr_st = QColor('#f59e0b'), ('Низкая' if self.is_ru else 'Low')
-                dr_val_str = f"{dr:.0f} {_mu_min}"
-            else:
-                dr_col, dr_st = QColor('#22c55e'), ('Норма' if self.is_ru else 'OK')
-                dr_val_str = f"{dr:.0f} {_mu_min}"
-            draw_param_row(center.y() - 3, ('Мощность:' if self.is_ru else 'Dose Rate:'), dr_val_str, dr_col, dr_st)
-
-            # 2. Dose density status
-            if mpd < min_mpd:
-                mpd_col, mpd_st = QColor('#ef4444'), ('Провал' if self.is_ru else 'Drop')
-            elif mpd > 15.0:
-                mpd_col, mpd_st = QColor('#f59e0b'), ('Перегруз' if self.is_ru else 'High')
-            elif mpd < warn_mpd:
-                mpd_col, mpd_st = QColor('#f59e0b'), ('Низкая' if self.is_ru else 'Low')
-            else:
-                mpd_col, mpd_st = QColor('#22c55e'), ('Норма' if self.is_ru else 'OK')
-            draw_param_row(center.y() + 15, ('Плотность:' if self.is_ru else 'Density:'), f"{mpd:.2f} MU/deg", mpd_col, mpd_st)
-
-            # 3. Delta jump status
-            if active_idx > 0:
-                if factor >= max_jump:
-                    jump_col, jump_st = QColor('#ef4444'), ('Шок' if self.is_ru else 'Shock')
-                elif factor >= warn_jump:
-                    jump_col, jump_st = QColor('#f59e0b'), ('Перепад' if self.is_ru else 'Jump')
-                else:
-                    jump_col, jump_st = QColor('#22c55e'), ('Норма' if self.is_ru else 'OK')
-                d_sign = '+' if delta_mpd >= 0 else ''
-                draw_param_row(center.y() + 33, ('Перепад:' if self.is_ru else 'Jump:'), f"{factor:.1f}× ({d_sign}{delta_mpd:.2f})", jump_col, jump_st)
-            else:
-                draw_param_row(center.y() + 33, ('Перепад:' if self.is_ru else 'Jump:'), ("— (старт)" if self.is_ru else "— (start)"), QColor('#9ca3af'), ('Старт' if self.is_ru else 'Start'))
+            # Row 4: Dose density and Jump factor
+            painter.setFont(QFont('Segoe UI', 8))
+            painter.setPen(QPen(QColor('#38bdf8')))
+            painter.drawText(QRectF(cx - 85, cy + 17, 170, 14), Qt.AlignmentFlag.AlignCenter,
+                             f"{mpd:.2f} MU/deg | {factor:.1f}×")
 
         else:
             # Neutral Standby State
-            painter.setPen(QPen(QColor('#38bdf8')))
-            painter.setFont(QFont('Segoe UI', 9, QFont.Weight.Bold))
-            _beam_label = f"Пучок #{self.beam_data.get('beam_number', 1)}" if self.is_ru else f"Beam #{self.beam_data.get('beam_number', 1)}"
-            painter.drawText(QRectF(center.x() - 80, center.y() - 35, 160, 20), Qt.AlignmentFlag.AlignCenter, _beam_label)
-
             painter.setPen(QPen(QColor('#ffffff')))
-            painter.setFont(QFont('Segoe UI', 8))
+            painter.setFont(QFont('Segoe UI', 9, QFont.Weight.Bold))
             _cps_word = "контрольных точек" if self.is_ru else "control points"
-            painter.drawText(QRectF(center.x() - 90, center.y() - 15, 180, 16), Qt.AlignmentFlag.AlignCenter,
+            painter.drawText(QRectF(cx - 90, cy - 20, 180, 18), Qt.AlignmentFlag.AlignCenter,
                              f"{len(intervals)} {_cps_word}")
 
             painter.setFont(QFont('Segoe UI', 8))
-            painter.setPen(QPen(QColor('#8e8e93')))
-            painter.drawText(QRectF(center.x() - 90, center.y() + 5, 180, 16), Qt.AlignmentFlag.AlignCenter,
+            painter.setPen(QPen(QColor('#38bdf8')))
+            painter.drawText(QRectF(cx - 80, cy - 3, 160, 16), Qt.AlignmentFlag.AlignCenter,
                              f"Σ {self.beam_data.get('total_mu', 0.0):.1f} MU")
 
             painter.setFont(QFont('Segoe UI', 8))
-            painter.setPen(QPen(QColor('#6b7280')))
+            painter.setPen(QPen(QColor('#71717a')))
             _hint_hover = "Наведите на сектор дуги" if self.is_ru else "Hover over an arc sector"
-            painter.drawText(QRectF(center.x() - 95, center.y() + 25, 190, 16), Qt.AlignmentFlag.AlignCenter,
+            painter.drawText(QRectF(cx - 90, cy + 13, 180, 16), Qt.AlignmentFlag.AlignCenter,
                              _hint_hover)
 
     def mouseMoveEvent(self, event):
@@ -501,18 +416,15 @@ class PolarArcWidget(QWidget):
 
         w = self.width()
         h = self.height()
-        margin_top = 48.0
-        margin_bottom = 48.0
-        avail_h = h - margin_top - margin_bottom
-        center = QPointF(w / 2.0, margin_top + avail_h / 2.0)
+        center = QPointF(w / 2.0, h / 2.0)
         pos = event.position()
         dx = pos.x() - center.x()
         dy = pos.y() - center.y()
         dist = math.hypot(dx, dy)
-        radius = max(60.0, min(w - 36.0, avail_h - 28.0) / 2.0)
+        radius = min(w, h) / 2.0 - 24.0
 
         num_passes = self.beam_data.get('num_passes', 1)
-        min_r = (radius - 78.0) if num_passes > 1 else (radius - 68.0)
+        min_r = (radius - 78.0) if num_passes > 1 else (radius - 60.0)
 
         if min_r <= dist <= radius + 25:
             math_ang = math.degrees(math.atan2(dy, dx)) % 360.0
