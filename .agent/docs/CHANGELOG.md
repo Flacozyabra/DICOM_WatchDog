@@ -1,6 +1,14 @@
 # Changelog
 ## [Unreleased]
 
+## [1.8.3] - 2026-09-22
+
+- **Full EN localization of Monaco Plan Analyzer dialog** — all UI strings (titles, tabs, table headers, verdict cards, status bar, metric labels, error dialogs) now switch between Russian and English based on the active interface language setting.
+- **Multi-PC sync: cross-PC folder locking** — implemented `FolderLock` (`.dw_processing.lock`) and SMB retry logic to prevent concurrent file collisions when two PCs share the same network folder.
+- **Full patient ID healing** — `process_patient_folder` now validates and heals all files in a study (including CT slices) instead of stopping at the first valid file, preventing partial ID updates.
+- **Count RTD/RTP files only when columns are enabled** — `RTDOSE`/`RTPLAN` files are scanned and counted only when the corresponding table columns are active; added `rtd_scanned`/`rtp_scanned` flags.
+- **Persistent disk caching (CT + Archive)** — study lists are restored instantly at startup from `%LOCALAPPDATA%\DICOM_WatchDog\*_cache.json`; background workers only re-read folders whose `mtime` changed.
+
 - **Concurrent Multi-PC Folder Locking & Full Patient ID Healing**:
   - Реализован кроссплатформенный механизм взаимной блокировки папок пациентов (`FolderLock` и `.dw_processing.lock`), предотвращающий одновременный конфликт доступа (`PermissionError: [WinError 32]`) при работе нескольких компьютеров через общую сетевую папку (SMB).
   - В фоновом сканировании `FolderScanWorker` добавлена проверка `is_folder_locked(path)`: если папка в данный момент модифицируется другим ПК, читающий воркер отдает данные из кэша (или пропускает обращение к диску), не вызывая файловых блокировок.
