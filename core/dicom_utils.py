@@ -419,7 +419,7 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
             # Безопасный разбор времени исследования
             study_date = str(ds.get('StudyDate', '')).strip()
             study_time = str(ds.get('StudyTime', '')).strip()
-            folder_ctime = datetime.fromtimestamp(max(os.path.getctime(root), os.path.getmtime(root)))
+            folder_ctime = datetime.fromtimestamp(min(os.path.getctime(root), os.path.getmtime(root)))
 
             study_dt = folder_ctime
             if study_date:
