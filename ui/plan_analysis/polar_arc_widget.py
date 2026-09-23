@@ -13,7 +13,7 @@ from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal
 from PyQt6.QtGui import (
     QPainter, QPen, QBrush, QColor, QFont, QPainterPath
 )
-from PyQt6.QtWidgets import QWidget, QComboBox
+from PyQt6.QtWidgets import QWidget, QComboBox, QLabel
 
 
 class PolarArcWidget(QWidget):
@@ -62,9 +62,26 @@ class PolarArcWidget(QWidget):
                 min-width: 200px;
             }
         """
+        lbl_style = """
+            QLabel {
+                color: #9ca3af;
+                font-size: 10px;
+                font-weight: bold;
+                background: transparent;
+                border: none;
+            }
+        """
+        self.lbl_plan = QLabel("ПЛАН" if self.is_ru else "PLAN", self)
+        self.lbl_plan.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_plan.setStyleSheet(lbl_style)
+
         self.plan_combo = QComboBox(self)
         self.plan_combo.setToolTip("Выбор плана" if self.is_ru else "Select plan")
         self.plan_combo.setStyleSheet(combo_style)
+
+        self.lbl_beam = QLabel("ПУЧОК" if self.is_ru else "BEAM", self)
+        self.lbl_beam.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_beam.setStyleSheet(lbl_style)
 
         self.beam_combo = QComboBox(self)
         self.beam_combo.setToolTip("Выбор пучка" if self.is_ru else "Select beam")
@@ -81,12 +98,17 @@ class PolarArcWidget(QWidget):
 
         combo_w = max(130, min(220, int(center_r * 1.35)))
         combo_h = 24
+        lbl_h = 14
 
-        plan_y = int(cy - 94)
-        self.plan_combo.setGeometry(int(cx - combo_w / 2.0), plan_y, combo_w, combo_h)
+        plan_combo_y = int(cy - max(88.0, min(120.0, center_r * 0.42)))
+        lbl_plan_y = plan_combo_y - lbl_h - 2
+        self.lbl_plan.setGeometry(int(cx - combo_w / 2.0), lbl_plan_y, combo_w, lbl_h)
+        self.plan_combo.setGeometry(int(cx - combo_w / 2.0), plan_combo_y, combo_w, combo_h)
 
-        beam_y = int(cy + 52)
-        self.beam_combo.setGeometry(int(cx - combo_w / 2.0), beam_y, combo_w, combo_h)
+        lbl_beam_y = int(cy + max(48.0, min(75.0, center_r * 0.26)))
+        beam_combo_y = lbl_beam_y + lbl_h + 2
+        self.lbl_beam.setGeometry(int(cx - combo_w / 2.0), lbl_beam_y, combo_w, lbl_h)
+        self.beam_combo.setGeometry(int(cx - combo_w / 2.0), beam_combo_y, combo_w, combo_h)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

@@ -163,7 +163,18 @@ class MonacoPlanAnalyzerDialog(QDialog):
         super().showEvent(event)
         if not getattr(self, '_already_maximized', False):
             self._already_maximized = True
-            QTimer.singleShot(0, self.showMaximized)
+            QTimer.singleShot(0, self._apply_initial_layout)
+
+    def _apply_initial_layout(self):
+        self.showMaximized()
+        QTimer.singleShot(50, self._center_splitter)
+
+    def _center_splitter(self):
+        if hasattr(self, "body_splitter"):
+            w = self.body_splitter.width()
+            if w > 100:
+                half = w // 2
+                self.body_splitter.setSizes([half, half])
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -220,8 +231,9 @@ class MonacoPlanAnalyzerDialog(QDialog):
         self._tps_info_template = tps_info
 
         # Main Body Splitter: Left (Polar Arc) + Right (Verdict & Analysis)
-        body_splitter = QSplitter(Qt.Orientation.Horizontal, self)
-        body_splitter.setStyleSheet("QSplitter::handle { background: #2c2c2e; width: 1px; }")
+        self.body_splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        self.body_splitter.setStyleSheet("QSplitter::handle { background: #2c2c2e; width: 1px; }")
+        body_splitter = self.body_splitter
 
         # Left Panel: Polar Diagram + Legend
         left_panel = QWidget(body_splitter)
@@ -405,8 +417,8 @@ class MonacoPlanAnalyzerDialog(QDialog):
         right_layout.addWidget(self.tabs, 1)
 
         body_splitter.addWidget(right_panel)
-        body_splitter.setStretchFactor(0, 4)
-        body_splitter.setStretchFactor(1, 6)
+        body_splitter.setStretchFactor(0, 1)
+        body_splitter.setStretchFactor(1, 1)
         layout.addWidget(body_splitter, 1)
 
         # 4. Bottom Button Bar
