@@ -91,7 +91,7 @@ class DicomViewerPanel(QWidget):
         top_layout.addWidget(self.lbl_plan)
 
         self.cb_plan = QComboBox(self)
-        self.cb_plan.setFixedWidth(160)
+        self.cb_plan.setFixedWidth(120)
         self.cb_plan.setStyleSheet("""
             QComboBox {
                 background-color: #2A2A2A;
@@ -113,6 +113,13 @@ class DicomViewerPanel(QWidget):
         self.cb_plan.addItem(tr_ui("viewer_no_plan_available"), None)
         self.cb_plan.setEnabled(False)
         top_layout.addWidget(self.cb_plan)
+
+        # Индикатор наличия связанного файла RTDOSE
+        self.lbl_rtd = QLabel("RTD", self)
+        self.lbl_rtd.setFixedSize(34, 28)
+        self.lbl_rtd.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        top_layout.addWidget(self.lbl_rtd)
+        self._update_rtd_badge(None)
 
         # Метка и выпадающий список для выбора набора структур RTSTRUCT
         self.lbl_structures = QLabel("STR", self)
@@ -763,6 +770,7 @@ class DicomViewerPanel(QWidget):
         self.viewer.drr_cache.clear()
 
         if index <= 0:
+            self._update_rtd_badge(None)
             self.viewer.set_plan_data({})
             self.apply_dose_data({})
             if hasattr(self, "btn_bev"):
@@ -776,6 +784,7 @@ class DicomViewerPanel(QWidget):
             return
 
         plan_item = self.cb_plan.itemData(index)
+        self._update_rtd_badge(plan_item)
         if not plan_item or not isinstance(plan_item, dict):
             return
 
@@ -821,6 +830,51 @@ class DicomViewerPanel(QWidget):
         current_plan_item = self.cb_plan.currentData()
         if isinstance(current_plan_item, dict) and current_plan_item.get("dose_path") == dose_path:
             self.apply_dose_data(parsed)
+
+    def _update_rtd_badge(self, plan_item: dict | None = None) -> None:
+        """Обновляет визуальный стиль и всплывающую подсказку для индикатора RTD."""
+        if not hasattr(self, "lbl_rtd"):
+            return
+
+        if not plan_item or not isinstance(plan_item, dict):
+            self.lbl_rtd.setStyleSheet("""
+                QLabel {
+                    background-color: #22252A;
+                    border: 1px solid #374151;
+                    border-radius: 4px;
+                    color: #4B5563;
+                    font-size: 11px;
+                    font-weight: bold;
+                }
+            """)
+            self.lbl_rtd.setToolTip(tr_ui("viewer_rtd_tooltip_none"))
+            return
+
+        has_dose = bool(plan_item.get("dose_path"))
+        if has_dose:
+            self.lbl_rtd.setStyleSheet("""
+                QLabel {
+                    background-color: #064E3B;
+                    border: 1px solid #059669;
+                    border-radius: 4px;
+                    color: #34D399;
+                    font-size: 11px;
+                    font-weight: bold;
+                }
+            """)
+            self.lbl_rtd.setToolTip(tr_ui("viewer_rtd_tooltip_active"))
+        else:
+            self.lbl_rtd.setStyleSheet("""
+                QLabel {
+                    background-color: #262626;
+                    border: 1px solid #374151;
+                    border-radius: 4px;
+                    color: #6B7280;
+                    font-size: 11px;
+                    font-weight: bold;
+                }
+            """)
+            self.lbl_rtd.setToolTip(tr_ui("viewer_rtd_tooltip_missing"))
 
     def setup_hu_panel(self) -> None:
         self.hu_panel = QFrame(self)
@@ -892,6 +946,7 @@ class DicomViewerPanel(QWidget):
             else:
                 self.cb_plan.setItemText(0, tr_ui("viewer_no_plan"))
             self.cb_plan.blockSignals(False)
+        self._update_rtd_badge(self.cb_plan.currentData() if hasattr(self, "cb_plan") else None)
 
         self.cb_structures.blockSignals(True)
         if not getattr(self, "struct_files", []):
@@ -977,6 +1032,8 @@ class DicomViewerPanel(QWidget):
             self.lbl_presets.setStyleSheet(lbl_style)
         if hasattr(self, "lbl_beam"):
             self.lbl_beam.setStyleSheet(lbl_style)
+        if hasattr(self, "lbl_rtd") and hasattr(self, "cb_plan"):
+            self._update_rtd_badge(self.cb_plan.currentData())
         
         self.hu_panel.setStyleSheet(f"""
             QFrame {{
@@ -1408,6 +1465,8 @@ class DicomViewerPanel(QWidget):
                 self.lbl_plan.show()
             if hasattr(self, "cb_plan"):
                 self.cb_plan.show()
+            if hasattr(self, "lbl_rtd"):
+                self.lbl_rtd.show()
             if hasattr(self, "lbl_structures"):
                 self.lbl_structures.hide()
             self.cb_structures.hide()
@@ -1451,6 +1510,8 @@ class DicomViewerPanel(QWidget):
                 self.lbl_plan.show()
             if hasattr(self, "cb_plan"):
                 self.cb_plan.show()
+            if hasattr(self, "lbl_rtd"):
+                self.lbl_rtd.show()
             if hasattr(self, "lbl_structures"):
                 self.lbl_structures.show()
             self.cb_structures.show()
@@ -1612,6 +1673,8 @@ class DicomViewerPanel(QWidget):
             self.lbl_plan.show()
         if hasattr(self, "cb_plan"):
             self.cb_plan.show()
+        if hasattr(self, "lbl_rtd"):
+            self.lbl_rtd.show()
         if hasattr(self, "lbl_structures"):
             self.lbl_structures.show()
         if hasattr(self, "cb_structures"):
@@ -1633,6 +1696,7 @@ class DicomViewerPanel(QWidget):
         self.cb_plan.addItem(tr_ui("viewer_no_plan_available"), None)
         self.cb_plan.setEnabled(False)
         self.cb_plan.blockSignals(False)
+        self._update_rtd_badge(None)
 
         self.cb_structures.blockSignals(True)
         self.cb_structures.clear()
@@ -1683,6 +1747,7 @@ class DicomViewerPanel(QWidget):
         self.cb_plan.addItem(tr_ui("viewer_no_plan_available"), None)
         self.cb_plan.setEnabled(False)
         self.cb_plan.blockSignals(False)
+        self._update_rtd_badge(None)
         self.dose_files = []
         self.plan_files = []
         self.plans_info = []
@@ -1758,6 +1823,9 @@ class DicomViewerPanel(QWidget):
             self.cb_plan.setCurrentIndex(0)
             self.cb_plan.setEnabled(False)
         self.cb_plan.show()
+        if hasattr(self, "lbl_rtd"):
+            self.lbl_rtd.show()
+        self._update_rtd_badge(self.cb_plan.currentData())
         self.cb_plan.blockSignals(False)
 
         # Настройка выпадающего списка RTSTRUCT
