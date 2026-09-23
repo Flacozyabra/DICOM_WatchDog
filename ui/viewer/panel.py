@@ -1887,7 +1887,7 @@ class DicomViewerPanel(QWidget):
             if self.progress_dialog:
                 self.progress_dialog.accept()
                 self.progress_dialog = None
-            self.lbl_info.setText("Серия не содержит корректных DICOM файлов.")
+            self.lbl_info.setText(tr_ui("viewer_err_no_valid_dicom"))
             self.viewer.set_slice_info(0, 0)
             self.is_loading = False
             return

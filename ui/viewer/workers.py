@@ -98,7 +98,7 @@ class PatientSeriesLoaderWorker(QThread):
                 return
 
             if not slices:
-                self.error_signal.emit("Серия не содержит корректных DICOM файлов.")
+                self.error_signal.emit(tr_ui("viewer_err_no_valid_dicom"))
                 return
 
             slices.sort(key=lambda x: (x[1], x[2], x[3]))
@@ -124,7 +124,7 @@ class PatientSeriesLoaderWorker(QThread):
                 self.progress_signal.emit(60, 100, tr_ui("loading_rtstruct_data"))
                 parsed_structures = load_rtstruct(latest_file, progress_callback=on_struct_progress)
             else:
-                self.progress_signal.emit(85, 100, "Завершение обработки КТ...")
+                self.progress_signal.emit(85, 100, tr_ui("loading_ct_finalizing"))
 
             # 4. Анализ связей RTPLAN и RTDOSE
             dose_by_plan_uid = {}
@@ -193,7 +193,7 @@ class PatientSeriesLoaderWorker(QThread):
                 pf = selected_plan_info.get("path")
                 df = selected_plan_info.get("dose_path")
                 if pf and os.path.exists(pf):
-                    self.progress_signal.emit(88, 100, "Загрузка параметров плана RTPLAN...")
+                    self.progress_signal.emit(88, 100, tr_ui("loading_rtplan_params"))
                     parsed_plan = load_rtplan(pf)
                 if df and os.path.exists(df):
                     self.progress_signal.emit(92, 100, tr_ui("loading_rtdose_data"))
@@ -203,7 +203,7 @@ class PatientSeriesLoaderWorker(QThread):
                 self.progress_signal.emit(92, 100, tr_ui("loading_rtdose_data"))
                 parsed_dose = load_rtdose(latest_dose_file, plan_files)
 
-            self.progress_signal.emit(99, 100, "Инициализация отображения...")
+            self.progress_signal.emit(99, 100, tr_ui("loading_init_display"))
 
             if self._is_cancelled:
                 return
