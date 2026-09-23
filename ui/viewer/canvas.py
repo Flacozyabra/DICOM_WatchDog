@@ -97,21 +97,36 @@ class DicomViewerWidget(QWidget):
 
     def clear_viewer(self) -> None:
         self.current_pixmap = None
+        self.current_dataset = None
         self.raw_pixel_array = None
         self.current_sop_uid = ""
         self.current_z = None
+        self.start_pos = None
+        self.current_pos = None
+        self.drawing_line = False
+        self.ruler_close_rect = None
+        self.windowing_active = False
+        self.pan_active = False
+        self.zoom_factor = 1.0
+        self.pan_offset = QPointF(0, 0)
+        self.current_slice = 0
+        self.total_slices = 0
+        self.ruler_active = False
+        self.hu_active = False
         self.structures.clear()
         self.enabled_structures.clear()
+        self.show_structures_globally = True
         self.contour_sop_index.clear()
         self.contour_z_index.clear()
         self.dose_data.clear()
         self.enabled_isodose_levels.clear()
-        self.plan_data.clear()
-        self.pinned_dose_pos = None
-        self.hover_pos = None
+        self.show_isodoses_globally = False
+        self.show_dose_gradient = True
         self.dose_point_active = False
-        self.ruler_active = False
-        self.hu_active = False
+        self.hover_pos = None
+        self.pinned_dose_pos = None
+        self.dose_point_close_rect = None
+        self.plan_data.clear()
         self.bev_active = False
         self.show_drr = False
         self.bev_selected_beam_idx = 0
@@ -187,45 +202,6 @@ class DicomViewerWidget(QWidget):
     def set_slice_info(self, current: int, total: int) -> None:
         self.current_slice = current
         self.total_slices = total
-        self.update()
-
-    def clear_viewer(self) -> None:
-        self.current_pixmap = None
-        self.current_dataset = None
-        self.start_pos = None
-        self.current_pos = None
-        self.drawing_line = False
-        self.ruler_close_rect = None
-        self.windowing_active = False
-        self.pan_active = False
-        self.zoom_factor = 1.0
-        self.pan_offset = QPointF(0, 0)
-        self.current_slice = 0
-        self.total_slices = 0
-        self.ruler_active = False
-        self.hu_active = False
-        self.structures = {}
-        self.enabled_structures = set()
-        self.show_structures_globally = True
-        self.contour_sop_index = {}
-        self.contour_z_index = []
-        self.dose_data = {}
-        self.enabled_isodose_levels.clear()
-        self.show_isodoses_globally = False
-        self.show_dose_gradient = True
-        self.dose_point_active = False
-        self.hover_pos = None
-        self.pinned_dose_pos = None
-        self.dose_point_close_rect = None
-        self.plan_data = {}
-        self.bev_active = False
-        self.bev_selected_beam_idx = 0
-        self.bev_control_point_idx = 0
-        self.drr_cache.clear()
-        self.ct_volume = None
-        self.ct_ipp0 = None
-        self.ct_spacing = None
-        self.sorted_files = []
         self.update()
 
     def get_or_compute_drr(self, g_angle: float, iso: list[float], sad: float = 1000.0) -> QImage | None:

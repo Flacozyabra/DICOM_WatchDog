@@ -2590,7 +2590,32 @@ class MainWindow(QMainWindow):
             pass
         # Останавливаем наблюдатель перед выходом, чтобы не зависал фоновый поток
         self.stop_file_watcher()
-        
+
+        # Останавливаем активные фоновые воркеры сканирования и файловых операций
+        try:
+            self.cancel_folder_scan()
+        except Exception:
+            pass
+        try:
+            self.cancel_archive_scan()
+        except Exception:
+            pass
+        if hasattr(self, 'pacs_worker') and self.pacs_worker and self.pacs_worker.isRunning():
+            try:
+                self.pacs_worker.requestInterruption()
+                self.pacs_worker.wait(1000)
+            except Exception:
+                pass
+        for attr_name in list(self.__dict__.keys()):
+            if attr_name.startswith("worker_"):
+                w = getattr(self, attr_name, None)
+                if w and hasattr(w, "isRunning") and w.isRunning():
+                    try:
+                        w.requestInterruption()
+                        w.wait(500)
+                    except Exception:
+                        pass
+
         # Отменяем активное скачивание из PACS, если запущено
         if hasattr(self, 'pacs_download_worker') and self.pacs_download_worker and self.pacs_download_worker.isRunning():
             try:
