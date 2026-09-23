@@ -20,6 +20,7 @@ from PyQt6.QtGui import (
 from ui.toggle_switch import ToggleSwitch
 from core.config_utils import get_resource_path
 from core.locale_utils import tr_ui
+from core.logger import log_error
 
 from .parsers import safe_dcmread, load_rtplan
 from .workers import (
@@ -797,7 +798,7 @@ class DicomViewerPanel(QWidget):
             try:
                 parsed_plan = load_rtplan(pf)
             except Exception as e:
-                print(f"Error loading RTPLAN {pf}: {e}")
+                log_error(f"Error loading RTPLAN {pf}:", exc=e)
 
         self.viewer.set_plan_data(parsed_plan)
         has_beams = bool(parsed_plan and parsed_plan.get("beams"))
@@ -2039,7 +2040,7 @@ class DicomViewerPanel(QWidget):
                 raise ValueError("Failed to decode pixel array to pixmap")
                 
         except Exception as e:
-            print(f"[Viewer] Skipping corrupted file {filepath} (frame {frame_idx}): {str(e)}")
+            log_error(f"[Viewer] Skipping corrupted file {filepath} (frame {frame_idx}):", exc=e)
             self.sorted_files.pop(index)
             if not self.sorted_files:
                 self.lbl_info.setText("Нет доступных изображений в серии.")

@@ -6,6 +6,8 @@ import numpy as np
 import pydicom
 from PyQt6.QtGui import QColor
 
+from core.logger import log_error
+
 
 def safe_dcmread(filepath, *args, **kwargs):
     """
@@ -135,7 +137,7 @@ def load_rtstruct(filepath, progress_callback=None):
                 "contours": contours
             }
     except Exception as e:
-        print(f"Error parsing RTSTRUCT {filepath}: {e}")
+        log_error(f"Error parsing RTSTRUCT {filepath}:", exc=e)
         
     return structures
 
@@ -239,7 +241,7 @@ def load_rtdose(filepath: str, plan_files: list[str] = None) -> dict:
             "levels": levels
         }
     except Exception as e:
-        print(f"Error parsing RTDOSE {filepath}: {e}")
+        log_error(f"Error parsing RTDOSE {filepath}:", exc=e)
 
     return dose_data
 
@@ -517,7 +519,7 @@ def load_rtplan(filepath: str) -> dict:
             "beams": beams
         }
     except Exception as e:
-        print(f"Error loading RTPLAN {filepath}: {e}")
+        log_error(f"Error loading RTPLAN {filepath}:", exc=e)
 
     return plan_data
 
