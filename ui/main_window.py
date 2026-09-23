@@ -776,14 +776,17 @@ class MainWindow(QMainWindow):
                 self.net_retry_count = 0
                 log_message(self.output_field, tr_log("log_network_folder_connected", ct_dir))
 
-        # Запоминаем выделенного пациента
+        # Запоминаем выделенного пациента и тип строки (дочерняя/родитель)
         self.selected_images_patient_id = None
+        self.selected_images_is_child = False
         selected_ranges = self.images_table.selectedRanges()
         if selected_ranges:
             row = selected_ranges[0].topRow()
             id_item = self.images_table.item(row, 0)
+            name_item = self.images_table.item(row, 1)
             if id_item:
                 self.selected_images_patient_id = id_item.data(Qt.ItemDataRole.UserRole)
+                self.selected_images_is_child = bool(name_item and name_item.text().startswith("  ↳"))
 
         cleanup_str_val = self.config.get('cleanup_structures_enabled', 'False')
         fix_id_val = self.config.get('fix_patient_id_enabled', 'False')
@@ -917,11 +920,14 @@ class MainWindow(QMainWindow):
         try:
             ct_dir = self.config.get('ct_images_dir', '')
             if ct_dir and os.path.isdir(ct_dir):
-                self.last_scanned_folder_snapshot = {
+                snapshot = {
                     d: os.path.getmtime(os.path.join(ct_dir, d))
                     for d in os.listdir(ct_dir)
                     if os.path.isdir(os.path.join(ct_dir, d))
                 }
+                self.last_scanned_folder_snapshot = snapshot
+                if hasattr(self, 'watcher_coordinator') and self.watcher_coordinator:
+                    self.watcher_coordinator.last_scanned_folder_snapshot = snapshot
         except Exception:
             pass
 
@@ -1074,14 +1080,17 @@ class MainWindow(QMainWindow):
         if not silent:
             log_message(self.output_field, tr_log("log_loading_archive"))
 
-        # Запоминаем выделенного пациента
+        # Запоминаем выделенного пациента и тип строки (дочерняя/родитель)
         self.selected_archive_patient_id = None
+        self.selected_archive_is_child = False
         selected_ranges = self.archive_table.selectedRanges()
         if selected_ranges:
             row = selected_ranges[0].topRow()
             id_item = self.archive_table.item(row, 0)
+            name_item = self.archive_table.item(row, 1)
             if id_item:
                 self.selected_archive_patient_id = id_item.data(Qt.ItemDataRole.UserRole)
+                self.selected_archive_is_child = bool(name_item and name_item.text().startswith("  ↳"))
 
         # Если таблица архива пуста, сразу отображаем статус сканирования
         if self.archive_table.rowCount() == 0:

@@ -158,19 +158,24 @@ class ImagesTab(QWidget):
         self.table.setUpdatesEnabled(False)
         self.table.blockSignals(True)
 
-        # Remember selected patient
+        # Remember selected patient and row type
         selected_patient_id = None
+        is_selected_child = False
         selected_ranges = self.table.selectedRanges()
         if selected_ranges:
             row = selected_ranges[0].topRow()
             id_item = self.table.item(row, 0)
+            name_item = self.table.item(row, 1)
             if id_item:
                 selected_patient_id = id_item.data(Qt.ItemDataRole.UserRole)
-        elif self.main_window and getattr(self.main_window, 'selected_images_patient_id', None):
-            selected_patient_id = self.main_window.selected_images_patient_id
+                is_selected_child = bool(name_item and name_item.text().startswith("  ↳"))
+        elif self.main_window:
+            selected_patient_id = getattr(self.main_window, 'selected_images_patient_id', None)
+            is_selected_child = getattr(self.main_window, 'selected_images_is_child', False)
 
         if self.main_window:
             self.main_window.selected_images_patient_id = selected_patient_id
+            self.main_window.selected_images_is_child = is_selected_child
 
         self.table.setRowCount(0)
         search_text = self.search_entry.text().lower()
@@ -333,11 +338,19 @@ class ImagesTab(QWidget):
 
         # Restore selection
         if selected_patient_id:
+            matched_row = None
             for r in range(self.table.rowCount()):
                 id_item = self.table.item(r, 0)
+                name_item = self.table.item(r, 1)
                 if id_item and id_item.data(Qt.ItemDataRole.UserRole) == selected_patient_id:
-                    self.table.selectRow(r)
-                    break
+                    is_child = bool(name_item and name_item.text().startswith("  ↳"))
+                    if is_child == is_selected_child:
+                        matched_row = r
+                        break
+                    elif matched_row is None:
+                        matched_row = r
+            if matched_row is not None:
+                self.table.selectRow(matched_row)
 
         if search_text and self.table.rowCount() == 0 and bool(images_cache):
             self.table.set_placeholder_state(tr_ui("placeholder_no_filter_matches"), show_button=False, color="crimson")
