@@ -1733,6 +1733,7 @@ class DicomViewerPanel(QWidget):
         self.is_loading = True
         self.sorted_files = []
         self.current_index = -1
+        self._need_initial_window = True
         self.pixmap_cache.clear()
         self.viewer.clear_viewer()
         self.hu_panel.hide()
@@ -1892,7 +1893,8 @@ class DicomViewerPanel(QWidget):
 
         self.slider.setRange(0, len(self.sorted_files) - 1)
         self.is_loading = False
-        self.set_current_slice(0)
+        mid_idx = max(0, min(len(self.sorted_files) - 1, len(self.sorted_files) // 2))
+        self.set_current_slice(mid_idx)
 
         if self.progress_dialog:
             self.progress_dialog.accept()
@@ -1996,7 +1998,8 @@ class DicomViewerPanel(QWidget):
 
             ds.current_frame_idx = frame_idx
 
-            if self.current_index == 0:
+            if getattr(self, "_need_initial_window", False):
+                self._need_initial_window = False
                 self.default_wc = 40.0
                 self.default_ww = 400.0
                 wc = getattr(ds, "WindowCenter", None)
