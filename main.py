@@ -129,19 +129,35 @@ from core.locale_utils import tr_ui, tr_log
 MainWindow = None
 
 
-def exception_hook(exctype, value, traceback_obj):
+def handle_uncaught_exception(exctype, value, tb):
     import traceback
-    err_msg = "".join(traceback.format_exception(exctype, value, traceback_obj))
-    sys.__excepthook__(exctype, value, traceback_obj)
-    if hasattr(MainWindow, 'instance') and MainWindow.instance:
-        try:
+    err_msg = "".join(traceback.format_exception(exctype, value, tb))
+    print(f"Uncaught exception:\n{err_msg}", file=sys.stderr)
+
+    # 1. Log to error.log with rotation
+    try:
+        from core.logger import log_error
+        log_error(f"Uncaught exception ({exctype.__name__}):", exc=value)
+    except Exception:
+        pass
+
+    # 2. Output to GUI log if available
+    try:
+        if MainWindow and hasattr(MainWindow, 'instance') and MainWindow.instance:
             from core.logger import log_message
+            from core.locale_utils import tr_log
             log_message(MainWindow.instance.output_field, tr_log("log_runtime_error", err_msg))
-        except Exception:
-            pass
+    except Exception:
+        pass
 
 
-sys.excepthook = exception_hook
+sys.excepthook = handle_uncaught_exception
+
+import threading
+if hasattr(threading, 'excepthook'):
+    def threading_exception_hook(args):
+        handle_uncaught_exception(args.exc_type, args.exc_value, args.exc_traceback)
+    threading.excepthook = threading_exception_hook
 
 
 class LoadingSplash(QSplashScreen):
@@ -203,19 +219,6 @@ class LoadingSplash(QSplashScreen):
         QApplication.processEvents()
 
 
-def log_uncaught_exceptions(exctype, value, tb):
-    import traceback
-    err = "".join(traceback.format_exception(exctype, value, tb))
-    print(f"Uncaught exception:\n{err}", file=sys.stderr)
-    try:
-        from core.config_utils import get_app_data_dir
-        log_path = os.path.join(get_app_data_dir(), "error.log")
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n{err}\n")
-    except Exception:
-        pass
-
-sys.excepthook = log_uncaught_exceptions
 
 
 def main():
