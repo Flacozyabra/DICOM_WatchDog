@@ -12,8 +12,6 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QTabBar, QWi
                              QDialog, QFileDialog, QDateEdit, QStackedWidget, QSplitter,
                              QSplitterHandle, QComboBox, QStyledItemDelegate, QStyleOptionViewItem, QStyle)
 
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 
 from core.dicom_utils import dict_create, process_patient_folder, delete_redundant_str
 from core.archive import move_old_folders_to_archive
@@ -117,17 +115,18 @@ class MainWindow(QMainWindow):
         self.net_retry_count = 0
         self.net_retry_max = 24
         
-        # Инициализируем таймер отслеживания сна и смены суток
-        import time
-        self.last_timer_timestamp = time.time()
-        self.last_checked_date = datetime.now().date()
-        self.system_check_timer = QTimer(self)
-        self.system_check_timer.setInterval(10000)
-        self.system_check_timer.timeout.connect(self.check_system_status)
-        self.system_check_timer.start()
-        
-        # Инициализируем наблюдатель за файловой системой
-        self.init_file_watcher()
+        self.is_scanning_active = False
+        self.last_scan_finished_time = 0
+        self.pending_folder_scan = False
+        self.folder_scan_retry_pending = False
+
+        # Инициализируем наблюдатель за файловой системой и таймеры сна
+        from ui.watcher_coordinator import WatchdogCoordinator
+        self.watcher_coordinator = WatchdogCoordinator(self)
+        self.debounce_timer = self.watcher_coordinator.debounce_timer
+        self.archive_debounce_timer = self.watcher_coordinator.archive_debounce_timer
+        self.system_check_timer = self.watcher_coordinator.system_check_timer
+        self.watcher_coordinator.start_system_check_timer()
 
         # Запускаем фоновый DICOM SCP сервер для ответа на опрос (C-ECHO) сервера PACS и приема C-STORE
         pacs_local_port = int(self.config.get('pacs_local_port', 11112))
@@ -419,181 +418,31 @@ class MainWindow(QMainWindow):
             self.update_watcher_path()
 
     def init_file_watcher(self):
-        self.watcher_observer = None
-        self.watcher_handler = None
-        self.archive_watcher_handler = None
-        self.currently_watched_dir = None
-        self.currently_watched_archive_dir = None
-        self.is_scanning_active = False
-        self.last_scan_finished_time = 0
-        self.pending_folder_scan = False
-        self.folder_scan_retry_pending = False
-        self.last_folder_heartbeat_time = 0
-        self.last_scanned_folder_snapshot = None
-        
-        # Таймер дебаунса для входящих КТ-снимков
-        self.debounce_timer = QTimer(self)
-        self.debounce_timer.setSingleShot(True)
-        self.debounce_timer.timeout.connect(self.on_watcher_timeout)
-
-        # Таймер дебаунса для архива КТ
-        self.archive_debounce_timer = QTimer(self)
-        self.archive_debounce_timer.setSingleShot(True)
-        self.archive_debounce_timer.timeout.connect(self.on_archive_watcher_timeout)
+        pass
 
     def update_watcher_path(self):
-        ct_dir = self.config.get('ct_images_dir', '')
-        archive_dir = self.config.get('archive_dir', '')
-
-        valid_ct_dir = ct_dir if (ct_dir and os.path.exists(ct_dir)) else None
-        valid_archive_dir = archive_dir if (archive_dir and os.path.exists(archive_dir)) else None
-
-        # Если ни одна папка не настроена или не существует — останавливаем наблюдатель
-        if not valid_ct_dir and not valid_archive_dir:
-            self.stop_file_watcher()
-            return
-
-        # Если пути не изменились и наблюдатель уже активен — ничего не делаем
-        if (getattr(self, 'currently_watched_dir', None) == valid_ct_dir and
-            getattr(self, 'currently_watched_archive_dir', None) == valid_archive_dir and
-            getattr(self, 'watcher_observer', None) and self.watcher_observer.is_alive()):
-            return
-
-        self.stop_file_watcher()
-
-        try:
-            self.watcher_observer = Observer()
-            queued_conn = getattr(getattr(Qt, 'ConnectionType', Qt), 'QueuedConnection', getattr(Qt, 'QueuedConnection', 2))
-
-            # 1. Мониторинг входящей папки КТ-исследований
-            if valid_ct_dir:
-                self.watcher_handler = WatchdogHandler()
-                self.watcher_handler.changed.connect(self.trigger_debounce, queued_conn)
-                self.watcher_observer.schedule(self.watcher_handler, valid_ct_dir, recursive=True)
-                self.currently_watched_dir = valid_ct_dir
-                log_message(self.output_field, tr_log("log_watcher_started", valid_ct_dir))
-            else:
-                self.currently_watched_dir = None
-
-            # 2. Мониторинг папки архива КТ
-            if valid_archive_dir and valid_archive_dir != valid_ct_dir:
-                self.archive_watcher_handler = WatchdogHandler()
-                self.archive_watcher_handler.changed.connect(self.trigger_archive_debounce, queued_conn)
-                self.watcher_observer.schedule(self.archive_watcher_handler, valid_archive_dir, recursive=True)
-                self.currently_watched_archive_dir = valid_archive_dir
-            else:
-                self.currently_watched_archive_dir = None
-
-            self.watcher_observer.start()
-        except Exception as e:
-            self.currently_watched_dir = None
-            self.currently_watched_archive_dir = None
-            log_message(self.output_field, tr_log("log_watcher_failed", e))
+        self.watcher_coordinator.update_watcher_path()
 
     def stop_file_watcher(self):
-        if hasattr(self, 'watcher_observer') and self.watcher_observer:
-            try:
-                self.watcher_observer.stop()
-                self.watcher_observer.join(0.5)
-            except Exception:
-                pass
-            self.watcher_observer = None
-        self.watcher_handler = None
-        self.archive_watcher_handler = None
-        self.currently_watched_dir = None
-        self.currently_watched_archive_dir = None
+        self.watcher_coordinator.stop_file_watcher()
 
     def check_system_status(self):
-        import time
-        now_ts = time.time()
-        today = datetime.now().date()
-        
-        # 1. Проверка пробуждения от сна или глубокой задержки (>60 секунд)
-        elapsed = now_ts - self.last_timer_timestamp
-        self.last_timer_timestamp = now_ts
-        
-        if elapsed > 60:
-            log_message(self.output_field, tr_log("log_system_resumed_from_sleep"))
-            self.last_checked_date = today
-            self.update_images_table_ui()
-            # Сбрасываем счетчик повторов сети при выходе из сна
-            self.net_retry_count = 0
-            self.check_network_folder_retry()
-            self.last_timer_timestamp = time.time()
-            return
-
-        # 2. Периодическая проверка восстановления сетевой папки, если соединение было ранее потеряно
-        ct_dir = self.config.get('ct_images_dir', '')
-        if ct_dir and not self.net_retry_timer.isActive() and not os.path.exists(ct_dir):
-            if self.net_retry_count >= self.net_retry_max:
-                self.net_retry_count = 0
-                self.check_network_folder_retry()
-            
-        # 3. Бесшумная проверка смены суток в полночь
-        if self.last_checked_date != today:
-            self.last_checked_date = today
-            self.update_images_table_ui()
-
-        # 4. Фоновая проверка расхождения общей/сетевой папки (heartbeat каждые 30 сек)
-        # На случай если Windows File Sharing потерял watchdog-события об изменении/удалении/переименовании папок
-        if now_ts - getattr(self, 'last_folder_heartbeat_time', 0) >= 30:
-            self.last_folder_heartbeat_time = now_ts
-            if ct_dir and os.path.isdir(ct_dir) and not getattr(self, 'is_scanning_active', False):
-                try:
-                    current_snapshot = {
-                        d: os.path.getmtime(os.path.join(ct_dir, d))
-                        for d in os.listdir(ct_dir)
-                        if os.path.isdir(os.path.join(ct_dir, d))
-                    }
-                    if getattr(self, 'last_scanned_folder_snapshot', None) is not None:
-                        if current_snapshot != self.last_scanned_folder_snapshot:
-                            self.last_scanned_folder_snapshot = current_snapshot
-                            self.start_folder_scan()
-                    else:
-                        self.last_scanned_folder_snapshot = current_snapshot
-                except Exception:
-                    pass
-            
-        self.last_timer_timestamp = time.time()
+        self.watcher_coordinator.check_system_status()
 
     def trigger_debounce(self):
-        # Если сканирование уже идет или действует кулдаун после него (1.5 сек),
-        # откладываем повторное сканирование на момент после завершения
-        if getattr(self, 'is_scanning_active', False) or (hasattr(self, 'scan_worker') and self.scan_worker and self.scan_worker.isRunning()):
-            self.pending_folder_scan = True
-            return
-        import time
-        if time.time() - getattr(self, 'last_scan_finished_time', 0) < 1.5:
-            self.pending_folder_scan = True
-            return
-        # 2 секунды задержки, чтобы дождаться окончания записи
-        self.debounce_timer.start(2000)
+        self.watcher_coordinator.trigger_debounce()
 
     def on_watcher_timeout(self):
-        self.start_folder_scan()
+        self.watcher_coordinator.on_watcher_timeout()
 
     def trigger_archive_debounce(self):
-        if hasattr(self, 'archive_debounce_timer'):
-            self.archive_debounce_timer.start(1000)
+        self.watcher_coordinator.trigger_archive_debounce()
 
     def on_archive_watcher_timeout(self):
-        # 1. Немедленно удаляем из кэша, таблицы и бейджа отсутствующие папки
-        self._prune_missing_archive_records()
-
-        # 2. Если появились новые исследования на диске — синхронизируем в тихом режиме
-        if not hasattr(self, 'archive_worker') or not self.archive_worker or not self.archive_worker.isRunning():
-            archive_dir = self.config.get('archive_dir', '')
-            if archive_dir and os.path.exists(archive_dir):
-                self.fill_archive_list(silent=True)
-        else:
-            self._pending_archive_scan = True
+        self.watcher_coordinator.on_archive_watcher_timeout()
 
     def _trigger_rescan_if_idle(self):
-        if hasattr(self, 'debounce_timer') and self.debounce_timer.isActive():
-            return
-        if not getattr(self, 'is_scanning_active', False):
-            if not hasattr(self, 'scan_worker') or not self.scan_worker or not self.scan_worker.isRunning():
-                self.start_folder_scan()
+        self.watcher_coordinator.trigger_rescan_if_idle()
 
     def restart_timers(self):
         self.pacs_timer.stop()
