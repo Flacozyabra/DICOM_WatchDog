@@ -2,10 +2,11 @@
 ## [Unreleased]
 
 - **Modularization of MainWindow & Table Rendering Delegation**:
+  - **TableStateManager Extraction**: Создан отдельный менеджер [ui/table_state.py](file:///c:/Users/Falco/Desktop/DICOM%20WatchDog/ui/table_state.py) (`TableStateManager`), инкапсулирующий настройку геометрии, стилей заголовков, высоты строк, веса шрифтов и персистентного сохранения/восстановления порядка и видимости колонок в `config.json`.
   - **ImagesTab Table Rendering**: Логика группировки, сортировки, цветовой индикации и рендеринга строк таблицы КТ-снимков перенесена из `MainWindow.update_images_table_ui` в метод `populate_table` класса `ImagesTab` ([ui/tabs/images_tab.py](file:///c:/Users/Falco/Desktop/DICOM%20WatchDog/ui/tabs/images_tab.py)).
   - **ArchiveTab Table Rendering**: Логика форматирования, применения лимита срезов, группировки и рендеринга таблицы Архива перенесена из `MainWindow.update_archive_table_ui` в `populate_table` класса `ArchiveTab` ([ui/tabs/archive_tab.py](file:///c:/Users/Falco/Desktop/DICOM%20WatchDog/ui/tabs/archive_tab.py)).
   - **PacsTab Table Rendering**: Логика фильтрации по поисковому запросу, сортировки по дате исследования и рендеринга таблицы PACS перенесена из `MainWindow.render_pacs_table` в `render_table` класса `PacsTab` ([ui/tabs/pacs_tab.py](file:///c:/Users/Falco/Desktop/DICOM%20WatchDog/ui/tabs/pacs_tab.py)).
-  - **Backward Compatibility Preserved**: Методы `MainWindow.update_images_table_ui`, `MainWindow.update_archive_table_ui`, `MainWindow.render_pacs_table` сохранены как легковесные делегаты, гарантируя 100% совместимость с фоновыми воркерами и вызовами интерфейса; размер файла [ui/main_window.py](file:///c:/Users/Falco/Desktop/DICOM%20WatchDog/ui/main_window.py) сокращен более чем на 560 строк.
+  - **Backward Compatibility Preserved**: Все методы работы с таблицами сохранены в `MainWindow` как легковесные делегаты; общий размер файла [ui/main_window.py](file:///c:/Users/Falco/Desktop/DICOM%20WatchDog/ui/main_window.py) уменьшился с 2869 до 2145 строк (сокращение на **724 строки**).
 
 - **Core & UI Stability, Concurrency and Logging Fixes**:
   - **Graceful Thread Shutdown on Exit**: В `closeEvent` главного окна ([ui/main_window.py](file:///c:/Users/Falco/Desktop/DICOM%20WatchDog/ui/main_window.py)) добавлена безопасная остановка всех активных фоновых воркеров (`cancel_folder_scan`, `cancel_archive_scan`, прерывание `pacs_worker` и `active_file_operations`), что предотвращает аварийные падения `QThread: Destroyed while thread is still running` при закрытии программы.
