@@ -65,5 +65,6 @@
   "log_failed_make_hierarchical": "Failed to structure files for patient {}: a file is locked by another process: {}",
   "log_system_resumed_from_sleep": "System resumed from sleep mode. Refreshing status...",
   "log_patient_id_changed": "Patient \"{}\" ID successfully changed: {} -> {}",
-  "log_patient_id_resynced": "Patient \"{}\" ID ({}) successfully resynchronized across all study files"
+  "log_patient_id_resynced": "Patient \"{}\" ID ({}) successfully resynchronized across all study files",
+  "log_studies_split_success": "Patient \"{}\" studies separated by dates: {}"
 }

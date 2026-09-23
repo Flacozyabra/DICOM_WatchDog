@@ -55,7 +55,8 @@ class PatientSeriesLoaderWorker(QThread):
                             plan_files.append(f_path)
 
             # 2. Обработка КТ файлов с передачей прогресса (0% -> 60%)
-            slices = []
+            series_map = {}
+            series_dates = {}
             for idx, f in enumerate(self.files):
                 if self._is_cancelled:
                     return
@@ -75,6 +76,15 @@ class PatientSeriesLoaderWorker(QThread):
                     if "Rows" not in ds or "Columns" not in ds:
                         continue
 
+                    series_uid = str(getattr(ds, "SeriesInstanceUID", "") or ds.get("SeriesInstanceUID", "default")).strip()
+                    if not series_uid:
+                        series_uid = "default"
+
+                    if series_uid not in series_map:
+                        series_map[series_uid] = []
+                        s_dt = str(getattr(ds, "SeriesDate", "") or getattr(ds, "StudyDate", "")) + str(getattr(ds, "SeriesTime", "") or getattr(ds, "StudyTime", ""))
+                        series_dates[series_uid] = s_dt
+
                     num_frames = int(ds.get("NumberOfFrames", 1))
                     ipp = getattr(ds, "ImagePositionPatient", None)
                     z_coord = float(ipp[2]) if ipp and len(ipp) >= 3 else 0.0
@@ -88,19 +98,50 @@ class PatientSeriesLoaderWorker(QThread):
                     if num_frames > 1:
                         for frame_idx in range(num_frames):
                             frame_z = z_coord + frame_idx * thickness
-                            slices.append((f, frame_z, instance_number, frame_idx))
+                            series_map[series_uid].append((f, frame_z, instance_number, frame_idx))
                     else:
-                        slices.append((f, z_coord, instance_number, 0))
+                        series_map[series_uid].append((f, z_coord, instance_number, 0))
                 except Exception:
                     pass
 
             if self._is_cancelled:
                 return
 
-            if not slices:
+            if not series_map:
                 self.error_signal.emit(tr_ui("viewer_err_no_valid_dicom"))
                 return
 
+            # Выбор основной серии при наличии нескольких серий/исследований в папке
+            if len(series_map) == 1:
+                chosen_series_uid = list(series_map.keys())[0]
+            else:
+                chosen_series_uid = None
+                # Если найдены RTSTRUCT, пробуем сопоставить по ReferencedSeriesSequence
+                if struct_files:
+                    try:
+                        latest_sf = max(struct_files, key=lambda x: os.path.getmtime(x))
+                        ds_st = safe_dcmread(latest_sf, stop_before_pixels=True)
+                        if hasattr(ds_st, "ReferencedFrameOfReferenceSequence"):
+                            for rfor in ds_st.ReferencedFrameOfReferenceSequence:
+                                if hasattr(rfor, "RTReferencedStudySequence"):
+                                    for rstudy in rfor.RTReferencedStudySequence:
+                                        if hasattr(rstudy, "RTReferencedSeriesSequence"):
+                                            for rseries in rstudy.RTReferencedSeriesSequence:
+                                                ref_suid = str(getattr(rseries, "SeriesInstanceUID", "")).strip()
+                                                if ref_suid in series_map:
+                                                    chosen_series_uid = ref_suid
+                                                    break
+                    except Exception:
+                        pass
+
+                # Если по RTSTRUCT не определили, берем серию с максимальным числом срезов (при равенстве — самую свежую)
+                if not chosen_series_uid:
+                    chosen_series_uid = max(
+                        series_map.keys(),
+                        key=lambda s: (len(series_map[s]), series_dates.get(s, ""))
+                    )
+
+            slices = series_map[chosen_series_uid]
             slices.sort(key=lambda x: (x[1], x[2], x[3]))
             sorted_files = [(x[0], x[3]) for x in slices]
 

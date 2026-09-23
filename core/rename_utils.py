@@ -407,6 +407,147 @@ def auto_heal_split_patient_folders(parent_path, new_patient_id=None, output_fie
                 except Exception:
                     pass
 
+def auto_split_mixed_studies(folder_path, output_field=None):
+    """
+    Проверяет файлы в корне папки folder_path.
+    Если в корне обнаружены файлы от разных исследований (разные StudyInstanceUID)
+    или если папка уже содержит подпапки исследований [...], но в корне также остались файлы,
+    автоматически разносит файлы по соответствующим подпапкам [YYYY-MM-DD].
+    """
+    if not os.path.isdir(folder_path):
+        return False
+
+    try:
+        entries = os.listdir(folder_path)
+    except Exception:
+        return False
+
+    files_in_root = []
+    has_subfolders = False
+    for item in entries:
+        full_item = os.path.join(folder_path, item)
+        if os.path.isdir(full_item):
+            if (item.startswith("[") and item.endswith("]")) or not item.startswith("."):
+                has_subfolders = True
+        elif os.path.isfile(full_item):
+            if is_dicom_file(full_item) or is_structure_file(full_item):
+                files_in_root.append(full_item)
+
+    if not files_in_root:
+        return False
+
+    # Считываем метаданные каждого файла в корне
+    studies_map = {}  # study_uid -> {'files': [], 'date_str': '', 'date_only': '', 'time_str': ''}
+    orphaned_files = []
+
+    for fpath in files_in_root:
+        try:
+            ds = pydicom.dcmread(
+                fpath, stop_before_pixels=True, force=True,
+                specific_tags=['StudyInstanceUID', 'StudyDate', 'StudyTime', 'Modality', 'ReferencedFrameOfReferenceSequence']
+            )
+            study_uid = str(getattr(ds, 'StudyInstanceUID', '') or ds.get('StudyInstanceUID', '')).strip()
+            if not study_uid and hasattr(ds, 'ReferencedFrameOfReferenceSequence'):
+                try:
+                    for rfor in ds.ReferencedFrameOfReferenceSequence:
+                        if hasattr(rfor, 'RTReferencedStudySequence'):
+                            for rstudy in rfor.RTReferencedStudySequence:
+                                ref_uid = str(getattr(rstudy, 'ReferencedSOPInstanceUID', '')).strip()
+                                if ref_uid:
+                                    study_uid = ref_uid
+                                    break
+                except Exception:
+                    pass
+
+            study_date = str(getattr(ds, 'StudyDate', '')).strip()
+            study_time = str(getattr(ds, 'StudyTime', '000000')).strip()
+
+            date_str = ""
+            date_only = ""
+            if study_date and len(study_date) >= 8:
+                try:
+                    dt = datetime.strptime(study_date[:8], '%Y%m%d')
+                    date_str = dt.strftime('%Y-%m-%d')
+                    date_only = date_str
+                except Exception:
+                    pass
+
+            if not date_str:
+                try:
+                    mtime = os.path.getmtime(fpath)
+                    dt = datetime.fromtimestamp(mtime)
+                    date_str = dt.strftime('%Y-%m-%d')
+                    date_only = date_str
+                except Exception:
+                    date_str = "Unknown_Date"
+                    date_only = "Unknown_Date"
+
+            if study_uid:
+                if study_uid not in studies_map:
+                    studies_map[study_uid] = {
+                        'files': [],
+                        'date_str': date_str,
+                        'date_only': date_only,
+                        'time_str': study_time[:6] if len(study_time) >= 6 else ''
+                    }
+                studies_map[study_uid]['files'].append(fpath)
+            else:
+                orphaned_files.append(fpath)
+        except Exception:
+            orphaned_files.append(fpath)
+
+    # Если в корне несколько разных исследований ИЛИ (в корне 1 исследование, но уже есть подпапки)
+    need_split = (len(studies_map) > 1) or (len(studies_map) >= 1 and has_subfolders)
+
+    if not need_split:
+        return False
+
+    split_occurred = False
+    for study_uid, sinfo in studies_map.items():
+        date_str = sinfo['date_str']
+        date_only = sinfo['date_only']
+        matching_sub = find_matching_study_subfolder(folder_path, study_uid, date_only, date_str)
+        if not matching_sub:
+            target_sub = os.path.join(folder_path, f"[{date_str}]")
+            if os.path.exists(target_sub):
+                exist_sub_info = get_folder_study_info(target_sub)
+                if exist_sub_info and exist_sub_info.get('study_instance_uid') and exist_sub_info['study_instance_uid'] != study_uid:
+                    suffix = sinfo['time_str'] if sinfo['time_str'] else study_uid[-6:]
+                    target_sub = os.path.join(folder_path, f"[{date_str}_{suffix}]")
+            os.makedirs(target_sub, exist_ok=True)
+        else:
+            target_sub = matching_sub
+
+        for fpath in sinfo['files']:
+            try:
+                dest_file = os.path.join(target_sub, os.path.basename(fpath))
+                if not os.path.exists(dest_file):
+                    shutil.move(fpath, dest_file)
+                else:
+                    shutil.move(fpath, dest_file)
+                split_occurred = True
+            except Exception:
+                pass
+
+    if orphaned_files and split_occurred:
+        all_subs = [os.path.join(folder_path, d) for d in os.listdir(folder_path) if os.path.isdir(os.path.join(folder_path, d))]
+        if all_subs:
+            largest_sub = max(all_subs, key=lambda d: len(os.listdir(d)))
+            for of in orphaned_files:
+                try:
+                    shutil.move(of, os.path.join(largest_sub, os.path.basename(of)))
+                except Exception:
+                    pass
+
+    if split_occurred:
+        touch_folder_tree(folder_path)
+        if output_field:
+            dates = [sinfo['date_str'] for sinfo in studies_map.values()]
+            log_message(output_field, tr_log("log_studies_split_success", os.path.basename(folder_path), ", ".join(dates)))
+
+    return split_occurred
+
+
 def make_folder_hierarchical(parent_path, output_field=None):
     """
     Преобразует плоскую папку пациента (где файлы лежат в корне)
@@ -466,6 +607,7 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
             return path
 
         patient_folder = os.path.basename(path)
+        auto_split_mixed_studies(path, output_field)
         info = get_folder_study_info(path)
         if not info:
             return path
@@ -550,6 +692,7 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
             else:
                 # Папка пациента уже существует.
                 if os.path.normcase(os.path.abspath(path)) == os.path.normcase(os.path.abspath(parent_path)):
+                    auto_split_mixed_studies(parent_path, output_field)
                     auto_heal_split_patient_folders(parent_path, new_patient_id, output_field)
                     return parent_path
 
