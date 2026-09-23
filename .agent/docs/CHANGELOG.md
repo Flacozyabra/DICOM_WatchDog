@@ -1,6 +1,8 @@
 # Changelog
 ## [Unreleased]
 
+## [1.8.3] - 2026-09-23
+
 - **Modularization of MainWindow & Table Rendering Delegation**:
   - **TableStateManager Extraction**: Создан отдельный менеджер [ui/table_state.py](file:///c:/Users/Falco/Desktop/DICOM%20WatchDog/ui/table_state.py) (`TableStateManager`), инкапсулирующий настройку геометрии, стилей заголовков, высоты строк, веса шрифтов и персистентного сохранения/восстановления порядка и видимости колонок в `config.json`.
   - **WatchdogCoordinator Extraction**: Создан отдельный координатор [ui/watcher_coordinator.py](file:///c:/Users/Falco/Desktop/DICOM%20WatchDog/ui/watcher_coordinator.py) (`WatchdogCoordinator`), инкапсулирующий файловый наблюдатель (`Observer`), дебаунс-таймеры КТ и Архива, периодический heartbeat каталога и отслеживание засыпания/пробуждения операционной системы (`check_system_status`).
@@ -49,7 +51,6 @@
     - `utils.py` — вспомогательные утилиты поиска планов и темного заголовка.
   - Сохранена 100% обратная совместимость: `ui/monaco_plan_analyzer.py` и `ui/plan_analysis_help_dialog.py` выступают прозрачными прокси-модулями.
 
-## [1.8.3] - 2026-09-22
 
 - **Full EN localization of Monaco Plan Analyzer dialog** — all UI strings (titles, tabs, table headers, verdict cards, status bar, metric labels, error dialogs) now switch between Russian and English based on the active interface language setting.
 - **Multi-PC sync: cross-PC folder locking** — implemented `FolderLock` (`.dw_processing.lock`) and SMB retry logic to prevent concurrent file collisions when two PCs share the same network folder.
