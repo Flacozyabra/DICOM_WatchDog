@@ -362,12 +362,12 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
 
     handlers = [(evt.EVT_C_STORE, handle_store, [target_dir])]
 
-    # Подготавливаем локальные серверы C-STORE SCP на портах (local_port, pacs_port, 11112, 104)
+    # Если глобальный фоновый DICOM SCP сервер уже запущен на local_port, используем его,
+    # иначе запускаем временный C-STORE SCP сервер на local_port на время скачивания
     scp_servers = []
-    ports_to_try = []
-    for p in [local_port, pacs_port, 11112, 104]:
-        if p and isinstance(p, int) and p not in ports_to_try:
-            ports_to_try.append(p)
+    need_temp_scp = True
+    if _global_dicom_server.server and _global_dicom_server.port == local_port:
+        need_temp_scp = False
 
     ae_move = AE()
     ae_move.ae_title = calling_aet
@@ -384,9 +384,9 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
         ae_move.add_supported_context(varian_sop, ALL_TRANSFER_SYNTAXES)
         ae_move.add_requested_context(varian_sop, ALL_TRANSFER_SYNTAXES)
 
-    for p in ports_to_try:
+    if need_temp_scp and local_port:
         try:
-            srv = ae_move.start_server(('', p), block=False, evt_handlers=handlers)
+            srv = ae_move.start_server(('', local_port), block=False, evt_handlers=handlers)
             if srv:
                 scp_servers.append(srv)
         except Exception:
