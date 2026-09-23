@@ -1,6 +1,12 @@
 # Changelog
 ## [Unreleased]
 
+- **Core & UI Stability, Concurrency and Logging Fixes**:
+  - **Graceful Thread Shutdown on Exit**: В `closeEvent` главного окна ([ui/main_window.py](file:///c:/Users/Falco/Desktop/DICOM%20WatchDog/ui/main_window.py)) добавлена безопасная остановка всех активных фоновых воркеров (`cancel_folder_scan`, `cancel_archive_scan`, прерывание `pacs_worker` и `active_file_operations`), что предотвращает аварийные падения `QThread: Destroyed while thread is still running` при закрытии программы.
+  - **Viewer Canvas Cleanup Consolidation**: Устранено дублирование метода `clear_viewer` в холсте вьюера ([ui/viewer/canvas.py](file:///c:/Users/Falco/Desktop/DICOM%20WatchDog/ui/viewer/canvas.py)), объединена полная очистка памяти (включая сброс пиксельных буферов, кэша 3D-проекций структур BEV и статуса прекомпьюта).
+  - **Viewer Error Logging to Centralized Log**: Вызовы `print(...)` при сбоях парсинга RTSTRUCT, RTDOSE, RTPLAN и поврежденных кадров ([ui/viewer/parsers.py](file:///c:/Users/Falco/Desktop/DICOM%20WatchDog/ui/viewer/parsers.py) и [ui/viewer/panel.py](file:///c:/Users/Falco/Desktop/DICOM%20WatchDog/ui/viewer/panel.py)) заменены на `log_error(...)`, благодаря чему все ошибки вьюера теперь гарантированно пишутся в `%LOCALAPPDATA%\DICOM_WatchDog\logs\error.log`.
+  - **PACS Socket Conflict Resolution**: В `download_patient_from_pacs` ([core/pacs.py](file:///c:/Users/Falco/Desktop/DICOM%20WatchDog/core/pacs.py)) оптимизирована привязка локальных серверов C-STORE: если глобальный SCP-сервер уже активен на локальном порту, он повторно используется для приема файлов C-MOVE без создания конфликтующих сокетов и ошибок `WinError 10048`.
+
 - **Centralized Error Logging with Rotation in `AppData/logs`**:
   - Все ошибки приложения, необработанные исключения основного и фоновых потоков (`sys.excepthook`, `threading.excepthook`) и сообщения об ошибках интерфейса теперь централизованно записываются в файл `%LOCALAPPDATA%\DICOM_WatchDog\logs\error.log`.
   - Реализована автоматическая ротация файлов логов по размеру (`RotatingFileHandler` и `check_rotate_log` до 5 МБ с хранением 3 архивных копий), исключающая неконтролируемый рост дискового пространства.
