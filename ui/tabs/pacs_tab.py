@@ -2,19 +2,20 @@
 """PACS Tab for DICOM WatchDog."""
 
 import os
+from datetime import datetime
 try:
     from PyQt6.QtCore import Qt, QSize, QDate
-    from PyQt6.QtGui import QIcon
+    from PyQt6.QtGui import QIcon, QColor
     from PyQt6.QtWidgets import (
         QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-        QComboBox
+        QComboBox, QTableWidgetItem
     )
 except ImportError:
     from PyQt5.QtCore import Qt, QSize, QDate
-    from PyQt5.QtGui import QIcon
+    from PyQt5.QtGui import QIcon, QColor
     from PyQt5.QtWidgets import (
         QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-        QComboBox
+        QComboBox, QTableWidgetItem
     )
 
 from ui.table_widgets import ToggleTableWidget
@@ -199,3 +200,104 @@ class PacsTab(QWidget):
         self.server_combo.setToolTip(tr_ui("tooltip_pacs_server_combo"))
         self.search_entry.setToolTip(tr_ui("tooltip_search_pacs_entry"))
         self.send_to_ct_btn.setToolTip(tr_ui("tooltip_send_to_ct"))
+
+    @staticmethod
+    def _compute_row_color(data, config):
+        color = QColor("#ffffff")
+        if config.get('highlighting_enabled', 'False').lower() == 'true':
+            highlight_new = config.get('highlight_new_enabled', 'False').lower() == 'true'
+            highlight_today = config.get('highlight_today_enabled', 'False').lower() == 'true'
+            d_time = data.get('study_datetime_obj')
+            if d_time:
+                if highlight_new and (datetime.now() - d_time).total_seconds() / 3600 < 1:
+                    color = QColor("lime")
+                elif highlight_today and d_time.date() == datetime.now().date():
+                    color = QColor("mediumturquoise")
+        return color
+
+    def render_table(self, pacs_data=None, config=None):
+        if pacs_data is None:
+            if self.main_window and hasattr(self.main_window, 'pacs_data'):
+                pacs_data = self.main_window.pacs_data
+        if pacs_data is None:
+            return
+
+        if config is None:
+            config = getattr(self.main_window, 'config', {}) if self.main_window else {}
+
+        search_text = self.search_entry.text().lower().strip()
+
+        filtered_items = {}
+        for patient_id, data in pacs_data.items():
+            patient_name = str(data.get('patient_name', '')).lower()
+            p_id = str(data.get('patient_id', patient_id)).lower()
+            if search_text:
+                words = patient_name.replace('^', ' ').split()
+                name_match = bool(words and words[0].startswith(search_text))
+                id_match = p_id.startswith(search_text)
+                if not (name_match or id_match):
+                    continue
+            filtered_items[patient_id] = data
+
+        self.table.setUpdatesEnabled(False)
+        self.table.blockSignals(True)
+
+        self.table.setRowCount(0)
+        row_idx = 0
+        sorted_items = sorted(filtered_items.items(), key=lambda x: x[1]['study_datetime_obj'], reverse=True)
+
+        for patient_id, data in sorted_items:
+            self.table.insertRow(row_idx)
+
+            p_display_id = str(data.get('study_patient_id', data.get('patient_id', patient_id)))
+            id_item = QTableWidgetItem(p_display_id)
+            id_item.setData(Qt.ItemDataRole.UserRole, data.get('study_instance_uid', ''))
+            name_item = QTableWidgetItem(str(data['patient_name']))
+            modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
+            slices_item = QTableWidgetItem(str(data.get('slices', '0')))
+            area_item = QTableWidgetItem(str(data.get('body_part', '')))
+            study_item = QTableWidgetItem(data['study_datetime_str'])
+
+            id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            modality_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            color = self._compute_row_color(data, config)
+            for item in [id_item, name_item, modality_item, slices_item, area_item, study_item]:
+                item.setForeground(color)
+
+            self.table.setItem(row_idx, 0, id_item)
+            self.table.setItem(row_idx, 1, name_item)
+            self.table.setItem(row_idx, 2, modality_item)
+            self.table.setItem(row_idx, 3, slices_item)
+            self.table.setItem(row_idx, 4, area_item)
+            self.table.setItem(row_idx, 5, study_item)
+
+            row_idx += 1
+
+        selected_id = getattr(self.main_window, 'selected_pacs_patient_id', None) if self.main_window else None
+        if selected_id:
+            for r in range(self.table.rowCount()):
+                id_item = self.table.item(r, 0)
+                if id_item and id_item.text() == selected_id:
+                    self.table.selectRow(r)
+                    break
+
+        if search_text and self.table.rowCount() == 0 and bool(pacs_data):
+            self.table.set_placeholder_text(tr_ui("placeholder_no_filter_matches"), color="crimson")
+        elif not search_text:
+            auto_update_on = config.get('auto_update_is', 'off').lower() == 'on'
+            if auto_update_on:
+                self.table.set_placeholder_text(tr_ui("placeholder_standby"))
+            else:
+                self.table.set_placeholder_text(tr_ui("placeholder_no_studies"))
+
+        self.table.update_placeholder_visibility()
+        self.table.blockSignals(False)
+        self.table.setUpdatesEnabled(True)
+        if self.main_window and hasattr(self.main_window, 'on_pacs_selection_changed'):
+            self.main_window.on_pacs_selection_changed()
+

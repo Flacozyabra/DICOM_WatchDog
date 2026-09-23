@@ -1711,94 +1711,9 @@ class MainWindow(QMainWindow):
         self.render_pacs_table()
 
     def render_pacs_table(self):
-        if not hasattr(self, 'pacs_data') or self.pacs_data is None:
-            return
+        if hasattr(self, 'pacs_tab') and self.pacs_tab:
+            self.pacs_tab.render_table(self.pacs_data)
 
-        display_dict = self.pacs_data
-        search_text = self.pacs_search_entry.text().lower().strip() if hasattr(self, 'pacs_search_entry') else ""
-
-        filtered_items = {}
-        for patient_id, data in display_dict.items():
-            patient_name = str(data.get('patient_name', '')).lower()
-            p_id = str(data.get('patient_id', patient_id)).lower()
-            if search_text:
-                words = patient_name.replace('^', ' ').split()
-                name_match = bool(words and words[0].startswith(search_text))
-                id_match = p_id.startswith(search_text)
-                if not (name_match or id_match):
-                    continue
-            filtered_items[patient_id] = data
-
-        self.pacs_table.setUpdatesEnabled(False)
-        self.pacs_table.blockSignals(True)
-
-        self.pacs_table.setRowCount(0)
-        row_idx = 0
-        sorted_items = sorted(filtered_items.items(), key=lambda x: x[1]['study_datetime_obj'], reverse=True)
-        
-        for patient_id, data in sorted_items:
-            self.pacs_table.insertRow(row_idx)
-            
-            p_display_id = str(data.get('study_patient_id', data.get('patient_id', patient_id)))
-            id_item = QTableWidgetItem(p_display_id)
-            id_item.setData(Qt.ItemDataRole.UserRole, data.get('study_instance_uid', ''))
-            name_item = QTableWidgetItem(str(data['patient_name']))
-            modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
-            slices_item = QTableWidgetItem(str(data.get('slices', '0')))
-            area_item = QTableWidgetItem(str(data.get('body_part', '')))
-            study_item = QTableWidgetItem(data['study_datetime_str'])
-            
-            id_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            modality_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            slices_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            area_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            study_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            
-            color = QColor("#ffffff")
-            highlighting_enabled = self.config.get('highlighting_enabled', 'False').lower() == 'true'
-            if highlighting_enabled:
-                highlight_new = self.config.get('highlight_new_enabled', 'False').lower() == 'true'
-                highlight_today = self.config.get('highlight_today_enabled', 'False').lower() == 'true'
-                d_time = data.get('study_datetime_obj')
-                if d_time:
-                    if highlight_new and (datetime.now() - d_time).total_seconds() / 3600 < 1:
-                        color = QColor("lime")
-                    elif highlight_today and d_time.date() == datetime.now().date():
-                        color = QColor("mediumturquoise")
-                
-            for item in [id_item, name_item, modality_item, slices_item, area_item, study_item]:
-                item.setForeground(color)
-                
-            self.pacs_table.setItem(row_idx, 0, id_item)
-            self.pacs_table.setItem(row_idx, 1, name_item)
-            self.pacs_table.setItem(row_idx, 2, modality_item)
-            self.pacs_table.setItem(row_idx, 3, slices_item)
-            self.pacs_table.setItem(row_idx, 4, area_item)
-            self.pacs_table.setItem(row_idx, 5, study_item)
-            
-            row_idx += 1
-
-        if hasattr(self, 'selected_pacs_patient_id') and self.selected_pacs_patient_id:
-            for r in range(self.pacs_table.rowCount()):
-                id_item = self.pacs_table.item(r, 0)
-                if id_item and id_item.text() == self.selected_pacs_patient_id:
-                    self.pacs_table.selectRow(r)
-                    break
-
-        if search_text and self.pacs_table.rowCount() == 0 and bool(self.pacs_data):
-            self.pacs_table.set_placeholder_text(tr_ui("placeholder_no_filter_matches"), color="crimson")
-        elif not search_text:
-            auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
-            if auto_update_on:
-                self.pacs_table.set_placeholder_text(tr_ui("placeholder_standby"))
-            else:
-                self.pacs_table.set_placeholder_text(tr_ui("placeholder_no_studies"))
-
-        self.pacs_table.update_placeholder_visibility()
-        self.pacs_table.blockSignals(False)
-        self.pacs_table.setUpdatesEnabled(True)
-        self.on_pacs_selection_changed()
 
     # ================= УПРАВЛЕНИЕ НАСТРОЙКАМИ =================
 
