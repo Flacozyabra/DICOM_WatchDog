@@ -6,7 +6,6 @@ import urllib.request
 
 VERSION = "1.8.3"
 
-from ui.updater import check_github_updates, is_newer_version
 
 def get_app_data_dir():
     app_name = "DICOM_WatchDog"

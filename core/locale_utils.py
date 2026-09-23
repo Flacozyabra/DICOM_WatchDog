@@ -69,7 +69,14 @@ def set_current_langs(interface_lang, log_lang):
 
 def tr_ui(key, *args):
     lang, _ = get_current_langs()
-    val = _ui_translations.get(lang, {}).get(key, key)
+    val = _ui_translations.get(lang, {}).get(key)
+    if val is None and lang != 'ru':
+        val = _ui_translations.get('ru', {}).get(key)
+    if val is None and lang != 'en':
+        val = _ui_translations.get('en', {}).get(key)
+    if val is None:
+        val = key
+
     if args:
         try:
             return val.format(*args)
@@ -79,7 +86,14 @@ def tr_ui(key, *args):
 
 def tr_log(key, *args):
     _, lang = get_current_langs()
-    val = _log_translations.get(lang, {}).get(key, key)
+    val = _log_translations.get(lang, {}).get(key)
+    if val is None and lang != 'ru':
+        val = _log_translations.get('ru', {}).get(key)
+    if val is None and lang != 'en':
+        val = _log_translations.get('en', {}).get(key)
+    if val is None:
+        val = key
+
     if args:
         try:
             return val.format(*args)
