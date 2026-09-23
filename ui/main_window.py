@@ -418,7 +418,9 @@ class MainWindow(QMainWindow):
     def init_file_watcher(self):
         self.watcher_observer = None
         self.watcher_handler = None
+        self.archive_watcher_handler = None
         self.currently_watched_dir = None
+        self.currently_watched_archive_dir = None
         self.is_scanning_active = False
         self.last_scan_finished_time = 0
         self.pending_folder_scan = False
@@ -426,40 +428,63 @@ class MainWindow(QMainWindow):
         self.last_folder_heartbeat_time = 0
         self.last_scanned_folder_snapshot = None
         
-        # Создаем таймер дебаунса (debounce)
+        # Таймер дебаунса для входящих КТ-снимков
         self.debounce_timer = QTimer(self)
         self.debounce_timer.setSingleShot(True)
         self.debounce_timer.timeout.connect(self.on_watcher_timeout)
 
+        # Таймер дебаунса для архива КТ
+        self.archive_debounce_timer = QTimer(self)
+        self.archive_debounce_timer.setSingleShot(True)
+        self.archive_debounce_timer.timeout.connect(self.on_archive_watcher_timeout)
+
     def update_watcher_path(self):
         ct_dir = self.config.get('ct_images_dir', '')
-        if not ct_dir or not os.path.exists(ct_dir):
+        archive_dir = self.config.get('archive_dir', '')
+
+        valid_ct_dir = ct_dir if (ct_dir and os.path.exists(ct_dir)) else None
+        valid_archive_dir = archive_dir if (archive_dir and os.path.exists(archive_dir)) else None
+
+        # Если ни одна папка не настроена или не существует — останавливаем наблюдатель
+        if not valid_ct_dir and not valid_archive_dir:
             self.stop_file_watcher()
             return
-            
-        ct_dir = self.config.get('ct_images_dir', '')
-        if not ct_dir or not os.path.exists(ct_dir):
-            self.stop_file_watcher()
+
+        # Если пути не изменились и наблюдатель уже активен — ничего не делаем
+        if (getattr(self, 'currently_watched_dir', None) == valid_ct_dir and
+            getattr(self, 'currently_watched_archive_dir', None) == valid_archive_dir and
+            getattr(self, 'watcher_observer', None) and self.watcher_observer.is_alive()):
             return
-            
-        # Если мониторинг уже запущен для этой же папки, ничего не делаем
-        if hasattr(self, 'currently_watched_dir') and self.currently_watched_dir == ct_dir and self.watcher_observer and self.watcher_observer.is_alive():
-            return
-            
+
         self.stop_file_watcher()
-            
+
         try:
-            self.watcher_handler = WatchdogHandler()
-            queued_conn = getattr(getattr(Qt, 'ConnectionType', Qt), 'QueuedConnection', getattr(Qt, 'QueuedConnection', 2))
-            self.watcher_handler.changed.connect(self.trigger_debounce, queued_conn)
-            
             self.watcher_observer = Observer()
-            self.watcher_observer.schedule(self.watcher_handler, ct_dir, recursive=True)
+            queued_conn = getattr(getattr(Qt, 'ConnectionType', Qt), 'QueuedConnection', getattr(Qt, 'QueuedConnection', 2))
+
+            # 1. Мониторинг входящей папки КТ-исследований
+            if valid_ct_dir:
+                self.watcher_handler = WatchdogHandler()
+                self.watcher_handler.changed.connect(self.trigger_debounce, queued_conn)
+                self.watcher_observer.schedule(self.watcher_handler, valid_ct_dir, recursive=True)
+                self.currently_watched_dir = valid_ct_dir
+                log_message(self.output_field, tr_log("log_watcher_started", valid_ct_dir))
+            else:
+                self.currently_watched_dir = None
+
+            # 2. Мониторинг папки архива КТ
+            if valid_archive_dir and valid_archive_dir != valid_ct_dir:
+                self.archive_watcher_handler = WatchdogHandler()
+                self.archive_watcher_handler.changed.connect(self.trigger_archive_debounce, queued_conn)
+                self.watcher_observer.schedule(self.archive_watcher_handler, valid_archive_dir, recursive=True)
+                self.currently_watched_archive_dir = valid_archive_dir
+            else:
+                self.currently_watched_archive_dir = None
+
             self.watcher_observer.start()
-            self.currently_watched_dir = ct_dir
-            log_message(self.output_field, tr_log("log_watcher_started", ct_dir))
         except Exception as e:
             self.currently_watched_dir = None
+            self.currently_watched_archive_dir = None
             log_message(self.output_field, tr_log("log_watcher_failed", e))
 
     def stop_file_watcher(self):
@@ -471,7 +496,9 @@ class MainWindow(QMainWindow):
                 pass
             self.watcher_observer = None
         self.watcher_handler = None
+        self.archive_watcher_handler = None
         self.currently_watched_dir = None
+        self.currently_watched_archive_dir = None
 
     def check_system_status(self):
         import time
@@ -541,6 +568,22 @@ class MainWindow(QMainWindow):
 
     def on_watcher_timeout(self):
         self.start_folder_scan()
+
+    def trigger_archive_debounce(self):
+        if hasattr(self, 'archive_debounce_timer'):
+            self.archive_debounce_timer.start(1000)
+
+    def on_archive_watcher_timeout(self):
+        # 1. Немедленно удаляем из кэша, таблицы и бейджа отсутствующие папки
+        self._prune_missing_archive_records()
+
+        # 2. Если появились новые исследования на диске — синхронизируем в тихом режиме
+        if not hasattr(self, 'archive_worker') or not self.archive_worker or not self.archive_worker.isRunning():
+            archive_dir = self.config.get('archive_dir', '')
+            if archive_dir and os.path.exists(archive_dir):
+                self.fill_archive_list(silent=True)
+        else:
+            self._pending_archive_scan = True
 
     def _trigger_rescan_if_idle(self):
         if hasattr(self, 'debounce_timer') and self.debounce_timer.isActive():
@@ -917,23 +960,14 @@ class MainWindow(QMainWindow):
             if not pacs_auto_scan_on:
                 self.pacs_timer.stop()
             archive_dir = self.config.get('archive_dir', '')
-            needs_rescan = False
-            if archive_dir and os.path.exists(archive_dir) and getattr(self, 'archive_cache', None) is not None:
-                try:
-                    disk_dirs = [d for d in os.listdir(archive_dir) if os.path.isdir(os.path.join(archive_dir, d))]
-                    if len(disk_dirs) != len(self.archive_cache):
-                        needs_rescan = True
-                except Exception:
-                    pass
 
-            if not hasattr(self, 'archive_cache') or self.archive_cache is None or needs_rescan:
+            # Немедленно отсекаем удаленные исследования перед показом
+            self._prune_missing_archive_records()
+
+            if not hasattr(self, 'archive_cache') or self.archive_cache is None:
                 if not self.archive_worker or not self.archive_worker.isRunning():
-                    self.fill_archive_list(silent=(getattr(self, 'archive_cache', None) is not None))
-                else:
-                    self._prune_missing_archive_records()
-                    self.update_archive_table_ui()
+                    self.fill_archive_list(silent=False)
             else:
-                self._prune_missing_archive_records()
                 self.update_archive_table_ui()
             QTimer.singleShot(0, self.focus_ct_archive_search)
         elif current_widget == self.pacs_tab:  # PACS
@@ -1642,10 +1676,10 @@ class MainWindow(QMainWindow):
 
     def _prune_missing_archive_records(self):
         if not hasattr(self, 'archive_cache') or not self.archive_cache:
-            return
+            return False
         archive_dir = self.config.get('archive_dir', '')
         if not archive_dir or not os.path.exists(archive_dir):
-            return
+            return False
 
         missing_keys = []
         for key, item in list(self.archive_cache.items()):
@@ -1653,7 +1687,7 @@ class MainWindow(QMainWindow):
             if not folder_name:
                 continue
             full_path = os.path.normpath(os.path.join(archive_dir, folder_name))
-            if not os.path.exists(full_path):
+            if not os.path.exists(full_path) or (os.path.isdir(full_path) and not os.listdir(full_path)):
                 missing_keys.append(key)
 
         if missing_keys:
@@ -1665,7 +1699,8 @@ class MainWindow(QMainWindow):
                 pat_info = self.archive_cache.pop(key, {})
                 folder_name = pat_info.get('folder_name', key)
                 full_path = os.path.normpath(os.path.join(archive_dir, folder_name))
-                keys_to_del = [k for k in cache.keys() if os.path.normcase(os.path.normpath(k)) == os.path.normcase(full_path)]
+                norm_full = os.path.normcase(full_path)
+                keys_to_del = [k for k in cache.keys() if os.path.normcase(os.path.normpath(k)) == norm_full]
                 for k in keys_to_del:
                     del cache[k]
                     cache_changed = True
@@ -1675,6 +1710,8 @@ class MainWindow(QMainWindow):
 
             self.update_archive_table_ui()
             self.update_tab_badges()
+            return True
+        return False
 
     def remove_missing_archive_patient(self, patient_key: str):
         if not hasattr(self, 'archive_cache') or not self.archive_cache:
@@ -2254,6 +2291,7 @@ class MainWindow(QMainWindow):
                 self.config['archive_dir'] = norm_path
                 self.save_current_config()
                 self.archive_cache = None
+                self.update_watcher_path()
                 current_widget = self.tab_widget.currentWidget()
                 self.fill_archive_list(silent=(current_widget != self.archive_tab), force=True)
 
@@ -2286,6 +2324,7 @@ class MainWindow(QMainWindow):
 
             if archive_changed:
                 self.archive_cache = None
+                self.update_watcher_path()
                 if show_archive:
                     self.fill_archive_list(silent=(current_widget != self.archive_tab), force=True)
 
