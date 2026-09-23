@@ -5,7 +5,10 @@ import sys
 import traceback
 from datetime import datetime
 
+import threading
+
 _error_logger = None
+_error_logger_lock = threading.Lock()
 
 
 def get_error_logger():
@@ -13,30 +16,34 @@ def get_error_logger():
     if _error_logger is not None:
         return _error_logger
 
-    logger = logging.getLogger("DICOM_WatchDog_ErrorLogger")
-    logger.setLevel(logging.ERROR)
+    with _error_logger_lock:
+        if _error_logger is not None:
+            return _error_logger
 
-    if not logger.handlers:
-        try:
-            from core.config_utils import get_app_error_log_path
-            log_path = get_app_error_log_path()
-            handler = RotatingFileHandler(
-                log_path,
-                maxBytes=5 * 1024 * 1024,
-                backupCount=3,
-                encoding="utf-8"
-            )
-            formatter = logging.Formatter(
-                "[%(asctime)s] [%(levelname)s] %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S"
-            )
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
-        except Exception as e:
-            print(f"Failed to setup file error logger: {e}", file=sys.stderr)
+        logger = logging.getLogger("DICOM_WatchDog_ErrorLogger")
+        logger.setLevel(logging.ERROR)
 
-    _error_logger = logger
-    return _error_logger
+        if not logger.handlers:
+            try:
+                from core.config_utils import get_app_error_log_path
+                log_path = get_app_error_log_path()
+                handler = RotatingFileHandler(
+                    log_path,
+                    maxBytes=5 * 1024 * 1024,
+                    backupCount=3,
+                    encoding="utf-8"
+                )
+                formatter = logging.Formatter(
+                    "[%(asctime)s] [%(levelname)s] %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S"
+                )
+                handler.setFormatter(formatter)
+                logger.addHandler(handler)
+            except Exception as e:
+                print(f"Failed to setup file error logger: {e}", file=sys.stderr)
+
+        _error_logger = logger
+        return _error_logger
 
 
 def log_error(message: str, exc=None):

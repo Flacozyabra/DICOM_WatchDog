@@ -217,7 +217,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                             p_name = os.path.basename(root)
                         p_modality = str(ds.get('Modality', 'CT'))
                         
-                        folder_dt = datetime.fromtimestamp(max(os.path.getctime(root), os.path.getmtime(root)))
+                        folder_dt = datetime.fromtimestamp(min(os.path.getctime(root), os.path.getmtime(root)))
                         
                         study_date = str(ds.get('StudyDate', '')).strip()
                         study_time = str(ds.get('StudyTime', '')).strip()

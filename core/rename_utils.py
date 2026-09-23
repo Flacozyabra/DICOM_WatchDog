@@ -124,10 +124,17 @@ def safe_merge_folders(src, dest, new_id):
             
             if is_dicom_file(src_file) or is_structure_file(src_file):
                 try:
-                    ds_file = pydicom.dcmread(src_file, force=True)
                     if new_id:
-                        ds_file.PatientID = str(new_id)
-                    ds_file.save_as(dest_file)
+                        ds_header = pydicom.dcmread(src_file, stop_before_pixels=True, force=True, specific_tags=['PatientID'])
+                        curr_id = str(getattr(ds_header, 'PatientID', '') or ds_header.get('PatientID', '')).strip()
+                        if curr_id != str(new_id):
+                            ds_file = pydicom.dcmread(src_file, force=True)
+                            ds_file.PatientID = str(new_id)
+                            ds_file.save_as(dest_file)
+                        else:
+                            shutil.copy2(src_file, dest_file)
+                    else:
+                        shutil.copy2(src_file, dest_file)
                 except Exception:
                     shutil.copy2(src_file, dest_file)
             else:
