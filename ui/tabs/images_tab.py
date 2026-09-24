@@ -185,7 +185,7 @@ class ImagesTab(QWidget):
         valid_patients = {}
         for patient_id, data in images_cache.items():
             if 'patient_name' not in data or 'study_datetime' not in data or 'folder_datetime' not in data or 'str' not in data:
-                if output_field:
+                if not data.get('is_placeholder') and output_field:
                     log_message(output_field, tr_log("log_skipped_patient_incomplete", patient_id))
                 continue
 
