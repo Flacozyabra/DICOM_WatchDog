@@ -90,6 +90,7 @@ class MainWindow(QMainWindow):
         self.known_pacs_patient_ids = set()
         self.images_cache = None
         self.archive_cache = None
+        self._last_pruned_archive_mtime = None
         self.pacs_data = {}
         self.tab_badges = {}
         self.previous_pacs_data = {}
@@ -674,12 +675,12 @@ class MainWindow(QMainWindow):
             archive_dir = self.config.get('archive_dir', '')
 
             # Немедленно отсекаем удаленные исследования перед показом
-            self._prune_missing_archive_records()
+            pruned = self._prune_missing_archive_records()
 
             if not hasattr(self, 'archive_cache') or self.archive_cache is None:
                 if not self.archive_worker or not self.archive_worker.isRunning():
                     self.fill_archive_list(silent=False)
-            else:
+            elif not pruned and self.archive_table.rowCount() == 0:
                 self.update_archive_table_ui()
             QTimer.singleShot(0, self.focus_ct_archive_search)
         elif current_widget == self.pacs_tab:  # PACS
@@ -1157,17 +1158,36 @@ class MainWindow(QMainWindow):
         if not silent:
             log_message(self.output_field, tr_log("log_archive_loaded"), replace_suffix=tr_log("log_loading_archive"))
         self.archive_cache = archive_dict
+        archive_dir = self.config.get('archive_dir', '')
+        if archive_dir and os.path.exists(archive_dir):
+            try:
+                self._last_pruned_archive_mtime = os.path.getmtime(archive_dir)
+            except OSError:
+                self._last_pruned_archive_mtime = None
         self.update_archive_table_ui()
         self.update_tab_badges()
         if getattr(self, '_pending_archive_scan', False):
             self._pending_archive_scan = False
             self.fill_archive_list(silent=True)
 
-    def _prune_missing_archive_records(self):
+    def _prune_missing_archive_records(self, force=False):
         if not hasattr(self, 'archive_cache') or not self.archive_cache:
             return False
         archive_dir = self.config.get('archive_dir', '')
         if not archive_dir or not os.path.exists(archive_dir):
+            return False
+
+        try:
+            curr_mtime = os.path.getmtime(archive_dir)
+        except OSError:
+            curr_mtime = None
+
+        if not force and curr_mtime is not None and getattr(self, '_last_pruned_archive_mtime', None) == curr_mtime:
+            return False
+
+        try:
+            existing_dirs = {os.path.normcase(d) for d in os.listdir(archive_dir)}
+        except OSError:
             return False
 
         missing_keys = []
@@ -1175,9 +1195,19 @@ class MainWindow(QMainWindow):
             folder_name = item.get('folder_name', key)
             if not folder_name:
                 continue
-            full_path = os.path.normpath(os.path.join(archive_dir, folder_name))
-            if not os.path.exists(full_path) or (os.path.isdir(full_path) and not os.listdir(full_path)):
+            norm_name = os.path.normcase(folder_name)
+            if norm_name not in existing_dirs:
                 missing_keys.append(key)
+            else:
+                full_path = os.path.join(archive_dir, folder_name)
+                try:
+                    with os.scandir(full_path) as it:
+                        if not any(it):
+                            missing_keys.append(key)
+                except OSError:
+                    missing_keys.append(key)
+
+        self._last_pruned_archive_mtime = curr_mtime
 
         if missing_keys:
             from core.archive import load_cache, save_cache

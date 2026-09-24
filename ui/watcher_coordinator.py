@@ -156,7 +156,7 @@ class WatchdogCoordinator(QObject):
         mw = self.main_window
         # 1. Немедленно удаляем из кэша, таблицы и бейджа отсутствующие папки
         if hasattr(mw, '_prune_missing_archive_records'):
-            mw._prune_missing_archive_records()
+            mw._prune_missing_archive_records(force=True)
 
         # 2. Если появились новые исследования на диске — синхронизируем в тихом режиме
         if not hasattr(mw, 'archive_worker') or not mw.archive_worker or not mw.archive_worker.isRunning():
