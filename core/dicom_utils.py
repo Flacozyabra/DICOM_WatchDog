@@ -21,6 +21,10 @@ def classify_dicom_file(filename: str, filepath: str = None) -> str:
     if fn in ('DICOMDIR', '.DW_PROCESSING.LOCK', 'DW_PROCESSING.LOCK') or fn.endswith('.LOCK') or fn.startswith('.'):
         return 'IGNORE'
 
+    if (fn.startswith(('RE.', 'REG.', 'REG_')) or fn.endswith('.REG') or 
+        '_REG.' in fn or 'REGISTRATION' in fn):
+        return 'IGNORE'
+
     # 1. RTSTRUCT (STR, RS, RTSTRUCT, STRUCT, STRCTR, CONTOUR, .STR)
     if (fn.endswith('.STR') or 
         fn.startswith(('STR', 'RS', 'RTSTRUCT', 'RT_STRUCT', 'STRUCTURES')) or 
@@ -51,6 +55,8 @@ def classify_dicom_file(filename: str, filepath: str = None) -> str:
             ds = pydicom.dcmread(target_path, stop_before_pixels=True, force=True, specific_tags=['Modality', 'SOPClassUID'])
             mod = str(getattr(ds, 'Modality', '')).upper().strip()
             sop = str(getattr(ds, 'SOPClassUID', '')).strip()
+            if mod in ('REG', 'FID', 'KO', 'PR', 'SR', 'RAW') or sop.startswith('1.2.840.10008.5.1.4.1.1.66'):
+                return 'IGNORE'
             if mod == 'RTSTRUCT' or sop == '1.2.840.10008.5.1.4.1.1.481.3':
                 return 'RTSTRUCT'
             if mod == 'RTDOSE' or sop == '1.2.840.10008.5.1.4.1.1.481.2':
@@ -351,7 +357,7 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
         for f in files:
             fp_curr = os.path.join(root, f)
             t = classify_dicom_file(f, fp_curr)
-            if t == 'IGNORE':
+            if t in ('IGNORE', 'REG', 'FID', 'KO', 'PR', 'SR', 'RAW'):
                 continue
             elif t == 'RTSTRUCT':
                 str_files.append(f)

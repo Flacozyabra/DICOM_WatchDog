@@ -409,10 +409,10 @@ def auto_heal_split_patient_folders(parent_path, new_patient_id=None, output_fie
 
 def auto_split_mixed_studies(folder_path, output_field=None):
     """
-    Проверяет файлы в корне папки folder_path.
-    Если в корне обнаружены файлы от разных исследований (разные StudyInstanceUID)
-    или если папка уже содержит подпапки исследований [...], но в корне также остались файлы,
-    автоматически разносит файлы по соответствующим подпапкам [YYYY-MM-DD].
+    Проверяет файлы в папке folder_path (как в корне, так и во вложенных подпапках).
+    Если обнаружены файлы от разных исследований (разные StudyInstanceUID) внутри одной папки,
+    или если папка содержит подпапки исследований [...], но в корне также остались файлы,
+    автоматически разносит файлы по соответствующим подпапкам [DD.MM.YY - HH-MM].
     """
     if not os.path.isdir(folder_path):
         return False
@@ -422,128 +422,142 @@ def auto_split_mixed_studies(folder_path, output_field=None):
     except Exception:
         return False
 
-    files_in_root = []
+    targets_to_check = [folder_path]
     has_subfolders = False
     for item in entries:
         full_item = os.path.join(folder_path, item)
         if os.path.isdir(full_item):
-            if (item.startswith("[") and item.endswith("]")) or not item.startswith("."):
+            if not item.startswith("."):
                 has_subfolders = True
-        elif os.path.isfile(full_item):
-            if is_dicom_file(full_item) or is_structure_file(full_item):
-                files_in_root.append(full_item)
-
-    if not files_in_root:
-        return False
-
-    # Считываем метаданные каждого файла в корне
-    studies_map = {}  # study_uid -> {'files': [], 'date_str': '', 'date_only': '', 'time_str': ''}
-    orphaned_files = []
-
-    for fpath in files_in_root:
-        try:
-            ds = pydicom.dcmread(
-                fpath, stop_before_pixels=True, force=True,
-                specific_tags=['StudyInstanceUID', 'StudyDate', 'StudyTime', 'Modality', 'ReferencedFrameOfReferenceSequence']
-            )
-            study_uid = str(getattr(ds, 'StudyInstanceUID', '') or ds.get('StudyInstanceUID', '')).strip()
-            if not study_uid and hasattr(ds, 'ReferencedFrameOfReferenceSequence'):
-                try:
-                    for rfor in ds.ReferencedFrameOfReferenceSequence:
-                        if hasattr(rfor, 'RTReferencedStudySequence'):
-                            for rstudy in rfor.RTReferencedStudySequence:
-                                ref_uid = str(getattr(rstudy, 'ReferencedSOPInstanceUID', '')).strip()
-                                if ref_uid:
-                                    study_uid = ref_uid
-                                    break
-                except Exception:
-                    pass
-
-            study_date = str(getattr(ds, 'StudyDate', '')).strip()
-            study_time = str(getattr(ds, 'StudyTime', '000000')).strip()
-
-            date_str = ""
-            date_only = ""
-            if study_date and len(study_date) >= 8:
-                try:
-                    dt = datetime.strptime(study_date[:8], '%Y%m%d')
-                    date_str = dt.strftime('%Y-%m-%d')
-                    date_only = date_str
-                except Exception:
-                    pass
-
-            if not date_str:
-                try:
-                    mtime = os.path.getmtime(fpath)
-                    dt = datetime.fromtimestamp(mtime)
-                    date_str = dt.strftime('%Y-%m-%d')
-                    date_only = date_str
-                except Exception:
-                    date_str = "Unknown_Date"
-                    date_only = "Unknown_Date"
-
-            if study_uid:
-                if study_uid not in studies_map:
-                    studies_map[study_uid] = {
-                        'files': [],
-                        'date_str': date_str,
-                        'date_only': date_only,
-                        'time_str': study_time[:6] if len(study_time) >= 6 else ''
-                    }
-                studies_map[study_uid]['files'].append(fpath)
-            else:
-                orphaned_files.append(fpath)
-        except Exception:
-            orphaned_files.append(fpath)
-
-    # Если в корне несколько разных исследований ИЛИ (в корне 1 исследование, но уже есть подпапки)
-    need_split = (len(studies_map) > 1) or (len(studies_map) >= 1 and has_subfolders)
-
-    if not need_split:
-        return False
+                targets_to_check.append(full_item)
 
     split_occurred = False
-    for study_uid, sinfo in studies_map.items():
-        date_str = sinfo['date_str']
-        date_only = sinfo['date_only']
-        matching_sub = find_matching_study_subfolder(folder_path, study_uid, date_only, date_str)
-        if not matching_sub:
-            target_sub = os.path.join(folder_path, f"[{date_str}]")
-            if os.path.exists(target_sub):
-                exist_sub_info = get_folder_study_info(target_sub)
-                if exist_sub_info and exist_sub_info.get('study_instance_uid') and exist_sub_info['study_instance_uid'] != study_uid:
-                    suffix = sinfo['time_str'] if sinfo['time_str'] else study_uid[-6:]
-                    target_sub = os.path.join(folder_path, f"[{date_str}_{suffix}]")
-            os.makedirs(target_sub, exist_ok=True)
-        else:
-            target_sub = matching_sub
 
-        for fpath in sinfo['files']:
+    for target_dir in targets_to_check:
+        try:
+            target_entries = os.listdir(target_dir)
+        except Exception:
+            continue
+
+        target_files = []
+        for item in target_entries:
+            fpath = os.path.join(target_dir, item)
+            if os.path.isfile(fpath) and (is_dicom_file(fpath) or is_structure_file(fpath)):
+                target_files.append(fpath)
+
+        if not target_files:
+            continue
+
+        is_root = (target_dir == folder_path)
+
+        # Считываем метаданные каждого файла
+        studies_map = {}  # study_uid -> {'files': [], 'study_date_str': '', 'date_only_str': ''}
+        orphaned_files = []
+
+        for fpath in target_files:
             try:
-                dest_file = os.path.join(target_sub, os.path.basename(fpath))
-                if not os.path.exists(dest_file):
-                    shutil.move(fpath, dest_file)
-                else:
-                    shutil.move(fpath, dest_file)
-                split_occurred = True
-            except Exception:
-                pass
+                ds = pydicom.dcmread(
+                    fpath, stop_before_pixels=True, force=True,
+                    specific_tags=['StudyInstanceUID', 'StudyDate', 'StudyTime', 'Modality', 'ReferencedFrameOfReferenceSequence']
+                )
+                study_uid = str(getattr(ds, 'StudyInstanceUID', '') or ds.get('StudyInstanceUID', '')).strip()
+                if not study_uid and hasattr(ds, 'ReferencedFrameOfReferenceSequence'):
+                    try:
+                        for rfor in ds.ReferencedFrameOfReferenceSequence:
+                            if hasattr(rfor, 'RTReferencedStudySequence'):
+                                for rstudy in rfor.RTReferencedStudySequence:
+                                    ref_uid = str(getattr(rstudy, 'ReferencedSOPInstanceUID', '')).strip()
+                                    if ref_uid:
+                                        study_uid = ref_uid
+                                        break
+                    except Exception:
+                        pass
 
-    if orphaned_files and split_occurred:
-        all_subs = [os.path.join(folder_path, d) for d in os.listdir(folder_path) if os.path.isdir(os.path.join(folder_path, d))]
-        if all_subs:
-            largest_sub = max(all_subs, key=lambda d: len(os.listdir(d)))
-            for of in orphaned_files:
+                study_date = str(getattr(ds, 'StudyDate', '')).strip()
+                study_time = str(getattr(ds, 'StudyTime', '000000')).strip()
+
+                date_time_string = study_date + study_time
+                format_string = '%Y%m%d%H%M%S' if '.' not in study_time else '%Y%m%d%H%M%S.%f'
                 try:
-                    shutil.move(of, os.path.join(largest_sub, os.path.basename(of)))
+                    study_dt = datetime.strptime(date_time_string, format_string)
+                except Exception:
+                    try:
+                        study_dt = datetime.strptime(study_date, '%Y%m%d')
+                    except Exception:
+                        study_dt = datetime.fromtimestamp(os.path.getctime(fpath))
+
+                study_date_str = study_dt.strftime('%d.%m.%y - %H-%M')
+                date_only_str = study_dt.strftime('%d.%m.%y')
+
+                if study_uid:
+                    if study_uid not in studies_map:
+                        studies_map[study_uid] = {
+                            'files': [],
+                            'study_date_str': study_date_str,
+                            'date_only_str': date_only_str
+                        }
+                    studies_map[study_uid]['files'].append(fpath)
+                else:
+                    orphaned_files.append(fpath)
+            except Exception:
+                orphaned_files.append(fpath)
+
+        if is_root:
+            need_split = (len(studies_map) > 1) or (len(studies_map) >= 1 and has_subfolders)
+        else:
+            need_split = (len(studies_map) > 1)
+
+        if not need_split:
+            continue
+
+        for study_uid, sinfo in studies_map.items():
+            s_date_str = sinfo['study_date_str']
+            s_date_only = sinfo['date_only_str']
+            matching_sub = find_matching_study_subfolder(folder_path, study_uid, s_date_only, s_date_str)
+            if not matching_sub:
+                target_sub = os.path.join(folder_path, f"[{s_date_str}]")
+                os.makedirs(target_sub, exist_ok=True)
+            else:
+                target_sub = matching_sub
+
+            if os.path.normcase(os.path.abspath(target_sub)) == os.path.normcase(os.path.abspath(target_dir)):
+                continue
+
+            for fpath in sinfo['files']:
+                try:
+                    dest_file = os.path.join(target_sub, os.path.basename(fpath))
+                    if os.path.exists(dest_file):
+                        try:
+                            os.remove(dest_file)
+                        except Exception:
+                            pass
+                    shutil.move(fpath, dest_file)
+                    split_occurred = True
                 except Exception:
                     pass
+
+        if orphaned_files and split_occurred:
+            all_subs = [os.path.join(folder_path, d) for d in os.listdir(folder_path) if os.path.isdir(os.path.join(folder_path, d))]
+            if all_subs:
+                largest_sub = max(all_subs, key=lambda d: len(os.listdir(d)))
+                for of in orphaned_files:
+                    try:
+                        shutil.move(of, os.path.join(largest_sub, os.path.basename(of)))
+                    except Exception:
+                        pass
+
+        if not is_root and os.path.isdir(target_dir):
+            try:
+                rem_entries = [e for e in os.listdir(target_dir) if not e.startswith('.')]
+                if not rem_entries:
+                    shutil.rmtree(target_dir, ignore_errors=True)
+            except Exception:
+                pass
 
     if split_occurred:
         touch_folder_tree(folder_path)
         if output_field:
-            dates = [sinfo['date_str'] for sinfo in studies_map.values()]
-            log_message(output_field, tr_log("log_studies_split_success", os.path.basename(folder_path), ", ".join(dates)))
+            log_message(output_field, tr_log("log_studies_split_success", os.path.basename(folder_path), ""))
 
     return split_occurred
 
