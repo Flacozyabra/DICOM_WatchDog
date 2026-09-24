@@ -114,6 +114,36 @@ class ChangePatientIdDialog(QDialog):
         return self.edit_id.text().strip()
 
 
+def remove_folder_with_progress(p_path, progress_callback=None):
+    files_to_del = []
+    dirs_to_del = []
+    for root, dirs, files in os.walk(p_path, topdown=False):
+        for f in files:
+            files_to_del.append(os.path.join(root, f))
+        for d in dirs:
+            dirs_to_del.append(os.path.join(root, d))
+    total = len(files_to_del)
+    for idx, f in enumerate(files_to_del, 1):
+        try:
+            os.remove(f)
+        except Exception:
+            pass
+        if progress_callback and total > 0 and (idx % 10 == 0 or idx == total):
+            progress_callback(idx / total)
+    for d in dirs_to_del:
+        try:
+            os.rmdir(d)
+        except Exception:
+            pass
+    try:
+        if os.path.exists(p_path):
+            os.rmdir(p_path)
+    except Exception:
+        pass
+    if progress_callback:
+        progress_callback(1.0)
+
+
 class PatientOperationsManager:
     """Управляет операциями перемещения, архивации, удаления и открытия папок пациентов."""
 
@@ -160,15 +190,15 @@ class PatientOperationsManager:
         if not new_id:
             return
 
-        self.mw.active_file_operations[patient_id] = {'op': 'change_id'}
+        self.mw.active_file_operations[patient_id] = {'op': 'change_id', 'progress': 0.0}
         if is_archive:
             self.mw.archive_table.viewport().update()
         else:
             self.mw.images_table.viewport().update()
 
-        def run_change_id():
+        def run_change_id(progress_callback=None):
             # 1. Применяем ID ко ВСЕМ DICOM-файлам в папке и ее подпапках
-            safe_update_patient_ids(top_path, new_id, self.mw.output_field, rt_only=False)
+            safe_update_patient_ids(top_path, new_id, self.mw.output_field, rt_only=False, progress_callback=progress_callback)
 
             # 2. Если ID изменился, переименовываем корневую папку пациента
             final_path = top_path
@@ -209,6 +239,7 @@ class PatientOperationsManager:
             }
 
         worker = BackgroundFileWorker(patient_id, 'change_id', run_change_id)
+        worker.progress.connect(self.mw.on_background_action_progress)
         worker.finished.connect(self.mw.on_background_action_finished)
         worker.error.connect(self.mw.on_background_action_error)
         op_key = f"worker_{patient_id}"
@@ -311,11 +342,11 @@ class PatientOperationsManager:
                 log_message(self.mw.output_field, tr_log("log_path_not_exist", path))
                 continue
 
-            self.mw.active_file_operations[pid] = {'op': 'delete_images'}
+            self.mw.active_file_operations[pid] = {'op': 'delete_images', 'progress': 0.0}
 
             def make_run_delete(p_path, p_id, p_name):
-                def run_delete():
-                    shutil.rmtree(p_path, ignore_errors=True)
+                def run_delete(progress_callback=None):
+                    remove_folder_with_progress(p_path, progress_callback=progress_callback)
                     parent_dir = os.path.dirname(p_path)
                     if parent_dir and os.path.exists(parent_dir) and not os.listdir(parent_dir):
                         try:
@@ -326,6 +357,7 @@ class PatientOperationsManager:
                 return run_delete
 
             worker = BackgroundFileWorker(pid, 'delete_images', make_run_delete(path, pid, pname))
+            worker.progress.connect(self.mw.on_background_action_progress)
             worker.finished.connect(self.mw.on_background_action_finished)
             worker.error.connect(self.mw.on_background_action_error)
             op_key = f"worker_{pid}"
@@ -359,15 +391,16 @@ class PatientOperationsManager:
         if dest_parent:
             os.makedirs(dest_parent, exist_ok=True)
 
-        self.mw.active_file_operations[patient_id] = {'op': 'archive'}
+        self.mw.active_file_operations[patient_id] = {'op': 'archive', 'progress': 0.0}
         self.mw.images_table.viewport().update()
         
-        def run_archive():
+        def run_archive(progress_callback=None):
             from core.rename_utils import move_study_folder_hierarchical
-            move_study_folder_hierarchical(path, archive_dir, self.mw.output_field)
+            move_study_folder_hierarchical(path, archive_dir, self.mw.output_field, progress_callback=progress_callback)
             return self.mw.get_folder_desc(patient_id, patient_name)
             
         worker = BackgroundFileWorker(patient_id, 'archive', run_archive)
+        worker.progress.connect(self.mw.on_background_action_progress)
         worker.finished.connect(self.mw.on_background_action_finished)
         worker.error.connect(self.mw.on_background_action_error)
         op_key = f"worker_{patient_id}"
@@ -381,11 +414,11 @@ class PatientOperationsManager:
         folder_name = self.mw.images_cache[patient_id].get('folder_name', patient_id) if (self.mw.images_cache and patient_id in self.mw.images_cache) else patient_id
         path = os.path.join(self.mw.config.get('ct_images_dir', ''), folder_name)
         if os.path.exists(path):
-            self.mw.active_file_operations[patient_id] = {'op': 'clean_str'}
+            self.mw.active_file_operations[patient_id] = {'op': 'clean_str', 'progress': 0.0}
             self.mw.images_table.viewport().update()
             
-            def run_clean():
-                deleted = delete_redundant_str(path, None)
+            def run_clean(progress_callback=None):
+                deleted = delete_redundant_str(path, None, progress_callback=progress_callback)
                 patient_name = ""
                 if self.mw.images_cache and patient_id in self.mw.images_cache:
                     patient_name = self.mw.images_cache[patient_id].get('patient_name', '')
@@ -393,6 +426,7 @@ class PatientOperationsManager:
                 return deleted, folder_desc
                 
             worker = BackgroundFileWorker(patient_id, 'clean_str', run_clean)
+            worker.progress.connect(self.mw.on_background_action_progress)
             worker.finished.connect(self.mw.on_background_action_finished)
             worker.error.connect(self.mw.on_background_action_error)
             op_key = f"worker_{patient_id}"
@@ -452,11 +486,11 @@ class PatientOperationsManager:
                 self.mw.remove_missing_archive_patient(pid)
                 continue
 
-            self.mw.active_file_operations[pid] = {'op': 'delete_archive'}
+            self.mw.active_file_operations[pid] = {'op': 'delete_archive', 'progress': 0.0}
 
             def make_run_delete(p_path, p_id, p_name):
-                def run_delete():
-                    shutil.rmtree(p_path, ignore_errors=True)
+                def run_delete(progress_callback=None):
+                    remove_folder_with_progress(p_path, progress_callback=progress_callback)
                     parent_dir = os.path.dirname(p_path)
                     if parent_dir and os.path.exists(parent_dir) and not os.listdir(parent_dir):
                         try:
@@ -467,6 +501,7 @@ class PatientOperationsManager:
                 return run_delete
 
             worker = BackgroundFileWorker(pid, 'delete_archive', make_run_delete(path, pid, pname))
+            worker.progress.connect(self.mw.on_background_action_progress)
             worker.finished.connect(self.mw.on_background_action_finished)
             worker.error.connect(self.mw.on_background_action_error)
             op_key = f"worker_{pid}"
@@ -515,16 +550,17 @@ class PatientOperationsManager:
             if dest_parent:
                 os.makedirs(dest_parent, exist_ok=True)
 
-            self.mw.active_file_operations[patient_id] = {'op': 'restore'}
+            self.mw.active_file_operations[patient_id] = {'op': 'restore', 'progress': 0.0}
 
             def make_run_restore(p_path, p_id, p_name):
-                def run_restore():
+                def run_restore(progress_callback=None):
                     from core.rename_utils import move_study_folder_hierarchical
-                    move_study_folder_hierarchical(p_path, ct_images_dir, self.mw.output_field)
+                    move_study_folder_hierarchical(p_path, ct_images_dir, self.mw.output_field, progress_callback=progress_callback)
                     return self.mw.get_folder_desc(p_id, p_name)
                 return run_restore
 
             worker = BackgroundFileWorker(patient_id, 'restore', make_run_restore(path, patient_id, patient_name))
+            worker.progress.connect(self.mw.on_background_action_progress)
             worker.finished.connect(self.mw.on_background_action_finished)
             worker.error.connect(self.mw.on_background_action_error)
             op_key = f"worker_{patient_id}"

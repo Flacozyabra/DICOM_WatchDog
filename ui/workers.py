@@ -43,6 +43,9 @@ class FolderScanWorker(QThread):
     status_changed = pyqtSignal(str) # (status_text)
     log_emitted = pyqtSignal(str)
     archive_updated = pyqtSignal()
+    study_auto_op_started = pyqtSignal(str, str)     # (patient_key, op_type)
+    study_auto_op_progress = pyqtSignal(str, float)   # (patient_key, progress)
+    study_auto_op_finished = pyqtSignal(str)         # (patient_key)
 
     def __init__(self, ct_images_dir, cleanup_structures_enabled, fix_patient_id_enabled, id_prefixes,
                  rename_study_folder_enabled, rename_study_folder_mode,
@@ -138,6 +141,7 @@ class FolderScanWorker(QThread):
                     return {}, 0
 
                 active_path = path
+                folder_name = os.path.basename(path)
                 archived_in_study = 0
 
                 # 2a. Исправление ID и переименование (только если папка изменилась или не в кэше)
@@ -151,74 +155,85 @@ class FolderScanWorker(QThread):
                     cached_entry = ct_cache.get(path)
                 is_unmodified = (cached_entry is not None and cached_entry.get('mtime') == folder_mtime)
 
-                if (is_fix_id_on or is_rename_folder_on) and not is_unmodified:
-                    res_path = process_patient_folder(
-                        path, collector,
-                        fix_patient_id=is_fix_id_on,
-                        prefixes=prefixes_list,
-                        rename_folder=is_rename_folder_on,
-                        rename_mode=self.rename_study_folder_mode
-                    )
-                    if res_path and os.path.exists(res_path):
-                        active_path = res_path
+                if not is_unmodified:
+                    self.study_auto_op_started.emit(folder_name, 'auto_process')
 
-                # 2b. Автоархивация (если включена)
-                is_fully_archived = False
-                if self.archive_dir and is_archive_on and os.path.exists(active_path):
-                    target_folder = active_path
-                    try:
-                        subdirs = [os.path.join(target_folder, s) for s in os.listdir(target_folder)
-                                   if os.path.isdir(os.path.join(target_folder, s))]
-                    except Exception:
-                        subdirs = []
+                try:
+                    if (is_fix_id_on or is_rename_folder_on) and not is_unmodified:
+                        res_path = process_patient_folder(
+                            path, collector,
+                            fix_patient_id=is_fix_id_on,
+                            prefixes=prefixes_list,
+                            rename_folder=is_rename_folder_on,
+                            rename_mode=self.rename_study_folder_mode
+                        )
+                        if res_path and os.path.exists(res_path):
+                            if os.path.basename(res_path) != folder_name:
+                                self.study_auto_op_finished.emit(folder_name)
+                                folder_name = os.path.basename(res_path)
+                                self.study_auto_op_started.emit(folder_name, 'auto_process')
+                            active_path = res_path
 
-                    if subdirs:
-                        for sub in subdirs:
+                    # 2b. Автоархивация (если включена)
+                    is_fully_archived = False
+                    if self.archive_dir and is_archive_on and os.path.exists(active_path):
+                        target_folder = active_path
+                        try:
+                            subdirs = [os.path.join(target_folder, s) for s in os.listdir(target_folder)
+                                       if os.path.isdir(os.path.join(target_folder, s))]
+                        except Exception:
+                            subdirs = []
+
+                        if subdirs:
+                            for sub in subdirs:
+                                try:
+                                    folder_date = datetime.fromtimestamp(os.path.getmtime(sub))
+                                except Exception:
+                                    continue
+                                if (now - folder_date).days >= self.archive_days:
+                                    try:
+                                        patient_name = tr_log("log_patient_unknown")
+                                        info = get_folder_study_info(sub)
+                                        if info and info.get('patient_name'):
+                                            patient_name = str(info['patient_name'])
+                                        if move_study_folder_hierarchical(sub, self.archive_dir, collector):
+                                            archived_in_study += 1
+                                        log_message(collector, tr_log("log_patient_moved_to_archive", patient_name, os.path.basename(target_folder), self.archive_destination_name))
+                                    except Exception as e:
+                                        log_message(collector, tr_log("log_patient_move_to_archive_error", os.path.basename(target_folder), self.archive_destination_name, e))
+                        else:
                             try:
-                                folder_date = datetime.fromtimestamp(os.path.getmtime(sub))
+                                folder_date = datetime.fromtimestamp(os.path.getmtime(target_folder))
                             except Exception:
-                                continue
+                                folder_date = now
                             if (now - folder_date).days >= self.archive_days:
                                 try:
                                     patient_name = tr_log("log_patient_unknown")
-                                    info = get_folder_study_info(sub)
+                                    info = get_folder_study_info(target_folder)
                                     if info and info.get('patient_name'):
                                         patient_name = str(info['patient_name'])
-                                    if move_study_folder_hierarchical(sub, self.archive_dir, collector):
+                                    if move_study_folder_hierarchical(target_folder, self.archive_dir, collector):
                                         archived_in_study += 1
                                     log_message(collector, tr_log("log_patient_moved_to_archive", patient_name, os.path.basename(target_folder), self.archive_destination_name))
+                                    is_fully_archived = True
                                 except Exception as e:
                                     log_message(collector, tr_log("log_patient_move_to_archive_error", os.path.basename(target_folder), self.archive_destination_name, e))
-                    else:
-                        try:
-                            folder_date = datetime.fromtimestamp(os.path.getmtime(target_folder))
-                        except Exception:
-                            folder_date = now
-                        if (now - folder_date).days >= self.archive_days:
-                            try:
-                                patient_name = tr_log("log_patient_unknown")
-                                info = get_folder_study_info(target_folder)
-                                if info and info.get('patient_name'):
-                                    patient_name = str(info['patient_name'])
-                                if move_study_folder_hierarchical(target_folder, self.archive_dir, collector):
-                                    archived_in_study += 1
-                                log_message(collector, tr_log("log_patient_moved_to_archive", patient_name, os.path.basename(target_folder), self.archive_destination_name))
-                                is_fully_archived = True
-                            except Exception as e:
-                                log_message(collector, tr_log("log_patient_move_to_archive_error", os.path.basename(target_folder), self.archive_destination_name, e))
 
-                # 2c. Считывание исследования сразу в patient_dict (с использованием кэша)
-                if not is_fully_archived and os.path.exists(active_path):
-                    with cache_lock:
-                        studies = collect_patient_studies(
-                            active_path, self.ct_images_dir, collector,
-                            cleanup_structures=is_cleanup_struct_on,
-                            scan_rtd=self.scan_rtd,
-                            scan_rtp=self.scan_rtp,
-                            cache=ct_cache
-                        )
-                    return studies, archived_in_study
-                return {}, archived_in_study
+                    # 2c. Считывание исследования сразу в patient_dict (с использованием кэша)
+                    if not is_fully_archived and os.path.exists(active_path):
+                        with cache_lock:
+                            studies = collect_patient_studies(
+                                active_path, self.ct_images_dir, collector,
+                                cleanup_structures=is_cleanup_struct_on,
+                                scan_rtd=self.scan_rtd,
+                                scan_rtp=self.scan_rtp,
+                                cache=ct_cache
+                            )
+                        return studies, archived_in_study
+                    return {}, archived_in_study
+                finally:
+                    if not is_unmodified:
+                        self.study_auto_op_finished.emit(folder_name)
 
             max_w = min(8, max(1, (os.cpu_count() or 4)))
             completed_count = 0
@@ -334,17 +349,27 @@ class ArchiveScanWorker(QThread):
 class BackgroundFileWorker(QThread):
     finished = pyqtSignal(str, str, object)  # patient_id, op_type, result
     error = pyqtSignal(str, str, str, str)    # patient_id, op_type, err_msg, err_title
+    progress = pyqtSignal(str, float)         # patient_id, progress (0.0 .. 1.0)
 
-    def __init__(self, patient_id, op_type, func, *args):
+    def __init__(self, patient_id, op_type, func, *args, **kwargs):
         super().__init__()
         self.patient_id = patient_id
         self.op_type = op_type
         self.func = func
-        self.args = args
+        self.args = list(args)
+        self.kwargs = kwargs
 
     def run(self):
         try:
-            res = self.func(*self.args)
+            import inspect
+            try:
+                sig = inspect.signature(self.func)
+                if 'progress_callback' in sig.parameters and 'progress_callback' not in self.kwargs:
+                    self.kwargs['progress_callback'] = lambda p: self.progress.emit(self.patient_id, p)
+            except Exception:
+                pass
+
+            res = self.func(*self.args, **self.kwargs)
             self.finished.emit(self.patient_id, self.op_type, res)
         except Exception as e:
             err_title = tr_ui("dlg_error_archive_title") if self.op_type == "archive" else tr_ui("dlg_error_delete_title")

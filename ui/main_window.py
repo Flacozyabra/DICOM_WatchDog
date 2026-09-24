@@ -202,6 +202,55 @@ class MainWindow(QMainWindow):
             self.images_table.viewport().update()
             self.archive_table.viewport().update()
 
+    def on_background_action_progress(self, patient_id, progress):
+        if patient_id in self.active_file_operations:
+            self.active_file_operations[patient_id]['progress'] = progress
+        else:
+            for k in self.active_file_operations:
+                if k == patient_id or patient_id.startswith(k + '/') or patient_id.startswith(k + '\\') or k.startswith(patient_id + '/') or k.startswith(patient_id + '\\'):
+                    self.active_file_operations[k]['progress'] = progress
+                    break
+        self.images_table.viewport().update()
+        self.archive_table.viewport().update()
+
+    def on_study_auto_op_started(self, patient_key, op_type):
+        self.active_file_operations[patient_key] = {'op': op_type, 'progress': None}
+        if hasattr(self, 'images_cache') and self.images_cache is not None:
+            has_match = (patient_key in self.images_cache) or any(
+                k.startswith(patient_key + '/') or k.startswith(patient_key + '\\') or
+                self.images_cache[k].get('folder_name') == patient_key
+                for k in self.images_cache
+            )
+            if not has_match:
+                self.images_cache[patient_key] = {
+                    'patient_id': patient_key,
+                    'patient_name': patient_key,
+                    'folder_name': patient_key,
+                    'study_date': '',
+                    'modality': 'CT',
+                    'rtd': False,
+                    'rtp': False,
+                    'str': False,
+                    'is_placeholder': True
+                }
+                self.update_images_table_ui()
+        self.images_table.viewport().update()
+
+    def on_study_auto_op_progress(self, patient_key, progress):
+        if patient_key in self.active_file_operations:
+            self.active_file_operations[patient_key]['progress'] = progress
+        else:
+            for k in self.active_file_operations:
+                if k == patient_key or patient_key.startswith(k + '/') or patient_key.startswith(k + '\\'):
+                    self.active_file_operations[k]['progress'] = progress
+                    break
+        self.images_table.viewport().update()
+
+    def on_study_auto_op_finished(self, patient_key):
+        if patient_key in self.active_file_operations:
+            del self.active_file_operations[patient_key]
+        self.images_table.viewport().update()
+
     def on_background_action_finished(self, patient_id, op_type, result):
         if patient_id in self.active_file_operations:
             del self.active_file_operations[patient_id]
@@ -847,6 +896,9 @@ class MainWindow(QMainWindow):
         self.scan_worker.status_changed.connect(self.on_scan_status_changed)
         self.scan_worker.progress.connect(self.on_scan_progress)
         self.scan_worker.count_updated.connect(self.on_images_scan_count_updated)
+        self.scan_worker.study_auto_op_started.connect(self.on_study_auto_op_started)
+        self.scan_worker.study_auto_op_progress.connect(self.on_study_auto_op_progress)
+        self.scan_worker.study_auto_op_finished.connect(self.on_study_auto_op_finished)
         
         self.is_scanning_active = True
         if hasattr(self, 'debounce_timer') and self.debounce_timer:
@@ -932,6 +984,11 @@ class MainWindow(QMainWindow):
                             )
                         except Exception as e:
                             log_message(self.output_field, f"CT notification error: {e}")
+
+        # Очищаем статусы авто-обработки, завершившиеся в ходе сканирования
+        auto_keys = [k for k, v in self.active_file_operations.items() if v.get('op') in ('auto_process', 'process')]
+        for k in auto_keys:
+            del self.active_file_operations[k]
 
         self.images_cache = patient_dict
         # Завершили первое сканирование

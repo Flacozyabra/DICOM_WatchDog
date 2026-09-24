@@ -174,76 +174,142 @@ class TaskProgressDelegate(QStyledItemDelegate):
         id_index = index.sibling(index.row(), 0)
         patient_id = id_index.data(Qt.ItemDataRole.UserRole)
 
-        if patient_id in self.active_ops:
+        op_data = None
+        if patient_id and patient_id in self.active_ops:
             op_data = self.active_ops[patient_id]
-            op_type = op_data.get('op')
+        elif patient_id:
+            for k, v in self.active_ops.items():
+                if k == patient_id or v.get('folder_name') == patient_id or str(patient_id).startswith(str(k) + "_"):
+                    op_data = v
+                    break
+
+        if op_data:
+            op_type = op_data.get('op', 'process')
+            progress = op_data.get('progress')
 
             painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
             color_map = {
-                'archive': (QColor(40, 30, 15, 200), QColor(80, 50, 20, 200)),
-                'delete': (QColor(50, 15, 15, 200), QColor(90, 25, 25, 200)),
-                'delete_images': (QColor(50, 15, 15, 200), QColor(90, 25, 25, 200)),
-                'delete_archive': (QColor(50, 15, 15, 200), QColor(90, 25, 25, 200)),
-                'restore': (QColor(15, 40, 50, 200), QColor(25, 70, 90, 200)),
-                'clean_str': (QColor(35, 15, 50, 200), QColor(60, 25, 90, 200))
+                'archive': (QColor(45, 30, 15, 230), QColor(160, 95, 25, 240), QColor(255, 175, 55)),
+                'delete': (QColor(50, 15, 20, 230), QColor(150, 30, 45, 240), QColor(255, 75, 95)),
+                'delete_images': (QColor(50, 15, 20, 230), QColor(150, 30, 45, 240), QColor(255, 75, 95)),
+                'delete_archive': (QColor(50, 15, 20, 230), QColor(150, 30, 45, 240), QColor(255, 75, 95)),
+                'restore': (QColor(15, 35, 55, 230), QColor(25, 100, 160, 240), QColor(60, 190, 255)),
+                'clean_str': (QColor(35, 15, 50, 230), QColor(110, 35, 160, 240), QColor(190, 80, 255)),
+                'auto_process': (QColor(15, 45, 35, 230), QColor(25, 130, 95, 240), QColor(45, 220, 150)),
+                'process': (QColor(15, 45, 35, 230), QColor(25, 130, 95, 240), QColor(45, 220, 150)),
             }
-            c1, c2 = color_map.get(op_type, (QColor(30, 30, 30, 200), QColor(50, 50, 50, 200)))
+            c1, c2, edge_color = color_map.get(op_type, (QColor(30, 30, 35, 230), QColor(70, 75, 90, 240), QColor(160, 170, 190)))
 
             table_widget = option.widget
             rect = option.rect
-            
+
             row_left = rect.left()
             row_right = rect.right()
+            total_width = rect.width()
             if table_widget:
                 total_width = 0
                 for col in range(table_widget.columnCount()):
-                    total_width += table_widget.columnWidth(col)
-                
+                    if not table_widget.isColumnHidden(col):
+                        total_width += table_widget.columnWidth(col)
+
                 cell_left_offset = 0
                 for col in range(index.column()):
-                    cell_left_offset += table_widget.columnWidth(col)
-                
+                    if not table_widget.isColumnHidden(col):
+                        cell_left_offset += table_widget.columnWidth(col)
+
                 row_left = rect.left() - cell_left_offset
                 row_right = row_left + total_width
 
-            gradient = QLinearGradient(row_left, rect.top(), row_right, rect.top())
-
             phase = self.anim_phase[0]
-            stop1 = phase % 1.0
-            stop2 = (phase + 0.33) % 1.0
-            stop3 = (phase + 0.66) % 1.0
+            prog_val = min(1.0, max(0.0, float(progress))) if progress is not None else None
 
-            stops = sorted([(stop1, c1), (stop2, c2), (stop3, c1)], key=lambda x: x[0])
-            
-            gradient.setColorAt(0.0, stops[0][1])
-            for stop, color in stops:
-                gradient.setColorAt(stop, color)
-            gradient.setColorAt(1.0, stops[-1][1])
+            # 1. Базовый темный фон строки
+            painter.fillRect(rect, QColor(22, 22, 25, 240))
 
-            painter.fillRect(rect, QBrush(gradient))
-            painter.restore()
+            if prog_val is not None:
+                # Детерминированный прогресс-бар: заполнение слева направо
+                prog_width = max(1.0, total_width * prog_val)
+                fill_right = row_left + prog_width
+                cell_filled_rect = rect.intersected(QRect(int(row_left), rect.top(), int(prog_width), rect.height()))
 
-            new_option = QStyleOptionViewItem(option)
-            if new_option.state & QStyle.StateFlag.State_Selected:
-                new_option.state &= ~QStyle.StateFlag.State_Selected
-            new_option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Text, QColor("#ffffff"))
-            new_option.palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
+                if cell_filled_rect.isValid() and cell_filled_rect.width() > 0:
+                    gradient = QLinearGradient(row_left, rect.top(), fill_right, rect.top())
+                    stop1 = phase % 1.0
+                    stop2 = (phase + 0.33) % 1.0
+                    stop3 = (phase + 0.66) % 1.0
+                    stops = sorted([(stop1, c1), (stop2, c2), (stop3, c1)], key=lambda x: x[0])
 
+                    gradient.setColorAt(0.0, stops[0][1])
+                    for stop, color in stops:
+                        gradient.setColorAt(stop, color)
+                    gradient.setColorAt(1.0, stops[-1][1])
+
+                    painter.fillRect(cell_filled_rect, QBrush(gradient))
+
+                # Светящаяся линия переднего края прогресса
+                if rect.left() <= fill_right <= rect.right() and prog_val < 0.999:
+                    painter.setPen(QPen(edge_color, 2))
+                    painter.drawLine(int(fill_right), rect.top(), int(fill_right), rect.bottom())
+            else:
+                # Анимированная волна по всей ширине строки
+                gradient = QLinearGradient(row_left, rect.top(), row_right, rect.top())
+                stop1 = phase % 1.0
+                stop2 = (phase + 0.33) % 1.0
+                stop3 = (phase + 0.66) % 1.0
+                stops = sorted([(stop1, c1), (stop2, c2), (stop3, c1)], key=lambda x: x[0])
+
+                gradient.setColorAt(0.0, stops[0][1])
+                for stop, color in stops:
+                    gradient.setColorAt(stop, color)
+                gradient.setColorAt(1.0, stops[-1][1])
+
+                painter.fillRect(rect, QBrush(gradient))
+
+            # 2. Выделение пользователем (полупрозрачная акцентная подсветка без затирания анимации)
+            is_selected = bool(option.state & QStyle.StateFlag.State_Selected)
+            if is_selected:
+                painter.fillRect(rect, QColor(255, 94, 94, 45))
+                painter.setPen(QPen(QColor(255, 94, 94, 180), 1))
+                painter.drawLine(rect.left(), rect.top(), rect.right(), rect.top())
+                painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
+
+            # 3. Прямой рендеринг текста белым цветом
+            align_data = index.data(Qt.ItemDataRole.TextAlignmentRole)
+            if align_data is not None:
+                align = int(align_data)
+            else:
+                if index.column() in (0, 1):
+                    align = int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+                else:
+                    align = int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter)
+
+            orig_text = str(index.data(Qt.ItemDataRole.DisplayRole) or "")
+            suffix = ""
             if index.column() in (0, 1):
                 suffix_map = {
                     'archive': tr(" [Архивация...]", " [Archiving...]"),
                     'delete': tr(" [Удаление...]", " [Deleting...]"),
+                    'delete_images': tr(" [Удаление...]", " [Deleting...]"),
+                    'delete_archive': tr(" [Удаление...]", " [Deleting...]"),
                     'restore': tr(" [Восстановление...]", " [Restoring...]"),
-                    'clean_str': tr(" [Очистка STR...]", " [Cleaning STR...]")
+                    'clean_str': tr(" [Очистка STR...]", " [Cleaning STR...]"),
+                    'auto_process': tr(" [Обработка...]", " [Processing...]"),
+                    'process': tr(" [Обработка...]", " [Processing...]")
                 }
                 suffix = suffix_map.get(op_type, tr(" [Выполнение...]", " [Processing...]"))
-                orig_text = index.data(Qt.ItemDataRole.DisplayRole)
-                new_option.text = str(orig_text) + suffix
 
-            super().paint(painter, new_option, index)
-        else:
-            super().paint(painter, option, index)
+            display_text = orig_text + suffix if suffix else orig_text
+            painter.setFont(option.font)
+            painter.setPen(QColor("#ffffff"))
+            text_rect = rect.adjusted(6, 0, -6, 0)
+            painter.drawText(text_rect, align, display_text)
+
+            painter.restore()
+            return
+
+        super().paint(painter, option, index)
 
 
 class CustomSplitterHandle(QSplitterHandle):

@@ -132,20 +132,26 @@ def is_dicom_file(file_path):
         return False
 
 
-def delete_redundant_str(patient_dir, output_field=None):
+def delete_redundant_str(patient_dir, output_field=None, progress_callback=None):
     """
     Удаляет все файлы структур (RTSTRUCT) в папке пациента, кроме самого свежего.
     """
     if not os.path.exists(patient_dir):
+        if progress_callback:
+            progress_callback(1.0)
         return 0
         
     try:
         all_files = os.listdir(patient_dir)
     except Exception:
+        if progress_callback:
+            progress_callback(1.0)
         return 0
 
     files = [f for f in all_files if is_structure_file(os.path.join(patient_dir, f))]
     if len(files) <= 1:
+        if progress_callback:
+            progress_callback(1.0)
         return 0
         
     # Сортировка списка файлов по времени создания
@@ -153,7 +159,8 @@ def delete_redundant_str(patient_dir, output_field=None):
     files_to_delete = sorted_files[:-1]  # Сохраняем только последний
     
     deleted_count = 0
-    for file in files_to_delete:
+    total = len(files_to_delete)
+    for idx, file in enumerate(files_to_delete, 1):
         try:
             os.remove(os.path.join(patient_dir, file))
             deleted_count += 1
@@ -163,7 +170,11 @@ def delete_redundant_str(patient_dir, output_field=None):
         except Exception as e:
             if output_field:
                 log_message(output_field, tr_log("log_str_delete_error", file, e))
-                
+        if progress_callback and total > 0:
+            progress_callback(idx / total)
+
+    if progress_callback:
+        progress_callback(1.0)
     return deleted_count
 
 

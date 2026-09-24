@@ -109,36 +109,92 @@ class FolderLock:
                 pass
             self.acquired = False
 
-def safe_merge_folders(src, dest, new_id):
+def move_folder_with_progress(src, dest, progress_callback=None):
+    """
+    Перемещает папку src в dest с поддержкой progress_callback.
+    Если папка на том же диске, переименование выполняется мгновенно.
+    При перемещении между дисками файлы переносятся по одному с вызовом progress_callback.
+    """
+    try:
+        os.rename(src, dest)
+        if progress_callback:
+            progress_callback(1.0)
+        return True
+    except OSError:
+        pass
+
+    all_files = []
+    for dirpath, dirnames, filenames in os.walk(src):
+        for filename in filenames:
+            all_files.append((dirpath, filename))
+
+    total = len(all_files)
+    done = 0
+    for dirpath, filename in all_files:
+        s_file = os.path.join(dirpath, filename)
+        rel = os.path.relpath(dirpath, src)
+        d_dir = os.path.join(dest, rel)
+        os.makedirs(d_dir, exist_ok=True)
+        d_file = os.path.join(d_dir, filename)
+        shutil.move(s_file, d_file)
+        done += 1
+        if progress_callback and total > 0 and (done % 5 == 0 or done == total):
+            progress_callback(done / total)
+
+    try:
+        shutil.rmtree(src, ignore_errors=True)
+    except Exception:
+        pass
+    if progress_callback:
+        progress_callback(1.0)
+    return True
+
+
+def safe_merge_folders(src, dest, new_id, progress_callback=None):
     if os.path.normcase(os.path.abspath(src)) == os.path.normcase(os.path.abspath(dest)):
+        if progress_callback:
+            progress_callback(1.0)
         return
+
+    all_files = []
     for dirpath, dirnames, filenames in os.walk(src):
         for filename in filenames:
             if filename == LOCK_FILE_NAME or filename.lower().endswith('.lock'):
                 continue
-            src_file = os.path.join(dirpath, filename)
-            rel_path = os.path.relpath(dirpath, src)
-            dest_dir = os.path.join(dest, rel_path)
-            os.makedirs(dest_dir, exist_ok=True)
-            dest_file = os.path.join(dest_dir, filename)
-            
-            if is_dicom_file(src_file) or is_structure_file(src_file):
-                try:
-                    if new_id:
-                        ds_header = pydicom.dcmread(src_file, stop_before_pixels=True, force=True, specific_tags=['PatientID'])
-                        curr_id = str(getattr(ds_header, 'PatientID', '') or ds_header.get('PatientID', '')).strip()
-                        if curr_id != str(new_id):
-                            ds_file = pydicom.dcmread(src_file, force=True)
-                            ds_file.PatientID = str(new_id)
-                            ds_file.save_as(dest_file)
-                        else:
-                            shutil.copy2(src_file, dest_file)
+            all_files.append((dirpath, filename))
+
+    total_files = len(all_files)
+    processed = 0
+
+    for dirpath, filename in all_files:
+        src_file = os.path.join(dirpath, filename)
+        rel_path = os.path.relpath(dirpath, src)
+        dest_dir = os.path.join(dest, rel_path)
+        os.makedirs(dest_dir, exist_ok=True)
+        dest_file = os.path.join(dest_dir, filename)
+        
+        if is_dicom_file(src_file) or is_structure_file(src_file):
+            try:
+                if new_id:
+                    ds_header = pydicom.dcmread(src_file, stop_before_pixels=True, force=True, specific_tags=['PatientID'])
+                    curr_id = str(getattr(ds_header, 'PatientID', '') or ds_header.get('PatientID', '')).strip()
+                    if curr_id != str(new_id):
+                        ds_file = pydicom.dcmread(src_file, force=True)
+                        ds_file.PatientID = str(new_id)
+                        ds_file.save_as(dest_file)
                     else:
                         shutil.copy2(src_file, dest_file)
-                except Exception:
+                else:
                     shutil.copy2(src_file, dest_file)
-            else:
+            except Exception:
                 shutil.copy2(src_file, dest_file)
+        else:
+            shutil.copy2(src_file, dest_file)
+
+        processed += 1
+        if progress_callback and total_files > 0 and (processed % 5 == 0 or processed == total_files):
+            progress_callback(processed / total_files)
+
     for attempt in range(5):
         try:
             shutil.rmtree(src)
@@ -151,33 +207,44 @@ def safe_merge_folders(src, dest, new_id):
         except Exception:
             pass
 
-def safe_update_patient_ids(folder_path, new_id, output_field=None, rt_only=False):
+    if progress_callback:
+        progress_callback(1.0)
+
+
+def safe_update_patient_ids(folder_path, new_id, output_field=None, rt_only=False, progress_callback=None):
     if not new_id:
+        if progress_callback:
+            progress_callback(1.0)
         return 0, False
-    updated_count = 0
-    has_errors = False
+
+    candidates = []
     for dirpath, dirnames, filenames in os.walk(folder_path):
         for filename in filenames:
             fn_lower = filename.lower()
             if fn_lower in ('dicomdir', LOCK_FILE_NAME.lower()) or fn_lower.endswith('.lock'):
                 continue
 
-            # Если включен режим rt_only, проверяем только файлы структур/доз/планов, пропуская явные КТ-срезы
             if rt_only and (fn_lower.startswith(('ct', 'img')) or '_ct' in fn_lower or 'ct_' in fn_lower or '_image' in fn_lower):
                 continue
 
             if not (fn_lower.endswith('.dcm') or fn_lower.endswith(('.str', '.rtd', '.rtp', '.dose', '.plan')) or '.' not in filename):
                 continue
 
-            src_file = os.path.join(dirpath, filename)
-            try:
-                # Сначала читаем только тег PatientID без пикселей для сверхбыстрой проверки
-                ds_header = pydicom.dcmread(src_file, stop_before_pixels=True, force=True, specific_tags=['PatientID'])
-                current_id = str(getattr(ds_header, 'PatientID', '') or ds_header.get('PatientID', '')).strip()
-                if not current_id or current_id == str(new_id):
-                    continue
-                
-                # Только если ID действительно отличается - загружаем и перезаписываем с Retry механизмом
+            candidates.append((dirpath, filename))
+
+    total = len(candidates)
+    updated_count = 0
+    has_errors = False
+    processed = 0
+
+    for dirpath, filename in candidates:
+        src_file = os.path.join(dirpath, filename)
+        try:
+            # Сначала читаем только тег PatientID без пикселей для сверхбыстрой проверки
+            ds_header = pydicom.dcmread(src_file, stop_before_pixels=True, force=True, specific_tags=['PatientID'])
+            current_id = str(getattr(ds_header, 'PatientID', '') or ds_header.get('PatientID', '')).strip()
+            if current_id and current_id != str(new_id):
+                # Загружаем и перезаписываем с Retry механизмом
                 ds_file = pydicom.dcmread(src_file, force=True)
                 ds_file.PatientID = str(new_id)
 
@@ -201,11 +268,17 @@ def safe_update_patient_ids(folder_path, new_id, output_field=None, rt_only=Fals
                     has_errors = True
                     if output_field:
                         log_message(output_field, tr_log("log_dcm_update_id_warning", filename, last_err))
-            except Exception as e:
-                has_errors = True
-                if output_field:
-                    log_message(output_field, tr_log("log_dcm_update_id_warning", filename, e))
+        except Exception as e:
+            has_errors = True
+            if output_field:
+                log_message(output_field, tr_log("log_dcm_update_id_warning", filename, e))
 
+        processed += 1
+        if progress_callback and total > 0 and (processed % 5 == 0 or processed == total):
+            progress_callback(processed / total)
+
+    if progress_callback:
+        progress_callback(1.0)
     return updated_count, has_errors
 
 def get_folder_study_info(folder_path):
@@ -790,24 +863,26 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
         return path
 
 
-def move_single_study_folder(src_study_path: str, dest_patient_path: str, output_field=None) -> bool:
+def move_single_study_folder(src_study_path: str, dest_patient_path: str, output_field=None, progress_callback=None) -> bool:
     """
     Переносит одно конкретное исследование (src_study_path) в целевую папку пациента (dest_patient_path).
     Сохраняет иерархическую структуру при наличии нескольких исследований одного пациента.
     """
     if not os.path.exists(src_study_path):
+        if progress_callback:
+            progress_callback(1.0)
         return False
 
     info = get_folder_study_info(src_study_path)
     if not info:
         if not os.path.exists(dest_patient_path):
-            shutil.move(src_study_path, dest_patient_path)
+            move_folder_with_progress(src_study_path, dest_patient_path, progress_callback)
         else:
             target_dest = os.path.join(dest_patient_path, os.path.basename(src_study_path))
             if os.path.exists(target_dest):
-                safe_merge_folders(src_study_path, target_dest, "")
+                safe_merge_folders(src_study_path, target_dest, "", progress_callback=progress_callback)
             else:
-                shutil.move(src_study_path, target_dest)
+                move_folder_with_progress(src_study_path, target_dest, progress_callback)
         return True
 
     patient_id = info.get('patient_id', '')
@@ -821,9 +896,9 @@ def move_single_study_folder(src_study_path: str, dest_patient_path: str, output
         if os.path.basename(src_study_path).startswith("[") and os.path.basename(src_study_path).endswith("]"):
             os.makedirs(dest_patient_path, exist_ok=True)
             dest_sub = os.path.join(dest_patient_path, os.path.basename(src_study_path))
-            shutil.move(src_study_path, dest_sub)
+            move_folder_with_progress(src_study_path, dest_sub, progress_callback)
         else:
-            shutil.move(src_study_path, dest_patient_path)
+            move_folder_with_progress(src_study_path, dest_patient_path, progress_callback)
         return True
 
     # 2. Папка пациента в целевом каталоге уже существует!
@@ -834,7 +909,7 @@ def move_single_study_folder(src_study_path: str, dest_patient_path: str, output
         exist_uid = exist_info.get('study_instance_uid', '')
         if (exist_uid and incoming_uid and exist_uid == incoming_uid) or is_incoming_struct_only or (exist_info.get('date_only_str') == date_only_str):
             # Тот же StudyInstanceUID или дата — сливаем в корень dest_patient_path
-            safe_merge_folders(src_study_path, dest_patient_path, patient_id)
+            safe_merge_folders(src_study_path, dest_patient_path, patient_id, progress_callback=progress_callback)
             return True
 
         # Разные исследования: переводим целевую плоскую папку в иерархическую структуру
@@ -857,21 +932,23 @@ def move_single_study_folder(src_study_path: str, dest_patient_path: str, output
     target_sub = matching_sub if matching_sub else os.path.join(dest_patient_path, f"[{study_date_str}]")
 
     if os.path.exists(target_sub):
-        safe_merge_folders(src_study_path, target_sub, patient_id)
+        safe_merge_folders(src_study_path, target_sub, patient_id, progress_callback=progress_callback)
     else:
-        shutil.move(src_study_path, target_sub)
+        move_folder_with_progress(src_study_path, target_sub, progress_callback)
 
     # Автолечение на случай дублирования
     auto_heal_split_patient_folders(dest_patient_path, patient_id, output_field)
     return True
 
 
-def move_study_folder_hierarchical(src_path: str, dest_root_dir: str, output_field=None) -> bool:
+def move_study_folder_hierarchical(src_path: str, dest_root_dir: str, output_field=None, progress_callback=None) -> bool:
     """
     Перемещает исследование или папку пациента из исходного каталога в целевой (архив или ct_images)
     с сохранением иерархической структуры исследований одного пациента.
     """
     if not os.path.exists(src_path):
+        if progress_callback:
+            progress_callback(1.0)
         return False
         
     os.makedirs(dest_root_dir, exist_ok=True)
@@ -889,20 +966,22 @@ def move_study_folder_hierarchical(src_path: str, dest_root_dir: str, output_fie
     if immediate_subdirs:
         dest_patient_path = os.path.join(dest_root_dir, src_name)
         if not os.path.exists(dest_patient_path):
-            shutil.move(src_path, dest_patient_path)
+            move_folder_with_progress(src_path, dest_patient_path, progress_callback=progress_callback)
             touch_folder_tree(dest_patient_path)
             return True
         else:
             if not make_folder_hierarchical(dest_patient_path, output_field):
                 return False
             for sub in immediate_subdirs:
-                move_single_study_folder(sub, dest_patient_path, output_field)
+                move_single_study_folder(sub, dest_patient_path, output_field, progress_callback=progress_callback)
             touch_folder_tree(dest_patient_path)
             try:
                 if os.path.exists(src_path) and not os.listdir(src_path):
                     os.rmdir(src_path)
             except Exception:
                 pass
+            if progress_callback:
+                progress_callback(1.0)
             return True
 
     # Иначе src_path — это одиночное исследование
@@ -912,7 +991,7 @@ def move_study_folder_hierarchical(src_path: str, dest_root_dir: str, output_fie
         patient_folder_name = src_name
 
     dest_patient_path = os.path.join(dest_root_dir, patient_folder_name)
-    success = move_single_study_folder(src_path, dest_patient_path, output_field)
+    success = move_single_study_folder(src_path, dest_patient_path, output_field, progress_callback=progress_callback)
     if success:
         touch_folder_tree(dest_patient_path)
     
@@ -923,5 +1002,7 @@ def move_study_folder_hierarchical(src_path: str, dest_root_dir: str, output_fie
         except Exception:
             pass
             
+    if progress_callback:
+        progress_callback(1.0)
     return success
 
