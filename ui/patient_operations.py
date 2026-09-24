@@ -190,7 +190,7 @@ class PatientOperationsManager:
         if not new_id:
             return
 
-        self.mw.active_file_operations[patient_id] = {'op': 'change_id', 'progress': 0.0}
+        self.mw.active_file_operations[patient_id] = {'op': 'change_id', 'progress': None}
         if is_archive:
             self.mw.archive_table.viewport().update()
         else:
@@ -342,7 +342,7 @@ class PatientOperationsManager:
                 log_message(self.mw.output_field, tr_log("log_path_not_exist", path))
                 continue
 
-            self.mw.active_file_operations[pid] = {'op': 'delete_images', 'progress': 0.0}
+            self.mw.active_file_operations[pid] = {'op': 'delete_images', 'progress': None}
 
             def make_run_delete(p_path, p_id, p_name):
                 def run_delete(progress_callback=None):
@@ -391,7 +391,7 @@ class PatientOperationsManager:
         if dest_parent:
             os.makedirs(dest_parent, exist_ok=True)
 
-        self.mw.active_file_operations[patient_id] = {'op': 'archive', 'progress': 0.0}
+        self.mw.active_file_operations[patient_id] = {'op': 'archive', 'progress': None}
         self.mw.images_table.viewport().update()
         
         def run_archive(progress_callback=None):
@@ -414,7 +414,7 @@ class PatientOperationsManager:
         folder_name = self.mw.images_cache[patient_id].get('folder_name', patient_id) if (self.mw.images_cache and patient_id in self.mw.images_cache) else patient_id
         path = os.path.join(self.mw.config.get('ct_images_dir', ''), folder_name)
         if os.path.exists(path):
-            self.mw.active_file_operations[patient_id] = {'op': 'clean_str', 'progress': 0.0}
+            self.mw.active_file_operations[patient_id] = {'op': 'clean_str', 'progress': None}
             self.mw.images_table.viewport().update()
             
             def run_clean(progress_callback=None):
@@ -486,7 +486,7 @@ class PatientOperationsManager:
                 self.mw.remove_missing_archive_patient(pid)
                 continue
 
-            self.mw.active_file_operations[pid] = {'op': 'delete_archive', 'progress': 0.0}
+            self.mw.active_file_operations[pid] = {'op': 'delete_archive', 'progress': None}
 
             def make_run_delete(p_path, p_id, p_name):
                 def run_delete(progress_callback=None):
@@ -550,7 +550,7 @@ class PatientOperationsManager:
             if dest_parent:
                 os.makedirs(dest_parent, exist_ok=True)
 
-            self.mw.active_file_operations[patient_id] = {'op': 'restore', 'progress': 0.0}
+            self.mw.active_file_operations[patient_id] = {'op': 'restore', 'progress': None}
 
             def make_run_restore(p_path, p_id, p_name):
                 def run_restore(progress_callback=None):

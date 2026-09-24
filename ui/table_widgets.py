@@ -225,8 +225,9 @@ class TaskProgressDelegate(QStyledItemDelegate):
             phase = self.anim_phase[0]
             prog_val = min(1.0, max(0.0, float(progress))) if progress is not None else None
 
-            # 1. Базовый темный фон строки
+            # 1. Базовый темный фон строки + полупрозрачный трек цвета операции
             painter.fillRect(rect, QColor(22, 22, 25, 240))
+            painter.fillRect(rect, QColor(c1.red(), c1.green(), c1.blue(), 35))
 
             if prog_val is not None:
                 # Детерминированный прогресс-бар: заполнение слева направо
