@@ -5,13 +5,13 @@ import os
 from datetime import datetime
 from collections import defaultdict
 try:
-    from PyQt6.QtCore import Qt, QSize
+    from PyQt6.QtCore import Qt, QSize, QItemSelectionModel
     from PyQt6.QtGui import QIcon, QColor
     from PyQt6.QtWidgets import (
         QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QTableWidgetItem
     )
 except ImportError:
-    from PyQt5.QtCore import Qt, QSize
+    from PyQt5.QtCore import Qt, QSize, QItemSelectionModel
     from PyQt5.QtGui import QIcon, QColor
     from PyQt5.QtWidgets import (
         QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QTableWidgetItem
@@ -55,6 +55,7 @@ class ImagesTab(QWidget):
             self.table.cellDoubleClicked.connect(self.main_window.on_images_double_clicked)
             self.table.customContextMenuRequested.connect(self.main_window.show_images_context_menu)
             self.table.itemSelectionChanged.connect(self.main_window.on_images_selection_changed)
+            self.table.delete_requested.connect(lambda: self.main_window.delete_patient_action())
 
         self.table.set_placeholder_text("В этой папке нет исследований")
         self.table.update_placeholder_visibility()
@@ -158,24 +159,24 @@ class ImagesTab(QWidget):
         self.table.setUpdatesEnabled(False)
         self.table.blockSignals(True)
 
-        # Remember selected patient and row type
-        selected_patient_id = None
-        is_selected_child = False
+        # Remember selected patients and row types
+        selected_items = set()
         selected_ranges = self.table.selectedRanges()
         if selected_ranges:
-            row = selected_ranges[0].topRow()
-            id_item = self.table.item(row, 0)
-            name_item = self.table.item(row, 1)
-            if id_item:
-                selected_patient_id = id_item.data(Qt.ItemDataRole.UserRole)
-                is_selected_child = bool(name_item and name_item.text().startswith("  ↳"))
+            for rng in selected_ranges:
+                for r in range(rng.topRow(), rng.bottomRow() + 1):
+                    id_item = self.table.item(r, 0)
+                    name_item = self.table.item(r, 1)
+                    if id_item:
+                        pid = id_item.data(Qt.ItemDataRole.UserRole)
+                        is_child = bool(name_item and name_item.text().startswith("  ↳"))
+                        if pid is not None:
+                            selected_items.add((pid, is_child))
         elif self.main_window:
-            selected_patient_id = getattr(self.main_window, 'selected_images_patient_id', None)
-            is_selected_child = getattr(self.main_window, 'selected_images_is_child', False)
+            selected_items = getattr(self.main_window, 'selected_images_items', set())
 
         if self.main_window:
-            self.main_window.selected_images_patient_id = selected_patient_id
-            self.main_window.selected_images_is_child = is_selected_child
+            self.main_window.selected_images_items = selected_items
 
         self.table.setRowCount(0)
         search_text = self.search_entry.text().lower()
@@ -337,20 +338,27 @@ class ImagesTab(QWidget):
                     row_idx += 1
 
         # Restore selection
-        if selected_patient_id:
-            matched_row = None
+        if selected_items:
+            sel_model = self.table.selectionModel()
+            first_matched_row = None
             for r in range(self.table.rowCount()):
                 id_item = self.table.item(r, 0)
                 name_item = self.table.item(r, 1)
-                if id_item and id_item.data(Qt.ItemDataRole.UserRole) == selected_patient_id:
+                if id_item:
+                    pid = id_item.data(Qt.ItemDataRole.UserRole)
                     is_child = bool(name_item and name_item.text().startswith("  ↳"))
-                    if is_child == is_selected_child:
-                        matched_row = r
-                        break
-                    elif matched_row is None:
-                        matched_row = r
-            if matched_row is not None:
-                self.table.selectRow(matched_row)
+                    if (pid, is_child) in selected_items:
+                        if first_matched_row is None:
+                            first_matched_row = r
+                        sel_model.select(
+                            self.table.model().index(r, 0),
+                            QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows
+                        )
+            if first_matched_row is not None:
+                sel_model.setCurrentIndex(
+                    self.table.model().index(first_matched_row, 0),
+                    QItemSelectionModel.SelectionFlag.NoUpdate
+                )
 
         if search_text and self.table.rowCount() == 0 and bool(images_cache):
             self.table.set_placeholder_state(tr_ui("placeholder_no_filter_matches"), show_button=False, color="crimson")

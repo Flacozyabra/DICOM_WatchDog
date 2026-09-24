@@ -2,10 +2,10 @@
 """Custom UI Widgets (Tables, Splitters, Delegates) for DICOM WatchDog."""
 
 try:
-    from PyQt6.QtCore import Qt, QRect, QSize, QPointF, QPoint
+    from PyQt6.QtCore import Qt, QRect, QSize, QPointF, QPoint, pyqtSignal
     from PyQt6.QtGui import (
         QColor, QPalette, QBrush, QPainter, QLinearGradient, QPen,
-        QPainterPath, QMouseEvent, QPolygon
+        QPainterPath, QMouseEvent, QPolygon, QKeySequence
     )
     from PyQt6.QtWidgets import (
         QTableWidget, QWidget, QVBoxLayout, QLabel, QPushButton,
@@ -13,10 +13,10 @@ try:
         QSplitter, QSplitterHandle
     )
 except ImportError:
-    from PyQt5.QtCore import Qt, QRect, QSize, QPointF, QPoint
+    from PyQt5.QtCore import Qt, QRect, QSize, QPointF, QPoint, pyqtSignal
     from PyQt5.QtGui import (
         QColor, QPalette, QBrush, QPainter, QLinearGradient, QPen,
-        QPainterPath, QMouseEvent, QPolygon
+        QPainterPath, QMouseEvent, QPolygon, QKeySequence
     )
     from PyQt5.QtWidgets import (
         QTableWidget, QWidget, QVBoxLayout, QLabel, QPushButton,
@@ -38,6 +38,7 @@ def tr(ru_text, en_text):
 
 class ToggleTableWidget(QTableWidget):
     """Таблица со встроенным плейсхолдером и улучшенным выделением строк."""
+    delete_requested = pyqtSignal()
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.placeholder_widget = None
@@ -113,7 +114,14 @@ class ToggleTableWidget(QTableWidget):
         if event.button() != Qt.MouseButton.LeftButton:
             super().mousePressEvent(event)
             return
-            
+
+        ctrl_mod = getattr(Qt.KeyboardModifier, 'ControlModifier', getattr(Qt, 'ControlModifier', 0x04000000))
+        shift_mod = getattr(Qt.KeyboardModifier, 'ShiftModifier', getattr(Qt, 'ShiftModifier', 0x02000000))
+        ctrl_or_shift = bool(event.modifiers() & (ctrl_mod | shift_mod))
+        if ctrl_or_shift:
+            super().mousePressEvent(event)
+            return
+
         index = self.indexAt(event.pos())
         if not index.isValid():
             self.clearSelection()
@@ -121,19 +129,37 @@ class ToggleTableWidget(QTableWidget):
             return
 
         row = index.row()
-        is_selected = False
-        selected_ranges = self.selectedRanges()
-        for r in selected_ranges:
-            if r.topRow() <= row <= r.bottomRow():
-                is_selected = True
-                break
-
-        if is_selected:
-            self.clearSelection()
-            self.setCurrentIndex(self.model().index(-1, -1))
-            self.setFocus()
+        selected_rows = {r for rng in self.selectedRanges() for r in range(rng.topRow(), rng.bottomRow() + 1)}
+        if row in selected_rows:
+            if len(selected_rows) == 1:
+                self.clearSelection()
+                self.setCurrentIndex(self.model().index(-1, -1))
+                self.setFocus()
+            else:
+                self.clearSelection()
+                self.selectRow(row)
+                self.setCurrentIndex(self.model().index(row, index.column()))
+                self.setFocus()
         else:
             super().mousePressEvent(event)
+
+    def keyPressEvent(self, event):
+        ctrl_mod = getattr(Qt.KeyboardModifier, 'ControlModifier', getattr(Qt, 'ControlModifier', 0x04000000))
+        key_a = getattr(Qt.Key, 'Key_A', getattr(Qt, 'Key_A', 0x41))
+        key_del = getattr(Qt.Key, 'Key_Delete', getattr(Qt, 'Key_Delete', 0x01000007))
+
+        if event.matches(QKeySequence.StandardKey.SelectAll) or (
+            event.key() == key_a and (event.modifiers() & ctrl_mod)
+        ):
+            self.selectAll()
+            event.accept()
+            return
+        elif event.key() == key_del:
+            self.delete_requested.emit()
+            event.accept()
+            return
+
+        super().keyPressEvent(event)
 
 
 class TaskProgressDelegate(QStyledItemDelegate):

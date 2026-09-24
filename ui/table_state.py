@@ -20,7 +20,7 @@ class TableStateManager:
     def setup_table_properties(self, table):
         # Настройка поведения таблиц
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setAlternatingRowColors(False)  # Отключаем зебру
         table.setShowGrid(False)  # Отключаем сетку

@@ -1013,7 +1013,7 @@ class MainWindow(QMainWindow):
     def show_images_context_menu(self, pos):
         self.context_menu_mgr.show_images_context_menu(pos)
 
-    def delete_patient_action(self, patient_id, patient_name):
+    def delete_patient_action(self, patient_id=None, patient_name=None):
         self.patient_ops.delete_patient_action(patient_id, patient_name)
 
     def change_patient_id_action(self, patient_id, patient_name, is_archive=False):
@@ -1219,7 +1219,7 @@ class MainWindow(QMainWindow):
     def show_archive_context_menu(self, pos):
         self.context_menu_mgr.show_archive_context_menu(pos)
 
-    def delete_archive_patient_action(self, patient_id, patient_name):
+    def delete_archive_patient_action(self, patient_id=None, patient_name=None):
         self.patient_ops.delete_archive_patient_action(patient_id, patient_name)
 
     def move_from_archive_cmd(self):
