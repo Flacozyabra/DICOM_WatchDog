@@ -222,7 +222,7 @@ class MainWindow(QMainWindow):
             self.debounce_timer.stop()
 
         if op_type == 'archive':
-            log_message(self.output_field, tr_log("log_patient_archived", result))
+            log_message(self.output_field, tr_log("log_patient_archived", result, self.get_archive_destination_name()))
             patient_entry = None
             if self.images_cache and patient_id in self.images_cache:
                 patient_entry = self.images_cache.pop(patient_id, None)
@@ -259,7 +259,7 @@ class MainWindow(QMainWindow):
             self.update_images_table_ui()
 
         elif op_type == 'restore':
-            log_message(self.output_field, tr_log("log_patient_restored_from_archive", result))
+            log_message(self.output_field, tr_log("log_patient_restored_from_archive", result, self.get_ct_destination_name(), self.get_archive_source_name()))
             patient_entry = None
             if self.archive_cache is not None and patient_id in self.archive_cache:
                 patient_entry = self.archive_cache.pop(patient_id, None)
@@ -838,7 +838,8 @@ class MainWindow(QMainWindow):
             rename_folder_enabled, rename_folder_mode,
             archive_dir, archive_enabled, archive_days,
             archive_cleanup_enabled, archive_cleanup_days,
-            scan_rtd=scan_rtd, scan_rtp=scan_rtp
+            scan_rtd=scan_rtd, scan_rtp=scan_rtp,
+            archive_destination_name=self.get_archive_destination_name()
         )
         self.scan_worker.finished.connect(self.on_folder_scan_finished)
         self.scan_worker.archive_updated.connect(self.on_archive_updated_by_scan)
@@ -1007,20 +1008,55 @@ class MainWindow(QMainWindow):
     def show_tab_context_menu(self, pos):
         self.context_menu_mgr.show_tab_context_menu(pos)
 
-    def get_move_to_archive_text(self):
+    def get_archive_destination_name(self):
         custom = self.config.get('custom_tab_name_archive')
         if custom:
-            from core.locale_utils import get_current_langs
-            lang, _ = get_current_langs()
-            return f"Переместить в {custom}" if lang == 'ru' else f"Move to {custom}"
-        return tr_ui("btn_move_to_archive")
+            return f'"{custom}"'
+        from core.locale_utils import get_current_langs
+        _, log_lang = get_current_langs()
+        return "архив" if log_lang == 'ru' else "archive"
 
-    def get_restore_to_ct_text(self):
+    def get_archive_source_name(self):
+        custom = self.config.get('custom_tab_name_archive')
+        if custom:
+            return f'"{custom}"'
+        from core.locale_utils import get_current_langs
+        _, log_lang = get_current_langs()
+        return "архива" if log_lang == 'ru' else "archive"
+
+    def get_ct_destination_name(self):
         custom = self.config.get('custom_tab_name_ct')
         if custom:
-            from core.locale_utils import get_current_langs
-            lang, _ = get_current_langs()
-            return f"Восстановить в {custom}" if lang == 'ru' else f"Restore to {custom}"
+            return f'"{custom}"'
+        return "CT images"
+
+    def get_move_to_archive_text(self, count=None):
+        custom = self.config.get('custom_tab_name_archive')
+        from core.locale_utils import get_current_langs
+        lang, _ = get_current_langs()
+        if count is not None:
+            if custom:
+                return f'Переместить выбранные в "{custom}" ({count})' if lang == 'ru' else f'Move selected to "{custom}" ({count})'
+            return tr_ui("ctx_archive_mass", count)
+        if custom:
+            return f'Переместить в "{custom}"' if lang == 'ru' else f'Move to "{custom}"'
+        return tr_ui("btn_move_to_archive")
+
+    def get_restore_to_ct_text(self, count=None):
+        custom_ct = self.config.get('custom_tab_name_ct')
+        custom_archive = self.config.get('custom_tab_name_archive')
+        from core.locale_utils import get_current_langs
+        lang, _ = get_current_langs()
+        if count is not None:
+            if custom_ct:
+                return f'Восстановить выбранные в "{custom_ct}" ({count})' if lang == 'ru' else f'Restore selected to "{custom_ct}" ({count})'
+            if custom_archive:
+                return f'Восстановить выбранные из "{custom_archive}" ({count})' if lang == 'ru' else f'Restore selected from "{custom_archive}" ({count})'
+            return tr_ui("ctx_restore_mass", count)
+        if custom_ct:
+            return f'Восстановить в "{custom_ct}"' if lang == 'ru' else f'Restore to "{custom_ct}"'
+        if custom_archive:
+            return f'Восстановить из "{custom_archive}"' if lang == 'ru' else f'Restore from "{custom_archive}"'
         return tr_ui("btn_restore_from_archive")
 
     def get_send_to_ct_text(self):
@@ -1028,7 +1064,7 @@ class MainWindow(QMainWindow):
         if custom:
             from core.locale_utils import get_current_langs
             lang, _ = get_current_langs()
-            return f"Отправить в {custom}" if lang == 'ru' else f"Send to {custom}"
+            return f'Отправить в "{custom}"' if lang == 'ru' else f'Send to "{custom}"'
         return tr_ui("btn_send_to_ct")
 
     def rename_tab_dialog(self, index):
@@ -1240,7 +1276,7 @@ class MainWindow(QMainWindow):
         pat_name = pat_info.get('patient_name', 'Unknown')
         p_id = pat_info.get('patient_id', patient_key)
         
-        log_message(self.output_field, tr_log("log_patient_not_found_in_archive", pat_name, p_id))
+        log_message(self.output_field, tr_log("log_patient_not_found_in_archive", pat_name, p_id, self.get_archive_destination_name()))
 
         archive_dir = self.config.get('archive_dir', '')
         if archive_dir and os.path.exists(archive_dir):

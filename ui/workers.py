@@ -47,7 +47,7 @@ class FolderScanWorker(QThread):
     def __init__(self, ct_images_dir, cleanup_structures_enabled, fix_patient_id_enabled, id_prefixes,
                  rename_study_folder_enabled, rename_study_folder_mode,
                  archive_dir, archive_enabled, archive_days, archive_cleanup_enabled, archive_cleanup_days,
-                 scan_rtd=False, scan_rtp=False):
+                 scan_rtd=False, scan_rtp=False, archive_destination_name="архив"):
         super().__init__()
         self.ct_images_dir = ct_images_dir
         self.cleanup_structures_enabled = cleanup_structures_enabled
@@ -62,6 +62,7 @@ class FolderScanWorker(QThread):
         self.archive_cleanup_days = archive_cleanup_days
         self.scan_rtd = scan_rtd
         self.scan_rtp = scan_rtp
+        self.archive_destination_name = archive_destination_name
         self.archived_count = 0
         self.archive_cleaned = False
         self.has_read_errors = False
@@ -185,9 +186,9 @@ class FolderScanWorker(QThread):
                                         patient_name = str(info['patient_name'])
                                     if move_study_folder_hierarchical(sub, self.archive_dir, collector):
                                         archived_in_study += 1
-                                    log_message(collector, tr_log("log_patient_moved_to_archive", patient_name, os.path.basename(target_folder)))
+                                    log_message(collector, tr_log("log_patient_moved_to_archive", patient_name, os.path.basename(target_folder), self.archive_destination_name))
                                 except Exception as e:
-                                    log_message(collector, tr_log("log_patient_move_to_archive_error", os.path.basename(target_folder), e))
+                                    log_message(collector, tr_log("log_patient_move_to_archive_error", os.path.basename(target_folder), self.archive_destination_name, e))
                     else:
                         try:
                             folder_date = datetime.fromtimestamp(os.path.getmtime(target_folder))
@@ -201,10 +202,10 @@ class FolderScanWorker(QThread):
                                     patient_name = str(info['patient_name'])
                                 if move_study_folder_hierarchical(target_folder, self.archive_dir, collector):
                                     archived_in_study += 1
-                                log_message(collector, tr_log("log_patient_moved_to_archive", patient_name, os.path.basename(target_folder)))
+                                log_message(collector, tr_log("log_patient_moved_to_archive", patient_name, os.path.basename(target_folder), self.archive_destination_name))
                                 is_fully_archived = True
                             except Exception as e:
-                                log_message(collector, tr_log("log_patient_move_to_archive_error", os.path.basename(target_folder), e))
+                                log_message(collector, tr_log("log_patient_move_to_archive_error", os.path.basename(target_folder), self.archive_destination_name, e))
 
                 # 2c. Считывание исследования сразу в patient_dict (с использованием кэша)
                 if not is_fully_archived and os.path.exists(active_path):

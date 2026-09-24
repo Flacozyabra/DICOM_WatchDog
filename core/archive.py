@@ -304,7 +304,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
     return patient_data
 
 
-def move_old_folders_to_archive(ct_images_dir, archive_dir, archive_days, output_field):
+def move_old_folders_to_archive(ct_images_dir, archive_dir, archive_days, output_field, archive_destination_name="архив"):
     """
     Переносит папки исследований старше archive_days дней из рабочей директории в архивную.
     """
@@ -340,9 +340,9 @@ def move_old_folders_to_archive(ct_images_dir, archive_dir, archive_days, output
                         if info and info.get('patient_name'):
                             patient_name = str(info['patient_name'])
                         move_study_folder_hierarchical(sub, archive_dir, output_field)
-                        log_message(output_field, tr_log("log_patient_moved_to_archive", patient_name, dir_name))
+                        log_message(output_field, tr_log("log_patient_moved_to_archive", patient_name, dir_name, archive_destination_name))
                     except Exception as e:
-                        log_message(output_field, tr_log("log_patient_move_to_archive_error", dir_name, e))
+                        log_message(output_field, tr_log("log_patient_move_to_archive_error", dir_name, archive_destination_name, e))
         else:
             try:
                 folder_date = datetime.fromtimestamp(max(os.path.getctime(patient_folder), os.path.getmtime(patient_folder)))
@@ -355,9 +355,9 @@ def move_old_folders_to_archive(ct_images_dir, archive_dir, archive_days, output
                     if info and info.get('patient_name'):
                         patient_name = str(info['patient_name'])
                     move_study_folder_hierarchical(patient_folder, archive_dir, output_field)
-                    log_message(output_field, tr_log("log_patient_moved_to_archive", patient_name, dir_name))
+                    log_message(output_field, tr_log("log_patient_moved_to_archive", patient_name, dir_name, archive_destination_name))
                 except Exception as e:
-                    log_message(output_field, tr_log("log_patient_move_to_archive_error", dir_name, e))
+                    log_message(output_field, tr_log("log_patient_move_to_archive_error", dir_name, archive_destination_name, e))
 
 
 def cleanup_old_archive_folders(archive_dir, cleanup_days, output_field):

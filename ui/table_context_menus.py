@@ -169,7 +169,7 @@ class TableContextMenuManager:
             menu.addAction(delete_action)
 
             if self.mw.config.get('show_tab_archive', 'True').lower() == 'true':
-                archive_action = QAction(tr_ui("ctx_archive_mass", len(selected_rows)), self.mw)
+                archive_action = QAction(self.mw.get_move_to_archive_text(count=len(selected_rows)), self.mw)
                 archive_action.triggered.connect(self.mw.move_to_archive_cmd)
                 menu.addAction(archive_action)
         else:
@@ -245,7 +245,7 @@ class TableContextMenuManager:
         menu = QMenu(self.mw)
 
         if is_multi:
-            restore_action = QAction(tr_ui("ctx_restore_mass", len(selected_rows)), self.mw)
+            restore_action = QAction(self.mw.get_restore_to_ct_text(count=len(selected_rows)), self.mw)
             restore_action.triggered.connect(self.mw.move_from_archive_cmd)
             menu.addAction(restore_action)
 
