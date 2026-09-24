@@ -630,9 +630,32 @@ class MainWindow(QMainWindow):
         # Защитная проверка на случай срабатывания сигнала до инициализации всех таблиц
         if not hasattr(self, 'images_tab') or not hasattr(self, 'archive_tab') or not hasattr(self, 'pacs_tab'):
             return
-            
+
+        # Сброс выделения строк во всех таблицах при переключении вкладок
+        self.selected_images_items = set()
+        self.selected_archive_items = set()
+        self.selected_images_patient_id = None
+        self.selected_archive_patient_id = None
+
+        if hasattr(self, 'images_table') and self.images_table:
+            self.images_table.clearSelection()
+            self.images_table.setCurrentIndex(self.images_table.model().index(-1, -1))
+        if hasattr(self, 'archive_table') and self.archive_table:
+            self.archive_table.clearSelection()
+            self.archive_table.setCurrentIndex(self.archive_table.model().index(-1, -1))
+        if hasattr(self, 'pacs_table') and self.pacs_table:
+            self.pacs_table.clearSelection()
+            self.pacs_table.setCurrentIndex(self.pacs_table.model().index(-1, -1))
+
+        if hasattr(self, 'move_to_archive_btn') and self.move_to_archive_btn:
+            self.move_to_archive_btn.setEnabled(False)
+        if hasattr(self, 'move_from_archive_btn') and self.move_from_archive_btn:
+            self.move_from_archive_btn.setEnabled(False)
+        if hasattr(self, 'send_to_ct_btn') and self.send_to_ct_btn:
+            self.send_to_ct_btn.setEnabled(False)
+
         self.update_tab_badges()
-        
+
         current_widget = self.tab_widget.widget(index)
         pacs_auto_scan_on = self.config.get('auto_update_is', 'off').lower() == 'on'
         
