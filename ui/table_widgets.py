@@ -301,7 +301,21 @@ class TaskProgressDelegate(QStyledItemDelegate):
                 }
                 suffix = suffix_map.get(op_type, tr(" [Выполнение...]", " [Processing...]"))
 
-            display_text = orig_text + suffix if suffix else orig_text
+            clean_orig = orig_text.strip()
+            if suffix:
+                if index.column() == 0 and not clean_orig:
+                    display_text = ""
+                else:
+                    clean_suffix_word = suffix.replace('[', '').replace(']', '').replace('.', '').strip().lower()
+                    clean_orig_word = clean_orig.replace('[', '').replace(']', '').replace('.', '').strip().lower()
+                    if clean_orig_word in (clean_suffix_word, 'processing', 'обработка', 'unknown', ''):
+                        display_text = suffix.strip()
+                    elif clean_orig_word.endswith(clean_suffix_word):
+                        display_text = clean_orig
+                    else:
+                        display_text = orig_text + suffix
+            else:
+                display_text = orig_text
             painter.setFont(option.font)
             painter.setPen(QColor("#ffffff"))
             text_rect = rect.adjusted(6, 0, -6, 0)

@@ -235,7 +235,7 @@ class MainWindow(QMainWindow):
                     'rtp': 0,
                     'str': 0,
                     'slices': 0,
-                    'body_part': "Processing",
+                    'body_part': '',
                     'is_placeholder': True
                 }
                 self.update_images_table_ui()
