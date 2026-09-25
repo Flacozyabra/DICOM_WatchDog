@@ -29,6 +29,7 @@ class TableStateManager:
         # Динамическая высота строки в зависимости от размера шрифта
         font_size = self.config.get('patient_font_size', 16)
         row_height = max(25, font_size + 12)
+        table.verticalHeader().setMinimumSectionSize(0)
         table.verticalHeader().setDefaultSectionSize(row_height)
 
         # Установка шрифтов через styleSheet, так как глобальный QSS переопределяет setFont()

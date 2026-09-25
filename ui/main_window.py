@@ -431,6 +431,7 @@ class MainWindow(QMainWindow):
         
         # Применяем ко всем трем таблицам
         for table in [self.images_table, self.archive_table, self.pacs_table]:
+            table.verticalHeader().setMinimumSectionSize(0)
             table.verticalHeader().setDefaultSectionSize(row_height)
             table.setStyleSheet(table_style)
             table.viewport().update()
