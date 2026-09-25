@@ -215,30 +215,6 @@ class MainWindow(QMainWindow):
 
     def on_study_auto_op_started(self, patient_key, op_type):
         self.active_file_operations[patient_key] = {'op': op_type, 'progress': None}
-        if hasattr(self, 'images_cache') and self.images_cache is not None:
-            has_match = (patient_key in self.images_cache) or any(
-                k.startswith(patient_key + '/') or k.startswith(patient_key + '\\') or
-                self.images_cache[k].get('folder_name') == patient_key
-                for k in self.images_cache
-            )
-            if not has_match:
-                now = datetime.now()
-                self.images_cache[patient_key] = {
-                    'patient_id': patient_key,
-                    'patient_name': "Processing",
-                    'folder_name': patient_key,
-                    'study_date': '',
-                    'study_datetime': now,
-                    'folder_datetime': now,
-                    'modality': 'CT',
-                    'rtd': 0,
-                    'rtp': 0,
-                    'str': 0,
-                    'slices': 0,
-                    'body_part': '',
-                    'is_placeholder': True
-                }
-                self.update_images_table_ui()
         self.images_table.viewport().update()
 
     def on_study_auto_op_progress(self, patient_key, progress):
@@ -254,10 +230,6 @@ class MainWindow(QMainWindow):
     def on_study_auto_op_finished(self, patient_key):
         if patient_key in self.active_file_operations:
             del self.active_file_operations[patient_key]
-        if hasattr(self, 'images_cache') and self.images_cache and patient_key in self.images_cache:
-            if self.images_cache[patient_key].get('is_placeholder'):
-                del self.images_cache[patient_key]
-                self.update_images_table_ui()
         self.images_table.viewport().update()
 
     def on_background_action_finished(self, patient_id, op_type, result):
@@ -955,10 +927,10 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'debounce_timer') and self.debounce_timer:
             self.debounce_timer.stop()
 
-        # Собираем существующие ID пациентов из предыдущего кэша и таблицы (исключая временные заглушки)
+        # Собираем существующие ID пациентов из предыдущего кэша и таблицы
         existing_ids = set()
         if hasattr(self, 'images_cache') and self.images_cache:
-            existing_ids.update(k for k, v in self.images_cache.items() if not v.get('is_placeholder'))
+            existing_ids.update(self.images_cache.keys())
         for r in range(self.images_table.rowCount()):
             id_item = self.images_table.item(r, 0)
             if id_item:

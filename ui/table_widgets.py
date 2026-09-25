@@ -288,7 +288,7 @@ class TaskProgressDelegate(QStyledItemDelegate):
 
             orig_text = str(index.data(Qt.ItemDataRole.DisplayRole) or "")
             suffix = ""
-            if index.column() in (0, 1):
+            if index.column() == 1:
                 suffix_map = {
                     'archive': tr(" [Архивация...]", " [Archiving...]"),
                     'delete': tr(" [Удаление...]", " [Deleting...]"),
@@ -303,17 +303,14 @@ class TaskProgressDelegate(QStyledItemDelegate):
 
             clean_orig = orig_text.strip()
             if suffix:
-                if index.column() == 0 and not clean_orig:
-                    display_text = ""
+                clean_suffix_word = suffix.replace('[', '').replace(']', '').replace('.', '').strip().lower()
+                clean_orig_word = clean_orig.replace('[', '').replace(']', '').replace('.', '').strip().lower()
+                if clean_orig_word in (clean_suffix_word, 'processing', 'обработка', 'unknown', ''):
+                    display_text = suffix.strip()
+                elif clean_orig_word.endswith(clean_suffix_word):
+                    display_text = clean_orig
                 else:
-                    clean_suffix_word = suffix.replace('[', '').replace(']', '').replace('.', '').strip().lower()
-                    clean_orig_word = clean_orig.replace('[', '').replace(']', '').replace('.', '').strip().lower()
-                    if clean_orig_word in (clean_suffix_word, 'processing', 'обработка', 'unknown', ''):
-                        display_text = suffix.strip()
-                    elif clean_orig_word.endswith(clean_suffix_word):
-                        display_text = clean_orig
-                    else:
-                        display_text = orig_text + suffix
+                    display_text = orig_text + suffix
             else:
                 display_text = orig_text
             painter.setFont(option.font)

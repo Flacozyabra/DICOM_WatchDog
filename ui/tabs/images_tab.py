@@ -185,7 +185,7 @@ class ImagesTab(QWidget):
         valid_patients = {}
         for patient_id, data in images_cache.items():
             if 'patient_name' not in data or 'study_datetime' not in data or 'folder_datetime' not in data or 'str' not in data:
-                if not data.get('is_placeholder') and output_field:
+                if output_field:
                     log_message(output_field, tr_log("log_skipped_patient_incomplete", patient_id))
                 continue
 
@@ -234,14 +234,13 @@ class ImagesTab(QWidget):
                 id_item.setData(Qt.ItemDataRole.UserRole, patient_key)
                 name_item = QTableWidgetItem(str(data['patient_name']))
                 modality_item = QTableWidgetItem(str(data.get('modality', 'CT')))
-                is_placeholder = bool(data.get('is_placeholder'))
-                slices_item = QTableWidgetItem("-" if is_placeholder else str(data.get('slices', 0)))
-                area_item = QTableWidgetItem("-" if is_placeholder else str(data.get('body_part', '')))
-                study_item = QTableWidgetItem("-" if is_placeholder else data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
-                folder_item = QTableWidgetItem("-" if is_placeholder else data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
-                str_item = QTableWidgetItem("-" if is_placeholder else str(data['str']))
-                rtd_item = QTableWidgetItem("-" if is_placeholder else str(data.get('rtd', 0)))
-                rtp_item = QTableWidgetItem("-" if is_placeholder else str(data.get('rtp', 0)))
+                slices_item = QTableWidgetItem(str(data.get('slices', 0)))
+                area_item = QTableWidgetItem(str(data.get('body_part', '')))
+                study_item = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
+                folder_item = QTableWidgetItem(data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
+                str_item = QTableWidgetItem(str(data['str']))
+                rtd_item = QTableWidgetItem(str(data.get('rtd', 0)))
+                rtp_item = QTableWidgetItem(str(data.get('rtp', 0)))
 
                 for item in [id_item, name_item, modality_item, slices_item, area_item, study_item, folder_item, str_item, rtd_item, rtp_item]:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter)
@@ -308,14 +307,13 @@ class ImagesTab(QWidget):
                     id_child.setData(Qt.ItemDataRole.UserRole, patient_key)
                     name_child = QTableWidgetItem("  ↳")
                     modality_child = QTableWidgetItem(str(data.get('modality', 'CT')))
-                    is_placeholder = bool(data.get('is_placeholder'))
-                    slices_child = QTableWidgetItem("-" if is_placeholder else str(data.get('slices', 0)))
-                    area_child = QTableWidgetItem("-" if is_placeholder else str(data.get('body_part', '')))
-                    study_child = QTableWidgetItem("-" if is_placeholder else data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
-                    folder_child = QTableWidgetItem("-" if is_placeholder else data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
-                    str_child = QTableWidgetItem("-" if is_placeholder else str(data['str']))
-                    rtd_child = QTableWidgetItem("-" if is_placeholder else str(data.get('rtd', 0)))
-                    rtp_child = QTableWidgetItem("-" if is_placeholder else str(data.get('rtp', 0)))
+                    slices_child = QTableWidgetItem(str(data.get('slices', 0)))
+                    area_child = QTableWidgetItem(str(data.get('body_part', '')))
+                    study_child = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
+                    folder_child = QTableWidgetItem(data['folder_datetime'].strftime('%d.%m.%y - %H:%M'))
+                    str_child = QTableWidgetItem(str(data['str']))
+                    rtd_child = QTableWidgetItem(str(data.get('rtd', 0)))
+                    rtp_child = QTableWidgetItem(str(data.get('rtp', 0)))
 
                     for item in [id_child, name_child, modality_child, slices_child, area_child, study_child, folder_child, str_child, rtd_child, rtp_child]:
                         item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter)
