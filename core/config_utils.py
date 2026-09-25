@@ -4,7 +4,7 @@ import shutil
 import json
 import urllib.request
 
-VERSION = "1.8.3"
+VERSION = "1.8.4"
 
 
 def get_app_data_dir():
