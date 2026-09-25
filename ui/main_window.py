@@ -225,7 +225,7 @@ class MainWindow(QMainWindow):
                 now = datetime.now()
                 self.images_cache[patient_key] = {
                     'patient_id': patient_key,
-                    'patient_name': "Unknown",
+                    'patient_name': "Processing",
                     'folder_name': patient_key,
                     'study_date': '',
                     'study_datetime': now,
@@ -235,7 +235,7 @@ class MainWindow(QMainWindow):
                     'rtp': 0,
                     'str': 0,
                     'slices': 0,
-                    'body_part': '',
+                    'body_part': "Processing",
                     'is_placeholder': True
                 }
                 self.update_images_table_ui()
