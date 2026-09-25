@@ -172,8 +172,6 @@ class ImagesTab(QWidget):
                         is_child = bool(name_item and name_item.text().startswith("  ↳"))
                         if pid is not None:
                             selected_items.add((pid, is_child))
-        elif self.main_window:
-            selected_items = getattr(self.main_window, 'selected_images_items', set())
 
         if self.main_window:
             self.main_window.selected_images_items = selected_items

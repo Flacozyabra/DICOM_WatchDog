@@ -258,6 +258,8 @@ class MainWindow(QMainWindow):
                 patient_entry = self.images_cache.pop(patient_id, None)
             if self.archive_cache is not None and patient_entry:
                 self.archive_cache[patient_id] = patient_entry
+            if hasattr(self, 'selected_images_items') and self.selected_images_items:
+                self.selected_images_items = {item for item in self.selected_images_items if item[0] != patient_id}
             self.sync_ct_cache_to_disk()
             self.sync_archive_cache_to_disk()
             self.update_images_table_ui()
@@ -268,6 +270,8 @@ class MainWindow(QMainWindow):
             log_message(self.output_field, tr_log("log_patient_deleted", result))
             if self.images_cache and patient_id in self.images_cache:
                 self.images_cache.pop(patient_id, None)
+            if hasattr(self, 'selected_images_items') and self.selected_images_items:
+                self.selected_images_items = {item for item in self.selected_images_items if item[0] != patient_id}
             self.sync_ct_cache_to_disk()
             self.update_images_table_ui()
             self.update_tab_badges()
@@ -276,6 +280,8 @@ class MainWindow(QMainWindow):
             log_message(self.output_field, tr_log("log_patient_deleted", result))
             if self.archive_cache is not None and patient_id in self.archive_cache:
                 self.archive_cache.pop(patient_id, None)
+            if hasattr(self, 'selected_archive_items') and self.selected_archive_items:
+                self.selected_archive_items = {item for item in self.selected_archive_items if item[0] != patient_id}
             self.sync_archive_cache_to_disk()
             self.update_archive_table_ui()
             self.update_tab_badges()
@@ -295,6 +301,8 @@ class MainWindow(QMainWindow):
                 patient_entry = self.archive_cache.pop(patient_id, None)
             if self.images_cache is not None and patient_entry:
                 self.images_cache[patient_id] = patient_entry
+            if hasattr(self, 'selected_archive_items') and self.selected_archive_items:
+                self.selected_archive_items = {item for item in self.selected_archive_items if item[0] != patient_id}
             self.restored_patient_ids.add(patient_id)
             self.sync_archive_cache_to_disk()
             self.sync_ct_cache_to_disk()
@@ -830,17 +838,6 @@ class MainWindow(QMainWindow):
                 self.net_retry_count = 0
                 log_message(self.output_field, tr_log("log_network_folder_connected", ct_dir))
 
-        # Запоминаем выделенного пациента и тип строки (дочерняя/родитель)
-        self.selected_images_patient_id = None
-        self.selected_images_is_child = False
-        selected_ranges = self.images_table.selectedRanges()
-        if selected_ranges:
-            row = selected_ranges[0].topRow()
-            id_item = self.images_table.item(row, 0)
-            name_item = self.images_table.item(row, 1)
-            if id_item:
-                self.selected_images_patient_id = id_item.data(Qt.ItemDataRole.UserRole)
-                self.selected_images_is_child = bool(name_item and name_item.text().startswith("  ↳"))
 
         cleanup_str_val = self.config.get('cleanup_structures_enabled', 'False')
         fix_id_val = self.config.get('fix_patient_id_enabled', 'False')
