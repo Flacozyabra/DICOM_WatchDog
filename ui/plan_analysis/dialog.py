@@ -904,11 +904,25 @@ def open_plan_analyzer(parent, folder_or_plan_path: str, patient_id: str = "", p
         dlg.showMaximized()
         dlg.exec()
     except Exception as e:
+        from core.logger import log_error
+        log_error(f"Monaco plan analysis error: {e}")
         log_message(getattr(parent, 'output_field', None), f"Monaco plan analysis error: {e}")
         _cfg_e = getattr(parent, 'config', {}) or {}
         _is_ru_e = _cfg_e.get('interface_lang', 'en') == 'ru'
-        QMessageBox.critical(
-            parent,
-            "Ошибка анализа плана" if _is_ru_e else "Plan Analysis Error",
-            f"Не удалось проанализировать файл плана:\n{e}" if _is_ru_e else f"Failed to analyze plan file:\n{e}"
+        plan_basename = os.path.basename(plan_file) if plan_file else ""
+        err_msg = (
+            f"Не удалось открыть или проанализировать файл плана:\n<b>{plan_basename}</b>\n\n"
+            f"Причина: {e}\n\n"
+            f"Убедитесь, что файл содержит корректные данные RTPLAN и не поврежден."
+        ) if _is_ru_e else (
+            f"Failed to open or analyze plan file:\n<b>{plan_basename}</b>\n\n"
+            f"Reason: {e}\n\n"
+            f"Please verify that the file contains valid RTPLAN data and is not corrupted."
         )
+        dlg_err = QMessageBox(parent)
+        dlg_err.setIcon(QMessageBox.Icon.Critical)
+        dlg_err.setWindowTitle("Ошибка анализа плана" if _is_ru_e else "Plan Analysis Error")
+        dlg_err.setText(err_msg)
+        dlg_err.setStandardButtons(QMessageBox.StandardButton.Ok)
+        apply_dark_title_bar(dlg_err)
+        dlg_err.exec()

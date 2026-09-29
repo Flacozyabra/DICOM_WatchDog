@@ -125,9 +125,20 @@ class PlanKinematicsAnalyzer:
 
         # Calculate rotation span to check if it's VMAT
         total_gantry_travel = 0.0
+        last_g = float(getattr(cp0, 'GantryAngle', 0.0))
         for i in range(len(cps) - 1):
-            g1 = float(getattr(cps[i], 'GantryAngle', 0.0))
-            g2 = float(getattr(cps[i+1], 'GantryAngle', 0.0))
+            if hasattr(cps[i], 'GantryAngle') and cps[i].GantryAngle is not None:
+                g1 = float(cps[i].GantryAngle)
+                last_g = g1
+            else:
+                g1 = last_g
+
+            if hasattr(cps[i+1], 'GantryAngle') and cps[i+1].GantryAngle is not None:
+                g2 = float(cps[i+1].GantryAngle)
+                last_g = g2
+            else:
+                g2 = last_g
+
             dg = abs(g2 - g1)
             if dg > 180:
                 dg = 360 - dg
@@ -161,6 +172,7 @@ class PlanKinematicsAnalyzer:
         prev_gantry_speed = 0.0
         pass_idx = 0
         prev_dir = None
+        curr_g = float(getattr(cp0, 'GantryAngle', 0.0))
 
         for i in range(len(cps) - 1):
             cp_curr = cps[i]
@@ -170,8 +182,17 @@ class PlanKinematicsAnalyzer:
             w_next = float(cp_next.CumulativeMetersetWeight) / final_weight * total_mu
             d_mu = max(0.0, w_next - w_curr)
 
-            g_curr = float(cp_curr.GantryAngle)
-            g_next = float(cp_next.GantryAngle)
+            if hasattr(cp_curr, 'GantryAngle') and cp_curr.GantryAngle is not None:
+                g_curr = float(cp_curr.GantryAngle)
+                curr_g = g_curr
+            else:
+                g_curr = curr_g
+
+            if hasattr(cp_next, 'GantryAngle') and cp_next.GantryAngle is not None:
+                g_next = float(cp_next.GantryAngle)
+                curr_g = g_next
+            else:
+                g_next = g_curr
             diff_g = abs(g_next - g_curr)
             if diff_g > 180:
                 diff_g = 360 - diff_g

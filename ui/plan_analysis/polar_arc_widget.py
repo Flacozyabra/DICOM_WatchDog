@@ -225,7 +225,8 @@ class PolarArcWidget(QWidget):
 
                 painter.setPen(QPen(QColor("#ffffff")))
                 painter.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-                painter.drawText(QRectF(center.x() - 80, center.y() - 30, 160, 20), Qt.AlignmentFlag.AlignCenter, "STATIC IMRT")
+                beam_mode_title = str(self.beam_data.get('beam_mode', 'STATIC')).upper()
+                painter.drawText(QRectF(center.x() - 90, center.y() - 30, 180, 20), Qt.AlignmentFlag.AlignCenter, beam_mode_title)
                 painter.setFont(QFont("Segoe UI", 9))
                 painter.setPen(QPen(QColor("#38bdf8")))
                 painter.drawText(QRectF(center.x() - 80, center.y() - 10, 160, 18), Qt.AlignmentFlag.AlignCenter, f"{'Гентри' if self.is_ru else 'Gantry'}: {g_angle:.1f}°")
