@@ -1,15 +1,45 @@
 import sys
 import os
+import shutil
 
 _active_sound_effects = []
 
 
+def get_powershell_executable() -> str:
+    """Возвращает абсолютный системный путь к powershell.exe для надежного запуска."""
+    if sys.platform != "win32":
+        return "powershell"
+    system_root = os.environ.get("SystemRoot", r"C:\Windows")
+    candidates = [
+        os.path.join(system_root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+        os.path.join(system_root, "SysWOW64", "WindowsPowerShell", "v1.0", "powershell.exe"),
+        shutil.which("powershell.exe") or "",
+        shutil.which("powershell") or "",
+    ]
+    for c in candidates:
+        if c and os.path.isfile(c):
+            return c
+    return "powershell"
+
+
 def _play_wav(wav_path: str, volume: float = 1.0) -> None:
-    if not wav_path or not os.path.exists(wav_path):
+    if not wav_path:
         return
+
+    # Разрешаем путь через get_resource_path (с fallback в постоянную папку AppData)
+    from core.config_utils import get_resource_path, get_app_data_dir
+    resolved_wav = get_resource_path(wav_path) if not os.path.isabs(wav_path) else wav_path
+    if not os.path.exists(resolved_wav):
+        app_res_wav = os.path.join(get_app_data_dir(), "resources", wav_path.replace("\\", "/").lstrip("/"))
+        if os.path.exists(app_res_wav):
+            resolved_wav = app_res_wav
+        else:
+            return
+
+    played_via_qt = False
     try:
         from PyQt6.QtWidgets import QApplication
-        from PyQt6.QtCore import QUrl
+        from PyQt6.QtCore import QUrl, QTimer
         try:
             from PyQt6.QtMultimedia import QSoundEffect
         except ImportError:
@@ -18,21 +48,35 @@ def _play_wav(wav_path: str, volume: float = 1.0) -> None:
         app = QApplication.instance()
         if app is not None:
             effect = QSoundEffect(parent=app)
-            effect.setSource(QUrl.fromLocalFile(os.path.abspath(wav_path)))
+            effect.setSource(QUrl.fromLocalFile(os.path.abspath(resolved_wav)))
             vol_clamp = max(0.0, min(1.0, float(volume)))
             effect.setVolume(vol_clamp)
+
             global _active_sound_effects
             _active_sound_effects.append(effect)
-            effect.playingChanged.connect(lambda: _active_sound_effects.remove(effect) if not effect.isPlaying() and effect in _active_sound_effects else None)
-            effect.play()
-            return
-    except Exception:
-        pass
 
-    if sys.platform == "win32":
+            def _cleanup():
+                if effect in _active_sound_effects:
+                    _active_sound_effects.remove(effect)
+
+            effect.playingChanged.connect(lambda: _cleanup() if not effect.isPlaying() else None)
+            # Автоматическая очистка через 5 сек для предотвращения утечки дескрипторов WASAPI
+            QTimer.singleShot(5000, _cleanup)
+
+            effect.play()
+            if hasattr(QSoundEffect, 'Status') and effect.status() == QSoundEffect.Status.Error:
+                _cleanup()
+                played_via_qt = False
+            else:
+                played_via_qt = True
+    except Exception:
+        played_via_qt = False
+
+    # Если QtMultimedia не смогла воспроизвести звук (или на Windows произошла ошибка WASAPI/сон аудиоустройства)
+    if not played_via_qt and sys.platform == "win32":
         try:
             import winsound
-            winsound.PlaySound(os.path.abspath(wav_path), winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+            winsound.PlaySound(os.path.abspath(resolved_wav), winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
         except Exception:
             pass
 
@@ -153,8 +197,9 @@ def get_installed_sapi_voices():
     """Возвращает уникальный список установленных голосов Windows SAPI5 и RHVoice."""
     if sys.platform != "win32":
         return []
-    import tempfile
     import subprocess
+    import base64
+    from core.config_utils import get_app_data_dir
 
     ps_voices = []
     try:
@@ -165,13 +210,14 @@ foreach ($v in $speech.GetVoices()) {
     if ($d) { [Console]::WriteLine($d) }
 }
 """
-        fd, path = tempfile.mkstemp(suffix=".ps1", text=True)
-        with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
-            f.write(ps_code)
-        
+        ps_exe = get_powershell_executable()
+        encoded_cmd = base64.b64encode(ps_code.encode("utf-16le")).decode("ascii")
+        safe_cwd = get_app_data_dir()
+
         creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         raw_bytes = subprocess.check_output(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
+            [ps_exe, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_cmd],
+            cwd=safe_cwd,
             creationflags=creation_flags,
             timeout=8
         )
@@ -186,12 +232,12 @@ foreach ($v in $speech.GetVoices()) {
                 pass
         if not text:
             text = raw_bytes.decode("utf-8", errors="replace")
-            
+
         for line in text.splitlines():
             line_str = line.strip()
             if line_str:
                 ps_voices.append(line_str)
-    except Exception as e:
+    except Exception:
         pass
 
     raw_list = ps_voices if ps_voices else get_voices_from_registry()
@@ -257,8 +303,9 @@ def speak_sapi_tts(sound_setting: str, text_to_speak: str, vol_int: int) -> None
     if sys.platform != "win32" or not sound_setting or sound_setting == 'default':
         return
 
-    import tempfile
     import subprocess
+    import base64
+    from core.config_utils import get_app_data_dir
 
     ps_text = text_to_speak.replace('"', '`"').replace("'", "''")
     sound_setting_escaped = sound_setting.replace('"', '`"').replace("'", "''")
@@ -309,14 +356,14 @@ try {{
         $speech.Speak('{ps_text}', 0)
     }} catch {{}}
 }}
-Remove-Item $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
 """
     try:
-        fd, path = tempfile.mkstemp(suffix=".ps1", text=True)
-        with os.fdopen(fd, "w", encoding="utf-8-sig") as f:
-            f.write(ps_code)
+        ps_exe = get_powershell_executable()
+        encoded_cmd = base64.b64encode(ps_code.encode("utf-16le")).decode("ascii")
+        safe_cwd = get_app_data_dir()
         subprocess.Popen(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
+            [ps_exe, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_cmd],
+            cwd=safe_cwd,
             creationflags=subprocess.CREATE_NO_WINDOW
         )
     except Exception as e:
@@ -325,6 +372,12 @@ Remove-Item $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
             import datetime
             with open(get_log_path(), "a", encoding="utf-8") as f:
                 f.write(f"[{datetime.datetime.now()}] TTS subprocess error: {e}\n")
+        except Exception:
+            pass
+        # Страховочный fallback на обычный звуковой сигнал при сбое запуска TTS
+        try:
+            from core.config_utils import get_resource_path
+            _play_wav(get_resource_path("src/notification.wav"), volume=1.0)
         except Exception:
             pass
 

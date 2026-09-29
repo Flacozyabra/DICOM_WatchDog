@@ -24,11 +24,34 @@ def get_logs_dir():
     return logs_dir
 
 def get_resource_path(relative_path):
-    try:
-        base_path = sys._MEIPASS
-    except AttributeError:
-        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    return os.path.normpath(os.path.join(base_path, relative_path))
+    rel_clean = os.path.normpath(relative_path)
+    
+    # 1. Попытка взять из sys._MEIPASS (PyInstaller)
+    if hasattr(sys, '_MEIPASS'):
+        candidate = os.path.normpath(os.path.join(sys._MEIPASS, rel_clean))
+        if os.path.exists(candidate):
+            return candidate
+
+    # 2. Попытка взять из постоянного каталога ресурсов в AppData (защита от очистки Temp)
+    app_res = os.path.normpath(os.path.join(get_app_data_dir(), "resources", rel_clean))
+    if os.path.exists(app_res):
+        return app_res
+
+    # 3. Попытка взять напрямую из корня AppData (для ранее скопированных иконок)
+    basename = os.path.basename(rel_clean)
+    app_root_file = os.path.normpath(os.path.join(get_app_data_dir(), basename))
+    if os.path.exists(app_root_file):
+        return app_root_file
+
+    # 4. Попытка взять относительно корня проекта (при запуске из исходников)
+    proj_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    candidate_proj = os.path.normpath(os.path.join(proj_dir, rel_clean))
+    if os.path.exists(candidate_proj):
+        return candidate_proj
+
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.normpath(os.path.join(sys._MEIPASS, rel_clean))
+    return candidate_proj
 
 def migrate_files():
     app_data_dir = get_app_data_dir()
@@ -76,14 +99,37 @@ def migrate_files():
             except Exception as e:
                 print(f"Failed to copy {log_filename} from project root: {e}")
 
-    # Copy notification icons to persistent AppData so Windows Toast service can access them
+    # Copy notification icons and sounds to persistent AppData resources folder to survive Windows Temp cleanup
     try:
+        res_dir = os.path.join(app_data_dir, "resources", "src")
+        os.makedirs(res_dir, exist_ok=True)
+
+        if hasattr(sys, '_MEIPASS'):
+            source_src = os.path.join(sys._MEIPASS, "src")
+        else:
+            source_src = os.path.join(project_dir, "src")
+
+        if os.path.isdir(source_src):
+            for fname in os.listdir(source_src):
+                if fname.lower().endswith(('.wav', '.png', '.ico', '.svg')):
+                    s_file = os.path.join(source_src, fname)
+                    d_file = os.path.join(res_dir, fname)
+                    if os.path.isfile(s_file):
+                        if not os.path.exists(d_file) or os.path.getsize(s_file) != os.path.getsize(d_file):
+                            try:
+                                shutil.copy2(s_file, d_file)
+                            except Exception:
+                                pass
+
         for icon_name in ["folder_notification.png", "pacs_notification.png", "splashscreen_logo.png"]:
             src_icon = get_resource_path(os.path.join("src", icon_name))
             dst_icon = os.path.join(app_data_dir, icon_name)
             if os.path.exists(src_icon):
                 if not os.path.exists(dst_icon) or os.path.getsize(src_icon) != os.path.getsize(dst_icon):
-                    shutil.copy2(src_icon, dst_icon)
+                    try:
+                        shutil.copy2(src_icon, dst_icon)
+                    except Exception:
+                        pass
     except Exception:
         pass
 
