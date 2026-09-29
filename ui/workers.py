@@ -13,7 +13,11 @@ except ImportError:
 
 from core.logger import log_message
 from core.dicom_utils import dict_create, collect_patient_studies, load_ct_cache, save_ct_cache
-from core.rename_utils import process_patient_folder, move_study_folder_hierarchical, get_folder_study_info, is_folder_ready_for_processing
+from core.rename_utils import (
+    process_patient_folder, move_study_folder_hierarchical,
+    get_folder_study_info, is_folder_ready_for_processing,
+    organize_root_orphan_files
+)
 from core.pacs import pacs_dict_create, download_patient_from_pacs
 from core.locale_utils import tr_log, tr_ui
 
@@ -101,7 +105,23 @@ class FolderScanWorker(QThread):
         if self.isInterruptionRequested():
             return
 
-        # 2. Единый проход: исправление ID, переименование, автоархивация и построение таблицы
+        # 2. Организация отдельных файлов DICOM из корня ct_images_dir по папкам пациентов
+        if os.path.exists(self.ct_images_dir):
+            try:
+                root_ready = organize_root_orphan_files(
+                    self.ct_images_dir, collector,
+                    fix_patient_id=is_fix_id_on,
+                    prefixes=prefixes_list,
+                    rename_folder=is_rename_folder_on,
+                    rename_mode=self.rename_study_folder_mode,
+                    strip_non_digits=is_strip_non_digits_on
+                )
+                if not root_ready:
+                    self.has_read_errors = True
+            except Exception:
+                pass
+
+        # 3. Единый проход: исправление ID, переименование, автоархивация и построение таблицы
         patient_folders = []
         if os.path.exists(self.ct_images_dir):
             try:

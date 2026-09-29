@@ -802,6 +802,184 @@ def make_folder_hierarchical(parent_path, output_field=None):
             pass
         return False
 
+def organize_root_orphan_files(ct_images_dir: str, output_field=None, fix_patient_id: bool = False,
+                                prefixes=None, rename_folder: bool = True, rename_mode: str = 'name_id',
+                                strip_non_digits: bool = False, quiet_seconds: float = 3.0) -> bool:
+    """
+    Обнаруживает отдельные (сиротские) DICOM-файлы в корне ct_images_dir и раскладывает их
+    по соответствующим папкам пациентов.
+    Возвращает:
+      True - если в корне нет сиротских файлов или они успешно распределены по папкам.
+      False - если файлы еще записываются (период тишины) или заблокированы процессом ОС.
+    """
+    if not os.path.isdir(ct_images_dir):
+        return True
+
+    try:
+        raw_items = os.listdir(ct_images_dir)
+    except Exception:
+        return True
+
+    candidate_files = []
+    for item in raw_items:
+        if item.startswith('.') or item == LOCK_FILE_NAME or item.lower().endswith('.lock') or item.lower().endswith('.tmp'):
+            continue
+        full_path = os.path.join(ct_images_dir, item)
+        if os.path.isfile(full_path):
+            candidate_files.append(full_path)
+
+    if not candidate_files:
+        return True
+
+    # 1. Проверяем, являются ли файлы DICOM и валидны ли они
+    dicom_entries = []
+    now = time.time()
+    newest_mtime = 0.0
+
+    for fpath in candidate_files:
+        try:
+            mtime = os.path.getmtime(fpath)
+            if mtime > newest_mtime:
+                newest_mtime = mtime
+            ds = pydicom.dcmread(fpath, stop_before_pixels=True, force=True)
+            raw_id = str(getattr(ds, 'PatientID', '')).strip()
+            raw_name = str(getattr(ds, 'PatientName', '')).strip()
+            modality = str(getattr(ds, 'Modality', '')).strip()
+            sop_uid = str(getattr(ds, 'SOPInstanceUID', '')).strip()
+            if not raw_id and not raw_name and not modality and not sop_uid:
+                continue
+            dicom_entries.append((fpath, ds, raw_id, raw_name))
+        except Exception:
+            continue
+
+    if not dicom_entries:
+        return True
+
+    # 2. Quiet Period & File Lock Check
+    if (now - newest_mtime) < quiet_seconds:
+        return False
+
+    for fpath, _, _, _ in dicom_entries[-20:]:
+        try:
+            with open(fpath, 'a+b'):
+                pass
+        except (PermissionError, OSError) as e:
+            if getattr(e, 'winerror', None) == 32:
+                return False
+        except Exception:
+            pass
+
+    # 3. Группируем файлы по целевой папке пациента
+    existing_dirs = {}
+    try:
+        for d in os.listdir(ct_images_dir):
+            dp = os.path.join(ct_images_dir, d)
+            if os.path.isdir(dp) and not d.startswith('.'):
+                existing_dirs[d.lower()] = d
+    except Exception:
+        pass
+
+    grouped = {}
+    for fpath, ds, raw_id, raw_name in dicom_entries:
+        new_id = raw_id
+        if fix_patient_id:
+            if prefixes:
+                for prefix in prefixes:
+                    prefix = prefix.strip()
+                    if prefix and new_id.startswith(prefix):
+                        new_id = new_id[len(prefix):]
+                        break
+            if strip_non_digits and not new_id.isdigit():
+                new_id = remove_non_digits(new_id)
+
+        clean_name = raw_name.replace('^', ' ').replace('_', ' ').strip()
+        clean_name = re.sub(r'\s+', ' ', clean_name)
+        name_part = sanitize_folder_name(clean_name)
+        display_id = new_id if new_id else raw_id
+
+        if rename_folder:
+            if rename_mode == 'id':
+                target_name = display_id
+            elif rename_mode == 'name':
+                target_name = name_part if name_part else display_id
+            elif rename_mode == 'name_id':
+                target_name = f"{name_part} [{display_id}]" if name_part else display_id
+            elif rename_mode == 'id_name':
+                target_name = f"[{display_id}] {name_part}" if name_part else display_id
+            else:
+                target_name = f"{name_part} [{display_id}]" if name_part else display_id
+        else:
+            target_name = f"{name_part} [{display_id}]" if name_part else (display_id if display_id else "Unknown")
+
+        if not target_name:
+            target_name = "Unknown"
+
+        matched_folder = None
+        if target_name.lower() in existing_dirs:
+            matched_folder = existing_dirs[target_name.lower()]
+        else:
+            if display_id:
+                id_tag = f"[{display_id}]".lower()
+                for d_lower, d_actual in existing_dirs.items():
+                    if id_tag in d_lower:
+                        matched_folder = d_actual
+                        break
+
+        final_folder_name = matched_folder if matched_folder else target_name
+        grouped.setdefault(final_folder_name, []).append((fpath, raw_id, new_id))
+
+    # 4. Раскладываем файлы по папкам
+    for folder_name, files_list in grouped.items():
+        target_dir = os.path.join(ct_images_dir, folder_name)
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+        except Exception:
+            continue
+
+        with FolderLock(target_dir) as lock:
+            if not lock.acquired:
+                return False
+
+            moved_count = 0
+            for fpath, raw_id, new_id in files_list:
+                fname = os.path.basename(fpath)
+                dest_fpath = os.path.join(target_dir, fname)
+
+                # Разрешение коллизий имен файлов
+                if os.path.exists(dest_fpath):
+                    try:
+                        if os.path.getsize(dest_fpath) == os.path.getsize(fpath):
+                            os.remove(fpath)
+                            moved_count += 1
+                            continue
+                    except Exception:
+                        pass
+                    base, ext = os.path.splitext(fname)
+                    counter = 1
+                    while os.path.exists(dest_fpath):
+                        dest_fpath = os.path.join(target_dir, f"{base}_{counter}{ext}")
+                        counter += 1
+
+                try:
+                    if fix_patient_id and new_id != raw_id:
+                        full_ds = pydicom.dcmread(fpath, force=True)
+                        full_ds.PatientID = str(new_id)
+                        tmp_target = dest_fpath + ".tmp"
+                        full_ds.save_as(tmp_target, write_like_original=False)
+                        os.replace(tmp_target, dest_fpath)
+                        os.remove(fpath)
+                    else:
+                        shutil.move(fpath, dest_fpath)
+                    moved_count += 1
+                except Exception:
+                    pass
+
+            touch_folder_tree(target_dir)
+            if moved_count > 0:
+                log_message(output_field, tr_log("log_root_files_organized", moved_count, folder_name))
+
+    return True
+
 def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=None, rename_folder=False, rename_mode='id', strip_non_digits=False):
     if not os.path.isdir(path):
         return path
