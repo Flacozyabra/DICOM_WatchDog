@@ -68,6 +68,83 @@ def is_folder_locked(folder_path: str) -> bool:
     except Exception:
         return False
 
+
+def is_folder_ready_for_processing(folder_path: str, quiet_seconds: float = 3.0) -> bool:
+    """
+    Проверяет, завершено ли копирование/запись исследования в папку folder_path.
+    Возвращает True только если:
+    1. Папка не заблокирована лок-файлом WatchDog (.dw_processing.lock).
+    2. Прошел период тишины (Quiet Period): самый свежий файл старше quiet_seconds (по умолчанию 3 сек).
+    3. Нет активных файловых блокировок ОС Windows (WinError 32 / sharing violation) на свежих файлах.
+    """
+    if not os.path.isdir(folder_path):
+        return False
+    if is_folder_locked(folder_path):
+        return False
+
+    now = time.time()
+    newest_mtime = 0.0
+    recent_files = []
+
+    try:
+        for root, dirs, files in os.walk(folder_path):
+            for d in dirs:
+                d_path = os.path.join(root, d)
+                try:
+                    dm = os.path.getmtime(d_path)
+                    if dm > newest_mtime:
+                        newest_mtime = dm
+                except Exception:
+                    return False
+
+            for f in files:
+                if f == LOCK_FILE_NAME or f.lower().endswith('.lock'):
+                    continue
+                f_path = os.path.join(root, f)
+                try:
+                    fm = os.path.getmtime(f_path)
+                    if fm > newest_mtime:
+                        newest_mtime = fm
+                    if (now - fm) < 60.0:
+                        recent_files.append(f_path)
+                except Exception:
+                    return False
+    except Exception:
+        return False
+
+    if newest_mtime == 0.0:
+        try:
+            newest_mtime = os.path.getmtime(folder_path)
+        except Exception:
+            return False
+
+    # 1. Если самый свежий файл был изменен менее quiet_seconds назад — запись еще продолжается
+    if (now - newest_mtime) < quiet_seconds:
+        return False
+
+    # 2. Проверяем файловые блокировки Windows (WinError 32) на свежих файлах
+    for f_path in recent_files[-20:]:
+        try:
+            with open(f_path, 'a+b'):
+                pass
+        except PermissionError as pe:
+            if getattr(pe, 'winerror', None) == 32:
+                return False
+            try:
+                with open(f_path, 'rb'):
+                    pass
+            except PermissionError as pe2:
+                if getattr(pe2, 'winerror', None) == 32:
+                    return False
+        except OSError as oe:
+            if getattr(oe, 'winerror', None) == 32:
+                return False
+        except Exception:
+            pass
+
+    return True
+
+
 class FolderLock:
     """
     Контекстный менеджер для блокировки папки пациента на время изменения ID,
@@ -154,7 +231,7 @@ def safe_merge_folders(src, dest, new_id, progress_callback=None):
     if os.path.normcase(os.path.abspath(src)) == os.path.normcase(os.path.abspath(dest)):
         if progress_callback:
             progress_callback(1.0)
-        return
+        return True
 
     all_files = []
     for dirpath, dirnames, filenames in os.walk(src):
@@ -165,6 +242,7 @@ def safe_merge_folders(src, dest, new_id, progress_callback=None):
 
     total_files = len(all_files)
     processed = 0
+    has_errors = False
 
     for dirpath, filename in all_files:
         src_file = os.path.join(dirpath, filename)
@@ -172,43 +250,83 @@ def safe_merge_folders(src, dest, new_id, progress_callback=None):
         dest_dir = os.path.join(dest, rel_path)
         os.makedirs(dest_dir, exist_ok=True)
         dest_file = os.path.join(dest_dir, filename)
-        
+
+        file_transferred = False
+
         if is_dicom_file(src_file) or is_structure_file(src_file):
-            try:
-                if new_id:
+            if new_id:
+                curr_id = ''
+                try:
                     ds_header = pydicom.dcmread(src_file, stop_before_pixels=True, force=True, specific_tags=['PatientID'])
                     curr_id = str(getattr(ds_header, 'PatientID', '') or ds_header.get('PatientID', '')).strip()
-                    if curr_id != str(new_id):
-                        ds_file = pydicom.dcmread(src_file, force=True)
-                        ds_file.PatientID = str(new_id)
-                        ds_file.save_as(dest_file)
-                    else:
-                        shutil.copy2(src_file, dest_file)
+                except Exception:
+                    pass
+
+                if curr_id and curr_id != str(new_id):
+                    # Нужна смена ID: перезаписываем с Retry механизмом
+                    for attempt in range(5):
+                        try:
+                            ds_file = pydicom.dcmread(src_file, force=True)
+                            ds_file.PatientID = str(new_id)
+                            ds_file.save_as(dest_file)
+                            file_transferred = True
+                            break
+                        except (PermissionError, OSError):
+                            time.sleep(0.15 * (attempt + 1))
+                        except Exception:
+                            break
                 else:
-                    shutil.copy2(src_file, dest_file)
-            except Exception:
-                shutil.copy2(src_file, dest_file)
+                    # ID уже совпадает или отсутствует: переносим файл с Retry
+                    for attempt in range(5):
+                        try:
+                            shutil.copy2(src_file, dest_file)
+                            file_transferred = True
+                            break
+                        except Exception:
+                            time.sleep(0.15 * (attempt + 1))
+            else:
+                for attempt in range(5):
+                    try:
+                        shutil.copy2(src_file, dest_file)
+                        file_transferred = True
+                        break
+                    except Exception:
+                        time.sleep(0.15 * (attempt + 1))
         else:
-            shutil.copy2(src_file, dest_file)
+            for attempt in range(5):
+                try:
+                    shutil.copy2(src_file, dest_file)
+                    file_transferred = True
+                    break
+                except Exception:
+                    time.sleep(0.15 * (attempt + 1))
+
+        if not file_transferred:
+            has_errors = True
 
         processed += 1
         if progress_callback and total_files > 0 and (processed % 5 == 0 or processed == total_files):
             progress_callback(processed / total_files)
 
-    for attempt in range(5):
-        try:
-            shutil.rmtree(src)
-            break
-        except Exception:
-            time.sleep(0.15)
+    # Удаляем папку-источник ТОЛЬКО если ВСЕ файлы успешно перенесены без ошибок
+    if not has_errors:
+        for attempt in range(5):
+            try:
+                shutil.rmtree(src)
+                break
+            except Exception:
+                time.sleep(0.15)
+        else:
+            try:
+                shutil.rmtree(src, ignore_errors=True)
+            except Exception:
+                pass
     else:
-        try:
-            shutil.rmtree(src, ignore_errors=True)
-        except Exception:
-            pass
+        raise OSError(f"Failed to safely merge all files from {src} to {dest}: some files could not be transferred")
 
     if progress_callback:
         progress_callback(1.0)
+    return not has_errors
 
 
 def safe_update_patient_ids(folder_path, new_id, output_field=None, rt_only=False, progress_callback=None):
@@ -684,7 +802,7 @@ def make_folder_hierarchical(parent_path, output_field=None):
             pass
         return False
 
-def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=None, rename_folder=False, rename_mode='id'):
+def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=None, rename_folder=False, rename_mode='id', strip_non_digits=False):
     if not os.path.isdir(path):
         return path
 
@@ -711,7 +829,7 @@ def process_patient_folder(path, output_field, fix_patient_id=False, prefixes=No
                     if prefix and new_patient_id.startswith(prefix):
                         new_patient_id = new_patient_id[len(prefix):]
                         break
-            if not new_patient_id.isdigit():
+            if strip_non_digits and not new_patient_id.isdigit():
                 new_patient_id = remove_non_digits(new_patient_id)
 
         id_changed = fix_patient_id and (new_patient_id != raw_patient_id)

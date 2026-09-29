@@ -74,6 +74,12 @@ def build_general_tab(dialog):
     dialog.lbl_id_prefixes = QLabel()
     general_form.addRow(dialog.lbl_id_prefixes, dialog.id_prefixes_edit)
 
+    # Strip non-digits from ID
+    dialog.strip_non_digits_cb = ToggleSwitch()
+    dialog.strip_non_digits_cb.setChecked(dialog.config.get('strip_non_digits_enabled', 'False').lower() == 'true')
+    dialog.lbl_strip_non_digits = QLabel()
+    general_form.addRow(dialog.lbl_strip_non_digits, dialog.strip_non_digits_cb)
+
     # Rename Study Folder
     dialog.rename_study_folder_cb = ToggleSwitch()
     dialog.rename_study_folder_cb.setChecked(dialog.config.get('rename_study_folder_enabled', 'False').lower() == 'true')
@@ -126,6 +132,9 @@ def retranslate_general_tab(dialog):
     dialog.lbl_fix_id.setText(tr_ui("settings_fix_id_label"))
     dialog.lbl_id_prefixes.setText(tr_ui("settings_id_prefixes_label"))
     dialog.id_prefixes_edit.setPlaceholderText(tr_ui("settings_id_prefixes_placeholder"))
+    dialog.lbl_strip_non_digits.setText(tr_ui("settings_strip_non_digits_label"))
+    dialog.lbl_strip_non_digits.setToolTip(tr_ui("tooltip_strip_non_digits"))
+    dialog.strip_non_digits_cb.setToolTip(tr_ui("tooltip_strip_non_digits"))
     dialog.lbl_rename_folder.setText(tr_ui("settings_rename_folder_label"))
     dialog.lbl_rename_folder_mode.setText(tr_ui("settings_rename_folder_mode_label"))
     

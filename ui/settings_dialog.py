@@ -54,6 +54,7 @@ class SettingsDialog(QDialog):
             'cleanup_structures_enabled': 'False',
             'fix_patient_id_enabled': 'False',
             'id_prefixes': 'CT_',
+            'strip_non_digits_enabled': 'False',
             'client_dir': '',
             'archive_slice': 0,
             'x': 1100,
@@ -355,6 +356,10 @@ class SettingsDialog(QDialog):
         self.ping_btn.setEnabled(pacs_tab_active)
 
         self.id_prefixes_edit.setEnabled(self.fix_patient_id_cb.isChecked())
+        if hasattr(self, 'strip_non_digits_cb'):
+            self.strip_non_digits_cb.setEnabled(self.fix_patient_id_cb.isChecked())
+        if hasattr(self, 'lbl_strip_non_digits'):
+            self.lbl_strip_non_digits.setEnabled(self.fix_patient_id_cb.isChecked())
         
         rename_folder_active = self.rename_study_folder_cb.isChecked()
         self.rename_study_folder_mode_combo.setEnabled(rename_folder_active)
@@ -472,6 +477,8 @@ class SettingsDialog(QDialog):
         self.cleanup_str_cb.toggled.connect(self.on_setting_changed)
         self.fix_patient_id_cb.toggled.connect(self.on_setting_changed)
         self.id_prefixes_edit.textChanged.connect(self.on_setting_changed)
+        if hasattr(self, 'strip_non_digits_cb'):
+            self.strip_non_digits_cb.toggled.connect(self.on_setting_changed)
         self.archive_edit.textChanged.connect(self.on_setting_changed)
         self.archive_enabled_cb.toggled.connect(self.on_setting_changed)
         self.archive_days_spin.valueChanged.connect(self.on_setting_changed)
@@ -542,6 +549,8 @@ class SettingsDialog(QDialog):
         self.config['show_tab_pacs'] = 'True' if self.show_tab_pacs_cb.isChecked() else 'False'
         self.config['fix_patient_id_enabled'] = 'True' if self.fix_patient_id_cb.isChecked() else 'False'
         self.config['id_prefixes'] = self.id_prefixes_edit.text()
+        if hasattr(self, 'strip_non_digits_cb'):
+            self.config['strip_non_digits_enabled'] = 'True' if self.strip_non_digits_cb.isChecked() else 'False'
         self.config['rename_study_folder_enabled'] = 'True' if self.rename_study_folder_cb.isChecked() else 'False'
         idx = self.rename_study_folder_mode_combo.currentIndex()
         if idx == 0:

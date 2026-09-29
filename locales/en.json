@@ -110,6 +110,8 @@
   "settings_fix_id_label": "Fix Patient ID:",
   "settings_id_prefixes_label": "ID prefixes to remove:",
   "settings_id_prefixes_placeholder": "E.g.: CT_, PT_",
+  "settings_strip_non_digits_label": "Remove non-digit characters:",
+  "tooltip_strip_non_digits": "Removes letters, dots and symbols from ID strictly after removing prefixes",
   "settings_check_updates_toggle": "Check for updates on startup",
   "settings_check_updates_btn": "Check for updates",
   "settings_highlighting": "Enable study color highlighting:",

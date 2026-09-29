@@ -13,7 +13,7 @@ except ImportError:
 
 from core.logger import log_message
 from core.dicom_utils import dict_create, collect_patient_studies, load_ct_cache, save_ct_cache
-from core.rename_utils import process_patient_folder, move_study_folder_hierarchical, get_folder_study_info
+from core.rename_utils import process_patient_folder, move_study_folder_hierarchical, get_folder_study_info, is_folder_ready_for_processing
 from core.pacs import pacs_dict_create, download_patient_from_pacs
 from core.locale_utils import tr_log, tr_ui
 
@@ -50,12 +50,14 @@ class FolderScanWorker(QThread):
     def __init__(self, ct_images_dir, cleanup_structures_enabled, fix_patient_id_enabled, id_prefixes,
                  rename_study_folder_enabled, rename_study_folder_mode,
                  archive_dir, archive_enabled, archive_days, archive_cleanup_enabled, archive_cleanup_days,
-                 scan_rtd=False, scan_rtp=False, archive_destination_name="архив"):
+                 scan_rtd=False, scan_rtp=False, archive_destination_name="архив",
+                 strip_non_digits_enabled='False'):
         super().__init__()
         self.ct_images_dir = ct_images_dir
         self.cleanup_structures_enabled = cleanup_structures_enabled
         self.fix_patient_id_enabled = fix_patient_id_enabled
         self.id_prefixes = id_prefixes
+        self.strip_non_digits_enabled = strip_non_digits_enabled
         self.rename_study_folder_enabled = rename_study_folder_enabled
         self.rename_study_folder_mode = rename_study_folder_mode
         self.archive_dir = archive_dir
@@ -74,6 +76,7 @@ class FolderScanWorker(QThread):
         collector = ThreadLogCollector(emit_callback=self.log_emitted.emit)
         is_cleanup_struct_on = str(self.cleanup_structures_enabled).lower() == 'true'
         is_fix_id_on = str(self.fix_patient_id_enabled).lower() == 'true'
+        is_strip_non_digits_on = str(self.strip_non_digits_enabled).lower() == 'true'
         is_rename_folder_on = str(self.rename_study_folder_enabled).lower() == 'true'
         is_archive_on = str(self.archive_enabled).lower() == 'true'
         is_cleanup_on = str(self.archive_cleanup_enabled).lower() == 'true'
@@ -156,6 +159,21 @@ class FolderScanWorker(QThread):
                 is_unmodified = (cached_entry is not None and cached_entry.get('mtime') == folder_mtime)
 
                 if not is_unmodified:
+                    # Проверяем готовность папки (период тишины 3 сек и отсутствие файловых блокировок)
+                    if not is_folder_ready_for_processing(path):
+                        self.has_read_errors = True
+                        if cached_entry:
+                            with cache_lock:
+                                studies = collect_patient_studies(
+                                    path, self.ct_images_dir, collector,
+                                    cleanup_structures=False,
+                                    scan_rtd=self.scan_rtd,
+                                    scan_rtp=self.scan_rtp,
+                                    cache=ct_cache
+                                )
+                            return studies, 0
+                        return {}, 0
+
                     self.study_auto_op_started.emit(folder_name, 'auto_process')
 
                 try:
@@ -165,7 +183,8 @@ class FolderScanWorker(QThread):
                             fix_patient_id=is_fix_id_on,
                             prefixes=prefixes_list,
                             rename_folder=is_rename_folder_on,
-                            rename_mode=self.rename_study_folder_mode
+                            rename_mode=self.rename_study_folder_mode,
+                            strip_non_digits=is_strip_non_digits_on
                         )
                         if res_path and os.path.exists(res_path):
                             if os.path.basename(res_path) != folder_name:

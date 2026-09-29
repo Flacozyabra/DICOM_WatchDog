@@ -842,6 +842,7 @@ class MainWindow(QMainWindow):
 
         cleanup_str_val = self.config.get('cleanup_structures_enabled', 'False')
         fix_id_val = self.config.get('fix_patient_id_enabled', 'False')
+        strip_non_digits_val = self.config.get('strip_non_digits_enabled', 'False')
         prefixes_val = self.config.get('id_prefixes', 'CT_')
         rename_folder_enabled = self.config.get('rename_study_folder_enabled', 'False')
         rename_folder_mode = self.config.get('rename_study_folder_mode', 'id')
@@ -867,7 +868,8 @@ class MainWindow(QMainWindow):
             archive_dir, archive_enabled, archive_days,
             archive_cleanup_enabled, archive_cleanup_days,
             scan_rtd=scan_rtd, scan_rtp=scan_rtp,
-            archive_destination_name=self.get_archive_destination_name()
+            archive_destination_name=self.get_archive_destination_name(),
+            strip_non_digits_enabled=strip_non_digits_val
         )
         self.scan_worker.finished.connect(self.on_folder_scan_finished)
         self.scan_worker.archive_updated.connect(self.on_archive_updated_by_scan)
