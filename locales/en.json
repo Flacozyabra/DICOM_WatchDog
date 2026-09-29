@@ -65,6 +65,8 @@
   "ctx_check_monaco_plan": "Check Monaco Plan",
   "ctx_restore_from_archive": "Restore from Archive",
   "ctx_delete_archive_patient": "Delete from Archive",
+  "dlg_plan_not_found_title": "Plan Not Found",
+  "dlg_plan_not_found_msg": "No RTPLAN file found in patient folder \"{}\" ({}).",
   "dlg_change_id_title": "Change Patient ID",
   "dlg_change_id_label": "Enter new Patient ID:",
   "dlg_change_id_btn_apply": "Apply",

@@ -65,6 +65,8 @@
   "ctx_check_monaco_plan": "Проверить план Monaco",
   "ctx_restore_from_archive": "Восстановить из архива",
   "ctx_delete_archive_patient": "Удалить из архива",
+  "dlg_plan_not_found_title": "План не найден",
+  "dlg_plan_not_found_msg": "В папке пациента \"{}\" ({}) не обнаружен файл плана (RTPLAN).",
   "dlg_change_id_title": "Изменение ID пациента",
   "dlg_change_id_label": "Введите новый ID пациента:",
   "dlg_change_id_btn_apply": "Применить",

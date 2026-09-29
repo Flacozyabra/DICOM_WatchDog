@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.logger import log_message
+from core.locale_utils import tr_ui
 from ui.plan_analysis.kinematics import PlanKinematicsAnalyzer
 from ui.plan_analysis.polar_arc_widget import PolarArcWidget
 from ui.plan_analysis.timeline_widget import ModulationTimelineWidget
@@ -887,15 +888,15 @@ def open_plan_analyzer(parent, folder_or_plan_path: str, patient_id: str = "", p
         all_plan_files.insert(0, plan_file)
 
     if not plan_file:
-        _cfg_f = getattr(parent, 'config', {}) or {}
-        _is_ru_f = _cfg_f.get('interface_lang', 'en') == 'ru'
-        QMessageBox.warning(
-            parent,
-            "План не найден" if _is_ru_f else "Plan Not Found",
-            f"В папке пациента {patient_name} ({patient_id}) не обнаружен файл RTPLAN."
-            if _is_ru_f else
-            f"No RTPLAN file found in patient folder {patient_name} ({patient_id})."
-        )
+        dlg = QMessageBox(parent)
+        dlg.setIcon(QMessageBox.Icon.Information)
+        dlg.setWindowTitle(tr_ui("dlg_plan_not_found_title"))
+        p_name = patient_name or "—"
+        p_id = patient_id or "—"
+        dlg.setText(tr_ui("dlg_plan_not_found_msg", p_name, p_id))
+        dlg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        apply_dark_title_bar(dlg)
+        dlg.exec()
         return
 
     try:

@@ -188,11 +188,10 @@ class TableContextMenuManager:
             plan_file = find_rtplan_file(study_folder) if study_folder and os.path.isdir(study_folder) else None
 
             check_plan_action = QAction(tr_ui("ctx_check_monaco_plan"), self.mw)
-            if plan_file:
-                check_plan_action.setEnabled(True)
-                check_plan_action.triggered.connect(lambda: open_plan_analyzer(self.mw, plan_file, patient_id, patient_name))
-            else:
-                check_plan_action.setEnabled(False)
+            check_plan_action.triggered.connect(
+                lambda checked=False, pf=plan_file, sf=study_folder, pid=patient_id, pnm=patient_name:
+                open_plan_analyzer(self.mw, pf or sf, pid, pnm)
+            )
 
             open_folder_action = QAction(tr_ui("ctx_open_folder"), self.mw)
             open_folder_action.triggered.connect(lambda: self.mw.open_patient_folder(folder_to_open, is_archive=False))
@@ -268,11 +267,10 @@ class TableContextMenuManager:
             plan_file = find_rtplan_file(study_folder) if study_folder and os.path.isdir(study_folder) else None
 
             check_plan_action = QAction(tr_ui("ctx_check_monaco_plan"), self.mw)
-            if plan_file:
-                check_plan_action.setEnabled(True)
-                check_plan_action.triggered.connect(lambda: open_plan_analyzer(self.mw, plan_file, patient_id, patient_name))
-            else:
-                check_plan_action.setEnabled(False)
+            check_plan_action.triggered.connect(
+                lambda checked=False, pf=plan_file, sf=study_folder, pid=patient_id, pnm=patient_name:
+                open_plan_analyzer(self.mw, pf or sf, pid, pnm)
+            )
 
             open_folder_action = QAction(tr_ui("ctx_open_folder"), self.mw)
             open_folder_action.triggered.connect(lambda: self.mw.open_patient_folder(folder_to_open, is_archive=True))
