@@ -218,6 +218,7 @@ foreach ($v in $speech.GetVoices()) {
         raw_bytes = subprocess.check_output(
             [ps_exe, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_cmd],
             cwd=safe_cwd,
+            close_fds=True,
             creationflags=creation_flags,
             timeout=8
         )
@@ -364,14 +365,14 @@ try {{
         subprocess.Popen(
             [ps_exe, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_cmd],
             cwd=safe_cwd,
+            close_fds=True,
             creationflags=subprocess.CREATE_NO_WINDOW
         )
     except Exception as e:
         try:
-            from core.config_utils import get_log_path
-            import datetime
-            with open(get_log_path(), "a", encoding="utf-8") as f:
-                f.write(f"[{datetime.datetime.now()}] TTS subprocess error: {e}\n")
+            from core.config_utils import write_pacs_log
+            from datetime import datetime
+            write_pacs_log(f"[{datetime.now()}] TTS subprocess error: {e}\n")
         except Exception:
             pass
         # Страховочный fallback на обычный звуковой сигнал при сбое запуска TTS
@@ -429,9 +430,8 @@ def show_notification(title: str, message: str, sound_setting: str = 'default', 
             show_qt_toast(title, message, 'short', icon_path, duration_ms=duration_ms, position=position)
         except Exception as e:
             try:
-                from core.config_utils import get_log_path
-                import datetime
-                with open(get_log_path(), "a", encoding="utf-8") as f:
-                    f.write(f"[{datetime.datetime.now()}] Custom Qt Toast error: {e}\n")
+                from core.config_utils import write_pacs_log
+                from datetime import datetime
+                write_pacs_log(f"[{datetime.now()}] Custom Qt Toast error: {e}\n")
             except Exception:
                 pass

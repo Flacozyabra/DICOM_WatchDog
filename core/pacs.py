@@ -70,9 +70,8 @@ class BackgroundDicomServer:
                 return 0x0000
             except Exception as e:
                 try:
-                    from core.config_utils import get_log_path
-                    with open(get_log_path(), "a", encoding="utf-8") as log_f:
-                        log_f.write(f"[{datetime.now()}] Error in handle_store: {e}\n")
+                    from core.config_utils import write_pacs_log
+                    write_pacs_log(f"[{datetime.now()}] Error in handle_store: {e}\n")
                 except Exception:
                     pass
                 return 0xC000
@@ -97,9 +96,8 @@ class BackgroundDicomServer:
         except Exception as e:
             self.server = None
             try:
-                from core.config_utils import get_log_path
-                with open(get_log_path(), "a", encoding="utf-8") as log_f:
-                    log_f.write(f"[{datetime.now()}] Failed to start BackgroundDicomServer on port {port}: {e}\n")
+                from core.config_utils import write_pacs_log
+                write_pacs_log(f"[{datetime.now()}] Failed to start BackgroundDicomServer on port {port}: {e}\n")
             except Exception:
                 pass
             return False, str(e)

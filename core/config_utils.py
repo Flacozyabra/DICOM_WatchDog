@@ -177,6 +177,21 @@ def get_log_path():
     check_rotate_log(path)
     return path
 
+def append_to_log(file_path: str, message: str) -> None:
+    """Безопасно дописывает сообщение в файл лога со сбросом буфера и немедленным закрытием дескриптора."""
+    try:
+        check_rotate_log(file_path)
+        with open(file_path, "a", encoding="utf-8") as f:
+            f.write(message)
+            f.flush()
+    except Exception:
+        pass
+
+def write_pacs_log(message: str) -> None:
+    """Записывает сообщение в pacs_error.log без удержания дескриптора файла."""
+    path = os.path.join(get_logs_dir(), "pacs_error.log")
+    append_to_log(path, message)
+
 def get_app_error_log_path():
     return os.path.join(get_logs_dir(), "error.log")
 

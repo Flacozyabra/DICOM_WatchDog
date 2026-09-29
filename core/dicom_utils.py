@@ -201,9 +201,8 @@ def save_ct_cache(cache_data):
             json.dump(cache_data, f, ensure_ascii=False, indent=4, default=_json_serialize_default)
     except Exception as e:
         try:
-            from core.config_utils import get_log_path
-            with open(get_log_path(), "a", encoding="utf-8") as log_f:
-                log_f.write(f"[{datetime.now()}] Failed to save CT cache: {e}\n")
+            from core.config_utils import write_pacs_log
+            write_pacs_log(f"[{datetime.now()}] Failed to save CT cache: {e}\n")
         except Exception:
             pass
 

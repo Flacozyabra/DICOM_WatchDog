@@ -31,7 +31,8 @@ def get_error_logger():
                     log_path,
                     maxBytes=5 * 1024 * 1024,
                     backupCount=3,
-                    encoding="utf-8"
+                    encoding="utf-8",
+                    delay=True
                 )
                 formatter = logging.Formatter(
                     "[%(asctime)s] [%(levelname)s] %(message)s",

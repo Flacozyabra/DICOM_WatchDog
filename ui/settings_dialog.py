@@ -683,7 +683,7 @@ Copy-VoiceTokens $src $dst32
                 f.write(ps_code)
             
             cmd = f"Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"{path}\"'"
-            subprocess.run(["powershell", "-NoProfile", "-Command", cmd], creationflags=subprocess.CREATE_NO_WINDOW)
+            subprocess.run(["powershell", "-NoProfile", "-Command", cmd], close_fds=True, creationflags=subprocess.CREATE_NO_WINDOW)
             
             QMessageBox.information(
                 self,
