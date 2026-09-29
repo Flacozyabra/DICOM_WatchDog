@@ -92,8 +92,10 @@ def is_folder_ready_for_processing(folder_path: str, quiet_seconds: float = 3.0)
                 d_path = os.path.join(root, d)
                 try:
                     dm = os.path.getmtime(d_path)
-                    if dm > newest_mtime:
-                        newest_mtime = dm
+                    dc = os.path.getctime(d_path)
+                    d_eff = dm if dm <= now else (dc if dc <= now else 0.0)
+                    if d_eff > newest_mtime:
+                        newest_mtime = d_eff
                 except Exception:
                     return False
 
@@ -103,9 +105,11 @@ def is_folder_ready_for_processing(folder_path: str, quiet_seconds: float = 3.0)
                 f_path = os.path.join(root, f)
                 try:
                     fm = os.path.getmtime(f_path)
-                    if fm > newest_mtime:
-                        newest_mtime = fm
-                    if (now - fm) < 60.0:
+                    fc = os.path.getctime(f_path)
+                    f_eff = fm if fm <= now else (fc if fc <= now else 0.0)
+                    if f_eff > newest_mtime:
+                        newest_mtime = f_eff
+                    if (now - fm) < 60.0 or (now - fc) < 60.0:
                         recent_files.append(f_path)
                 except Exception:
                     return False
@@ -114,12 +118,14 @@ def is_folder_ready_for_processing(folder_path: str, quiet_seconds: float = 3.0)
 
     if newest_mtime == 0.0:
         try:
-            newest_mtime = os.path.getmtime(folder_path)
+            m = os.path.getmtime(folder_path)
+            c = os.path.getctime(folder_path)
+            newest_mtime = m if m <= now else (c if c <= now else 0.0)
         except Exception:
             return False
 
     # 1. Если самый свежий файл был изменен менее quiet_seconds назад — запись еще продолжается
-    if (now - newest_mtime) < quiet_seconds:
+    if newest_mtime > 0.0 and 0 <= (now - newest_mtime) < quiet_seconds:
         return False
 
     # 2. Проверяем файловые блокировки Windows (WinError 32) на свежих файлах
@@ -839,8 +845,10 @@ def organize_root_orphan_files(ct_images_dir: str, output_field=None, fix_patien
     for fpath in candidate_files:
         try:
             mtime = os.path.getmtime(fpath)
-            if mtime > newest_mtime:
-                newest_mtime = mtime
+            ctime = os.path.getctime(fpath)
+            eff_time = mtime if mtime <= now else (ctime if ctime <= now else 0.0)
+            if eff_time > newest_mtime:
+                newest_mtime = eff_time
             ds = pydicom.dcmread(fpath, stop_before_pixels=True, force=True)
             raw_id = str(getattr(ds, 'PatientID', '')).strip()
             raw_name = str(getattr(ds, 'PatientName', '')).strip()
@@ -856,7 +864,7 @@ def organize_root_orphan_files(ct_images_dir: str, output_field=None, fix_patien
         return True
 
     # 2. Quiet Period & File Lock Check
-    if (now - newest_mtime) < quiet_seconds:
+    if newest_mtime > 0.0 and 0 <= (now - newest_mtime) < quiet_seconds:
         return False
 
     for fpath, _, _, _ in dicom_entries[-20:]:
