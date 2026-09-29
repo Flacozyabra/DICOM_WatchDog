@@ -55,13 +55,15 @@ class FolderScanWorker(QThread):
                  rename_study_folder_enabled, rename_study_folder_mode,
                  archive_dir, archive_enabled, archive_days, archive_cleanup_enabled, archive_cleanup_days,
                  scan_rtd=False, scan_rtp=False, archive_destination_name="архив",
-                 strip_non_digits_enabled='False'):
+                 strip_non_digits_enabled='False',
+                 organize_root_files_enabled='False'):
         super().__init__()
         self.ct_images_dir = ct_images_dir
         self.cleanup_structures_enabled = cleanup_structures_enabled
         self.fix_patient_id_enabled = fix_patient_id_enabled
         self.id_prefixes = id_prefixes
         self.strip_non_digits_enabled = strip_non_digits_enabled
+        self.organize_root_files_enabled = organize_root_files_enabled
         self.rename_study_folder_enabled = rename_study_folder_enabled
         self.rename_study_folder_mode = rename_study_folder_mode
         self.archive_dir = archive_dir
@@ -81,6 +83,7 @@ class FolderScanWorker(QThread):
         is_cleanup_struct_on = str(self.cleanup_structures_enabled).lower() == 'true'
         is_fix_id_on = str(self.fix_patient_id_enabled).lower() == 'true'
         is_strip_non_digits_on = str(self.strip_non_digits_enabled).lower() == 'true'
+        is_organize_root_on = str(self.organize_root_files_enabled).lower() == 'true'
         is_rename_folder_on = str(self.rename_study_folder_enabled).lower() == 'true'
         is_archive_on = str(self.archive_enabled).lower() == 'true'
         is_cleanup_on = str(self.archive_cleanup_enabled).lower() == 'true'
@@ -105,8 +108,8 @@ class FolderScanWorker(QThread):
         if self.isInterruptionRequested():
             return
 
-        # 2. Организация отдельных файлов DICOM из корня ct_images_dir по папкам пациентов
-        if os.path.exists(self.ct_images_dir):
+        # 2. Организация отдельных файлов DICOM из корня ct_images_dir по папкам пациентов (только если опция включена)
+        if is_organize_root_on and os.path.exists(self.ct_images_dir):
             try:
                 root_ready = organize_root_orphan_files(
                     self.ct_images_dir, collector,

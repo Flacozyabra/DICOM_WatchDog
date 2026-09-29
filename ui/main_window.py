@@ -846,6 +846,7 @@ class MainWindow(QMainWindow):
         prefixes_val = self.config.get('id_prefixes', 'CT_')
         rename_folder_enabled = self.config.get('rename_study_folder_enabled', 'False')
         rename_folder_mode = self.config.get('rename_study_folder_mode', 'id')
+        organize_root_files_val = self.config.get('organize_root_files_enabled', 'False')
         
         show_archive = self.config.get('show_tab_archive', 'True').lower() == 'true'
         archive_dir = self.config.get('archive_dir', '') if show_archive else ''
@@ -869,7 +870,8 @@ class MainWindow(QMainWindow):
             archive_cleanup_enabled, archive_cleanup_days,
             scan_rtd=scan_rtd, scan_rtp=scan_rtp,
             archive_destination_name=self.get_archive_destination_name(),
-            strip_non_digits_enabled=strip_non_digits_val
+            strip_non_digits_enabled=strip_non_digits_val,
+            organize_root_files_enabled=organize_root_files_val
         )
         self.scan_worker.finished.connect(self.on_folder_scan_finished)
         self.scan_worker.archive_updated.connect(self.on_archive_updated_by_scan)

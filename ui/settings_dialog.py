@@ -91,6 +91,7 @@ class SettingsDialog(QDialog):
             'highlight_no_slices_enabled': 'False',
             'rename_study_folder_enabled': 'False',
             'rename_study_folder_mode': 'id',
+            'organize_root_files_enabled': 'False',
             'plan_analyzer_context_menu_enabled': 'False',
             'plan_min_dose_rate': 60,
             'plan_min_mu_per_deg': 0.165,
@@ -563,6 +564,8 @@ class SettingsDialog(QDialog):
             self.config['rename_study_folder_mode'] = 'id_name'
         else:
             self.config['rename_study_folder_mode'] = 'id'
+        if hasattr(self, 'organize_root_files_cb'):
+            self.config['organize_root_files_enabled'] = 'True' if self.organize_root_files_cb.isChecked() else 'False'
         self.config['plan_analyzer_context_menu_enabled'] = 'True' if self.plan_analyzer_context_menu_cb.isChecked() else 'False'
         self.config['plan_min_dose_rate'] = self.plan_min_dose_rate_spin.value()
         self.config['plan_min_mu_per_deg'] = self.plan_min_mu_per_deg_spin.value()

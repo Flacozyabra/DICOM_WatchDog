@@ -232,6 +232,8 @@
   "settings_rename_folder_mode_name": "Patient Name",
   "settings_rename_folder_mode_name_id": "Patient Name [Patient ID]",
   "settings_rename_folder_mode_id_name": "[Patient ID] Patient Name",
+  "settings_organize_root_files_label": "Organize root files into folders:",
+  "tooltip_organize_root_files": "Automatically detect orphan DICOM files in CT root and organize them into patient folders.",
   "loading_fixing_folders_status": "Fixing Patient ID and renaming folders...",
   "loading_archiving_status": "Archiving old studies...",
   "loading_cleanup_status": "Cleaning up old archive folders...",

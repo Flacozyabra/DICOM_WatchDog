@@ -91,6 +91,12 @@ def build_general_tab(dialog):
     dialog.lbl_rename_folder_mode = QLabel()
     general_form.addRow(dialog.lbl_rename_folder_mode, dialog.rename_study_folder_mode_combo)
 
+    # Organize Root Files
+    dialog.organize_root_files_cb = ToggleSwitch()
+    dialog.organize_root_files_cb.setChecked(dialog.config.get('organize_root_files_enabled', 'False').lower() == 'true')
+    dialog.lbl_organize_root_files = QLabel()
+    general_form.addRow(dialog.lbl_organize_root_files, dialog.organize_root_files_cb)
+
     # Разделитель под префиксами
     line_updates = QFrame()
     line_updates.setFrameShape(QFrame.Shape.HLine)
@@ -137,6 +143,9 @@ def retranslate_general_tab(dialog):
     dialog.strip_non_digits_cb.setToolTip(tr_ui("tooltip_strip_non_digits"))
     dialog.lbl_rename_folder.setText(tr_ui("settings_rename_folder_label"))
     dialog.lbl_rename_folder_mode.setText(tr_ui("settings_rename_folder_mode_label"))
+    dialog.lbl_organize_root_files.setText(tr_ui("settings_organize_root_files_label"))
+    dialog.lbl_organize_root_files.setToolTip(tr_ui("tooltip_organize_root_files"))
+    dialog.organize_root_files_cb.setToolTip(tr_ui("tooltip_organize_root_files"))
     
     # Populate rename folder mode combo
     dialog.rename_study_folder_mode_combo.blockSignals(True)
