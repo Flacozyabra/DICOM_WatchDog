@@ -233,7 +233,7 @@
   "settings_rename_folder_mode_name_id": "Patient Name [Patient ID]",
   "settings_rename_folder_mode_id_name": "[Patient ID] Patient Name",
   "settings_organize_root_files_label": "Раскладывать файлы из корня по папкам:",
-  "tooltip_organize_root_files": "Автоматически обнаруживает отдельные DICOM-файлы в корне папки КТ и объединяет их в папки пациентов.",
+  "tooltip_organize_root_files": "Автоматически обнаруживает отдельные DICOM-файлы в корне папки КТ и объединяет их в папки пациентов.\n\nВАЖНО: При отключении этой опции отдельные файлы в корне КТ не объединяются в папки и не будут отображаться в таблице исследований.",
   "loading_fixing_folders_status": "Исправление Patient ID и переименование папок...",
   "loading_archiving_status": "Архивирование старых исследований...",
   "loading_cleanup_status": "Очистка старых папок архива...",
