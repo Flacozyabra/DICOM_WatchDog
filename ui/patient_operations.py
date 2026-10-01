@@ -115,6 +115,17 @@ class ChangePatientIdDialog(QDialog):
 
 
 def remove_folder_with_progress(p_path, progress_callback=None):
+    if not p_path:
+        if progress_callback:
+            progress_callback(1.0)
+        return
+    norm_path = os.path.abspath(os.path.normpath(p_path))
+    # Защита от случайного удаления корня диска или некорректного пути
+    if norm_path == os.path.dirname(norm_path) or len(norm_path) <= 3:
+        if progress_callback:
+            progress_callback(1.0)
+        return
+
     files_to_del = []
     dirs_to_del = []
     for root, dirs, files in os.walk(p_path, topdown=False):
@@ -327,17 +338,31 @@ class PatientOperationsManager:
             return
 
         ct_images_dir = self.mw.config.get('ct_images_dir', '')
+        if not ct_images_dir or not os.path.exists(ct_images_dir):
+            return
+        abs_ct_dir = os.path.abspath(ct_images_dir)
+        abs_archive_dir = os.path.abspath(self.mw.config.get('archive_dir', '')) if self.mw.config.get('archive_dir', '') else ''
+
         for t in targets:
             pid = t['patient_id']
             pname = t['patient_name']
             if pid in self.mw.active_file_operations:
                 continue
 
-            folder_name = t['folder_name']
+            folder_name = t.get('folder_name', pid)
+            if not folder_name or not str(folder_name).strip() or str(folder_name).strip() in ('.', '/', '\\'):
+                continue
             if not t.get('is_child') and ('/' in str(folder_name) or '\\' in str(folder_name)):
                 folder_name = str(folder_name).replace('\\', '/').split('/')[0]
 
-            path = os.path.join(ct_images_dir, folder_name)
+            path = os.path.normpath(os.path.join(ct_images_dir, folder_name))
+            abs_path = os.path.abspath(path)
+
+            # ЗАЩИТА: Ни при каких условиях не удалять сам ct_images_dir или пути вне него
+            if abs_path == abs_ct_dir or os.path.commonpath([abs_path, abs_ct_dir]) != abs_ct_dir:
+                log_message(self.mw.output_field, tr_log("log_path_not_exist", path))
+                continue
+
             if not os.path.exists(path):
                 log_message(self.mw.output_field, tr_log("log_path_not_exist", path))
                 continue
@@ -348,11 +373,15 @@ class PatientOperationsManager:
                 def run_delete(progress_callback=None):
                     remove_folder_with_progress(p_path, progress_callback=progress_callback)
                     parent_dir = os.path.dirname(p_path)
+                    # ЗАЩИТА: Удалять пустую родительскую папку только если это подпапка пациента,
+                    # но НИ В КОЕМ СЛУЧАЕ не корень ct_images_dir или archive_dir!
                     if parent_dir and os.path.exists(parent_dir) and not os.listdir(parent_dir):
-                        try:
-                            os.rmdir(parent_dir)
-                        except Exception:
-                            pass
+                        abs_parent = os.path.abspath(parent_dir)
+                        if abs_parent != abs_ct_dir and abs_parent != abs_archive_dir and len(abs_parent) > 3:
+                            try:
+                                os.rmdir(parent_dir)
+                            except Exception:
+                                pass
                     return self.mw.get_folder_desc(p_id, p_name)
                 return run_delete
 
@@ -371,15 +400,25 @@ class PatientOperationsManager:
             return
             
         folder_name = self.mw.images_cache[patient_id].get('folder_name', patient_id) if (self.mw.images_cache and patient_id in self.mw.images_cache) else patient_id
+        if not folder_name or not str(folder_name).strip() or str(folder_name).strip() in ('.', '/', '\\'):
+            return
         if is_child is None:
             is_child = bool(patient_name and str(patient_name).startswith("  ↳"))
         if not is_child and ('/' in str(folder_name) or '\\' in str(folder_name)):
             folder_name = str(folder_name).replace('\\', '/').split('/')[0]
 
-        path = os.path.join(self.mw.config.get('ct_images_dir', ''), folder_name)
+        ct_images_dir = self.mw.config.get('ct_images_dir', '')
+        if not ct_images_dir or not os.path.exists(ct_images_dir):
+            return
+        abs_ct_dir = os.path.abspath(ct_images_dir)
+
+        path = os.path.normpath(os.path.join(ct_images_dir, folder_name))
+        abs_path = os.path.abspath(path)
+        if abs_path == abs_ct_dir or os.path.commonpath([abs_path, abs_ct_dir]) != abs_ct_dir:
+            return
+
         archive_dir = self.mw.config.get('archive_dir', '')
-        
-        if not os.path.exists(path):
+        if not path or not os.path.exists(path):
             log_message(self.mw.output_field, tr_log("log_path_not_exist", path))
             return
             
@@ -412,7 +451,16 @@ class PatientOperationsManager:
             return
             
         folder_name = self.mw.images_cache[patient_id].get('folder_name', patient_id) if (self.mw.images_cache and patient_id in self.mw.images_cache) else patient_id
-        path = os.path.join(self.mw.config.get('ct_images_dir', ''), folder_name)
+        if not folder_name or not str(folder_name).strip() or str(folder_name).strip() in ('.', '/', '\\'):
+            return
+        ct_images_dir = self.mw.config.get('ct_images_dir', '')
+        if not ct_images_dir or not os.path.exists(ct_images_dir):
+            return
+        abs_ct_dir = os.path.abspath(ct_images_dir)
+        path = os.path.normpath(os.path.join(ct_images_dir, folder_name))
+        abs_path = os.path.abspath(path)
+        if abs_path == abs_ct_dir or os.path.commonpath([abs_path, abs_ct_dir]) != abs_ct_dir:
+            return
         if os.path.exists(path):
             self.mw.active_file_operations[patient_id] = {'op': 'clean_str', 'progress': None}
             self.mw.images_table.viewport().update()
@@ -471,17 +519,31 @@ class PatientOperationsManager:
             return
 
         archive_dir = self.mw.config.get('archive_dir', '')
+        if not archive_dir or not os.path.exists(archive_dir):
+            return
+        abs_archive_dir = os.path.abspath(archive_dir)
+        abs_ct_dir = os.path.abspath(self.mw.config.get('ct_images_dir', '')) if self.mw.config.get('ct_images_dir', '') else ''
+
         for t in targets:
             pid = t['patient_id']
             pname = t['patient_name']
             if pid in self.mw.active_file_operations:
                 continue
 
-            folder_name = t['folder_name']
+            folder_name = t.get('folder_name', pid)
+            if not folder_name or not str(folder_name).strip() or str(folder_name).strip() in ('.', '/', '\\'):
+                continue
             if not t.get('is_child') and ('/' in str(folder_name) or '\\' in str(folder_name)):
                 folder_name = str(folder_name).replace('\\', '/').split('/')[0]
 
-            path = os.path.join(archive_dir, folder_name)
+            path = os.path.normpath(os.path.join(archive_dir, folder_name))
+            abs_path = os.path.abspath(path)
+
+            # ЗАЩИТА: Ни при каких условиях не удалять сам archive_dir или пути вне него
+            if abs_path == abs_archive_dir or os.path.commonpath([abs_path, abs_archive_dir]) != abs_archive_dir:
+                self.mw.remove_missing_archive_patient(pid)
+                continue
+
             if not os.path.exists(path):
                 self.mw.remove_missing_archive_patient(pid)
                 continue
@@ -492,11 +554,15 @@ class PatientOperationsManager:
                 def run_delete(progress_callback=None):
                     remove_folder_with_progress(p_path, progress_callback=progress_callback)
                     parent_dir = os.path.dirname(p_path)
+                    # ЗАЩИТА: Удалять пустую родительскую папку только если это подпапка пациента,
+                    # но НИ В КОЕМ СЛУЧАЕ не корень archive_dir или ct_images_dir!
                     if parent_dir and os.path.exists(parent_dir) and not os.listdir(parent_dir):
-                        try:
-                            os.rmdir(parent_dir)
-                        except Exception:
-                            pass
+                        abs_parent = os.path.abspath(parent_dir)
+                        if abs_parent != abs_archive_dir and abs_parent != abs_ct_dir and len(abs_parent) > 3:
+                            try:
+                                os.rmdir(parent_dir)
+                            except Exception:
+                                pass
                     return self.mw.get_folder_desc(p_id, p_name)
                 return run_delete
 
@@ -537,10 +603,17 @@ class PatientOperationsManager:
                 continue
 
             folder_name = t['folder_name']
+            if not folder_name or not str(folder_name).strip() or str(folder_name).strip() in ('.', '/', '\\'):
+                continue
             if not t.get('is_child') and ('/' in str(folder_name) or '\\' in str(folder_name)):
                 folder_name = str(folder_name).replace('\\', '/').split('/')[0]
 
-            path = os.path.join(archive_dir, folder_name)
+            abs_archive = os.path.abspath(archive_dir) if archive_dir else ''
+            path = os.path.normpath(os.path.join(archive_dir, folder_name))
+            abs_path = os.path.abspath(path)
+            if not abs_archive or abs_path == abs_archive or os.path.commonpath([abs_path, abs_archive]) != abs_archive:
+                continue
+
             if not os.path.exists(path):
                 self.mw.remove_missing_archive_patient(patient_id)
                 continue

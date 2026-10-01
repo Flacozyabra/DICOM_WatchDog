@@ -1254,11 +1254,18 @@ def move_study_folder_hierarchical(src_path: str, dest_root_dir: str, output_fie
         if progress_callback:
             progress_callback(1.0)
         return False
-        
+
+    abs_src = os.path.abspath(src_path)
+    abs_dest = os.path.abspath(dest_root_dir)
+    if abs_src == abs_dest or abs_src == os.path.dirname(abs_src) or len(abs_src) <= 3:
+        if progress_callback:
+            progress_callback(1.0)
+        return False
+
     os.makedirs(dest_root_dir, exist_ok=True)
     
-    src_parent = os.path.dirname(os.path.abspath(src_path))
-    src_name = os.path.basename(os.path.abspath(src_path))
+    src_parent = os.path.dirname(abs_src)
+    src_name = os.path.basename(abs_src)
     
     try:
         immediate_subdirs = [os.path.join(src_path, d) for d in os.listdir(src_path)
@@ -1280,8 +1287,9 @@ def move_study_folder_hierarchical(src_path: str, dest_root_dir: str, output_fie
                 move_single_study_folder(sub, dest_patient_path, output_field, progress_callback=progress_callback)
             touch_folder_tree(dest_patient_path)
             try:
-                if os.path.exists(src_path) and not os.listdir(src_path):
-                    os.rmdir(src_path)
+                if abs_src != abs_dest and abs_src != os.path.dirname(abs_src) and len(abs_src) > 3:
+                    if os.path.exists(src_path) and not os.listdir(src_path):
+                        os.rmdir(src_path)
             except Exception:
                 pass
             if progress_callback:
@@ -1301,8 +1309,10 @@ def move_study_folder_hierarchical(src_path: str, dest_root_dir: str, output_fie
     
     if src_name.startswith("[") and src_name.endswith("]"):
         try:
-            if os.path.exists(src_parent) and not os.listdir(src_parent):
-                os.rmdir(src_parent)
+            abs_parent = os.path.abspath(src_parent)
+            if abs_parent != abs_dest and abs_parent != os.path.dirname(abs_parent) and len(abs_parent) > 3:
+                if os.path.exists(src_parent) and not os.listdir(src_parent):
+                    os.rmdir(src_parent)
         except Exception:
             pass
             
