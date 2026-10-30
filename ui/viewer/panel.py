@@ -2294,6 +2294,14 @@ class DicomViewerPanel(QWidget):
                 background-color: #1D64F2;
                 border-color: #2563EB;
             }
+            QRadioButton::indicator:disabled {
+                border-color: #333338;
+                background-color: #1A1A1E;
+            }
+            QRadioButton::indicator:checked:disabled {
+                background-color: #3F3F46;
+                border-color: #52525B;
+            }
         """)
 
         layout = QVBoxLayout(dlg)
