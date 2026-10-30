@@ -509,6 +509,11 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
             # время создания папки
             study_entry['folder_datetime'] = folder_ctime
             
+            # Количество файлов структур, доз, планов и срезов
+            study_entry['str'] = len(str_files)
+            study_entry['rtd'] = len(rtd_files) if scan_rtd else 0
+            study_entry['rtp'] = len(rtp_files) if scan_rtp else 0
+
             has_der = bool(derived_ct_files)
             der_slices = len(derived_ct_files)
             study_entry['has_derived'] = has_der
