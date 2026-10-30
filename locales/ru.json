@@ -330,5 +330,17 @@
   "drr_calculating": "Расчет проекций DRR...",
   "drr_preparing_volume": "Подготовка 3D-объема КТ...",
   "drr_progress": "Расчет проекций: {0} / {1} (Гантри {2:.1f}°)",
-  "drr_cancel": "Отмена"
+  "drr_cancel": "Отмена",
+  "viewer_postprocessing_btn": "Постпроцессинг КТ",
+  "viewer_mode_orig": "Оригинал",
+  "viewer_mode_side": "◫ Рядом",
+  "viewer_mode_proc": "Обработанное",
+  "viewer_postprocessing_title": "Постпроцессинг КТ",
+  "viewer_postprocess_prompt": "Обработанная серия ещё не создана для этого исследования.\nВыберите алгоритм для запуска постпроцессинга:",
+  "viewer_algo_mar_v9": "MAR v9 (Уменьшение артефактов от металла)",
+  "viewer_algo_st_hard": "Контрастирование мягких тканей (Hard - Максимальный)",
+  "viewer_algo_st_normal": "Контрастирование мягких тканей (Normal - Сбалансированный)",
+  "viewer_postprocessing_running": "Выполняется постпроцессинг КТ...",
+  "viewer_postprocessing_success": "Постпроцессинг завершен успешно!",
+  "viewer_postprocessing_error": "Ошибка постпроцессинга"
 }

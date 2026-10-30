@@ -330,5 +330,17 @@
   "drr_calculating": "Calculating DRR projections...",
   "drr_preparing_volume": "Preparing 3D CT volume...",
   "drr_progress": "Calculating projections: {0} / {1} (Gantry {2:.1f}°)",
-  "drr_cancel": "Cancel"
+  "drr_cancel": "Cancel",
+  "viewer_postprocessing_btn": "CT Post-processing",
+  "viewer_mode_orig": "Original",
+  "viewer_mode_side": "◫ Side-by-side",
+  "viewer_mode_proc": "Processed",
+  "viewer_postprocessing_title": "CT Post-processing",
+  "viewer_postprocess_prompt": "A processed series does not exist for this study yet.\nSelect an algorithm to run post-processing:",
+  "viewer_algo_mar_v9": "MAR v9 (Metal Artifact Reduction)",
+  "viewer_algo_st_hard": "Soft Tissue Contrast Enhancement (Hard - Demarcated)",
+  "viewer_algo_st_normal": "Soft Tissue Contrast Enhancement (Normal - Balanced)",
+  "viewer_postprocessing_running": "Running CT post-processing...",
+  "viewer_postprocessing_success": "Post-processing finished successfully!",
+  "viewer_postprocessing_error": "Post-processing error"
 }

@@ -428,17 +428,27 @@ def get_folder_study_info(folder_path):
         return None
 
     target_file = None
-    # 1. Ищем файл КТ-среза (не RTSTRUCT)
+    derived_candidate = None
+    # 1. Ищем файл КТ-среза (не RTSTRUCT и предпочтительно не DERIVED)
     for fpath in dcm_files:
         if not is_structure_file(fpath):
             try:
                 ds = pydicom.dcmread(fpath, stop_before_pixels=True, force=True)
                 mod = str(getattr(ds, 'Modality', 'CT'))
                 if mod not in ('RTSTRUCT', 'RTPLAN', 'RTDOSE') and hasattr(ds, 'Rows'):
-                    target_file = fpath
-                    break
+                    img_t = getattr(ds, 'ImageType', [])
+                    is_der = any('DERIVED' in str(x).upper() for x in img_t) if isinstance(img_t, (list, tuple)) else 'DERIVED' in str(img_t).upper()
+                    if is_der:
+                        if not derived_candidate:
+                            derived_candidate = fpath
+                    else:
+                        target_file = fpath
+                        break
             except Exception:
                 pass
+
+    if not target_file and derived_candidate:
+        target_file = derived_candidate
 
     # 2. Если файл КТ-среза не найден, берем первый попавшийся DICOM файл
     if not target_file:

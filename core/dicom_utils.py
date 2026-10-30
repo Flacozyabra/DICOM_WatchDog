@@ -248,6 +248,8 @@ def load_ct_cache_as_patient_dict(ct_images_dir, scan_rtd=False, scan_rtp=False)
             rtd_val = int(cached_item.get('rtd', 0)) if (scan_rtd and cached_item.get('rtd_scanned')) else 0
             rtp_val = int(cached_item.get('rtp', 0)) if (scan_rtp and cached_item.get('rtp_scanned')) else 0
 
+            has_derived = cached_item.get('has_derived', False)
+            derived_slices = int(cached_item.get('derived_slices', 0))
             patient_data[rel_path] = {
                 'patient_id': str(cached_item.get('patient_id', os.path.basename(root))),
                 'patient_name': str(cached_item.get('patient_name', os.path.basename(root))),
@@ -259,8 +261,25 @@ def load_ct_cache_as_patient_dict(ct_images_dir, scan_rtd=False, scan_rtp=False)
                 'rtd': rtd_val,
                 'rtp': rtp_val,
                 'slices': int(cached_item.get('slices', 0)),
-                'folder_name': rel_path
+                'folder_name': rel_path,
+                'has_derived': has_derived,
+                'derived_slices': derived_slices
             }
+            if has_derived and derived_slices > 0:
+                patient_data[f"{rel_path} [DERIVED]"] = {
+                    'patient_id': patient_data[rel_path]['patient_id'],
+                    'patient_name': patient_data[rel_path]['patient_name'],
+                    'modality': f"[D] {patient_data[rel_path]['modality']}",
+                    'study_datetime': s_dt,
+                    'body_part': f"{patient_data[rel_path]['body_part']} (Derived)",
+                    'folder_datetime': f_dt,
+                    'str': patient_data[rel_path]['str'],
+                    'rtd': rtd_val,
+                    'rtp': rtp_val,
+                    'slices': derived_slices,
+                    'folder_name': rel_path,
+                    'is_derived': True
+                }
         except Exception:
             continue
     return patient_data
@@ -344,6 +363,8 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
                     cached_item['str'] = str_val
                     cached_item['mtime'] = os.path.getmtime(root)
 
+                has_derived = cached_item.get('has_derived', False)
+                derived_slices = int(cached_item.get('derived_slices', 0))
                 patient_data[rel_path] = {
                     'patient_id': str(cached_item.get('patient_id', os.path.basename(root))),
                     'patient_name': str(cached_item.get('patient_name', os.path.basename(root))),
@@ -355,11 +376,29 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
                     'rtd': rtd_val,
                     'rtp': rtp_val,
                     'slices': int(cached_item.get('slices', 0)),
-                    'folder_name': rel_path
+                    'folder_name': rel_path,
+                    'has_derived': has_derived,
+                    'derived_slices': derived_slices
                 }
+                if has_derived and derived_slices > 0:
+                    patient_data[f"{rel_path} [DERIVED]"] = {
+                        'patient_id': patient_data[rel_path]['patient_id'],
+                        'patient_name': patient_data[rel_path]['patient_name'],
+                        'modality': f"[D] {patient_data[rel_path]['modality']}",
+                        'study_datetime': s_dt,
+                        'body_part': f"{patient_data[rel_path]['body_part']} (Derived)",
+                        'folder_datetime': f_dt,
+                        'str': str_val,
+                        'rtd': rtd_val,
+                        'rtp': rtp_val,
+                        'slices': derived_slices,
+                        'folder_name': rel_path,
+                        'is_derived': True
+                    }
                 continue
 
-        ct_files = []
+        orig_ct_files = []
+        derived_ct_files = []
         str_files = []
         rtd_files = []
         rtp_files = []
@@ -376,13 +415,18 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
             elif t == 'RTPLAN':
                 rtp_files.append(f)
             else:
-                ct_files.append(f)
+                if f.upper().startswith("DERIVED_"):
+                    derived_ct_files.append(f)
+                else:
+                    orig_ct_files.append(f)
+
+        ct_files = orig_ct_files or derived_ct_files
 
         if not (ct_files or str_files or rtd_files or rtp_files):
             continue
 
-        # Выбираем кандидатов для считывания общих метаданных исследования (в приоритете КТ)
-        rep_candidates = [f for f in ct_files[:3]] + [f for f in str_files[:2]] + [f for f in rtd_files[:2]] + [f for f in rtp_files[:2]]
+        # Выбираем кандидатов для считывания общих метаданных исследования (в приоритете оригинальные КТ)
+        rep_candidates = [f for f in orig_ct_files[:3]] or [f for f in derived_ct_files[:3]] or [f for f in str_files[:2]] + [f for f in rtd_files[:2]] + [f for f in rtp_files[:2]]
         if not rep_candidates:
             rep_candidates = files[:3]
 
@@ -465,11 +509,11 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
             # время создания папки
             study_entry['folder_datetime'] = folder_ctime
             
-            # Количество файлов структур, доз, планов и срезов
-            study_entry['str'] = len(str_files)
-            study_entry['rtd'] = len(rtd_files) if scan_rtd else 0
-            study_entry['rtp'] = len(rtp_files) if scan_rtp else 0
-            study_entry['slices'] = len(ct_files)
+            has_der = bool(derived_ct_files)
+            der_slices = len(derived_ct_files)
+            study_entry['has_derived'] = has_der
+            study_entry['derived_slices'] = der_slices
+            study_entry['slices'] = len(orig_ct_files) if orig_ct_files else der_slices
 
             if is_cleanup_on and len(str_files) > 1:
                 delete_redundant_str(root, output_field)
@@ -477,6 +521,22 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
                 study_entry['str'] = len(str_files)
 
             patient_data[rel_path] = study_entry
+
+            if has_der and orig_ct_files:
+                patient_data[f"{rel_path} [DERIVED]"] = {
+                    'patient_id': study_entry['patient_id'],
+                    'patient_name': study_entry['patient_name'],
+                    'modality': f"[D] {study_entry['modality']}",
+                    'study_datetime': study_entry['study_datetime'],
+                    'body_part': f"{study_entry['body_part']} (Derived)",
+                    'folder_datetime': study_entry['folder_datetime'],
+                    'str': study_entry['str'],
+                    'rtd': study_entry['rtd'],
+                    'rtp': study_entry['rtp'],
+                    'slices': der_slices,
+                    'folder_name': rel_path,
+                    'is_derived': True
+                }
 
             if cache is not None:
                 prev_entry = cache.get(root, {})
@@ -493,6 +553,8 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
                     'rtp': len(rtp_files) if scan_rtp else prev_entry.get('rtp', 0),
                     'rtp_scanned': scan_rtp or prev_entry.get('rtp_scanned', False),
                     'slices': study_entry['slices'],
+                    'has_derived': has_der,
+                    'derived_slices': der_slices,
                     'mtime': mtime
                 }
 

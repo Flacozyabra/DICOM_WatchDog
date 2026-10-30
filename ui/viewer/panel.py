@@ -29,6 +29,9 @@ from .workers import (
 )
 from .controls import HUVerticalSlider, DRRProgressDialog
 from .canvas import DicomViewerWidget
+from core.postprocessing import (
+    PostprocessingRunner, ALGORITHM_MAR_V9, ALGORITHM_ST_HARD, ALGORITHM_ST_NORMAL
+)
 
 
 class DicomViewerPanel(QWidget):
@@ -39,6 +42,12 @@ class DicomViewerPanel(QWidget):
         super().__init__(parent)
         self.parent_app = parent
         self.sorted_files = []
+        self.derived_files = []
+        self.has_derived = False
+        self.derived_series_desc = ""
+        self.view_mode = "original"
+        self.postprocess_runner = None
+        self._target_view_mode_after_load = None
         self.struct_files = []
         self.dose_files = []
         self.plan_files = []
@@ -240,6 +249,13 @@ class DicomViewerPanel(QWidget):
         self.btn_osd.clicked.connect(self.toggle_osd)
         top_layout.addWidget(self.btn_osd)
 
+        # Кнопка постпроцессинга (MAR v9, контрастирование)
+        self.btn_postprocess = QPushButton("⚗", self)
+        self.btn_postprocess.setFixedSize(28, 28)
+        self.btn_postprocess.setToolTip(tr_ui("viewer_postprocessing_btn"))
+        self.btn_postprocess.clicked.connect(self.show_postprocess_menu)
+        top_layout.addWidget(self.btn_postprocess)
+
         # Кнопка закрытия
         self.btn_close = QPushButton(self)
         self.btn_close.setIcon(self.img_close)
@@ -264,6 +280,13 @@ class DicomViewerPanel(QWidget):
         self.viewer.drr_precompute_requested.connect(self.start_drr_precompute)
         center_layout.addWidget(self.viewer, stretch=1)
 
+        # Второй виджет просмотра для режима "Рядом" (Side-by-side)
+        self.viewer_derived = DicomViewerWidget(self)
+        self.viewer_derived.slice_scrolled.connect(self.on_slice_scrolled)
+        self.viewer_derived.window_changed.connect(self.on_window_changed)
+        self.viewer_derived.hide()
+        center_layout.addWidget(self.viewer_derived, stretch=1)
+
         # Создаем и добавляем шкалу HU справа
         self.setup_hu_panel()
         center_layout.addWidget(self.hu_panel)
@@ -276,6 +299,34 @@ class DicomViewerPanel(QWidget):
         self.lbl_slider_info.setStyleSheet("font-size: 11px; font-weight: bold; color: #93C5FD; padding: 2px 0px;")
         self.lbl_slider_info.hide()
         right_layout.addWidget(self.lbl_slider_info)
+
+        # Тогл режима просмотра снизу по центру над полосой прокрутки: [ Оригинал ] [ ◫ Рядом ] [ Обработанное ]
+        self.mode_container = QWidget(self)
+        mode_layout = QHBoxLayout(self.mode_container)
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.setSpacing(6)
+        mode_layout.addStretch()
+
+        self.btn_mode_orig = QPushButton(tr_ui("viewer_mode_orig"), self.mode_container)
+        self.btn_mode_orig.setCheckable(True)
+        self.btn_mode_orig.setChecked(True)
+        self.btn_mode_orig.clicked.connect(lambda: self.set_view_mode("original"))
+
+        self.btn_mode_side = QPushButton(tr_ui("viewer_mode_side"), self.mode_container)
+        self.btn_mode_side.setCheckable(True)
+        self.btn_mode_side.clicked.connect(lambda: self.set_view_mode("side_by_side"))
+
+        self.btn_mode_proc = QPushButton(tr_ui("viewer_mode_proc"), self.mode_container)
+        self.btn_mode_proc.setCheckable(True)
+        self.btn_mode_proc.clicked.connect(lambda: self.set_view_mode("processed"))
+
+        for b in (self.btn_mode_orig, self.btn_mode_side, self.btn_mode_proc):
+            b.setFixedHeight(26)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            mode_layout.addWidget(b)
+
+        mode_layout.addStretch()
+        right_layout.addWidget(self.mode_container)
 
         # Горизонтальный слайдер срезов снизу
         self.slider = QSlider(Qt.Orientation.Horizontal, self)
@@ -993,6 +1044,14 @@ class DicomViewerPanel(QWidget):
         self.btn_hu.setToolTip("Настройка окна HU")
         self.btn_osd.setToolTip("Показать/скрыть надписи")
         self.btn_close.setToolTip("Закрыть просмотр")
+        if hasattr(self, "btn_postprocess"):
+            self.btn_postprocess.setToolTip(tr_ui("viewer_postprocessing_btn"))
+        if hasattr(self, "btn_mode_orig"):
+            self.btn_mode_orig.setText(tr_ui("viewer_mode_orig"))
+        if hasattr(self, "btn_mode_side"):
+            self.btn_mode_side.setText(tr_ui("viewer_mode_side"))
+        if hasattr(self, "btn_mode_proc"):
+            self.btn_mode_proc.setText(tr_ui("viewer_mode_proc"))
 
     def apply_theme(self) -> None:
         if not hasattr(self.parent_app, "current_theme") or not hasattr(self.parent_app, "THEMES"):
@@ -1324,6 +1383,47 @@ class DicomViewerPanel(QWidget):
             self.btn_osd.setStyleSheet(style_osd_active if getattr(self.viewer, "osd_visible", False) else style_osd_inactive)
         if hasattr(self, "btn_close"):
             self.btn_close.setStyleSheet(style_close)
+
+        style_postprocess = f"""
+            QPushButton {{
+                background-color: {btn_bg};
+                border: 1px solid {btn_border};
+                border-radius: 4px;
+                color: #FFFFFF;
+                font-size: 14px;
+                min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px;
+            }}
+            QPushButton:hover {{
+                background-color: {btn_hover};
+                border-color: {accent_color};
+            }}
+        """
+        if hasattr(self, "btn_postprocess"):
+            self.btn_postprocess.setStyleSheet(style_postprocess)
+
+        btn_mode_style = f"""
+            QPushButton {{
+                background-color: {btn_bg};
+                border: 1px solid {btn_border};
+                border-radius: 13px;
+                color: {palette.get('TEXT_MUTED', '#9CA3AF')};
+                padding: 0px 12px;
+                font-size: 11px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: {btn_hover};
+                color: #FFFFFF;
+            }}
+            QPushButton:checked {{
+                background-color: {accent_color};
+                border: 1px solid {accent_dark};
+                color: #FFFFFF;
+            }}
+        """
+        for b in ("btn_mode_orig", "btn_mode_side", "btn_mode_proc"):
+            if hasattr(self, b):
+                getattr(self, b).setStyleSheet(btn_mode_style)
 
     def toggle_beams(self) -> None:
         if not self.viewer.plan_data or not self.viewer.plan_data.get("beams"):
@@ -1662,13 +1762,29 @@ class DicomViewerPanel(QWidget):
             self.bev_struct_worker.quit()
             self.bev_struct_worker.wait(1000)
 
+        if hasattr(self, "postprocess_runner") and self.postprocess_runner is not None and self.postprocess_runner.isRunning():
+            self.postprocess_runner.cancel()
+            self.postprocess_runner.wait(1000)
+
         self.viewer.clear_viewer()
+        if hasattr(self, "viewer_derived"):
+            self.viewer_derived.clear_viewer()
+            self.viewer_derived.hide()
         self.viewer.bev_active = False
         self.viewer.show_drr = False
         if hasattr(self, "lbl_slider_info"):
             self.lbl_slider_info.hide()
         if hasattr(self, "hu_panel"):
             self.hu_panel.hide()
+
+        self.derived_files = []
+        self.has_derived = False
+        self.derived_series_desc = ""
+        self.view_mode = "original"
+        if hasattr(self, "btn_mode_orig"):
+            self.btn_mode_orig.setChecked(True)
+            self.btn_mode_side.setChecked(False)
+            self.btn_mode_proc.setChecked(False)
 
         if hasattr(self, "lbl_plan"):
             self.lbl_plan.show()
@@ -1805,6 +1921,9 @@ class DicomViewerPanel(QWidget):
         parsed_dose = result.get("parsed_dose", {})
         
         self.sorted_files = result.get("sorted_files", [])
+        self.derived_files = result.get("derived_files", [])
+        self.has_derived = result.get("has_derived", False)
+        self.derived_series_desc = result.get("derived_series_desc", "")
 
         # Настройка выпадающего списка PLAN (RTPLAN + привязанный RTDOSE)
         self.cb_plan.blockSignals(True)
@@ -1894,6 +2013,14 @@ class DicomViewerPanel(QWidget):
 
         self.slider.setRange(0, len(self.sorted_files) - 1)
         self.is_loading = False
+
+        target_mode = getattr(self, "_target_view_mode_after_load", None)
+        self._target_view_mode_after_load = None
+        if target_mode and (self.has_derived or target_mode == "original"):
+            self.set_view_mode(target_mode)
+        else:
+            self.set_view_mode("original")
+
         mid_idx = max(0, min(len(self.sorted_files) - 1, len(self.sorted_files) // 2))
         self.set_current_slice(mid_idx)
 
@@ -1963,6 +2090,216 @@ class DicomViewerPanel(QWidget):
             
         return ds
 
+    def _load_slice_data(self, filepath: str, frame_idx: int):
+        cache_key = (filepath, frame_idx, round(self.window_width, 1), round(self.window_center, 1))
+        if cache_key in self.pixmap_cache:
+            if isinstance(self.pixmap_cache, OrderedDict):
+                self.pixmap_cache.move_to_end(cache_key)
+            return self.pixmap_cache[cache_key]
+
+        try:
+            ds = safe_dcmread(filepath)
+            if not hasattr(ds, "pixel_array") or len(ds) == 0:
+                raise ValueError("Empty dataset or missing pixel array")
+        except Exception:
+            ds = self.read_truncated_dicom(filepath)
+
+        ds.current_frame_idx = frame_idx
+        pixmap = self.dicom_to_pixmap(ds, self.window_width, self.window_center)
+        if pixmap:
+            if len(self.pixmap_cache) >= 300:
+                self.pixmap_cache.popitem(last=False)
+            self.pixmap_cache[cache_key] = (pixmap, ds)
+            return pixmap, ds
+        return None, ds
+
+    def set_view_mode(self, mode: str) -> None:
+        if mode in ("side_by_side", "processed") and not self.has_derived:
+            chosen_algo = self.prompt_postprocess_dialog()
+            if not chosen_algo:
+                if hasattr(self, "btn_mode_orig"):
+                    self.btn_mode_orig.setChecked(self.view_mode == "original")
+                    self.btn_mode_side.setChecked(self.view_mode == "side_by_side")
+                    self.btn_mode_proc.setChecked(self.view_mode == "processed")
+                return
+            self.start_postprocessing(chosen_algo, target_view_mode=mode)
+            return
+
+        self.view_mode = mode
+        if hasattr(self, "btn_mode_orig"):
+            self.btn_mode_orig.setChecked(mode == "original")
+            self.btn_mode_side.setChecked(mode == "side_by_side")
+            self.btn_mode_proc.setChecked(mode == "processed")
+
+        if mode == "side_by_side":
+            self.viewer.show()
+            self.viewer_derived.show()
+        else:
+            self.viewer.show()
+            self.viewer_derived.hide()
+
+        if self.current_index >= 0:
+            self.set_current_slice(self.current_index)
+
+    def show_postprocess_menu(self) -> None:
+        from PyQt6.QtWidgets import QMenu
+        from PyQt6.QtGui import QAction
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #1E293B;
+                border: 1px solid #334155;
+                color: #FFFFFF;
+                font-size: 12px;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 6px 20px 6px 10px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #2563EB;
+                color: #FFFFFF;
+            }
+        """)
+        act_mar = QAction(tr_ui("viewer_algo_mar_v9"), menu)
+        act_mar.triggered.connect(lambda: self.start_postprocessing(ALGORITHM_MAR_V9))
+        menu.addAction(act_mar)
+
+        act_sth = QAction(tr_ui("viewer_algo_st_hard"), menu)
+        act_sth.triggered.connect(lambda: self.start_postprocessing(ALGORITHM_ST_HARD))
+        menu.addAction(act_sth)
+
+        act_stn = QAction(tr_ui("viewer_algo_st_normal"), menu)
+        act_stn.triggered.connect(lambda: self.start_postprocessing(ALGORITHM_ST_NORMAL))
+        menu.addAction(act_stn)
+
+        menu.exec(self.btn_postprocess.mapToGlobal(QPoint(0, self.btn_postprocess.height())))
+
+    def prompt_postprocess_dialog(self) -> str | None:
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QRadioButton, QDialogButtonBox
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr_ui("viewer_postprocessing_title"))
+        dlg.setFixedWidth(440)
+        dlg.setStyleSheet("""
+            QDialog {
+                background-color: #1E293B;
+                color: #FFFFFF;
+                border: 1px solid #334155;
+                border-radius: 8px;
+            }
+            QLabel {
+                color: #F8FAFC;
+                font-size: 13px;
+            }
+            QRadioButton {
+                color: #E2E8F0;
+                font-size: 12px;
+                padding: 4px;
+            }
+            QRadioButton:hover {
+                color: #FFFFFF;
+            }
+            QPushButton {
+                background-color: #2563EB;
+                color: #FFFFFF;
+                border: 1px solid #3B82F6;
+                border-radius: 4px;
+                padding: 6px 14px;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #1D4ED8;
+            }
+        """)
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        lbl = QLabel(tr_ui("viewer_postprocess_prompt"), dlg)
+        lbl.setWordWrap(True)
+        layout.addWidget(lbl)
+
+        rb_mar = QRadioButton(tr_ui("viewer_algo_mar_v9"), dlg)
+        rb_mar.setChecked(True)
+        rb_sth = QRadioButton(tr_ui("viewer_algo_st_hard"), dlg)
+        rb_stn = QRadioButton(tr_ui("viewer_algo_st_normal"), dlg)
+
+        layout.addWidget(rb_mar)
+        layout.addWidget(rb_sth)
+        layout.addWidget(rb_stn)
+
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, dlg)
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        layout.addWidget(btns)
+
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            if rb_mar.isChecked():
+                return ALGORITHM_MAR_V9
+            elif rb_sth.isChecked():
+                return ALGORITHM_ST_HARD
+            else:
+                return ALGORITHM_ST_NORMAL
+        return None
+
+    def start_postprocessing(self, algo_type: str, target_view_mode: str = "processed") -> None:
+        if not self.sorted_files:
+            return
+
+        slice_paths = [f for f, frame in self.sorted_files]
+        study_dir = os.path.dirname(slice_paths[0])
+
+        from ui.loading_dialog import LoadingProgressDialog
+        self.progress_dialog = LoadingProgressDialog(
+            self,
+            title=tr_ui("viewer_postprocessing_title"),
+            show_cancel=True,
+            on_cancel=self._on_cancel_postprocess
+        )
+        self.progress_dialog.set_custom_progress(0, len(slice_paths), f"{tr_ui('viewer_postprocessing_running')} 0 / {len(slice_paths)}")
+
+        self.postprocess_runner = PostprocessingRunner(
+            slice_paths=slice_paths,
+            algo_type=algo_type,
+            output_dir=study_dir
+        )
+        self.postprocess_runner.progress_signal.connect(self._on_postprocess_progress)
+        self.postprocess_runner.finished_signal.connect(lambda res: self._on_postprocess_finished(res, target_view_mode))
+        self.postprocess_runner.error_signal.connect(self._on_postprocess_error)
+        self.postprocess_runner.start()
+
+        self.progress_dialog.exec()
+
+    def _on_cancel_postprocess(self) -> None:
+        if hasattr(self, "postprocess_runner") and self.postprocess_runner is not None:
+            self.postprocess_runner.cancel()
+        if self.progress_dialog:
+            self.progress_dialog.reject()
+            self.progress_dialog = None
+
+    def _on_postprocess_progress(self, current: int, total: int, text: str) -> None:
+        if self.progress_dialog:
+            self.progress_dialog.set_custom_progress(current, total, f"{tr_ui('viewer_postprocessing_running')} {text}")
+
+    def _on_postprocess_finished(self, result: dict, target_view_mode: str) -> None:
+        if self.progress_dialog:
+            self.progress_dialog.accept()
+            self.progress_dialog = None
+
+        output_dir = result.get("output_dir")
+        if output_dir and os.path.exists(output_dir):
+            all_files = [os.path.join(output_dir, f) for f in os.listdir(output_dir) if os.path.isfile(os.path.join(output_dir, f))]
+            self._target_view_mode_after_load = target_view_mode
+            self.load_series(all_files)
+
+    def _on_postprocess_error(self, err_msg: str) -> None:
+        if self.progress_dialog:
+            self.progress_dialog.reject()
+            self.progress_dialog = None
+        log_error(f"[Postprocessing] Error: {err_msg}")
+
     def set_current_slice(self, index: int) -> None:
         if index < 0 or index >= len(self.sorted_files):
             return
@@ -1970,87 +2307,78 @@ class DicomViewerPanel(QWidget):
         self.current_index = index
         self.slider.setValue(index)
 
-        filepath, frame_idx = self.sorted_files[index]
-        cache_key = (filepath, frame_idx, round(self.window_width, 1), round(self.window_center, 1))
+        orig_fp, orig_frame = self.sorted_files[index]
 
-        if cache_key in self.pixmap_cache:
-            if isinstance(self.pixmap_cache, OrderedDict):
-                self.pixmap_cache.move_to_end(cache_key)
-            pixmap, ds = self.pixmap_cache[cache_key]
-            pat_name = getattr(ds, "PatientName", "Unknown")
-            pat_id = getattr(ds, "PatientID", "Unknown")
-            study_desc = getattr(ds, "StudyDescription", "")
-            series_desc = getattr(ds, "SeriesDescription", "")
-            
-            info_text = f"{pat_name} [{pat_id}] | {study_desc} | {series_desc}"
-            self.lbl_info.setText(info_text)
-            self.viewer.set_slice_info(index + 1, len(self.sorted_files))
-            self.viewer.set_dicom_image(pixmap, ds)
-            self.viewer.set_window_params(self.window_width, self.window_center)
-            return
+        if getattr(self, "_need_initial_window", False):
+            self._need_initial_window = False
+            self.default_wc = 40.0
+            self.default_ww = 400.0
+            try:
+                ds_tmp = safe_dcmread(orig_fp, stop_before_pixels=True)
+                wc = getattr(ds_tmp, "WindowCenter", None)
+                ww = getattr(ds_tmp, "WindowWidth", None)
+                if wc is not None and ww is not None:
+                    c_val = wc[0] if hasattr(wc, "__iter__") else wc
+                    w_val = ww[0] if hasattr(ww, "__iter__") else ww
+                    self.default_wc = float(c_val)
+                    self.default_ww = float(w_val)
+            except Exception:
+                pass
+            preset_data = self.cb_presets.currentData()
+            if preset_data == "dicom":
+                self.window_center = self.default_wc
+                self.window_width = self.default_ww
 
         try:
-            try:
-                ds = safe_dcmread(filepath)
-                if not hasattr(ds, "pixel_array") or len(ds) == 0:
-                    raise ValueError("Empty dataset or missing pixel array")
-            except Exception:
-                ds = self.read_truncated_dicom(filepath)
+            if self.view_mode == "side_by_side":
+                orig_pixmap, orig_ds = self._load_slice_data(orig_fp, orig_frame)
+                if orig_pixmap:
+                    self.viewer.set_slice_info(index + 1, len(self.sorted_files))
+                    self.viewer.set_dicom_image(orig_pixmap, orig_ds)
+                    self.viewer.set_window_params(self.window_width, self.window_center)
 
-            ds.current_frame_idx = frame_idx
+                if self.derived_files:
+                    der_idx = min(index, len(self.derived_files) - 1)
+                    der_fp, der_frame = self.derived_files[der_idx]
+                    der_pixmap, der_ds = self._load_slice_data(der_fp, der_frame)
+                    if der_pixmap:
+                        self.viewer_derived.set_slice_info(der_idx + 1, len(self.derived_files))
+                        self.viewer_derived.set_dicom_image(der_pixmap, der_ds)
+                        self.viewer_derived.set_window_params(self.window_width, self.window_center)
 
-            if getattr(self, "_need_initial_window", False):
-                self._need_initial_window = False
-                self.default_wc = 40.0
-                self.default_ww = 400.0
-                wc = getattr(ds, "WindowCenter", None)
-                ww = getattr(ds, "WindowWidth", None)
-                if wc is not None and ww is not None:
-                    try:
-                        c_val = wc[0] if hasattr(wc, "__iter__") else wc
-                        w_val = ww[0] if hasattr(ww, "__iter__") else ww
-                        self.default_wc = float(c_val)
-                        self.default_ww = float(w_val)
-                    except Exception:
-                        pass
-                
-                preset_data = self.cb_presets.currentData()
-                if preset_data == "dicom":
-                    self.window_center = self.default_wc
-                    self.window_width = self.default_ww
-                    cache_key = (filepath, frame_idx, round(self.window_width, 1), round(self.window_center, 1))
+                pat_name = getattr(orig_ds, "PatientName", "Unknown") if 'orig_ds' in locals() and orig_ds else "Unknown"
+                pat_id = getattr(orig_ds, "PatientID", "Unknown") if 'orig_ds' in locals() and orig_ds else "Unknown"
+                study_desc = getattr(orig_ds, "StudyDescription", "") if 'orig_ds' in locals() and orig_ds else ""
+                self.lbl_info.setText(f"{pat_name} [{pat_id}] | {study_desc} | [Original / Derived]")
 
-            pat_name = getattr(ds, "PatientName", "Unknown")
-            pat_id = getattr(ds, "PatientID", "Unknown")
-            study_desc = getattr(ds, "StudyDescription", "")
-            series_desc = getattr(ds, "SeriesDescription", "")
-            
-            info_text = f"{pat_name} [{pat_id}] | {study_desc} | {series_desc}"
-            self.lbl_info.setText(info_text)
-            self.viewer.set_slice_info(index + 1, len(self.sorted_files))
+            elif self.view_mode == "processed" and self.derived_files:
+                der_idx = min(index, len(self.derived_files) - 1)
+                der_fp, der_frame = self.derived_files[der_idx]
+                der_pixmap, der_ds = self._load_slice_data(der_fp, der_frame)
+                if der_pixmap:
+                    self.viewer.set_slice_info(der_idx + 1, len(self.derived_files))
+                    self.viewer.set_dicom_image(der_pixmap, der_ds)
+                    self.viewer.set_window_params(self.window_width, self.window_center)
+                pat_name = getattr(der_ds, "PatientName", "Unknown") if 'der_ds' in locals() and der_ds else "Unknown"
+                pat_id = getattr(der_ds, "PatientID", "Unknown") if 'der_ds' in locals() and der_ds else "Unknown"
+                study_desc = getattr(der_ds, "StudyDescription", "") if 'der_ds' in locals() and der_ds else ""
+                series_desc = getattr(der_ds, "SeriesDescription", "") if 'der_ds' in locals() and der_ds else ""
+                self.lbl_info.setText(f"{pat_name} [{pat_id}] | {study_desc} | {series_desc}")
 
-            pixmap = self.dicom_to_pixmap(ds, self.window_width, self.window_center)
-            if pixmap:
-                if len(self.pixmap_cache) >= 300:
-                    self.pixmap_cache.popitem(last=False)
-                self.pixmap_cache[cache_key] = (pixmap, ds)
-                self.viewer.set_dicom_image(pixmap, ds)
-                self.viewer.set_window_params(self.window_width, self.window_center)
             else:
-                raise ValueError("Failed to decode pixel array to pixmap")
-                
-        except Exception as e:
-            log_error(f"[Viewer] Skipping corrupted file {filepath} (frame {frame_idx}):", exc=e)
-            self.sorted_files.pop(index)
-            if not self.sorted_files:
-                self.lbl_info.setText("Нет доступных изображений в серии.")
-                self.viewer.set_slice_info(0, 0)
-                self.viewer.clear_viewer()
-                return
+                orig_pixmap, orig_ds = self._load_slice_data(orig_fp, orig_frame)
+                if orig_pixmap:
+                    self.viewer.set_slice_info(index + 1, len(self.sorted_files))
+                    self.viewer.set_dicom_image(orig_pixmap, orig_ds)
+                    self.viewer.set_window_params(self.window_width, self.window_center)
+                pat_name = getattr(orig_ds, "PatientName", "Unknown") if 'orig_ds' in locals() and orig_ds else "Unknown"
+                pat_id = getattr(orig_ds, "PatientID", "Unknown") if 'orig_ds' in locals() and orig_ds else "Unknown"
+                study_desc = getattr(orig_ds, "StudyDescription", "") if 'orig_ds' in locals() and orig_ds else ""
+                series_desc = getattr(orig_ds, "SeriesDescription", "") if 'orig_ds' in locals() and orig_ds else ""
+                self.lbl_info.setText(f"{pat_name} [{pat_id}] | {study_desc} | {series_desc}")
 
-            self.slider.setRange(0, len(self.sorted_files) - 1)
-            new_index = min(index, len(self.sorted_files) - 1)
-            self.set_current_slice(new_index)
+        except Exception as e:
+            log_error(f"[Viewer] Skipping corrupted file {orig_fp}:", exc=e)
 
     def on_slider_changed(self, value: int) -> None:
         if self.viewer.bev_active:
@@ -2076,7 +2404,7 @@ class DicomViewerPanel(QWidget):
         self.window_width = width
         self.window_center = center
         
-        if self.sender() == self.viewer:
+        if self.sender() == self.viewer or self.sender() == getattr(self, "viewer_derived", None):
             self.cb_presets.blockSignals(True)
             self.cb_presets.setCurrentIndex(-1)
             self.cb_presets.blockSignals(False)
@@ -2101,20 +2429,14 @@ class DicomViewerPanel(QWidget):
             if pixmap:
                 self.viewer.set_dicom_image(pixmap, ds)
                 self.viewer.set_window_params(self.window_width, self.window_center)
-            return
 
-        if self.current_index < 0 or self.current_index >= len(self.sorted_files):
-            return
-        filepath, frame_idx = self.sorted_files[self.current_index]
-        try:
-            ds = safe_dcmread(filepath)
-            ds.current_frame_idx = frame_idx
-            pixmap = self.dicom_to_pixmap(ds, self.window_width, self.window_center)
-            if pixmap:
-                self.viewer.set_dicom_image(pixmap, ds)
-                self.viewer.set_window_params(self.window_width, self.window_center)
-        except Exception:
-            pass
+        if self.view_mode == "side_by_side" and hasattr(self, "viewer_derived"):
+            ds_der = self.viewer_derived.current_dataset
+            if ds_der is not None:
+                pixmap_der = self.dicom_to_pixmap(ds_der, self.window_width, self.window_center)
+                if pixmap_der:
+                    self.viewer_derived.set_dicom_image(pixmap_der, ds_der)
+                    self.viewer_derived.set_window_params(self.window_width, self.window_center)
 
     def apply_preset(self, index: int) -> None:
         preset_type = self.cb_presets.itemData(index)

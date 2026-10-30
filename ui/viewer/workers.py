@@ -55,7 +55,9 @@ class PatientSeriesLoaderWorker(QThread):
                             plan_files.append(f_path)
 
             # 2. Обработка КТ файлов с передачей прогресса (0% -> 60%)
-            series_map = {}
+            orig_series_map = {}
+            derived_series_map = {}
+            derived_series_descs = {}
             series_dates = {}
             for idx, f in enumerate(self.files):
                 if self._is_cancelled:
@@ -80,8 +82,16 @@ class PatientSeriesLoaderWorker(QThread):
                     if not series_uid:
                         series_uid = "default"
 
-                    if series_uid not in series_map:
-                        series_map[series_uid] = []
+                    img_type = getattr(ds, "ImageType", [])
+                    is_derived = any("DERIVED" in str(x).upper() for x in img_type) if isinstance(img_type, (list, tuple)) else "DERIVED" in str(img_type).upper()
+                    if is_derived or filename.upper().startswith("DERIVED_"):
+                        target_map = derived_series_map
+                        derived_series_descs[series_uid] = str(getattr(ds, "SeriesDescription", ""))
+                    else:
+                        target_map = orig_series_map
+
+                    if series_uid not in target_map:
+                        target_map[series_uid] = []
                         s_dt = str(getattr(ds, "SeriesDate", "") or getattr(ds, "StudyDate", "")) + str(getattr(ds, "SeriesTime", "") or getattr(ds, "StudyTime", ""))
                         series_dates[series_uid] = s_dt
 
@@ -98,20 +108,22 @@ class PatientSeriesLoaderWorker(QThread):
                     if num_frames > 1:
                         for frame_idx in range(num_frames):
                             frame_z = z_coord + frame_idx * thickness
-                            series_map[series_uid].append((f, frame_z, instance_number, frame_idx))
+                            target_map[series_uid].append((f, frame_z, instance_number, frame_idx))
                     else:
-                        series_map[series_uid].append((f, z_coord, instance_number, 0))
+                        target_map[series_uid].append((f, z_coord, instance_number, 0))
                 except Exception:
                     pass
 
             if self._is_cancelled:
                 return
 
-            if not series_map:
+            if not orig_series_map and not derived_series_map:
                 self.error_signal.emit(tr_ui("viewer_err_no_valid_dicom"))
                 return
 
             # Выбор основной серии при наличии нескольких серий/исследований в папке
+            series_map = orig_series_map if orig_series_map else derived_series_map
+
             if len(series_map) == 1:
                 chosen_series_uid = list(series_map.keys())[0]
             else:
@@ -144,6 +156,16 @@ class PatientSeriesLoaderWorker(QThread):
             slices = series_map[chosen_series_uid]
             slices.sort(key=lambda x: (x[1], x[2], x[3]))
             sorted_files = [(x[0], x[3]) for x in slices]
+
+            # Обработка Derived-серии
+            derived_files = []
+            derived_series_desc = ""
+            if orig_series_map and derived_series_map:
+                chosen_der_uid = max(derived_series_map.keys(), key=lambda s: len(derived_series_map[s]))
+                der_slices = derived_series_map[chosen_der_uid]
+                der_slices.sort(key=lambda x: (x[1], x[2], x[3]))
+                derived_files = [(x[0], x[3]) for x in der_slices]
+                derived_series_desc = derived_series_descs.get(chosen_der_uid, "")
 
             # 3. Выбор и предпарсинг наиболее свежего файла RTSTRUCT (60% -> 85%)
             selected_struct_idx = -1
@@ -259,7 +281,10 @@ class PatientSeriesLoaderWorker(QThread):
                 "parsed_dose": parsed_dose,
                 "plan_files": plan_files,
                 "dose_files": dose_files,
-                "sorted_files": sorted_files
+                "sorted_files": sorted_files,
+                "derived_files": derived_files,
+                "has_derived": bool(derived_files),
+                "derived_series_desc": derived_series_desc
             }
             self.finished_signal.emit(result)
 

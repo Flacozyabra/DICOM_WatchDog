@@ -306,10 +306,12 @@ class ArchiveTab(QWidget):
                 for patient_key, data in studies:
                     self.table.insertRow(row_idx)
 
+                    is_derived = data.get('is_derived', False)
                     id_child = QTableWidgetItem("")
                     id_child.setData(Qt.ItemDataRole.UserRole, patient_key)
-                    name_child = QTableWidgetItem("  ↳")
-                    modality_child = QTableWidgetItem(str(data.get('modality', 'CT')))
+                    name_child = QTableWidgetItem("  ↳ [D]" if is_derived else "  ↳")
+                    mod_text = "[D] CT" if is_derived else str(data.get('modality', 'CT'))
+                    modality_child = QTableWidgetItem(mod_text)
                     slices_child = QTableWidgetItem(str(data.get('slices', 0)))
                     area_child = QTableWidgetItem(str(data.get('body_part', '')))
                     study_child = QTableWidgetItem(data['study_datetime'].strftime('%d.%m.%y - %H:%M'))
@@ -323,7 +325,10 @@ class ArchiveTab(QWidget):
                         if item in [modality_child, slices_child, area_child, study_child, folder_child, str_child, rtd_child, rtp_child]:
                             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
-                    color = self._compute_row_color(data, config)
+                    if is_derived:
+                        color = QColor("#A78BFA")
+                    else:
+                        color = self._compute_row_color(data, config)
                     for item in [id_child, name_child, modality_child, slices_child, area_child, study_child, folder_child, str_child, rtd_child, rtp_child]:
                         item.setForeground(color)
 
