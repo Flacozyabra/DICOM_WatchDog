@@ -207,6 +207,34 @@ def save_ct_cache(cache_data):
             pass
 
 
+DERIVED_PREFIX_TITLES = {
+    "MAR": "MAR v9",
+    "STN": "Soft Tissue Normal",
+    "STH": "Soft Tissue Hard",
+    "MAR_STN": "MAR v9 + ST Normal",
+    "MAR_STH": "MAR v9 + ST Hard",
+}
+
+
+def parse_derived_prefix(filename: str) -> tuple[str, str]:
+    """
+    Parses prefix and display title from a derived DICOM filename.
+    Returns (prefix, display_title).
+    Examples:
+      'DERIVED_MAR_CT.1.dcm'     -> ('MAR', 'MAR v9')
+      'DERIVED_MAR_STN_CT.1.dcm' -> ('MAR_STN', 'MAR v9 + ST Normal')
+      'DERIVED_CT.1.dcm'         -> ('DERIVED', 'Postprocessed')
+    """
+    upper = os.path.basename(filename).upper()
+    if not upper.startswith("DERIVED_"):
+        return "", ""
+    rest = upper[len("DERIVED_"):]
+    for pref in ("MAR_STN", "MAR_STH", "MAR", "STN", "STH"):
+        if rest.startswith(pref + "_") or rest.startswith(pref + "."):
+            return pref, DERIVED_PREFIX_TITLES[pref]
+    return "DERIVED", "Postprocessed"
+
+
 def load_ct_cache_as_patient_dict(ct_images_dir, scan_rtd=False, scan_rtp=False):
     """
     Быстро восстанавливает словарь пациентов КТ из кэша для мгновенного
@@ -265,10 +293,36 @@ def load_ct_cache_as_patient_dict(ct_images_dir, scan_rtd=False, scan_rtp=False)
                 'has_derived': has_derived,
                 'derived_slices': derived_slices
             }
-            if has_derived and derived_slices > 0:
+            der_series_map = cached_item.get('derived_series')
+            if der_series_map and isinstance(der_series_map, dict):
+                for pref, count in der_series_map.items():
+                    if count <= 0:
+                        continue
+                    algo_title = DERIVED_PREFIX_TITLES.get(pref, "Postprocessed")
+                    patient_data[f"{rel_path} [DERIVED_{pref}]"] = {
+                        'patient_id': patient_data[rel_path]['patient_id'],
+                        'patient_name': patient_data[rel_path]['patient_name'],
+                        'derived_name': f"  ↳ [Derived] {algo_title}",
+                        'derived_title': algo_title,
+                        'derived_prefix': pref,
+                        'modality': f"[D] {algo_title}",
+                        'study_datetime': s_dt,
+                        'body_part': f"{patient_data[rel_path]['body_part']} (Derived)",
+                        'folder_datetime': f_dt,
+                        'str': patient_data[rel_path]['str'],
+                        'rtd': rtd_val,
+                        'rtp': rtp_val,
+                        'slices': count,
+                        'folder_name': rel_path,
+                        'is_derived': True
+                    }
+            elif has_derived and derived_slices > 0:
                 patient_data[f"{rel_path} [DERIVED]"] = {
                     'patient_id': patient_data[rel_path]['patient_id'],
                     'patient_name': patient_data[rel_path]['patient_name'],
+                    'derived_name': "  ↳ [Derived] Postprocessed",
+                    'derived_title': "Postprocessed",
+                    'derived_prefix': "DERIVED",
                     'modality': f"[D] {patient_data[rel_path]['modality']}",
                     'study_datetime': s_dt,
                     'body_part': f"{patient_data[rel_path]['body_part']} (Derived)",
@@ -380,10 +434,36 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
                     'has_derived': has_derived,
                     'derived_slices': derived_slices
                 }
-                if has_derived and derived_slices > 0:
+                der_series_map = cached_item.get('derived_series')
+                if der_series_map and isinstance(der_series_map, dict):
+                    for pref, count in der_series_map.items():
+                        if count <= 0:
+                            continue
+                        algo_title = DERIVED_PREFIX_TITLES.get(pref, "Postprocessed")
+                        patient_data[f"{rel_path} [DERIVED_{pref}]"] = {
+                            'patient_id': patient_data[rel_path]['patient_id'],
+                            'patient_name': patient_data[rel_path]['patient_name'],
+                            'derived_name': f"  ↳ [Derived] {algo_title}",
+                            'derived_title': algo_title,
+                            'derived_prefix': pref,
+                            'modality': f"[D] {algo_title}",
+                            'study_datetime': s_dt,
+                            'body_part': f"{patient_data[rel_path]['body_part']} (Derived)",
+                            'folder_datetime': f_dt,
+                            'str': str_val,
+                            'rtd': rtd_val,
+                            'rtp': rtp_val,
+                            'slices': count,
+                            'folder_name': rel_path,
+                            'is_derived': True
+                        }
+                elif has_derived and derived_slices > 0:
                     patient_data[f"{rel_path} [DERIVED]"] = {
                         'patient_id': patient_data[rel_path]['patient_id'],
                         'patient_name': patient_data[rel_path]['patient_name'],
+                        'derived_name': "  ↳ [Derived] Postprocessed",
+                        'derived_title': "Postprocessed",
+                        'derived_prefix': "DERIVED",
                         'modality': f"[D] {patient_data[rel_path]['modality']}",
                         'study_datetime': s_dt,
                         'body_part': f"{patient_data[rel_path]['body_part']} (Derived)",
@@ -398,7 +478,7 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
                 continue
 
         orig_ct_files = []
-        derived_ct_files = []
+        derived_groups = defaultdict(list)
         str_files = []
         rtd_files = []
         rtp_files = []
@@ -416,17 +496,19 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
                 rtp_files.append(f)
             else:
                 if f.upper().startswith("DERIVED_"):
-                    derived_ct_files.append(f)
+                    pref, _ = parse_derived_prefix(f)
+                    derived_groups[pref].append(f)
                 else:
                     orig_ct_files.append(f)
 
-        ct_files = orig_ct_files or derived_ct_files
+        all_derived_files = [f for grp in derived_groups.values() for f in grp]
+        ct_files = orig_ct_files or all_derived_files
 
         if not (ct_files or str_files or rtd_files or rtp_files):
             continue
 
         # Выбираем кандидатов для считывания общих метаданных исследования (в приоритете оригинальные КТ)
-        rep_candidates = [f for f in orig_ct_files[:3]] or [f for f in derived_ct_files[:3]] or [f for f in str_files[:2]] + [f for f in rtd_files[:2]] + [f for f in rtp_files[:2]]
+        rep_candidates = [f for f in orig_ct_files[:3]] or [f for f in all_derived_files[:3]] or [f for f in str_files[:2]] + [f for f in rtd_files[:2]] + [f for f in rtp_files[:2]]
         if not rep_candidates:
             rep_candidates = files[:3]
 
@@ -514,11 +596,12 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
             study_entry['rtd'] = len(rtd_files) if scan_rtd else 0
             study_entry['rtp'] = len(rtp_files) if scan_rtp else 0
 
-            has_der = bool(derived_ct_files)
-            der_slices = len(derived_ct_files)
+            has_der = bool(derived_groups)
+            der_slices_total = sum(len(fl) for fl in derived_groups.values())
             study_entry['has_derived'] = has_der
-            study_entry['derived_slices'] = der_slices
-            study_entry['slices'] = len(orig_ct_files) if orig_ct_files else der_slices
+            study_entry['derived_slices'] = der_slices_total
+            study_entry['derived_series'] = {pref: len(fl) for pref, fl in derived_groups.items()}
+            study_entry['slices'] = len(orig_ct_files) if orig_ct_files else der_slices_total
 
             if is_cleanup_on and len(str_files) > 1:
                 delete_redundant_str(root, output_field)
@@ -528,20 +611,25 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
             patient_data[rel_path] = study_entry
 
             if has_der and orig_ct_files:
-                patient_data[f"{rel_path} [DERIVED]"] = {
-                    'patient_id': study_entry['patient_id'],
-                    'patient_name': study_entry['patient_name'],
-                    'modality': f"[D] {study_entry['modality']}",
-                    'study_datetime': study_entry['study_datetime'],
-                    'body_part': f"{study_entry['body_part']} (Derived)",
-                    'folder_datetime': study_entry['folder_datetime'],
-                    'str': study_entry['str'],
-                    'rtd': study_entry['rtd'],
-                    'rtp': study_entry['rtp'],
-                    'slices': der_slices,
-                    'folder_name': rel_path,
-                    'is_derived': True
-                }
+                for pref, flist in derived_groups.items():
+                    algo_title = DERIVED_PREFIX_TITLES.get(pref, "Postprocessed")
+                    patient_data[f"{rel_path} [DERIVED_{pref}]"] = {
+                        'patient_id': study_entry['patient_id'],
+                        'patient_name': study_entry['patient_name'],
+                        'derived_name': f"  ↳ [Derived] {algo_title}",
+                        'derived_title': algo_title,
+                        'derived_prefix': pref,
+                        'modality': f"[D] {algo_title}",
+                        'study_datetime': study_entry['study_datetime'],
+                        'body_part': f"{study_entry['body_part']} (Derived)",
+                        'folder_datetime': study_entry['folder_datetime'],
+                        'str': study_entry['str'],
+                        'rtd': study_entry['rtd'],
+                        'rtp': study_entry['rtp'],
+                        'slices': len(flist),
+                        'folder_name': rel_path,
+                        'is_derived': True
+                    }
 
             if cache is not None:
                 prev_entry = cache.get(root, {})
@@ -559,7 +647,8 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
                     'rtp_scanned': scan_rtp or prev_entry.get('rtp_scanned', False),
                     'slices': study_entry['slices'],
                     'has_derived': has_der,
-                    'derived_slices': der_slices,
+                    'derived_slices': der_slices_total,
+                    'derived_series': {pref: len(fl) for pref, fl in derived_groups.items()},
                     'mtime': mtime
                 }
 

@@ -163,6 +163,22 @@ class TableContextMenuManager:
 
         menu = QMenu(self.mw)
 
+        cache_item = self.mw.images_cache.get(patient_id, {}) if self.mw.images_cache else {}
+        is_derived_row = bool(cache_item.get('is_derived') or "[DERIVED" in str(patient_id))
+
+        if not is_multi and is_derived_row:
+            folder_name = cache_item.get('folder_name', str(patient_id).split(" [DERIVED")[0])
+            open_folder_action = QAction(tr_ui("ctx_open_folder"), self.mw)
+            open_folder_action.triggered.connect(lambda: self.mw.open_patient_folder(folder_name, is_archive=False))
+
+            delete_derived_action = QAction(tr_ui("ctx_delete_derived"), self.mw)
+            delete_derived_action.triggered.connect(lambda: self.mw.patient_ops.delete_derived_series_action(patient_id, is_archive=False))
+
+            menu.addAction(open_folder_action)
+            menu.addAction(delete_derived_action)
+            menu.exec(self.mw.images_table.viewport().mapToGlobal(pos))
+            return
+
         if is_multi:
             delete_action = QAction(tr_ui("ctx_delete_mass", len(selected_rows)), self.mw)
             delete_action.triggered.connect(lambda: self.mw.delete_patient_action())
@@ -242,6 +258,22 @@ class TableContextMenuManager:
             return
 
         menu = QMenu(self.mw)
+
+        cache_item = self.mw.archive_cache.get(patient_id, {}) if self.mw.archive_cache else {}
+        is_derived_row = bool(cache_item.get('is_derived') or "[DERIVED" in str(patient_id))
+
+        if not is_multi and is_derived_row:
+            folder_name = cache_item.get('folder_name', str(patient_id).split(" [DERIVED")[0])
+            open_folder_action = QAction(tr_ui("ctx_open_folder"), self.mw)
+            open_folder_action.triggered.connect(lambda: self.mw.open_patient_folder(folder_name, is_archive=True))
+
+            delete_derived_action = QAction(tr_ui("ctx_delete_derived"), self.mw)
+            delete_derived_action.triggered.connect(lambda: self.mw.patient_ops.delete_derived_series_action(patient_id, is_archive=True))
+
+            menu.addAction(open_folder_action)
+            menu.addAction(delete_derived_action)
+            menu.exec(self.mw.archive_table.viewport().mapToGlobal(pos))
+            return
 
         if is_multi:
             restore_action = QAction(self.mw.get_restore_to_ct_text(count=len(selected_rows)), self.mw)

@@ -1775,7 +1775,12 @@ class MainWindow(QMainWindow):
             if not files:
                 log_message(self.output_field, tr_log("log_patient_folder_empty", patient_id))
                 return
-                
+
+            cache_item = cache.get(patient_id, {}) if cache else {}
+            if cache_item.get('is_derived') or "[DERIVED" in str(patient_id):
+                self.viewer_panel._target_view_mode_after_load = "processed"
+                self.viewer_panel._target_derived_prefix = cache_item.get('derived_prefix')
+
             self.stacked_widget.setCurrentIndex(1)
             self.viewer_panel.apply_theme()
             self.viewer_panel.load_series(files)

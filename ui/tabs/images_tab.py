@@ -205,9 +205,9 @@ class ImagesTab(QWidget):
             p_id = str(data.get('patient_id', 'Unknown'))
             grouped_patients[(p_name, p_id)].append((key, data))
 
-        # Sort studies inside each patient group by study_datetime descending
+        # Sort studies inside each patient group: original studies first, then derived series, by study_datetime descending
         for p_info in grouped_patients:
-            grouped_patients[p_info].sort(key=lambda x: x[1]['study_datetime'], reverse=True)
+            grouped_patients[p_info].sort(key=lambda x: (x[1].get('is_derived', False), -x[1]['study_datetime'].timestamp()))
 
         # Sort patients by latest study's folder_datetime descending, then patient_name
         def get_patient_sort_key(item):
@@ -304,8 +304,13 @@ class ImagesTab(QWidget):
                     is_derived = data.get('is_derived', False)
                     id_child = QTableWidgetItem("")
                     id_child.setData(Qt.ItemDataRole.UserRole, patient_key)
-                    name_child = QTableWidgetItem("  ↳ [D]" if is_derived else "  ↳")
-                    mod_text = "[D] CT" if is_derived else str(data.get('modality', 'CT'))
+                    if is_derived:
+                        derived_label = data.get('derived_name') or f"  ↳ [Derived] {data.get('derived_title', 'Postprocessed')}"
+                        name_child = QTableWidgetItem(derived_label)
+                        mod_text = str(data.get('modality', '[D] CT'))
+                    else:
+                        name_child = QTableWidgetItem("  ↳")
+                        mod_text = str(data.get('modality', 'CT'))
                     modality_child = QTableWidgetItem(mod_text)
                     slices_child = QTableWidgetItem(str(data.get('slices', 0)))
                     area_child = QTableWidgetItem(str(data.get('body_part', '')))

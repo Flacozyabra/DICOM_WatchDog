@@ -160,12 +160,18 @@ class PatientSeriesLoaderWorker(QThread):
             # Обработка Derived-серии
             derived_files = []
             derived_series_desc = ""
+            all_derived_series = {}
             if orig_series_map and derived_series_map:
+                for der_uid, der_s_list in derived_series_map.items():
+                    sorted_d_slices = sorted(der_s_list, key=lambda x: (x[1], x[2], x[3]))
+                    d_desc = derived_series_descs.get(der_uid, "Derived CT")
+                    all_derived_series[der_uid] = {
+                        "files": [(x[0], x[3]) for x in sorted_d_slices],
+                        "desc": d_desc
+                    }
                 chosen_der_uid = max(derived_series_map.keys(), key=lambda s: len(derived_series_map[s]))
-                der_slices = derived_series_map[chosen_der_uid]
-                der_slices.sort(key=lambda x: (x[1], x[2], x[3]))
-                derived_files = [(x[0], x[3]) for x in der_slices]
-                derived_series_desc = derived_series_descs.get(chosen_der_uid, "")
+                derived_files = all_derived_series[chosen_der_uid]["files"]
+                derived_series_desc = all_derived_series[chosen_der_uid]["desc"]
 
             # 3. Выбор и предпарсинг наиболее свежего файла RTSTRUCT (60% -> 85%)
             selected_struct_idx = -1
@@ -283,6 +289,7 @@ class PatientSeriesLoaderWorker(QThread):
                 "dose_files": dose_files,
                 "sorted_files": sorted_files,
                 "derived_files": derived_files,
+                "all_derived_series": all_derived_series,
                 "has_derived": bool(derived_files),
                 "derived_series_desc": derived_series_desc
             }

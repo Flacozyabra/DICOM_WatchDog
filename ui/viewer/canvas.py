@@ -24,6 +24,12 @@ class DicomViewerWidget(QWidget):
     bev_beam_changed = pyqtSignal(int)
     bev_control_point_changed = pyqtSignal(int)
     drr_precompute_requested = pyqtSignal()
+    zoom_pan_changed = pyqtSignal(float, QPointF)
+
+    def set_zoom_pan(self, zoom: float, pan: QPointF) -> None:
+        self.zoom_factor = zoom
+        self.pan_offset = QPointF(pan)
+        self.update()
 
     def __init__(self, parent: QWidget = None) -> None:
         super().__init__(parent)
@@ -449,6 +455,7 @@ class DicomViewerWidget(QWidget):
             delta = event.position() - self.last_mouse_pos
             self.pan_offset += delta
             self.last_mouse_pos = event.position()
+            self.zoom_pan_changed.emit(self.zoom_factor, self.pan_offset)
             self.update()
         elif self.drawing_line:
             self.current_pos = event.position()
@@ -647,6 +654,7 @@ class DicomViewerWidget(QWidget):
                 self.zoom_factor = max(0.1, self.zoom_factor - 0.1)
             elif delta < 0:
                 self.zoom_factor = min(10.0, self.zoom_factor + 0.1)
+            self.zoom_pan_changed.emit(self.zoom_factor, self.pan_offset)
             self.update()
         else:
             delta = event.angleDelta().y()

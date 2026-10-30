@@ -275,6 +275,7 @@ class PatientOperationsManager:
                 continue
             patient_name = name_item.text() if name_item else ""
             is_child = bool(patient_name and patient_name.startswith("  ↳"))
+            is_derived = bool((cache and cache.get(patient_id, {}).get('is_derived')) or "[DERIVED" in str(patient_id))
             folder_name = patient_id
             if cache and patient_id in cache:
                 folder_name = cache[patient_id].get('folder_name', folder_name)
@@ -286,6 +287,7 @@ class PatientOperationsManager:
                 'patient_id': patient_id,
                 'patient_name': patient_name,
                 'is_child': is_child,
+                'is_derived': is_derived,
                 'folder_name': folder_name,
                 'parent_folder': parent_folder,
                 'row': r,
@@ -309,14 +311,24 @@ class PatientOperationsManager:
             else:
                 folder_name = self.mw.images_cache[patient_id].get('folder_name', patient_id) if (self.mw.images_cache and patient_id in self.mw.images_cache) else patient_id
                 is_child = bool(patient_name and str(patient_name).startswith("  ↳"))
+                is_derived = bool((self.mw.images_cache and self.mw.images_cache.get(patient_id, {}).get('is_derived')) or "[DERIVED" in str(patient_id))
                 targets = [{
                     'patient_id': patient_id,
                     'patient_name': patient_name,
                     'is_child': is_child,
+                    'is_derived': is_derived,
                     'folder_name': folder_name,
                 }]
         else:
             targets = self.get_selected_targets(self.mw.images_table, self.mw.images_cache, is_archive=False)
+
+        # Protect derived rows: never delete study folder via delete_patient_action
+        if any(t.get('is_derived') for t in targets):
+            derived_only = [t for t in targets if t.get('is_derived')]
+            if len(derived_only) == len(targets) and len(targets) == 1:
+                self.delete_derived_series_action(targets[0]['patient_id'], is_archive=False)
+                return
+            targets = [t for t in targets if not t.get('is_derived')]
 
         if not targets:
             return
@@ -490,14 +502,23 @@ class PatientOperationsManager:
             else:
                 folder_name = self.mw.archive_cache[patient_id].get('folder_name', patient_id) if (self.mw.archive_cache and patient_id in self.mw.archive_cache) else patient_id
                 is_child = bool(patient_name and str(patient_name).startswith("  ↳"))
+                is_derived = bool((self.mw.archive_cache and self.mw.archive_cache.get(patient_id, {}).get('is_derived')) or "[DERIVED" in str(patient_id))
                 targets = [{
                     'patient_id': patient_id,
                     'patient_name': patient_name,
                     'is_child': is_child,
+                    'is_derived': is_derived,
                     'folder_name': folder_name,
                 }]
         else:
             targets = self.get_selected_targets(self.mw.archive_table, self.mw.archive_cache, is_archive=True)
+
+        if any(t.get('is_derived') for t in targets):
+            derived_only = [t for t in targets if t.get('is_derived')]
+            if len(derived_only) == len(targets) and len(targets) == 1:
+                self.delete_derived_series_action(targets[0]['patient_id'], is_archive=True)
+                return
+            targets = [t for t in targets if not t.get('is_derived')]
 
         if not targets:
             return
@@ -575,6 +596,82 @@ class PatientOperationsManager:
             worker.start()
 
         self.mw.archive_table.viewport().update()
+
+    def delete_derived_series_action(self, patient_key: str, is_archive: bool = False) -> None:
+        """
+        Safely deletes ONLY the CT slices of the specified derived series (e.g. DERIVED_MAR_*.dcm).
+        Guarantees that original CT slices, RTSTRUCT, RTPLAN, RTDOSE and study folder remain 100% intact.
+        """
+        from core.dicom_utils import parse_derived_prefix, save_ct_cache, load_ct_cache
+        cache = self.mw.archive_cache if is_archive else self.mw.images_cache
+        dir_key = 'archive_dir' if is_archive else 'ct_images_dir'
+        base_dir = self.mw.config.get(dir_key, '')
+        if not base_dir or not os.path.exists(base_dir):
+            return
+
+        item = cache.get(patient_key, {}) if cache else {}
+        folder_name = item.get('folder_name', '')
+        if not folder_name:
+            folder_name = str(patient_key).split(" [DERIVED")[0]
+
+        target_dir = os.path.normpath(os.path.join(base_dir, folder_name))
+        if not os.path.isdir(target_dir):
+            return
+
+        derived_prefix = item.get('derived_prefix')
+        if not derived_prefix and "[DERIVED_" in str(patient_key):
+            derived_prefix = str(patient_key).split("[DERIVED_")[-1].rstrip("]")
+
+        derived_title = item.get('derived_title', derived_prefix or "Derived")
+
+        matching_files = []
+        try:
+            for f in os.listdir(target_dir):
+                fp = os.path.join(target_dir, f)
+                if not os.path.isfile(fp):
+                    continue
+                if not f.upper().startswith("DERIVED_"):
+                    continue
+                pref, _ = parse_derived_prefix(f)
+                if derived_prefix and pref == derived_prefix:
+                    matching_files.append(fp)
+                elif not derived_prefix or derived_prefix == "DERIVED":
+                    if pref in ("DERIVED", ""):
+                        matching_files.append(fp)
+        except Exception as e:
+            log_error(f"Failed to scan folder for derived files: {e}")
+            return
+
+        if not matching_files:
+            return
+
+        dlg = QMessageBox(self.mw)
+        dlg.setIcon(QMessageBox.Icon.Question)
+        dlg.setWindowTitle(tr_ui("dlg_confirm_delete_derived_title"))
+        dlg.setText(tr_ui("dlg_confirm_delete_derived_msg", derived_title, len(matching_files)))
+        dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        dlg.setDefaultButton(QMessageBox.StandardButton.No)
+        apply_dark_title_bar(dlg)
+
+        if dlg.exec() != QMessageBox.StandardButton.Yes:
+            return
+
+        for fp in matching_files:
+            try:
+                os.remove(fp)
+            except Exception as e:
+                log_error(f"Failed to delete derived file {fp}: {e}")
+
+        # Invalidate cache for target_dir so rescan recalculates without these derived slices
+        cache_on_disk = load_ct_cache()
+        if target_dir in cache_on_disk:
+            del cache_on_disk[target_dir]
+            save_ct_cache(cache_on_disk)
+
+        if is_archive:
+            self.mw.scan_archive_threaded()
+        else:
+            self.mw.start_scan_threads()
 
     def move_to_archive_cmd(self):
         targets = self.get_selected_targets(self.mw.images_table, self.mw.images_cache, is_archive=False)

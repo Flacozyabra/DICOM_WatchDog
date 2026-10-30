@@ -6,6 +6,8 @@ from .runner import (
     ALGORITHM_MAR_V9,
     ALGORITHM_ST_HARD,
     ALGORITHM_ST_NORMAL,
+    ALGORITHM_COMBO_NORMAL,
+    ALGORITHM_COMBO_HARD,
 )
 from .dicom_io import (
     read_dicom_hu,
@@ -21,6 +23,8 @@ __all__ = [
     "ALGORITHM_MAR_V9",
     "ALGORITHM_ST_HARD",
     "ALGORITHM_ST_NORMAL",
+    "ALGORITHM_COMBO_NORMAL",
+    "ALGORITHM_COMBO_HARD",
     "read_dicom_hu",
     "save_derived_dicom_hu",
     "is_derived_dataset",

@@ -7,17 +7,19 @@ from collections import OrderedDict
 import numpy as np
 import pydicom
 
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QRect
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QPointF, QRect
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
     QPushButton, QComboBox, QSlider, QListWidget, QListWidgetItem,
-    QStackedWidget, QButtonGroup, QSizePolicy, QLineEdit
+    QStackedWidget, QButtonGroup, QSizePolicy, QLineEdit,
+    QCheckBox, QRadioButton, QDialog, QDialogButtonBox, QMenu
 )
 from PyQt6.QtGui import (
     QIcon, QFont, QPixmap, QBrush, QColor, QImage
 )
 
 from ui.toggle_switch import ToggleSwitch
+from ui.settings_tabs.settings_utils import apply_dark_title_bar
 from core.config_utils import get_resource_path
 from core.locale_utils import tr_ui
 from core.logger import log_error
@@ -30,7 +32,8 @@ from .workers import (
 from .controls import HUVerticalSlider, DRRProgressDialog
 from .canvas import DicomViewerWidget
 from core.postprocessing import (
-    PostprocessingRunner, ALGORITHM_MAR_V9, ALGORITHM_ST_HARD, ALGORITHM_ST_NORMAL
+    PostprocessingRunner, ALGORITHM_MAR_V9, ALGORITHM_ST_HARD, ALGORITHM_ST_NORMAL,
+    ALGORITHM_COMBO_NORMAL, ALGORITHM_COMBO_HARD
 )
 
 
@@ -43,6 +46,10 @@ class DicomViewerPanel(QWidget):
         self.parent_app = parent
         self.sorted_files = []
         self.derived_files = []
+        self.all_derived_series = {}
+        self.current_derived_uid = ""
+        self._target_derived_prefix = None
+        self._is_syncing_zoom_pan = False
         self.has_derived = False
         self.derived_series_desc = ""
         self.view_mode = "original"
@@ -249,13 +256,6 @@ class DicomViewerPanel(QWidget):
         self.btn_osd.clicked.connect(self.toggle_osd)
         top_layout.addWidget(self.btn_osd)
 
-        # Кнопка постпроцессинга (MAR v9, контрастирование)
-        self.btn_postprocess = QPushButton("⚗", self)
-        self.btn_postprocess.setFixedSize(28, 28)
-        self.btn_postprocess.setToolTip(tr_ui("viewer_postprocessing_btn"))
-        self.btn_postprocess.clicked.connect(self.show_postprocess_menu)
-        top_layout.addWidget(self.btn_postprocess)
-
         # Кнопка закрытия
         self.btn_close = QPushButton(self)
         self.btn_close.setIcon(self.img_close)
@@ -275,6 +275,7 @@ class DicomViewerPanel(QWidget):
         self.viewer = DicomViewerWidget(self)
         self.viewer.slice_scrolled.connect(self.on_slice_scrolled)
         self.viewer.window_changed.connect(self.on_window_changed)
+        self.viewer.zoom_pan_changed.connect(self._on_viewer_zoom_pan)
         self.viewer.bev_beam_changed.connect(self._on_bev_beam_changed)
         self.viewer.bev_control_point_changed.connect(self._on_bev_cp_changed)
         self.viewer.drr_precompute_requested.connect(self.start_drr_precompute)
@@ -284,6 +285,7 @@ class DicomViewerPanel(QWidget):
         self.viewer_derived = DicomViewerWidget(self)
         self.viewer_derived.slice_scrolled.connect(self.on_slice_scrolled)
         self.viewer_derived.window_changed.connect(self.on_window_changed)
+        self.viewer_derived.zoom_pan_changed.connect(self._on_derived_zoom_pan)
         self.viewer_derived.hide()
         center_layout.addWidget(self.viewer_derived, stretch=1)
 
@@ -315,10 +317,14 @@ class DicomViewerPanel(QWidget):
         self.btn_mode_side = QPushButton(tr_ui("viewer_mode_side"), self.mode_container)
         self.btn_mode_side.setCheckable(True)
         self.btn_mode_side.clicked.connect(lambda: self.set_view_mode("side_by_side"))
+        self.btn_mode_side.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.btn_mode_side.customContextMenuRequested.connect(self.show_postprocess_menu)
 
         self.btn_mode_proc = QPushButton(tr_ui("viewer_mode_proc"), self.mode_container)
         self.btn_mode_proc.setCheckable(True)
         self.btn_mode_proc.clicked.connect(lambda: self.set_view_mode("processed"))
+        self.btn_mode_proc.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.btn_mode_proc.customContextMenuRequested.connect(self.show_postprocess_menu)
 
         for b in (self.btn_mode_orig, self.btn_mode_side, self.btn_mode_proc):
             b.setFixedHeight(26)
@@ -1044,8 +1050,6 @@ class DicomViewerPanel(QWidget):
         self.btn_hu.setToolTip("Настройка окна HU")
         self.btn_osd.setToolTip("Показать/скрыть надписи")
         self.btn_close.setToolTip("Закрыть просмотр")
-        if hasattr(self, "btn_postprocess"):
-            self.btn_postprocess.setToolTip(tr_ui("viewer_postprocessing_btn"))
         if hasattr(self, "btn_mode_orig"):
             self.btn_mode_orig.setText(tr_ui("viewer_mode_orig"))
         if hasattr(self, "btn_mode_side"):
@@ -1383,23 +1387,6 @@ class DicomViewerPanel(QWidget):
             self.btn_osd.setStyleSheet(style_osd_active if getattr(self.viewer, "osd_visible", False) else style_osd_inactive)
         if hasattr(self, "btn_close"):
             self.btn_close.setStyleSheet(style_close)
-
-        style_postprocess = f"""
-            QPushButton {{
-                background-color: {btn_bg};
-                border: 1px solid {btn_border};
-                border-radius: 4px;
-                color: #FFFFFF;
-                font-size: 14px;
-                min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px;
-            }}
-            QPushButton:hover {{
-                background-color: {btn_hover};
-                border-color: {accent_color};
-            }}
-        """
-        if hasattr(self, "btn_postprocess"):
-            self.btn_postprocess.setStyleSheet(style_postprocess)
 
         btn_mode_style = f"""
             QPushButton {{
@@ -1781,6 +1768,9 @@ class DicomViewerPanel(QWidget):
             self.hu_panel.hide()
 
         self.derived_files = []
+        self.all_derived_series = {}
+        self.current_derived_uid = ""
+        self._target_derived_prefix = None
         self.has_derived = False
         self.derived_series_desc = ""
         self.view_mode = "original"
@@ -1924,9 +1914,29 @@ class DicomViewerPanel(QWidget):
         parsed_dose = result.get("parsed_dose", {})
         
         self.sorted_files = result.get("sorted_files", [])
+        self.all_derived_series = result.get("all_derived_series", {})
         self.derived_files = result.get("derived_files", [])
         self.has_derived = result.get("has_derived", False)
         self.derived_series_desc = result.get("derived_series_desc", "")
+        self.current_derived_uid = ""
+
+        if self.all_derived_series:
+            target_pref = getattr(self, "_target_derived_prefix", None)
+            chosen_uid = None
+            if target_pref:
+                for u, s_info in self.all_derived_series.items():
+                    files = s_info.get("files", [])
+                    if files and any(f"_{target_pref}_" in os.path.basename(f[0]).upper() for f in files):
+                        chosen_uid = u
+                        break
+            if not chosen_uid:
+                chosen_uid = max(self.all_derived_series.keys(), key=lambda s: len(self.all_derived_series[s]["files"]))
+
+            self.current_derived_uid = chosen_uid
+            self.derived_files = self.all_derived_series[chosen_uid]["files"]
+            self.derived_series_desc = self.all_derived_series[chosen_uid]["desc"]
+            self.has_derived = bool(self.derived_files)
+        self._target_derived_prefix = None
 
         # Настройка выпадающего списка PLAN (RTPLAN + привязанный RTDOSE)
         self.cb_plan.blockSignals(True)
@@ -2138,6 +2148,7 @@ class DicomViewerPanel(QWidget):
             self.viewer.show()
             self.viewer_derived.show()
             self.viewer_derived.set_osd_visible(self.viewer.osd_visible)
+            self.viewer_derived.set_zoom_pan(self.viewer.zoom_factor, self.viewer.pan_offset)
         else:
             self.viewer.show()
             self.viewer_derived.hide()
@@ -2145,9 +2156,27 @@ class DicomViewerPanel(QWidget):
         if self.current_index >= 0:
             self.set_current_slice(self.current_index)
 
-    def show_postprocess_menu(self) -> None:
-        from PyQt6.QtWidgets import QMenu
-        from PyQt6.QtGui import QAction
+    def _on_viewer_zoom_pan(self, zoom: float, pan: QPointF) -> None:
+        if self._is_syncing_zoom_pan:
+            return
+        if self.view_mode == "side_by_side" and hasattr(self, "viewer_derived"):
+            self._is_syncing_zoom_pan = True
+            try:
+                self.viewer_derived.set_zoom_pan(zoom, pan)
+            finally:
+                self._is_syncing_zoom_pan = False
+
+    def _on_derived_zoom_pan(self, zoom: float, pan: QPointF) -> None:
+        if self._is_syncing_zoom_pan:
+            return
+        if self.view_mode == "side_by_side" and hasattr(self, "viewer"):
+            self._is_syncing_zoom_pan = True
+            try:
+                self.viewer.set_zoom_pan(zoom, pan)
+            finally:
+                self._is_syncing_zoom_pan = False
+
+    def show_postprocess_menu(self, pos: QPoint = None) -> None:
         menu = QMenu(self)
         menu.setStyleSheet("""
             QMenu {
@@ -2166,86 +2195,195 @@ class DicomViewerPanel(QWidget):
                 color: #FFFFFF;
             }
         """)
-        act_mar = QAction(tr_ui("viewer_algo_mar_v9"), menu)
-        act_mar.triggered.connect(lambda: self.start_postprocessing(ALGORITHM_MAR_V9))
-        menu.addAction(act_mar)
 
-        act_sth = QAction(tr_ui("viewer_algo_st_hard"), menu)
-        act_sth.triggered.connect(lambda: self.start_postprocessing(ALGORITHM_ST_HARD))
-        menu.addAction(act_sth)
+        if getattr(self, "all_derived_series", None):
+            for uid, s_info in self.all_derived_series.items():
+                desc = s_info.get("desc") or "Derived CT"
+                is_active = (uid == getattr(self, "current_derived_uid", ""))
+                title = f"✓  {desc}" if is_active else f"    {desc}"
+                act_series = menu.addAction(title)
+                act_series.triggered.connect(lambda checked=False, u=uid: self.select_derived_series(u))
 
-        act_stn = QAction(tr_ui("viewer_algo_st_normal"), menu)
-        act_stn.triggered.connect(lambda: self.start_postprocessing(ALGORITHM_ST_NORMAL))
-        menu.addAction(act_stn)
+            menu.addSeparator()
 
-        menu.exec(self.btn_postprocess.mapToGlobal(QPoint(0, self.btn_postprocess.height())))
+        act_new = menu.addAction(tr_ui("viewer_new_postprocessing"))
+        act_new.triggered.connect(self._on_request_new_postprocessing)
+
+        target_btn = self.btn_mode_proc if hasattr(self, "btn_mode_proc") else self
+        if pos is not None and isinstance(pos, QPoint):
+            sender_btn = self.sender() if isinstance(self.sender(), QWidget) else target_btn
+            global_pos = sender_btn.mapToGlobal(pos)
+        else:
+            global_pos = target_btn.mapToGlobal(QPoint(0, target_btn.height()))
+        menu.exec(global_pos)
+
+    def select_derived_series(self, uid: str) -> None:
+        if not getattr(self, "all_derived_series", None) or uid not in self.all_derived_series:
+            return
+        self.current_derived_uid = uid
+        self.derived_files = self.all_derived_series[uid]["files"]
+        self.derived_series_desc = self.all_derived_series[uid]["desc"]
+        self.has_derived = bool(self.derived_files)
+        self.pixmap_cache.clear()
+        if self.view_mode in ("side_by_side", "processed") and self.current_index >= 0:
+            self.set_current_slice(self.current_index)
+
+    def _on_request_new_postprocessing(self) -> None:
+        chosen_algo = self.prompt_postprocess_dialog()
+        if chosen_algo:
+            mode = self.view_mode if self.view_mode in ("side_by_side", "processed") else "processed"
+            self.start_postprocessing(chosen_algo, target_view_mode=mode)
 
     def prompt_postprocess_dialog(self) -> str | None:
-        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QRadioButton, QDialogButtonBox
         dlg = QDialog(self)
         dlg.setWindowTitle(tr_ui("viewer_postprocessing_title"))
-        dlg.setFixedWidth(440)
+        dlg.setFixedWidth(460)
+        apply_dark_title_bar(dlg)
         dlg.setStyleSheet("""
             QDialog {
-                background-color: #1E293B;
+                background-color: #0F172A;
                 color: #FFFFFF;
                 border: 1px solid #334155;
                 border-radius: 8px;
             }
             QLabel {
                 color: #F8FAFC;
+            }
+            QCheckBox {
+                color: #FFFFFF;
                 font-size: 13px;
+                font-weight: 600;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border-radius: 4px;
+                border: 1px solid #475569;
+                background-color: #0F172A;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #2563EB;
+                border-color: #3B82F6;
             }
             QRadioButton {
-                color: #E2E8F0;
+                color: #CBD5E1;
                 font-size: 12px;
-                padding: 4px;
+                spacing: 6px;
             }
-            QRadioButton:hover {
-                color: #FFFFFF;
+            QRadioButton:disabled {
+                color: #64748B;
             }
-            QPushButton {
-                background-color: #2563EB;
-                color: #FFFFFF;
-                border: 1px solid #3B82F6;
-                border-radius: 4px;
-                padding: 6px 14px;
-                font-size: 12px;
-                font-weight: 600;
+            QRadioButton::indicator {
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                border: 1px solid #475569;
+                background-color: #0F172A;
             }
-            QPushButton:hover {
-                background-color: #1D4ED8;
+            QRadioButton::indicator:checked {
+                background-color: #38BDF8;
+                border-color: #38BDF8;
             }
         """)
+
         layout = QVBoxLayout(dlg)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
 
-        lbl = QLabel(tr_ui("viewer_postprocess_prompt"), dlg)
-        lbl.setWordWrap(True)
-        layout.addWidget(lbl)
+        header_lbl = QLabel(tr_ui("viewer_postprocess_prompt"), dlg)
+        header_lbl.setStyleSheet("font-size: 13px; color: #94A3B8; margin-bottom: 2px;")
+        header_lbl.setWordWrap(True)
+        layout.addWidget(header_lbl)
 
-        rb_mar = QRadioButton(tr_ui("viewer_algo_mar_v9"), dlg)
-        rb_mar.setChecked(True)
-        rb_sth = QRadioButton(tr_ui("viewer_algo_st_hard"), dlg)
-        rb_stn = QRadioButton(tr_ui("viewer_algo_st_normal"), dlg)
+        # Card 1: MAR v9
+        card_mar = QFrame(dlg)
+        card_mar.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 8px; }")
+        card_mar_layout = QVBoxLayout(card_mar)
+        card_mar_layout.setContentsMargins(12, 12, 12, 12)
+        card_mar_layout.setSpacing(4)
 
-        layout.addWidget(rb_mar)
-        layout.addWidget(rb_sth)
-        layout.addWidget(rb_stn)
+        cb_mar = QCheckBox(tr_ui("viewer_algo_mar_v9"), card_mar)
+        cb_mar.setChecked(True)
+        hint_mar = QLabel(tr_ui("viewer_algo_mar_hint"), card_mar)
+        hint_mar.setStyleSheet("color: #94A3B8; font-size: 11px; margin-left: 26px;")
+        hint_mar.setWordWrap(True)
+        card_mar_layout.addWidget(cb_mar)
+        card_mar_layout.addWidget(hint_mar)
+        layout.addWidget(card_mar)
 
-        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, dlg)
-        btns.accepted.connect(dlg.accept)
-        btns.rejected.connect(dlg.reject)
-        layout.addWidget(btns)
+        # Card 2: Soft Tissue Enhancement
+        card_st = QFrame(dlg)
+        card_st.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 8px; }")
+        card_st_layout = QVBoxLayout(card_st)
+        card_st_layout.setContentsMargins(12, 12, 12, 12)
+        card_st_layout.setSpacing(6)
+
+        cb_st = QCheckBox(tr_ui("viewer_algo_st_title"), card_st)
+        cb_st.setChecked(False)
+        hint_st = QLabel(tr_ui("viewer_algo_st_hint"), card_st)
+        hint_st.setStyleSheet("color: #94A3B8; font-size: 11px; margin-left: 26px;")
+        hint_st.setWordWrap(True)
+
+        rb_container = QWidget(card_st)
+        rb_layout = QVBoxLayout(rb_container)
+        rb_layout.setContentsMargins(26, 4, 0, 0)
+        rb_layout.setSpacing(6)
+
+        rb_stn = QRadioButton(tr_ui("viewer_algo_st_normal"), rb_container)
+        rb_stn.setChecked(True)
+        rb_sth = QRadioButton(tr_ui("viewer_algo_st_hard"), rb_container)
+        rb_layout.addWidget(rb_stn)
+        rb_layout.addWidget(rb_sth)
+
+        rb_container.setEnabled(False)
+        cb_st.toggled.connect(rb_container.setEnabled)
+
+        card_st_layout.addWidget(cb_st)
+        card_st_layout.addWidget(hint_st)
+        card_st_layout.addWidget(rb_container)
+        layout.addWidget(card_st)
+
+        # Bottom buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.setContentsMargins(0, 8, 0, 0)
+        btn_layout.addStretch()
+
+        btn_cancel = QPushButton("Отмена", dlg)
+        btn_cancel.setStyleSheet("background-color: transparent; color: #94A3B8; border: 1px solid #334155; border-radius: 6px; padding: 7px 16px; font-size: 12px; font-weight: 600;")
+        btn_cancel.clicked.connect(dlg.reject)
+
+        btn_run = QPushButton(tr_ui("viewer_postprocess_run_btn"), dlg)
+        btn_run.setStyleSheet("background-color: #2563EB; color: #FFFFFF; border: 1px solid #3B82F6; border-radius: 6px; padding: 7px 18px; font-size: 12px; font-weight: 600;")
+        btn_run.clicked.connect(dlg.accept)
+
+        def update_run_btn_state():
+            is_valid = cb_mar.isChecked() or cb_st.isChecked()
+            btn_run.setEnabled(is_valid)
+            btn_run.setStyleSheet(
+                "background-color: #2563EB; color: #FFFFFF; border: 1px solid #3B82F6; border-radius: 6px; padding: 7px 18px; font-size: 12px; font-weight: 600;"
+                if is_valid else
+                "background-color: #334155; color: #64748B; border: 1px solid #475569; border-radius: 6px; padding: 7px 18px; font-size: 12px; font-weight: 600;"
+            )
+
+        cb_mar.toggled.connect(lambda: update_run_btn_state())
+        cb_st.toggled.connect(lambda: update_run_btn_state())
+        update_run_btn_state()
+
+        btn_layout.addWidget(btn_cancel)
+        btn_layout.addWidget(btn_run)
+        layout.addLayout(btn_layout)
 
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            if rb_mar.isChecked():
+            mar_selected = cb_mar.isChecked()
+            st_selected = cb_st.isChecked()
+            if mar_selected and st_selected:
+                return ALGORITHM_COMBO_NORMAL if rb_stn.isChecked() else ALGORITHM_COMBO_HARD
+            elif mar_selected:
                 return ALGORITHM_MAR_V9
-            elif rb_sth.isChecked():
-                return ALGORITHM_ST_HARD
-            else:
-                return ALGORITHM_ST_NORMAL
+            elif st_selected:
+                return ALGORITHM_ST_NORMAL if rb_stn.isChecked() else ALGORITHM_ST_HARD
+
         return None
 
     def start_postprocessing(self, algo_type: str, target_view_mode: str = "processed") -> None:

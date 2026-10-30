@@ -17,6 +17,8 @@ from .soft_tissue_algorithm import enhance_soft_tissue_slice_v2
 ALGORITHM_MAR_V9 = "mar_v9"
 ALGORITHM_ST_HARD = "soft_tissue_hard"
 ALGORITHM_ST_NORMAL = "soft_tissue_normal"
+ALGORITHM_COMBO_NORMAL = "combo_mar_st_normal"
+ALGORITHM_COMBO_HARD = "combo_mar_st_hard"
 
 
 def process_slice_task(task_args: tuple) -> tuple[str, bool, dict]:
@@ -91,6 +93,38 @@ def process_slice_task(task_args: tuple) -> tuple[str, bool, dict]:
             )
             return in_path, True, {"mode": mode}
 
+        elif algo_type in (ALGORITHM_COMBO_NORMAL, ALGORITHM_COMBO_HARD):
+            metal_thresh = float(params.get("metal_threshold", 2200.0))
+            corr_mar, has_metal, stats = process_slice_mar(
+                img_hu,
+                metal_threshold=metal_thresh,
+                pixel_spacing=pixel_spacing,
+                neighbor_hu=neighbor_hu
+            )
+            mode = "normal" if algo_type == ALGORITHM_COMBO_NORMAL else "hard"
+            use_z = bool(params.get("use_z_filter", False))
+            win_c = 40
+            win_w = 220 if mode == "normal" else 180
+
+            final_hu = enhance_soft_tissue_slice_v2(
+                img_hu=corr_mar,
+                neighbor_hu=neighbor_hu,
+                mode=mode,
+                use_z_filter=use_z
+            )
+            save_derived_dicom_hu(
+                ds=ds,
+                corr_hu=final_hu,
+                slope=slope,
+                intercept=intercept,
+                output_path=out_path,
+                series_desc=series_desc,
+                series_uid=series_uid,
+                window_center=win_c,
+                window_width=win_w
+            )
+            return in_path, True, {"has_metal": has_metal, "mode": mode, "stats": stats}
+
         else:
             return in_path, False, {"error": f"Unknown algorithm: {algo_type}"}
 
@@ -144,9 +178,18 @@ class PostprocessingRunner(QThread):
             elif self.algo_type == ALGORITHM_ST_NORMAL:
                 prefix = "STN"
                 default_desc = "Pelvis [Soft Tissue Normal]"
-            else:
+            elif self.algo_type == ALGORITHM_ST_HARD:
                 prefix = "STH"
                 default_desc = "Pelvis [Soft Tissue Hard]"
+            elif self.algo_type == ALGORITHM_COMBO_NORMAL:
+                prefix = "MAR_STN"
+                default_desc = "Pelvis [MAR v9 + ST Normal]"
+            elif self.algo_type == ALGORITHM_COMBO_HARD:
+                prefix = "MAR_STH"
+                default_desc = "Pelvis [MAR v9 + ST Hard]"
+            else:
+                prefix = "DERIVED"
+                default_desc = "Pelvis [Postprocessed]"
 
             final_desc = self.series_desc or default_desc
 
