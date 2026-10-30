@@ -1700,7 +1700,10 @@ class DicomViewerPanel(QWidget):
         self.viewer.update()
 
     def toggle_osd(self) -> None:
-        self.viewer.set_osd_visible(not self.viewer.osd_visible)
+        new_visible = not self.viewer.osd_visible
+        self.viewer.set_osd_visible(new_visible)
+        if hasattr(self, "viewer_derived"):
+            self.viewer_derived.set_osd_visible(new_visible)
         self.update_buttons_style()
 
     def toggle_dose_point(self) -> None:
@@ -2134,6 +2137,7 @@ class DicomViewerPanel(QWidget):
         if mode == "side_by_side":
             self.viewer.show()
             self.viewer_derived.show()
+            self.viewer_derived.set_osd_visible(self.viewer.osd_visible)
         else:
             self.viewer.show()
             self.viewer_derived.hide()
