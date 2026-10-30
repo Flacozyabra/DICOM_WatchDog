@@ -2180,18 +2180,19 @@ class DicomViewerPanel(QWidget):
         menu = QMenu(self)
         menu.setStyleSheet("""
             QMenu {
-                background-color: #1E293B;
-                border: 1px solid #334155;
+                background-color: #1E1E22;
+                border: 1px solid #323236;
                 color: #FFFFFF;
                 font-size: 12px;
                 padding: 4px;
+                border-radius: 6px;
             }
             QMenu::item {
                 padding: 6px 20px 6px 10px;
                 border-radius: 4px;
             }
             QMenu::item:selected {
-                background-color: #2563EB;
+                background-color: #1D64F2;
                 color: #FFFFFF;
             }
         """)
@@ -2241,13 +2242,21 @@ class DicomViewerPanel(QWidget):
         apply_dark_title_bar(dlg)
         dlg.setStyleSheet("""
             QDialog {
-                background-color: #0F172A;
+                background-color: #141416;
                 color: #FFFFFF;
-                border: 1px solid #334155;
+                border: 1px solid #27272A;
                 border-radius: 8px;
             }
             QLabel {
-                color: #F8FAFC;
+                color: #F4F4F5;
+            }
+            QFrame#card_mar, QFrame#card_st {
+                background-color: #1E1E22;
+                border: 1px solid #323236;
+                border-radius: 8px;
+            }
+            QFrame#card_mar:hover, QFrame#card_st:hover {
+                border-color: #48484E;
             }
             QCheckBox {
                 color: #FFFFFF;
@@ -2259,31 +2268,31 @@ class DicomViewerPanel(QWidget):
                 width: 18px;
                 height: 18px;
                 border-radius: 4px;
-                border: 1px solid #475569;
-                background-color: #0F172A;
+                border: 1px solid #4B5563;
+                background-color: #141416;
             }
             QCheckBox::indicator:checked {
-                background-color: #2563EB;
-                border-color: #3B82F6;
+                background-color: #1D64F2;
+                border-color: #2563EB;
             }
             QRadioButton {
-                color: #CBD5E1;
+                color: #D1D5DB;
                 font-size: 12px;
                 spacing: 6px;
             }
             QRadioButton:disabled {
-                color: #64748B;
+                color: #52525B;
             }
             QRadioButton::indicator {
                 width: 14px;
                 height: 14px;
                 border-radius: 7px;
-                border: 1px solid #475569;
-                background-color: #0F172A;
+                border: 1px solid #4B5563;
+                background-color: #141416;
             }
             QRadioButton::indicator:checked {
-                background-color: #38BDF8;
-                border-color: #38BDF8;
+                background-color: #1D64F2;
+                border-color: #2563EB;
             }
         """)
 
@@ -2292,21 +2301,21 @@ class DicomViewerPanel(QWidget):
         layout.setSpacing(14)
 
         header_lbl = QLabel(tr_ui("viewer_postprocess_prompt"), dlg)
-        header_lbl.setStyleSheet("font-size: 13px; color: #94A3B8; margin-bottom: 2px;")
+        header_lbl.setStyleSheet("font-size: 13px; color: #9CA3AF; margin-bottom: 2px;")
         header_lbl.setWordWrap(True)
         layout.addWidget(header_lbl)
 
         # Card 1: MAR v9
         card_mar = QFrame(dlg)
-        card_mar.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 8px; }")
+        card_mar.setObjectName("card_mar")
         card_mar_layout = QVBoxLayout(card_mar)
-        card_mar_layout.setContentsMargins(12, 12, 12, 12)
-        card_mar_layout.setSpacing(4)
+        card_mar_layout.setContentsMargins(14, 14, 14, 14)
+        card_mar_layout.setSpacing(6)
 
         cb_mar = QCheckBox(tr_ui("viewer_algo_mar_v9"), card_mar)
         cb_mar.setChecked(True)
         hint_mar = QLabel(tr_ui("viewer_algo_mar_hint"), card_mar)
-        hint_mar.setStyleSheet("color: #94A3B8; font-size: 11px; margin-left: 26px;")
+        hint_mar.setStyleSheet("color: #8E8E93; font-size: 11px; margin-left: 26px; border: none; background: transparent;")
         hint_mar.setWordWrap(True)
         card_mar_layout.addWidget(cb_mar)
         card_mar_layout.addWidget(hint_mar)
@@ -2314,18 +2323,19 @@ class DicomViewerPanel(QWidget):
 
         # Card 2: Soft Tissue Enhancement
         card_st = QFrame(dlg)
-        card_st.setStyleSheet("QFrame { background-color: #1E293B; border: 1px solid #334155; border-radius: 8px; }")
+        card_st.setObjectName("card_st")
         card_st_layout = QVBoxLayout(card_st)
-        card_st_layout.setContentsMargins(12, 12, 12, 12)
+        card_st_layout.setContentsMargins(14, 14, 14, 14)
         card_st_layout.setSpacing(6)
 
         cb_st = QCheckBox(tr_ui("viewer_algo_st_title"), card_st)
         cb_st.setChecked(False)
         hint_st = QLabel(tr_ui("viewer_algo_st_hint"), card_st)
-        hint_st.setStyleSheet("color: #94A3B8; font-size: 11px; margin-left: 26px;")
+        hint_st.setStyleSheet("color: #8E8E93; font-size: 11px; margin-left: 26px; border: none; background: transparent;")
         hint_st.setWordWrap(True)
 
         rb_container = QWidget(card_st)
+        rb_container.setStyleSheet("border: none; background: transparent;")
         rb_layout = QVBoxLayout(rb_container)
         rb_layout.setContentsMargins(26, 4, 0, 0)
         rb_layout.setSpacing(6)
@@ -2347,25 +2357,63 @@ class DicomViewerPanel(QWidget):
         # Bottom buttons
         btn_layout = QHBoxLayout()
         btn_layout.setContentsMargins(0, 8, 0, 0)
+        btn_layout.setSpacing(10)
         btn_layout.addStretch()
 
-        btn_cancel = QPushButton("Отмена", dlg)
-        btn_cancel.setStyleSheet("background-color: transparent; color: #94A3B8; border: 1px solid #334155; border-radius: 6px; padding: 7px 16px; font-size: 12px; font-weight: 600;")
+        btn_cancel = QPushButton(tr_ui("btn_cancel"), dlg)
+        btn_cancel.setStyleSheet("""
+            QPushButton {
+                background-color: #27272A;
+                color: #E4E4E7;
+                border: 1px solid #3F3F46;
+                border-radius: 6px;
+                padding: 7px 18px;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #323236;
+                color: #FFFFFF;
+                border-color: #52525B;
+            }
+        """)
         btn_cancel.clicked.connect(dlg.reject)
 
         btn_run = QPushButton(tr_ui("viewer_postprocess_run_btn"), dlg)
-        btn_run.setStyleSheet("background-color: #2563EB; color: #FFFFFF; border: 1px solid #3B82F6; border-radius: 6px; padding: 7px 18px; font-size: 12px; font-weight: 600;")
-        btn_run.clicked.connect(dlg.accept)
 
         def update_run_btn_state():
             is_valid = cb_mar.isChecked() or cb_st.isChecked()
             btn_run.setEnabled(is_valid)
             btn_run.setStyleSheet(
-                "background-color: #2563EB; color: #FFFFFF; border: 1px solid #3B82F6; border-radius: 6px; padding: 7px 18px; font-size: 12px; font-weight: 600;"
+                """
+                QPushButton {
+                    background-color: #1D64F2;
+                    color: #FFFFFF;
+                    border: 1px solid #2563EB;
+                    border-radius: 6px;
+                    padding: 7px 18px;
+                    font-size: 12px;
+                    font-weight: 600;
+                }
+                QPushButton:hover {
+                    background-color: #1852C4;
+                }
+                """
                 if is_valid else
-                "background-color: #334155; color: #64748B; border: 1px solid #475569; border-radius: 6px; padding: 7px 18px; font-size: 12px; font-weight: 600;"
+                """
+                QPushButton {
+                    background-color: #27272A;
+                    color: #52525B;
+                    border: 1px solid #333338;
+                    border-radius: 6px;
+                    padding: 7px 18px;
+                    font-size: 12px;
+                    font-weight: 600;
+                }
+                """
             )
 
+        btn_run.clicked.connect(dlg.accept)
         cb_mar.toggled.connect(lambda: update_run_btn_state())
         cb_st.toggled.connect(lambda: update_run_btn_state())
         update_run_btn_state()
