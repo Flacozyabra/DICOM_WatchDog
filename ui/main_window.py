@@ -1800,7 +1800,7 @@ class MainWindow(QMainWindow):
         if not ct_dir:
             return
         try:
-            from core.dicom_utils import save_ct_cache
+            from core.dicom_utils import save_ct_cache, load_ct_cache
             from collections import defaultdict
             derived_map = defaultdict(dict)
             for rel_p, d in self.images_cache.items():
@@ -1811,7 +1811,7 @@ class MainWindow(QMainWindow):
                     if pref and cnt > 0:
                         derived_map[fn][pref] = cnt
 
-            cache_data = {}
+            cache_data = load_ct_cache() or {}
             for rel_p, d in self.images_cache.items():
                 if d.get('is_derived') or "[DERIVED" in str(rel_p):
                     continue
@@ -1858,7 +1858,7 @@ class MainWindow(QMainWindow):
         if not archive_dir:
             return
         try:
-            from core.archive import save_cache
+            from core.archive import save_cache, load_cache
             from collections import defaultdict
             derived_map = defaultdict(dict)
             for rel_p, d in self.archive_cache.items():
@@ -1869,7 +1869,7 @@ class MainWindow(QMainWindow):
                     if pref and cnt > 0:
                         derived_map[fn][pref] = cnt
 
-            cache_data = {}
+            cache_data = load_cache() or {}
             for rel_p, d in self.archive_cache.items():
                 if d.get('is_derived') or "[DERIVED" in str(rel_p):
                     continue
