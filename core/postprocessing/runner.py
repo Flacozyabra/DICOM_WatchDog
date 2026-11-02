@@ -49,13 +49,24 @@ def process_slice_task(task_args: tuple) -> tuple[str, bool, dict]:
                     except Exception:
                         pass
 
+        enable_polar = bool(params.get("mar_enable_polar", True))
+        limit_polar_r = bool(params.get("mar_polar_limit_radius", True))
+        protect_fat = bool(params.get("mar_protect_fat", True))
+        enable_starv = bool(params.get("mar_enable_starvation_fill", True))
+        enable_micro = bool(params.get("mar_enable_micro_edge", True))
+
         if algo_type == ALGORITHM_MAR_V9:
             metal_thresh = float(params.get("metal_threshold", 2200.0))
             corr_hu, has_metal, stats = process_slice_mar(
                 img_hu,
                 metal_threshold=metal_thresh,
                 pixel_spacing=pixel_spacing,
-                neighbor_hu=neighbor_hu
+                neighbor_hu=neighbor_hu,
+                enable_polar_filter=enable_polar,
+                polar_radius_limit_pelvis=limit_polar_r,
+                protect_muscle_fat=protect_fat,
+                enable_starvation_fill=enable_starv,
+                enable_micro_edge=enable_micro
             )
             save_derived_dicom_hu(
                 ds=ds,
@@ -99,7 +110,12 @@ def process_slice_task(task_args: tuple) -> tuple[str, bool, dict]:
                 img_hu,
                 metal_threshold=metal_thresh,
                 pixel_spacing=pixel_spacing,
-                neighbor_hu=neighbor_hu
+                neighbor_hu=neighbor_hu,
+                enable_polar_filter=enable_polar,
+                polar_radius_limit_pelvis=limit_polar_r,
+                protect_muscle_fat=protect_fat,
+                enable_starvation_fill=enable_starv,
+                enable_micro_edge=enable_micro
             )
             mode = "normal" if algo_type == ALGORITHM_COMBO_NORMAL else "hard"
             use_z = bool(params.get("use_z_filter", False))

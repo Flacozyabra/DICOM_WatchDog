@@ -27,7 +27,8 @@ def suppress_multicenter_rays(
     pelvic_bone_protect: np.ndarray,
     outside_air_protect: np.ndarray,
     tamponade_air_protect: np.ndarray,
-    max_r: float = 130.0
+    max_r: float = 130.0,
+    protect_muscle_fat: bool = True
 ) -> np.ndarray:
     """
     Suppresses radial white and dark streak artifacts around applicator cylinders in polar space.
@@ -100,6 +101,11 @@ def suppress_multicenter_rays(
             ~tamponade_air_protect &
             ~metal_mask
         )
+        if protect_muscle_fat:
+            # Protect natural intermuscular fat (HU <= -20) beyond central 45 mm zone
+            is_natural_fat = (img_hu <= -20.0) & (cart_r > 45.0)
+            is_dark_ray &= ~is_natural_fat
+
         out_hu[is_dark_ray] -= cart_diff[is_dark_ray] * scale_factor
 
     return out_hu
@@ -159,7 +165,12 @@ def process_slice_mar(
     img_hu: np.ndarray,
     metal_threshold: float = 2200.0,
     pixel_spacing: tuple[float, float] | list[float] = (1.0, 1.0),
-    neighbor_hu: list[np.ndarray] | None = None
+    neighbor_hu: list[np.ndarray] | None = None,
+    enable_polar_filter: bool = True,
+    polar_radius_limit_pelvis: bool = True,
+    protect_muscle_fat: bool = True,
+    enable_starvation_fill: bool = True,
+    enable_micro_edge: bool = True
 ) -> tuple[np.ndarray, bool, dict]:
     """
     Pure 2.5D Directional MAR Pipeline (v9).
@@ -247,7 +258,7 @@ def process_slice_mar(
             tamponade_air_protect |= comp
 
     # Step 1: For multi-tube ovoid slices, fill lateral photon starvation shadow
-    if is_multi_tube_ovoid_slice:
+    if is_multi_tube_ovoid_slice and enable_starvation_fill:
         dilated_metal_1 = scipy.ndimage.binary_dilation(metal_mask, iterations=1)
 
         dark_band_pool = (
@@ -326,15 +337,18 @@ def process_slice_mar(
         corr_hu[between_cylinders] = -500.0
 
     # Step 2: Dual polar ray suppression
-    corr_hu = suppress_multicenter_rays(
-        corr_hu,
-        img_hu,
-        metal_mask,
-        pelvic_bone_protect,
-        outside_air_protect,
-        tamponade_air_protect,
-        max_r=130.0
-    )
+    if enable_polar_filter:
+        eff_max_r = 80.0 if polar_radius_limit_pelvis else 130.0
+        corr_hu = suppress_multicenter_rays(
+            corr_hu,
+            img_hu,
+            metal_mask,
+            pelvic_bone_protect,
+            outside_air_protect,
+            tamponade_air_protect,
+            max_r=eff_max_r,
+            protect_muscle_fat=protect_muscle_fat
+        )
 
     # Step 3: Adaptive local tissue baseline
     valid_soft_tissue = (
@@ -369,19 +383,20 @@ def process_slice_mar(
         corr_hu[flare_zone] -= (excess * weight)[flare_zone]
 
     # Step 5: Micro-edge clamping for 0 - 2.2 mm titanium boundary
-    micro_edge = (
-        (dist_from_metal_mm > 0.0) &
-        (dist_from_metal_mm <= 2.2) &
-        ~metal_mask &
-        ~tamponade_air_protect &
-        ~outside_air_protect &
-        ~pelvic_bone_protect
-    )
-    micro_bright = micro_edge & (corr_hu > local_baseline + 20.0)
-    if np.any(micro_bright):
-        rng = np.random.default_rng(seed=int(metal_pixel_count + 13))
-        noise = rng.normal(0.0, 3.5, size=img_hu.shape).astype(np.float32)
-        corr_hu[micro_bright] = local_baseline[micro_bright] + 5.0 + noise[micro_bright]
+    if enable_micro_edge:
+        micro_edge = (
+            (dist_from_metal_mm > 0.0) &
+            (dist_from_metal_mm <= 2.2) &
+            ~metal_mask &
+            ~tamponade_air_protect &
+            ~outside_air_protect &
+            ~pelvic_bone_protect
+        )
+        micro_bright = micro_edge & (corr_hu > local_baseline + 20.0)
+        if np.any(micro_bright):
+            rng = np.random.default_rng(seed=int(metal_pixel_count + 13))
+            noise = rng.normal(0.0, 3.5, size=img_hu.shape).astype(np.float32)
+            corr_hu[micro_bright] = local_baseline[micro_bright] + 5.0 + noise[micro_bright]
 
     # Restore authentic titanium core, tamponade air, outside air, bone
     corr_hu[metal_mask] = img_hu[metal_mask]

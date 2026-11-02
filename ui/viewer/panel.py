@@ -2128,14 +2128,15 @@ class DicomViewerPanel(QWidget):
 
     def set_view_mode(self, mode: str) -> None:
         if mode in ("side_by_side", "processed") and not self.has_derived:
-            chosen_algo = self.prompt_postprocess_dialog()
-            if not chosen_algo:
+            res = self.prompt_postprocess_dialog()
+            if not res:
                 if hasattr(self, "btn_mode_orig"):
                     self.btn_mode_orig.setChecked(self.view_mode == "original")
                     self.btn_mode_side.setChecked(self.view_mode == "side_by_side")
                     self.btn_mode_proc.setChecked(self.view_mode == "processed")
                 return
-            self.start_postprocessing(chosen_algo, target_view_mode=mode)
+            chosen_algo, params = res
+            self.start_postprocessing(chosen_algo, target_view_mode=mode, params=params)
             return
 
         self.view_mode = mode
@@ -2230,15 +2231,16 @@ class DicomViewerPanel(QWidget):
             self.set_current_slice(self.current_index)
 
     def _on_request_new_postprocessing(self) -> None:
-        chosen_algo = self.prompt_postprocess_dialog()
-        if chosen_algo:
+        res = self.prompt_postprocess_dialog()
+        if res:
+            chosen_algo, params = res
             mode = self.view_mode if self.view_mode in ("side_by_side", "processed") else "processed"
-            self.start_postprocessing(chosen_algo, target_view_mode=mode)
+            self.start_postprocessing(chosen_algo, target_view_mode=mode, params=params)
 
-    def prompt_postprocess_dialog(self) -> str | None:
+    def prompt_postprocess_dialog(self) -> tuple[str, dict] | None:
         dlg = QDialog(self)
         dlg.setWindowTitle(tr_ui("viewer_postprocessing_title"))
-        dlg.setFixedWidth(460)
+        dlg.setFixedWidth(520)
         apply_dark_title_bar(dlg)
         dlg.setStyleSheet("""
             QDialog {
@@ -2264,6 +2266,9 @@ class DicomViewerPanel(QWidget):
                 font-weight: 600;
                 spacing: 8px;
             }
+            QCheckBox:disabled {
+                color: #52525B;
+            }
             QCheckBox::indicator {
                 width: 18px;
                 height: 18px;
@@ -2274,6 +2279,14 @@ class DicomViewerPanel(QWidget):
             QCheckBox::indicator:checked {
                 background-color: #1D64F2;
                 border-color: #2563EB;
+            }
+            QCheckBox::indicator:disabled {
+                border-color: #333338;
+                background-color: #1A1A1E;
+            }
+            QCheckBox::indicator:checked:disabled {
+                background-color: #3F3F46;
+                border-color: #52525B;
             }
             QRadioButton {
                 color: #D1D5DB;
@@ -2327,6 +2340,48 @@ class DicomViewerPanel(QWidget):
         hint_mar.setWordWrap(True)
         card_mar_layout.addWidget(cb_mar)
         card_mar_layout.addWidget(hint_mar)
+
+        # Fine-tuning options container for MAR
+        mar_opts_container = QWidget(card_mar)
+        mar_opts_container.setStyleSheet("border: none; background: transparent;")
+        mar_opts_layout = QVBoxLayout(mar_opts_container)
+        mar_opts_layout.setContentsMargins(26, 4, 0, 0)
+        mar_opts_layout.setSpacing(6)
+
+        cb_mar_polar = QCheckBox(tr_ui("viewer_algo_mar_polar"), mar_opts_container)
+        cb_mar_polar.setChecked(True)
+        cb_mar_polar.setStyleSheet("font-size: 12px; font-weight: normal; color: #D1D5DB;")
+
+        cb_mar_limit_r = QCheckBox(tr_ui("viewer_algo_mar_limit_r"), mar_opts_container)
+        cb_mar_limit_r.setChecked(True)
+        cb_mar_limit_r.setStyleSheet("font-size: 11px; font-weight: normal; color: #9CA3AF; margin-left: 18px;")
+
+        cb_mar_protect_fat = QCheckBox(tr_ui("viewer_algo_mar_protect_fat"), mar_opts_container)
+        cb_mar_protect_fat.setChecked(True)
+        cb_mar_protect_fat.setStyleSheet("font-size: 11px; font-weight: normal; color: #9CA3AF; margin-left: 18px;")
+
+        cb_mar_starv = QCheckBox(tr_ui("viewer_algo_mar_starvation"), mar_opts_container)
+        cb_mar_starv.setChecked(True)
+        cb_mar_starv.setStyleSheet("font-size: 12px; font-weight: normal; color: #D1D5DB;")
+
+        cb_mar_edge = QCheckBox(tr_ui("viewer_algo_mar_edge"), mar_opts_container)
+        cb_mar_edge.setChecked(True)
+        cb_mar_edge.setStyleSheet("font-size: 12px; font-weight: normal; color: #D1D5DB;")
+
+        mar_opts_layout.addWidget(cb_mar_polar)
+        mar_opts_layout.addWidget(cb_mar_limit_r)
+        mar_opts_layout.addWidget(cb_mar_protect_fat)
+        mar_opts_layout.addWidget(cb_mar_starv)
+        mar_opts_layout.addWidget(cb_mar_edge)
+
+        # Control enable states
+        mar_opts_container.setEnabled(cb_mar.isChecked())
+        cb_mar.toggled.connect(mar_opts_container.setEnabled)
+        cb_mar_limit_r.setEnabled(cb_mar_polar.isChecked())
+        cb_mar_protect_fat.setEnabled(cb_mar_polar.isChecked())
+        cb_mar_polar.toggled.connect(lambda on: (cb_mar_limit_r.setEnabled(on), cb_mar_protect_fat.setEnabled(on)))
+
+        card_mar_layout.addWidget(mar_opts_container)
         layout.addWidget(card_mar)
 
         # Card 2: Soft Tissue Enhancement
@@ -2433,16 +2488,25 @@ class DicomViewerPanel(QWidget):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             mar_selected = cb_mar.isChecked()
             st_selected = cb_st.isChecked()
+            mar_params = {
+                "mar_enable_polar": cb_mar_polar.isChecked(),
+                "mar_polar_limit_radius": cb_mar_limit_r.isChecked(),
+                "mar_protect_fat": cb_mar_protect_fat.isChecked(),
+                "mar_enable_starvation_fill": cb_mar_starv.isChecked(),
+                "mar_enable_micro_edge": cb_mar_edge.isChecked(),
+            }
             if mar_selected and st_selected:
-                return ALGORITHM_COMBO_NORMAL if rb_stn.isChecked() else ALGORITHM_COMBO_HARD
+                algo = ALGORITHM_COMBO_NORMAL if rb_stn.isChecked() else ALGORITHM_COMBO_HARD
+                return algo, mar_params
             elif mar_selected:
-                return ALGORITHM_MAR_V9
+                return ALGORITHM_MAR_V9, mar_params
             elif st_selected:
-                return ALGORITHM_ST_NORMAL if rb_stn.isChecked() else ALGORITHM_ST_HARD
+                algo = ALGORITHM_ST_NORMAL if rb_stn.isChecked() else ALGORITHM_ST_HARD
+                return algo, mar_params
 
         return None
 
-    def start_postprocessing(self, algo_type: str, target_view_mode: str = "processed") -> None:
+    def start_postprocessing(self, algo_type: str, target_view_mode: str = "processed", params: dict | None = None) -> None:
         if not self.sorted_files:
             return
 
@@ -2461,7 +2525,8 @@ class DicomViewerPanel(QWidget):
         self.postprocess_runner = PostprocessingRunner(
             slice_paths=slice_paths,
             algo_type=algo_type,
-            output_dir=study_dir
+            output_dir=study_dir,
+            params=params
         )
         self.postprocess_runner.progress_signal.connect(self._on_postprocess_progress)
         self.postprocess_runner.finished_signal.connect(lambda res: self._on_postprocess_finished(res, target_view_mode))
