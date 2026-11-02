@@ -3,6 +3,7 @@ core.postprocessing.dicom_io — DICOM I/O utilities for CT postprocessing.
 """
 from __future__ import annotations
 
+import os
 import re
 import numpy as np
 import pydicom

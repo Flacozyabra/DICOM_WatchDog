@@ -265,6 +265,11 @@ class PostprocessingRunner(QThread):
                     status_text = f"{processed_count} / {total_slices}"
                     self.progress_signal.emit(processed_count, total_slices, status_text)
 
+            if success_count == 0 and errors:
+                first_err = errors[0][1] if len(errors[0]) > 1 else str(errors[0])
+                self.error_signal.emit(f"Failed to process slices: {first_err}")
+                return
+
             result = {
                 "total": total_slices,
                 "success": success_count,

@@ -12,7 +12,8 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
     QPushButton, QComboBox, QSlider, QListWidget, QListWidgetItem,
     QStackedWidget, QButtonGroup, QSizePolicy, QLineEdit,
-    QCheckBox, QRadioButton, QDialog, QDialogButtonBox, QMenu
+    QCheckBox, QRadioButton, QDialog, QDialogButtonBox, QMenu,
+    QMessageBox
 )
 from PyQt6.QtGui import (
     QIcon, QFont, QPixmap, QBrush, QColor, QImage
@@ -2557,6 +2558,19 @@ class DicomViewerPanel(QWidget):
             self.progress_dialog.accept()
             self.progress_dialog = None
 
+        success_count = result.get("success", 0)
+        errors = result.get("errors", [])
+        if success_count == 0 and errors:
+            first_err = errors[0][1] if len(errors[0]) > 1 else str(errors[0])
+            log_error(f"[Postprocessing] Failed to generate series: {first_err}")
+            dlg = QMessageBox(self)
+            dlg.setIcon(QMessageBox.Icon.Warning)
+            dlg.setWindowTitle(tr_ui("viewer_postprocessing_error"))
+            dlg.setText(f"{tr_ui('viewer_postprocessing_error')}:\n{first_err}")
+            apply_dark_title_bar(dlg)
+            dlg.exec()
+            return
+
         output_dir = result.get("output_dir")
         new_uid = result.get("series_uid")
         if output_dir and os.path.exists(output_dir):
@@ -2570,6 +2584,12 @@ class DicomViewerPanel(QWidget):
             self.progress_dialog.reject()
             self.progress_dialog = None
         log_error(f"[Postprocessing] Error: {err_msg}")
+        dlg = QMessageBox(self)
+        dlg.setIcon(QMessageBox.Icon.Warning)
+        dlg.setWindowTitle(tr_ui("viewer_postprocessing_error"))
+        dlg.setText(f"{tr_ui('viewer_postprocessing_error')}:\n{err_msg}")
+        apply_dark_title_bar(dlg)
+        dlg.exec()
 
     def set_current_slice(self, index: int) -> None:
         if index < 0 or index >= len(self.sorted_files):
