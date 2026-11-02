@@ -54,9 +54,19 @@ def is_derived_file(file_path: str) -> bool:
 def read_dicom_hu(file_path: str) -> tuple[pydicom.Dataset, np.ndarray, float, float, list[float]]:
     """
     Reads a DICOM file and converts stored pixel values into Hounsfield Units (HU).
+    Supports force=True and initializes TransferSyntaxUID if missing (e.g. non-part 10 files).
     Returns (ds, img_hu, slope, intercept, pixel_spacing).
     """
-    ds = pydicom.dcmread(file_path)
+    ds = pydicom.dcmread(file_path, force=True)
+
+    if not hasattr(ds, "file_meta") or ds.file_meta is None:
+        ds.file_meta = pydicom.dataset.FileMetaDataset()
+    if not hasattr(ds.file_meta, "TransferSyntaxUID") or not ds.file_meta.TransferSyntaxUID:
+        if getattr(ds, "is_implicit_VR", True):
+            ds.file_meta.TransferSyntaxUID = pydicom.uid.ImplicitVRLittleEndian
+        else:
+            ds.file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+
     slope = float(getattr(ds, "RescaleSlope", 1.0))
     intercept = float(getattr(ds, "RescaleIntercept", 0.0))
     pixel_array = ds.pixel_array.astype(np.float32)
