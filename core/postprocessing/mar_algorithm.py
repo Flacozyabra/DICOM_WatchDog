@@ -231,24 +231,16 @@ def process_slice_mar(
     else:
         alpha_rad, alpha_deg = 0.0, 0.0
 
-    cos_a = np.cos(alpha_rad)
-    sin_a = np.sin(alpha_rad)
-    Y_mm = (dist_y - cy) * dy_mm
-    X_mm = (dist_x - cx) * dx_mm
-    U_mm = X_mm * cos_a + Y_mm * sin_a
-    V_mm = -X_mm * sin_a + Y_mm * cos_a
+    U_mm = ((dist_x - cx) * dx_mm) * np.cos(alpha_rad) + ((dist_y - cy) * dy_mm) * np.sin(alpha_rad)
+    V_mm = -((dist_x - cx) * dx_mm) * np.sin(alpha_rad) + ((dist_y - cy) * dy_mm) * np.cos(alpha_rad)
 
-    u_metal_coords = X_coords * cos_a + Y_coords * sin_a
-    u_metal_max = float(np.max(np.abs(u_metal_coords))) if len(u_metal_coords) > 0 else 10.0
+    # Vaginal cavity / tamponade air detection (strictly bounded between ovoids and around central rod):
+    u_metal_max = float(np.max(np.abs(U_mm[metal_mask]))) if (is_multi_tube_ovoid_slice and np.any(metal_mask)) else 18.0
+    cavity_u_limit = (u_metal_max - 2.5) if is_multi_tube_ovoid_slice else 22.0
 
-    # Tamponade air cavity detection
-    central_air = (
-        (img_hu < -450.0) &
-        (dist_from_center_mm <= 45.0) &
-        ~outside_air_protect
-    )
-    lbl_c_air, n_c_air = scipy.ndimage.label(central_air)
-    tamponade_air_protect = np.zeros_like(central_air, dtype=bool)
+    central_air_raw = (img_hu < -350.0) & (np.abs(U_mm) <= cavity_u_limit) & (dist_from_center_mm <= 26.0) & ~outside_air
+    lbl_c_air, n_c_air = scipy.ndimage.label(central_air_raw)
+    tamponade_air_protect = np.zeros_like(central_air_raw, dtype=bool)
     for aid in range(1, n_c_air + 1):
         comp = (lbl_c_air == aid)
         if np.sum(comp) * pixel_area_mm2 >= 18.0:
