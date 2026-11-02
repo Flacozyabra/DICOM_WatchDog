@@ -2,7 +2,7 @@
 """Custom UI Widgets (Tables, Splitters, Delegates) for DICOM WatchDog."""
 
 try:
-    from PyQt6.QtCore import Qt, QRect, QSize, QPointF, QPoint, pyqtSignal
+    from PyQt6.QtCore import Qt, QRect, QSize, QPointF, QPoint, pyqtSignal, QTimer
     from PyQt6.QtGui import (
         QColor, QPalette, QBrush, QPainter, QLinearGradient, QPen,
         QPainterPath, QMouseEvent, QPolygon, QKeySequence
@@ -13,7 +13,7 @@ try:
         QSplitter, QSplitterHandle
     )
 except ImportError:
-    from PyQt5.QtCore import Qt, QRect, QSize, QPointF, QPoint, pyqtSignal
+    from PyQt5.QtCore import Qt, QRect, QSize, QPointF, QPoint, pyqtSignal, QTimer
     from PyQt5.QtGui import (
         QColor, QPalette, QBrush, QPainter, QLinearGradient, QPen,
         QPainterPath, QMouseEvent, QPolygon, QKeySequence
@@ -44,6 +44,11 @@ class ToggleTableWidget(QTableWidget):
         self.placeholder_widget = None
         self.placeholder_label = None
         self.placeholder_btn = None
+        self._candidate_toggle_row = None
+        self._press_pos = None
+        self._deselect_timer = QTimer(self)
+        self._deselect_timer.setSingleShot(True)
+        self._deselect_timer.timeout.connect(self._on_deselect_timeout)
 
     def set_placeholder_state(self, text, show_button=False, button_callback=None, color=None):
         if not self.placeholder_widget:
@@ -110,15 +115,68 @@ class ToggleTableWidget(QTableWidget):
         if self.placeholder_widget:
             self.placeholder_widget.setGeometry(self.viewport().rect())
 
+    def _cancel_deselect(self) -> None:
+        if hasattr(self, '_deselect_timer') and self._deselect_timer.isActive():
+            self._deselect_timer.stop()
+        self._candidate_toggle_row = None
+        self._press_pos = None
+
+    def _on_deselect_timeout(self) -> None:
+        if self._candidate_toggle_row is not None:
+            self.clearSelection()
+            self.setCurrentIndex(self.model().index(-1, -1))
+        self._candidate_toggle_row = None
+        self._press_pos = None
+
     def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            index = self.indexAt(event.pos())
-            if not index.isValid():
-                self.clearSelection()
-                self.setCurrentIndex(self.model().index(-1, -1))
+        if event.button() != Qt.MouseButton.LeftButton:
+            self._cancel_deselect()
+            super().mousePressEvent(event)
+            return
+
+        ctrl_mod = getattr(Qt.KeyboardModifier, 'ControlModifier', getattr(Qt, 'ControlModifier', 0x04000000))
+        shift_mod = getattr(Qt.KeyboardModifier, 'ShiftModifier', getattr(Qt, 'ShiftModifier', 0x02000000))
+        if bool(event.modifiers() & (ctrl_mod | shift_mod)):
+            self._cancel_deselect()
+            super().mousePressEvent(event)
+            return
+
+        index = self.indexAt(event.pos())
+        if not index.isValid():
+            self._cancel_deselect()
+            self.clearSelection()
+            self.setCurrentIndex(self.model().index(-1, -1))
+            super().mousePressEvent(event)
+            return
+
+        row = index.row()
+        selected_rows = {r for rng in self.selectedRanges() for r in range(rng.topRow(), rng.bottomRow() + 1)}
+
+        if row in selected_rows and len(selected_rows) == 1:
+            self._candidate_toggle_row = row
+            self._press_pos = event.pos()
+        else:
+            self._cancel_deselect()
+
         super().mousePressEvent(event)
 
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        if self._candidate_toggle_row is not None and event.button() == Qt.MouseButton.LeftButton:
+            dist = 0
+            if self._press_pos is not None:
+                dist = (event.pos() - self._press_pos).manhattanLength()
+            if dist < 6:
+                self._deselect_timer.start(500)
+            else:
+                self._cancel_deselect()
+
+    def mouseDoubleClickEvent(self, event):
+        self._cancel_deselect()
+        super().mouseDoubleClickEvent(event)
+
     def keyPressEvent(self, event):
+        self._cancel_deselect()
         ctrl_mod = getattr(Qt.KeyboardModifier, 'ControlModifier', getattr(Qt, 'ControlModifier', 0x04000000))
         key_a = getattr(Qt.Key, 'Key_A', getattr(Qt, 'Key_A', 0x41))
         key_del = getattr(Qt.Key, 'Key_Delete', getattr(Qt, 'Key_Delete', 0x01000007))
