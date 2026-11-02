@@ -656,9 +656,11 @@ class PatientOperationsManager:
         if dlg.exec() != QMessageBox.StandardButton.Yes:
             return
 
+        deleted_count = 0
         for fp in matching_files:
             try:
                 os.remove(fp)
+                deleted_count += 1
             except Exception as e:
                 log_error(f"Failed to delete derived file {fp}: {e}")
 
@@ -668,10 +670,24 @@ class PatientOperationsManager:
             del cache_on_disk[target_dir]
             save_ct_cache(cache_on_disk)
 
+        # Remove the derived key from the in-memory cache immediately
+        if cache and patient_key in cache:
+            cache.pop(patient_key, None)
+
         if is_archive:
-            self.mw.scan_archive_threaded()
+            if hasattr(self.mw, "update_archive_table_ui"):
+                self.mw.update_archive_table_ui()
+            if hasattr(self.mw, "update_tab_badges"):
+                self.mw.update_tab_badges()
+            if hasattr(self.mw, "start_archive_scan"):
+                self.mw.start_archive_scan(force=True)
         else:
-            self.mw.start_scan_threads()
+            if hasattr(self.mw, "update_images_table_ui"):
+                self.mw.update_images_table_ui()
+            if hasattr(self.mw, "update_tab_badges"):
+                self.mw.update_tab_badges()
+            if hasattr(self.mw, "start_folder_scan"):
+                self.mw.start_folder_scan(force=True)
 
     def move_to_archive_cmd(self):
         targets = self.get_selected_targets(self.mw.images_table, self.mw.images_cache, is_archive=False)
