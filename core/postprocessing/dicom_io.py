@@ -3,10 +3,27 @@ core.postprocessing.dicom_io — DICOM I/O utilities for CT postprocessing.
 """
 from __future__ import annotations
 
-import os
+import re
 import numpy as np
 import pydicom
 from pydicom.uid import generate_uid
+
+
+def clean_series_desc(desc: str | None) -> str:
+    """Cleans up legacy prefixes like 'Pelvis [...]' or 'Pelvis ...' from series descriptions."""
+    if not desc:
+        return "Derived CT"
+    s = str(desc).strip()
+    m = re.match(r"^Pelvis\s*\[(.*)\]$", s, flags=re.IGNORECASE)
+    if m:
+        return m.group(1).strip() or "Derived CT"
+    m = re.match(r"^Pelvis\s+(.*)$", s, flags=re.IGNORECASE)
+    if m:
+        return m.group(1).strip() or "Derived CT"
+    if s.lower() == "pelvis":
+        return "Derived CT"
+    return s
+
 
 
 def is_derived_dataset(ds: pydicom.Dataset) -> bool:

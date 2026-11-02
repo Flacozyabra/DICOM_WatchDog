@@ -111,42 +111,18 @@ class ToggleTableWidget(QTableWidget):
             self.placeholder_widget.setGeometry(self.viewport().rect())
 
     def mousePressEvent(self, event):
-        if event.button() != Qt.MouseButton.LeftButton:
-            super().mousePressEvent(event)
-            return
-
-        ctrl_mod = getattr(Qt.KeyboardModifier, 'ControlModifier', getattr(Qt, 'ControlModifier', 0x04000000))
-        shift_mod = getattr(Qt.KeyboardModifier, 'ShiftModifier', getattr(Qt, 'ShiftModifier', 0x02000000))
-        ctrl_or_shift = bool(event.modifiers() & (ctrl_mod | shift_mod))
-        if ctrl_or_shift:
-            super().mousePressEvent(event)
-            return
-
-        index = self.indexAt(event.pos())
-        if not index.isValid():
-            self.clearSelection()
-            super().mousePressEvent(event)
-            return
-
-        row = index.row()
-        selected_rows = {r for rng in self.selectedRanges() for r in range(rng.topRow(), rng.bottomRow() + 1)}
-        if row in selected_rows:
-            if len(selected_rows) == 1:
+        if event.button() == Qt.MouseButton.LeftButton:
+            index = self.indexAt(event.pos())
+            if not index.isValid():
                 self.clearSelection()
                 self.setCurrentIndex(self.model().index(-1, -1))
-                self.setFocus()
-            else:
-                self.clearSelection()
-                self.selectRow(row)
-                self.setCurrentIndex(self.model().index(row, index.column()))
-                self.setFocus()
-        else:
-            super().mousePressEvent(event)
+        super().mousePressEvent(event)
 
     def keyPressEvent(self, event):
         ctrl_mod = getattr(Qt.KeyboardModifier, 'ControlModifier', getattr(Qt, 'ControlModifier', 0x04000000))
         key_a = getattr(Qt.Key, 'Key_A', getattr(Qt, 'Key_A', 0x41))
         key_del = getattr(Qt.Key, 'Key_Delete', getattr(Qt, 'Key_Delete', 0x01000007))
+        key_esc = getattr(Qt.Key, 'Key_Escape', getattr(Qt, 'Key_Escape', 0x01000000))
 
         if event.matches(QKeySequence.StandardKey.SelectAll) or (
             event.key() == key_a and (event.modifiers() & ctrl_mod)
@@ -156,6 +132,11 @@ class ToggleTableWidget(QTableWidget):
             return
         elif event.key() == key_del:
             self.delete_requested.emit()
+            event.accept()
+            return
+        elif event.key() == key_esc:
+            self.clearSelection()
+            self.setCurrentIndex(self.model().index(-1, -1))
             event.accept()
             return
 

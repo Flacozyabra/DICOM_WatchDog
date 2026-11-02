@@ -190,22 +190,22 @@ class PostprocessingRunner(QThread):
             # Choose algorithm prefix and default description
             if self.algo_type == ALGORITHM_MAR_V9:
                 prefix = "MAR"
-                default_desc = "Pelvis [MAR v9]"
+                default_desc = "MAR v9"
             elif self.algo_type == ALGORITHM_ST_NORMAL:
                 prefix = "STN"
-                default_desc = "Pelvis [Soft Tissue Normal]"
+                default_desc = "Soft Tissue Normal"
             elif self.algo_type == ALGORITHM_ST_HARD:
                 prefix = "STH"
-                default_desc = "Pelvis [Soft Tissue Hard]"
+                default_desc = "Soft Tissue Hard"
             elif self.algo_type == ALGORITHM_COMBO_NORMAL:
                 prefix = "MAR_STN"
-                default_desc = "Pelvis [MAR v9 + ST Normal]"
+                default_desc = "MAR v9 + ST Normal"
             elif self.algo_type == ALGORITHM_COMBO_HARD:
                 prefix = "MAR_STH"
-                default_desc = "Pelvis [MAR v9 + ST Hard]"
+                default_desc = "MAR v9 + ST Hard"
             else:
                 prefix = "DERIVED"
-                default_desc = "Pelvis [Postprocessed]"
+                default_desc = "Postprocessed"
 
             final_desc = self.series_desc or default_desc
 

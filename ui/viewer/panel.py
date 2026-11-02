@@ -33,7 +33,7 @@ from .controls import HUVerticalSlider, DRRProgressDialog
 from .canvas import DicomViewerWidget
 from core.postprocessing import (
     PostprocessingRunner, ALGORITHM_MAR_V9, ALGORITHM_ST_HARD, ALGORITHM_ST_NORMAL,
-    ALGORITHM_COMBO_NORMAL, ALGORITHM_COMBO_HARD
+    ALGORITHM_COMBO_NORMAL, ALGORITHM_COMBO_HARD, clean_series_desc
 )
 
 
@@ -2206,7 +2206,7 @@ class DicomViewerPanel(QWidget):
 
         if getattr(self, "all_derived_series", None):
             for uid, s_info in self.all_derived_series.items():
-                desc = s_info.get("desc") or "Derived CT"
+                desc = clean_series_desc(s_info.get("desc") or "Derived CT")
                 is_active = (uid == getattr(self, "current_derived_uid", ""))
                 title = f"✓  {desc}" if is_active else f"    {desc}"
                 act_series = menu.addAction(title)
@@ -2230,7 +2230,7 @@ class DicomViewerPanel(QWidget):
             return
         self.current_derived_uid = uid
         self.derived_files = self.all_derived_series[uid]["files"]
-        self.derived_series_desc = self.all_derived_series[uid]["desc"]
+        self.derived_series_desc = clean_series_desc(self.all_derived_series[uid]["desc"])
         self.has_derived = bool(self.derived_files)
         self.pixmap_cache.clear()
         if self.view_mode in ("side_by_side", "processed") and self.current_index >= 0:

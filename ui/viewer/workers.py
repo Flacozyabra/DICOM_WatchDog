@@ -10,6 +10,7 @@ from PyQt6.QtGui import QImage, QPainterPath, QPolygonF
 
 from core.locale_utils import tr_ui
 from core.dicom_utils import classify_dicom_file
+from core.postprocessing import clean_series_desc
 from .parsers import safe_dcmread, load_rtstruct, load_rtdose, load_rtplan, _convex_hull_2d
 
 
@@ -86,7 +87,7 @@ class PatientSeriesLoaderWorker(QThread):
                     is_derived = any("DERIVED" in str(x).upper() for x in img_type) if isinstance(img_type, (list, tuple)) else "DERIVED" in str(img_type).upper()
                     if is_derived or filename.upper().startswith("DERIVED_"):
                         target_map = derived_series_map
-                        derived_series_descs[series_uid] = str(getattr(ds, "SeriesDescription", ""))
+                        derived_series_descs[series_uid] = clean_series_desc(getattr(ds, "SeriesDescription", ""))
                     else:
                         target_map = orig_series_map
 

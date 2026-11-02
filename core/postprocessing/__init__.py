@@ -14,6 +14,7 @@ from .dicom_io import (
     save_derived_dicom_hu,
     is_derived_dataset,
     is_derived_file,
+    clean_series_desc,
 )
 from .mar_algorithm import process_slice_mar
 from .soft_tissue_algorithm import enhance_soft_tissue_slice_v2
@@ -29,6 +30,7 @@ __all__ = [
     "save_derived_dicom_hu",
     "is_derived_dataset",
     "is_derived_file",
+    "clean_series_desc",
     "process_slice_mar",
     "enhance_soft_tissue_slice_v2",
 ]
