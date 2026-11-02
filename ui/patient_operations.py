@@ -680,14 +680,14 @@ class PatientOperationsManager:
             if hasattr(self.mw, "update_tab_badges"):
                 self.mw.update_tab_badges()
             if hasattr(self.mw, "start_archive_scan"):
-                self.mw.start_archive_scan(force=True)
+                self.mw.start_archive_scan(force=True, clear_table=False)
         else:
             if hasattr(self.mw, "update_images_table_ui"):
                 self.mw.update_images_table_ui()
             if hasattr(self.mw, "update_tab_badges"):
                 self.mw.update_tab_badges()
             if hasattr(self.mw, "start_folder_scan"):
-                self.mw.start_folder_scan(force=True)
+                self.mw.start_folder_scan(force=True, clear_table=False)
 
     def move_to_archive_cmd(self):
         targets = self.get_selected_targets(self.mw.images_table, self.mw.images_cache, is_archive=False)
