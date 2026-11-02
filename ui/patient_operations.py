@@ -674,6 +674,107 @@ class PatientOperationsManager:
         if cache and patient_key in cache:
             cache.pop(patient_key, None)
 
+        # Check if any DERIVED_ files remain in target_dir
+        try:
+            remaining_derived = any(f.upper().startswith("DERIVED_") for f in os.listdir(target_dir))
+        except Exception:
+            remaining_derived = False
+
+        if not remaining_derived and cache:
+            for k, v in cache.items():
+                if v.get('folder_name') == folder_name and not v.get('is_derived'):
+                    v['has_derived'] = False
+                    v['derived_slices'] = 0
+                    v['derived_series'] = {}
+                    break
+
+        if is_archive:
+            if hasattr(self.mw, "update_archive_table_ui"):
+                self.mw.update_archive_table_ui()
+            if hasattr(self.mw, "update_tab_badges"):
+                self.mw.update_tab_badges()
+            if hasattr(self.mw, "start_archive_scan"):
+                self.mw.start_archive_scan(force=True, clear_table=False)
+        else:
+            if hasattr(self.mw, "update_images_table_ui"):
+                self.mw.update_images_table_ui()
+            if hasattr(self.mw, "update_tab_badges"):
+                self.mw.update_tab_badges()
+            if hasattr(self.mw, "start_folder_scan"):
+                self.mw.start_folder_scan(force=True, clear_table=False)
+
+    def delete_all_derived_series_action(self, patient_key: str, is_archive: bool = False) -> None:
+        """
+        Safely deletes ALL derived CT series (DERIVED_*.dcm) for the specified patient.
+        Original CT slices, RTSTRUCT, RTPLAN, RTDOSE and study folder remain 100% intact.
+        """
+        from core.dicom_utils import save_ct_cache, load_ct_cache
+        cache = self.mw.archive_cache if is_archive else self.mw.images_cache
+        dir_key = 'archive_dir' if is_archive else 'ct_images_dir'
+        base_dir = self.mw.config.get(dir_key, '')
+        if not base_dir or not os.path.exists(base_dir):
+            return
+
+        item = cache.get(patient_key, {}) if cache else {}
+        folder_name = item.get('folder_name', '')
+        if not folder_name:
+            folder_name = str(patient_key).split(" [DERIVED")[0]
+
+        target_dir = os.path.normpath(os.path.join(base_dir, folder_name))
+        if not os.path.isdir(target_dir):
+            return
+
+        matching_files = []
+        try:
+            for f in os.listdir(target_dir):
+                fp = os.path.join(target_dir, f)
+                if os.path.isfile(fp) and f.upper().startswith("DERIVED_"):
+                    matching_files.append(fp)
+        except Exception as e:
+            log_error(f"Failed to scan folder for derived files: {e}")
+            return
+
+        if not matching_files:
+            return
+
+        dlg = QMessageBox(self.mw)
+        dlg.setIcon(QMessageBox.Icon.Question)
+        dlg.setWindowTitle(tr_ui("dlg_confirm_delete_all_derived_title"))
+        dlg.setText(tr_ui("dlg_confirm_delete_all_derived_msg", len(matching_files), folder_name))
+        dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        dlg.setDefaultButton(QMessageBox.StandardButton.No)
+        apply_dark_title_bar(dlg)
+
+        if dlg.exec() != QMessageBox.StandardButton.Yes:
+            return
+
+        deleted_count = 0
+        for fp in matching_files:
+            try:
+                os.remove(fp)
+                deleted_count += 1
+            except Exception as e:
+                log_error(f"Failed to delete derived file {fp}: {e}")
+
+        # Invalidate disk cache for target_dir
+        cache_on_disk = load_ct_cache()
+        if target_dir in cache_on_disk:
+            del cache_on_disk[target_dir]
+            save_ct_cache(cache_on_disk)
+
+        # Remove all derived keys for this patient from in-memory cache and reset parent
+        if cache:
+            to_remove = [k for k, v in cache.items() if v.get('folder_name') == folder_name and (v.get('is_derived') or "[DERIVED" in str(k))]
+            for k in to_remove:
+                cache.pop(k, None)
+
+            for k, v in cache.items():
+                if v.get('folder_name') == folder_name and not v.get('is_derived'):
+                    v['has_derived'] = False
+                    v['derived_slices'] = 0
+                    v['derived_series'] = {}
+                    break
+
         if is_archive:
             if hasattr(self.mw, "update_archive_table_ui"):
                 self.mw.update_archive_table_ui()

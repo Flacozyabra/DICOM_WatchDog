@@ -174,8 +174,12 @@ class TableContextMenuManager:
             delete_derived_action = QAction(tr_ui("ctx_delete_derived"), self.mw)
             delete_derived_action.triggered.connect(lambda: self.mw.patient_ops.delete_derived_series_action(patient_id, is_archive=False))
 
+            delete_all_derived_action = QAction(tr_ui("ctx_delete_all_derived"), self.mw)
+            delete_all_derived_action.triggered.connect(lambda: self.mw.patient_ops.delete_all_derived_series_action(patient_id, is_archive=False))
+
             menu.addAction(open_folder_action)
             menu.addAction(delete_derived_action)
+            menu.addAction(delete_all_derived_action)
             menu.exec(self.mw.images_table.viewport().mapToGlobal(pos))
             return
 
@@ -270,8 +274,12 @@ class TableContextMenuManager:
             delete_derived_action = QAction(tr_ui("ctx_delete_derived"), self.mw)
             delete_derived_action.triggered.connect(lambda: self.mw.patient_ops.delete_derived_series_action(patient_id, is_archive=True))
 
+            delete_all_derived_action = QAction(tr_ui("ctx_delete_all_derived"), self.mw)
+            delete_all_derived_action.triggered.connect(lambda: self.mw.patient_ops.delete_all_derived_series_action(patient_id, is_archive=True))
+
             menu.addAction(open_folder_action)
             menu.addAction(delete_derived_action)
+            menu.addAction(delete_all_derived_action)
             menu.exec(self.mw.archive_table.viewport().mapToGlobal(pos))
             return
 

@@ -354,6 +354,9 @@
   "viewer_postprocessing_success": "Post-processing finished successfully!",
   "viewer_postprocessing_error": "Post-processing error",
   "ctx_delete_derived": "Delete processed series...",
+  "ctx_delete_all_derived": "Delete all processed series...",
   "dlg_confirm_delete_derived_title": "Delete Processed Series",
-  "dlg_confirm_delete_derived_msg": "Delete processed series '{0}' ({1} slices) from the study folder?\n\nOriginal CT and structure files will not be affected."
+  "dlg_confirm_delete_derived_msg": "Delete processed series '{0}' ({1} slices) from the study folder?\n\nOriginal CT and structure files will not be affected.",
+  "dlg_confirm_delete_all_derived_title": "Delete All Processed Series",
+  "dlg_confirm_delete_all_derived_msg": "Delete ALL processed series ({0} slices) from study folder '{1}'?\n\nOriginal CT and structure files will not be affected."
 }
