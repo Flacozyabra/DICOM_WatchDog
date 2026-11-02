@@ -49,6 +49,7 @@ class DicomViewerPanel(QWidget):
         self.all_derived_series = {}
         self.current_derived_uid = ""
         self._target_derived_prefix = None
+        self._target_derived_uid = None
         self._is_syncing_zoom_pan = False
         self.has_derived = False
         self.derived_series_desc = ""
@@ -1771,6 +1772,7 @@ class DicomViewerPanel(QWidget):
         self.all_derived_series = {}
         self.current_derived_uid = ""
         self._target_derived_prefix = None
+        self._target_derived_uid = None
         self.has_derived = False
         self.derived_series_desc = ""
         self.view_mode = "original"
@@ -1921,9 +1923,12 @@ class DicomViewerPanel(QWidget):
         self.current_derived_uid = ""
 
         if self.all_derived_series:
+            target_uid = getattr(self, "_target_derived_uid", None)
             target_pref = getattr(self, "_target_derived_prefix", None)
             chosen_uid = None
-            if target_pref:
+            if target_uid and target_uid in self.all_derived_series:
+                chosen_uid = target_uid
+            elif target_pref:
                 for u, s_info in self.all_derived_series.items():
                     files = s_info.get("files", [])
                     if files and any(f"_{target_pref}_" in os.path.basename(f[0]).upper() for f in files):
@@ -1937,6 +1942,7 @@ class DicomViewerPanel(QWidget):
             self.derived_series_desc = self.all_derived_series[chosen_uid]["desc"]
             self.has_derived = bool(self.derived_files)
         self._target_derived_prefix = None
+        self._target_derived_uid = None
 
         # Настройка выпадающего списка PLAN (RTPLAN + привязанный RTDOSE)
         self.cb_plan.blockSignals(True)
@@ -2552,9 +2558,11 @@ class DicomViewerPanel(QWidget):
             self.progress_dialog = None
 
         output_dir = result.get("output_dir")
+        new_uid = result.get("series_uid")
         if output_dir and os.path.exists(output_dir):
             all_files = [os.path.join(output_dir, f) for f in os.listdir(output_dir) if os.path.isfile(os.path.join(output_dir, f))]
             self._target_view_mode_after_load = target_view_mode
+            self._target_derived_uid = new_uid
             self.load_series(all_files)
 
     def _on_postprocess_error(self, err_msg: str) -> None:
