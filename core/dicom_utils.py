@@ -291,7 +291,8 @@ def load_ct_cache_as_patient_dict(ct_images_dir, scan_rtd=False, scan_rtp=False)
                 'slices': int(cached_item.get('slices', 0)),
                 'folder_name': rel_path,
                 'has_derived': has_derived,
-                'derived_slices': derived_slices
+                'derived_slices': derived_slices,
+                'derived_series': dict(cached_item.get('derived_series') or {})
             }
             der_series_map = cached_item.get('derived_series')
             if der_series_map and isinstance(der_series_map, dict):
@@ -370,7 +371,7 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
         # Проверка актуальности кэша по mtime
         if cache is not None:
             cached_item = cache.get(root)
-            if cached_item and cached_item.get('mtime') == mtime:
+            if cached_item and cached_item.get('mtime') == mtime and 'derived_series' in cached_item:
                 s_dt = cached_item.get('study_datetime')
                 if isinstance(s_dt, str):
                     try:
@@ -432,7 +433,8 @@ def collect_patient_studies(patient_dir, ct_images_dir, output_field=None, clean
                     'slices': int(cached_item.get('slices', 0)),
                     'folder_name': rel_path,
                     'has_derived': has_derived,
-                    'derived_slices': derived_slices
+                    'derived_slices': derived_slices,
+                    'derived_series': dict(cached_item.get('derived_series') or {})
                 }
                 der_series_map = cached_item.get('derived_series')
                 if der_series_map and isinstance(der_series_map, dict):

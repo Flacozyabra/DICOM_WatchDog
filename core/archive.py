@@ -8,7 +8,10 @@ from collections import defaultdict
 from core.logger import log_message
 from core.config_utils import get_cache_path
 from core.locale_utils import tr_log
-from core.dicom_utils import is_structure_file, is_dose_file, is_plan_file, is_dicom_file
+from core.dicom_utils import (
+    is_structure_file, is_dose_file, is_plan_file, is_dicom_file,
+    classify_dicom_file, parse_derived_prefix, DERIVED_PREFIX_TITLES
+)
 
 
 def _json_serialize_default(obj):
@@ -81,6 +84,9 @@ def load_archive_cache_as_patient_dict(archive_dir, scan_rtd=False, scan_rtp=Fal
             rtd_val = int(cached_item.get('rtd', 0)) if (scan_rtd and cached_item.get('rtd_scanned')) else 0
             rtp_val = int(cached_item.get('rtp', 0)) if (scan_rtp and cached_item.get('rtp_scanned')) else 0
 
+            has_derived = cached_item.get('has_derived', False)
+            derived_slices = int(cached_item.get('derived_slices', 0))
+            der_series_map = cached_item.get('derived_series')
             patient_data[rel_path] = {
                 'patient_id': str(cached_item.get('patient_id', os.path.basename(root))),
                 'patient_name': str(cached_item.get('patient_name', os.path.basename(root))),
@@ -92,8 +98,51 @@ def load_archive_cache_as_patient_dict(archive_dir, scan_rtd=False, scan_rtp=Fal
                 'rtd': rtd_val,
                 'rtp': rtp_val,
                 'slices': int(cached_item.get('slices', 0)),
-                'folder_name': rel_path
+                'folder_name': rel_path,
+                'has_derived': has_derived,
+                'derived_slices': derived_slices,
+                'derived_series': dict(der_series_map or {})
             }
+            if der_series_map and isinstance(der_series_map, dict):
+                for pref, count in der_series_map.items():
+                    if count <= 0:
+                        continue
+                    algo_title = DERIVED_PREFIX_TITLES.get(pref, "Postprocessed")
+                    patient_data[f"{rel_path} [DERIVED_{pref}]"] = {
+                        'patient_id': patient_data[rel_path]['patient_id'],
+                        'patient_name': patient_data[rel_path]['patient_name'],
+                        'derived_name': f"  ↳ [Derived] {algo_title}",
+                        'derived_title': algo_title,
+                        'derived_prefix': pref,
+                        'modality': f"[D] {algo_title}",
+                        'study_datetime': s_dt,
+                        'body_part': f"{patient_data[rel_path]['body_part']} (Derived)",
+                        'folder_datetime': f_dt,
+                        'str': int(cached_item.get('str', 0)),
+                        'rtd': rtd_val,
+                        'rtp': rtp_val,
+                        'slices': count,
+                        'folder_name': rel_path,
+                        'is_derived': True
+                    }
+            elif has_derived and derived_slices > 0:
+                patient_data[f"{rel_path} [DERIVED]"] = {
+                    'patient_id': patient_data[rel_path]['patient_id'],
+                    'patient_name': patient_data[rel_path]['patient_name'],
+                    'derived_name': "  ↳ [Derived] Postprocessed",
+                    'derived_title': "Postprocessed",
+                    'derived_prefix': "DERIVED",
+                    'modality': f"[D] {patient_data[rel_path]['modality']}",
+                    'study_datetime': s_dt,
+                    'body_part': f"{patient_data[rel_path]['body_part']} (Derived)",
+                    'folder_datetime': f_dt,
+                    'str': int(cached_item.get('str', 0)),
+                    'rtd': rtd_val,
+                    'rtp': rtp_val,
+                    'slices': derived_slices,
+                    'folder_name': rel_path,
+                    'is_derived': True
+                }
         except Exception:
             continue
     return patient_data
@@ -147,7 +196,7 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                     mtime = 0.0
                 
                 cached_item = cache.get(root)
-                if cached_item and cached_item.get('mtime') == mtime:
+                if cached_item and cached_item.get('mtime') == mtime and 'derived_series' in cached_item:
                     p_id = cached_item['patient_id']
                     
                     if scan_rtd:
@@ -170,19 +219,84 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                     else:
                         rtp_val = 0
 
+                    der_series_map = cached_item.get('derived_series')
+                    has_derived = cached_item.get('has_derived', False)
+                    derived_slices = int(cached_item.get('derived_slices', 0))
+
+                    s_dt = cached_item.get('study_datetime')
+                    if isinstance(s_dt, str):
+                        try:
+                            s_dt = datetime.fromisoformat(s_dt)
+                        except Exception:
+                            s_dt = datetime.fromtimestamp(mtime)
+                    elif not isinstance(s_dt, datetime):
+                        s_dt = datetime.fromtimestamp(mtime)
+
+                    f_dt = cached_item.get('folder_datetime')
+                    if isinstance(f_dt, str):
+                        try:
+                            f_dt = datetime.fromisoformat(f_dt)
+                        except Exception:
+                            f_dt = s_dt
+                    elif not isinstance(f_dt, datetime):
+                        f_dt = s_dt
+
                     patient_data[rel_path] = {
                         'patient_id': p_id,
                         'patient_name': cached_item['patient_name'],
                         'modality': cached_item.get('modality', 'CT'),
-                        'study_datetime': datetime.fromisoformat(cached_item['study_datetime']),
+                        'study_datetime': s_dt,
                         'body_part': cached_item['body_part'],
-                        'folder_datetime': datetime.fromisoformat(cached_item['folder_datetime']),
+                        'folder_datetime': f_dt,
                         'str': cached_item['str'],
                         'rtd': rtd_val,
                         'rtp': rtp_val,
-                        'slices': cached_item.get('slices', len([f for f in dcm_files if not is_structure_file(os.path.join(root, f)) and not is_dose_file(os.path.join(root, f)) and not is_plan_file(os.path.join(root, f))])),
-                        'folder_name': rel_path
+                        'slices': int(cached_item.get('slices', 0)),
+                        'folder_name': rel_path,
+                        'has_derived': has_derived,
+                        'derived_slices': derived_slices,
+                        'derived_series': dict(der_series_map or {})
                     }
+                    if der_series_map and isinstance(der_series_map, dict):
+                        for pref, count in der_series_map.items():
+                            if count <= 0:
+                                continue
+                            algo_title = DERIVED_PREFIX_TITLES.get(pref, "Postprocessed")
+                            patient_data[f"{rel_path} [DERIVED_{pref}]"] = {
+                                'patient_id': patient_data[rel_path]['patient_id'],
+                                'patient_name': patient_data[rel_path]['patient_name'],
+                                'derived_name': f"  ↳ [Derived] {algo_title}",
+                                'derived_title': algo_title,
+                                'derived_prefix': pref,
+                                'modality': f"[D] {algo_title}",
+                                'study_datetime': s_dt,
+                                'body_part': f"{patient_data[rel_path]['body_part']} (Derived)",
+                                'folder_datetime': f_dt,
+                                'str': cached_item['str'],
+                                'rtd': rtd_val,
+                                'rtp': rtp_val,
+                                'slices': count,
+                                'folder_name': rel_path,
+                                'is_derived': True
+                            }
+                    elif has_derived and derived_slices > 0:
+                        patient_data[f"{rel_path} [DERIVED]"] = {
+                            'patient_id': patient_data[rel_path]['patient_id'],
+                            'patient_name': patient_data[rel_path]['patient_name'],
+                            'derived_name': "  ↳ [Derived] Postprocessed",
+                            'derived_title': "Postprocessed",
+                            'derived_prefix': "DERIVED",
+                            'modality': f"[D] {patient_data[rel_path]['modality']}",
+                            'study_datetime': s_dt,
+                            'body_part': f"{patient_data[rel_path]['body_part']} (Derived)",
+                            'folder_datetime': f_dt,
+                            'str': cached_item['str'],
+                            'rtd': rtd_val,
+                            'rtp': rtp_val,
+                            'slices': derived_slices,
+                            'folder_name': rel_path,
+                            'is_derived': True
+                        }
                     if count_callback:
                         count_callback(len(patient_data))
                     
@@ -252,13 +366,23 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                         rtd_count = len([f for f in os.listdir(root) if is_dose_file(os.path.join(root, f))]) if scan_rtd else 0
                         rtp_count = len([f for f in os.listdir(root) if is_plan_file(os.path.join(root, f))]) if scan_rtp else 0
 
-                        slice_files = [
-                            f for f in dcm_files
-                            if not is_structure_file(os.path.join(root, f))
-                            and not is_dose_file(os.path.join(root, f))
-                            and not is_plan_file(os.path.join(root, f))
-                        ]
-                        slices_cnt = len(slice_files)
+                        orig_ct_files = []
+                        derived_groups = defaultdict(list)
+                        for f in dcm_files:
+                            fp = os.path.join(root, f)
+                            t = classify_dicom_file(f, fp)
+                            if t in ('IGNORE', 'REG', 'FID', 'KO', 'PR', 'SR', 'RAW', 'RTSTRUCT', 'RTDOSE', 'RTPLAN'):
+                                continue
+                            if t.startswith('DERIVED_'):
+                                pref, _ = parse_derived_prefix(f)
+                                derived_groups[pref or 'DERIVED'].append(fp)
+                            else:
+                                orig_ct_files.append(fp)
+
+                        has_der = bool(derived_groups)
+                        der_slices_total = sum(len(fl) for fl in derived_groups.values())
+                        der_series_map = {pref: len(fl) for pref, fl in derived_groups.items()}
+                        slices_cnt = len(orig_ct_files) if orig_ct_files else der_slices_total
 
                         patient_data[rel_path] = {
                             'patient_id': str(p_id),
@@ -271,8 +395,32 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                             'rtd': rtd_count,
                             'rtp': rtp_count,
                             'slices': slices_cnt,
-                            'folder_name': rel_path
+                            'folder_name': rel_path,
+                            'has_derived': has_der,
+                            'derived_slices': der_slices_total,
+                            'derived_series': der_series_map
                         }
+                        if has_der and orig_ct_files:
+                            for pref, flist in derived_groups.items():
+                                algo_title = DERIVED_PREFIX_TITLES.get(pref, "Postprocessed")
+                                patient_data[f"{rel_path} [DERIVED_{pref}]"] = {
+                                    'patient_id': patient_data[rel_path]['patient_id'],
+                                    'patient_name': patient_data[rel_path]['patient_name'],
+                                    'derived_name': f"  ↳ [Derived] {algo_title}",
+                                    'derived_title': algo_title,
+                                    'derived_prefix': pref,
+                                    'modality': f"[D] {algo_title}",
+                                    'study_datetime': patient_data[rel_path]['study_datetime'],
+                                    'body_part': f"{patient_data[rel_path]['body_part']} (Derived)",
+                                    'folder_datetime': patient_data[rel_path]['folder_datetime'],
+                                    'str': str_count,
+                                    'rtd': rtd_count,
+                                    'rtp': rtp_count,
+                                    'slices': len(flist),
+                                    'folder_name': rel_path,
+                                    'is_derived': True
+                                }
+
                         if count_callback:
                             count_callback(len(patient_data))
                         
@@ -290,7 +438,10 @@ def archive_dict_create(archive_dir, output_field=None, cleanup_structures=False
                             'rtd_scanned': scan_rtd or prev_entry.get('rtd_scanned', False),
                             'rtp': rtp_count if scan_rtp else prev_entry.get('rtp', 0),
                             'rtp_scanned': scan_rtp or prev_entry.get('rtp_scanned', False),
-                            'slices': slices_cnt
+                            'slices': slices_cnt,
+                            'has_derived': has_der,
+                            'derived_slices': der_slices_total,
+                            'derived_series': der_series_map
                         }
                     except Exception as e:
                         if output_field:

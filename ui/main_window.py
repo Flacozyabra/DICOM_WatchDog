@@ -1801,14 +1801,36 @@ class MainWindow(QMainWindow):
             return
         try:
             from core.dicom_utils import save_ct_cache
+            from collections import defaultdict
+            derived_map = defaultdict(dict)
+            for rel_p, d in self.images_cache.items():
+                if d.get('is_derived') or "[DERIVED" in str(rel_p):
+                    fn = d.get('folder_name', str(rel_p).split(" [DERIVED")[0])
+                    pref = d.get('derived_prefix', 'DERIVED')
+                    cnt = int(d.get('slices', 0))
+                    if pref and cnt > 0:
+                        derived_map[fn][pref] = cnt
+
             cache_data = {}
             for rel_p, d in self.images_cache.items():
+                if d.get('is_derived') or "[DERIVED" in str(rel_p):
+                    continue
                 full_p = os.path.normpath(os.path.join(ct_dir, rel_p))
                 if os.path.exists(full_p):
                     try:
                         mtime = os.path.getmtime(full_p)
                     except Exception:
                         mtime = 0.0
+
+                    der_series = dict(d.get('derived_series') or {})
+                    if rel_p in derived_map:
+                        der_series.update(derived_map[rel_p])
+
+                    has_der = bool(d.get('has_derived', False) or der_series)
+                    der_slices = int(d.get('derived_slices', 0))
+                    if not der_slices and der_series:
+                        der_slices = sum(der_series.values())
+
                     cache_data[full_p] = {
                         'patient_id': d.get('patient_id', ''),
                         'patient_name': d.get('patient_name', ''),
@@ -1820,6 +1842,9 @@ class MainWindow(QMainWindow):
                         'rtd': d.get('rtd', 0),
                         'rtp': d.get('rtp', 0),
                         'slices': d.get('slices', 0),
+                        'has_derived': has_der,
+                        'derived_slices': der_slices,
+                        'derived_series': der_series,
                         'mtime': mtime
                     }
             save_ct_cache(cache_data)
@@ -1834,14 +1859,36 @@ class MainWindow(QMainWindow):
             return
         try:
             from core.archive import save_cache
+            from collections import defaultdict
+            derived_map = defaultdict(dict)
+            for rel_p, d in self.archive_cache.items():
+                if d.get('is_derived') or "[DERIVED" in str(rel_p):
+                    fn = d.get('folder_name', str(rel_p).split(" [DERIVED")[0])
+                    pref = d.get('derived_prefix', 'DERIVED')
+                    cnt = int(d.get('slices', 0))
+                    if pref and cnt > 0:
+                        derived_map[fn][pref] = cnt
+
             cache_data = {}
             for rel_p, d in self.archive_cache.items():
+                if d.get('is_derived') or "[DERIVED" in str(rel_p):
+                    continue
                 full_p = os.path.normpath(os.path.join(archive_dir, rel_p))
                 if os.path.exists(full_p):
                     try:
                         mtime = os.path.getmtime(full_p)
                     except Exception:
                         mtime = 0.0
+
+                    der_series = dict(d.get('derived_series') or {})
+                    if rel_p in derived_map:
+                        der_series.update(derived_map[rel_p])
+
+                    has_der = bool(d.get('has_derived', False) or der_series)
+                    der_slices = int(d.get('derived_slices', 0))
+                    if not der_slices and der_series:
+                        der_slices = sum(der_series.values())
+
                     cache_data[full_p] = {
                         'patient_id': d.get('patient_id', ''),
                         'patient_name': d.get('patient_name', ''),
@@ -1853,6 +1900,9 @@ class MainWindow(QMainWindow):
                         'rtd': d.get('rtd', 0),
                         'rtp': d.get('rtp', 0),
                         'slices': d.get('slices', 0),
+                        'has_derived': has_der,
+                        'derived_slices': der_slices,
+                        'derived_series': der_series,
                         'mtime': mtime
                     }
             save_cache(cache_data)
