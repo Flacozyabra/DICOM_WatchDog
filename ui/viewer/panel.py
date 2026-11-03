@@ -55,6 +55,7 @@ class DicomViewerPanel(QWidget):
         self.has_derived = False
         self.derived_series_desc = ""
         self.view_mode = "original"
+        self.postprocessing_enabled = str(getattr(self.parent_app, 'config', {}).get('image_postprocessing_enabled', 'False')).lower() == 'true'
         self.postprocess_runner = None
         self._target_view_mode_after_load = None
         self.struct_files = []
@@ -334,6 +335,7 @@ class DicomViewerPanel(QWidget):
             mode_layout.addWidget(b)
 
         mode_layout.addStretch()
+        self.mode_container.setVisible(self.postprocessing_enabled)
         right_layout.addWidget(self.mode_container)
 
         # Горизонтальный слайдер срезов снизу
@@ -2036,7 +2038,9 @@ class DicomViewerPanel(QWidget):
 
         target_mode = getattr(self, "_target_view_mode_after_load", None)
         self._target_view_mode_after_load = None
-        if target_mode and (self.has_derived or target_mode == "original"):
+        if not getattr(self, "postprocessing_enabled", True):
+            self.set_view_mode("original")
+        elif target_mode and (self.has_derived or target_mode == "original"):
             self.set_view_mode(target_mode)
         else:
             self.set_view_mode("original")
@@ -2132,6 +2136,13 @@ class DicomViewerPanel(QWidget):
             self.pixmap_cache[cache_key] = (pixmap, ds)
             return pixmap, ds
         return None, ds
+
+    def set_postprocessing_enabled(self, enabled: bool) -> None:
+        self.postprocessing_enabled = bool(enabled)
+        if hasattr(self, "mode_container"):
+            self.mode_container.setVisible(self.postprocessing_enabled)
+        if not self.postprocessing_enabled and getattr(self, "view_mode", "original") != "original":
+            self.set_view_mode("original")
 
     def set_view_mode(self, mode: str) -> None:
         if mode in ("side_by_side", "processed") and not self.has_derived:

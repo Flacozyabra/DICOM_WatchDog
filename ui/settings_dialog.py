@@ -31,6 +31,7 @@ from ui.settings_tabs.ui_tab import build_ui_tab, retranslate_ui_tab
 from ui.settings_tabs.notifications_tab import build_notifications_tab, retranslate_notifications_tab
 from ui.settings_tabs.pacs_tab import build_pacs_tab, retranslate_pacs_tab, PacsPingWorker
 from ui.settings_tabs.plan_analysis_tab import build_plan_analysis_tab, retranslate_plan_analysis_tab
+from ui.settings_tabs.postprocessing_tab import build_postprocessing_tab, retranslate_postprocessing_tab
 
 
 class SettingsDialog(QDialog):
@@ -99,6 +100,7 @@ class SettingsDialog(QDialog):
             'plan_warn_dose_rate': 75,
             'plan_warn_mu_per_deg': 0.200,
             'plan_warn_modulation_factor': 8.0,
+            'image_postprocessing_enabled': 'False',
             'interface_lang': 'en',
             'log_lang': 'en'
         }
@@ -248,6 +250,10 @@ class SettingsDialog(QDialog):
         # 6. Вкладка Plan Analysis
         plan_analysis_widget = build_plan_analysis_tab(self)
         self.stacked_widget.addWidget(plan_analysis_widget)
+
+        # 7. Вкладка Image Postprocessing
+        postproc_widget = build_postprocessing_tab(self)
+        self.stacked_widget.addWidget(postproc_widget)
 
         # Инициализация списка серверов
         self.populate_server_combo()
@@ -497,6 +503,8 @@ class SettingsDialog(QDialog):
         self.plan_warn_dose_rate_spin.valueChanged.connect(self.on_setting_changed)
         self.plan_warn_mu_per_deg_spin.valueChanged.connect(self.on_setting_changed)
         self.plan_warn_modulation_factor_spin.valueChanged.connect(self.on_setting_changed)
+        if hasattr(self, 'postprocessing_buttons_cb'):
+            self.postprocessing_buttons_cb.toggled.connect(self.on_setting_changed)
 
     def on_highlighting_toggled(self, checked):
         self.highlight_new_cb.blockSignals(True)
@@ -573,6 +581,8 @@ class SettingsDialog(QDialog):
         self.config['plan_warn_dose_rate'] = self.plan_warn_dose_rate_spin.value()
         self.config['plan_warn_mu_per_deg'] = self.plan_warn_mu_per_deg_spin.value()
         self.config['plan_warn_modulation_factor'] = self.plan_warn_modulation_factor_spin.value()
+        if hasattr(self, 'postprocessing_buttons_cb'):
+            self.config['image_postprocessing_enabled'] = 'True' if self.postprocessing_buttons_cb.isChecked() else 'False'
         self.config['archive_enabled'] = 'True' if self.archive_enabled_cb.isChecked() else 'False'
         self.config['archive_days'] = self.archive_days_spin.value()
         self.config['archive_cleanup_enabled'] = 'True' if self.archive_cleanup_enabled_cb.isChecked() else 'False'
@@ -724,13 +734,18 @@ Copy-VoiceTokens $src $dst32
         if plan_tab_title == "settings_tab_plan_analysis":
             plan_tab_title = "Анализ плана" if is_ru else "Plan Analysis"
 
+        postproc_tab_title = tr_ui("settings_tab_postprocessing")
+        if postproc_tab_title == "settings_tab_postprocessing":
+            postproc_tab_title = "Постобработка изображений" if is_ru else "Image Postprocessing"
+
         self.sidebar.addItems([
             tr_ui("settings_tab_general"),
             tr_ui("settings_tab_archive"),
             tr_ui("settings_tab_ui"),
             tr_ui("settings_tab_notifications"),
             tr_ui("settings_tab_pacs"),
-            plan_tab_title
+            plan_tab_title,
+            postproc_tab_title
         ])
         if current_row >= 0:
             self.sidebar.setCurrentRow(current_row)
@@ -748,6 +763,7 @@ Copy-VoiceTokens $src $dst32
         retranslate_notifications_tab(self)
         retranslate_pacs_tab(self)
         retranslate_plan_analysis_tab(self)
+        retranslate_postprocessing_tab(self)
         
         # Standard buttons Save/Cancel
         save_btn = self.button_box.button(QDialogButtonBox.StandardButton.Save)

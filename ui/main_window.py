@@ -451,7 +451,12 @@ class MainWindow(QMainWindow):
         # Обновляем локализацию интерфейса
         self.retranslate_ui()
         
-        # 4. Обновляем путь наблюдателя, если он изменился
+        # 4. Обновляем видимость кнопок постобработки во вьюере
+        postproc_on = str(self.config.get('image_postprocessing_enabled', 'False')).lower() == 'true'
+        if hasattr(self, 'viewer_panel') and self.viewer_panel:
+            self.viewer_panel.set_postprocessing_enabled(postproc_on)
+        
+        # 5. Обновляем путь наблюдателя, если он изменился
         if old_dir != new_dir:
             self.is_first_scan = True
             self.net_retry_count = 0
@@ -1776,8 +1781,10 @@ class MainWindow(QMainWindow):
                 log_message(self.output_field, tr_log("log_patient_folder_empty", patient_id))
                 return
 
+            postproc_on = str(self.config.get('image_postprocessing_enabled', 'False')).lower() == 'true'
+            self.viewer_panel.set_postprocessing_enabled(postproc_on)
             cache_item = cache.get(patient_id, {}) if cache else {}
-            if cache_item.get('is_derived') or "[DERIVED" in str(patient_id):
+            if postproc_on and (cache_item.get('is_derived') or "[DERIVED" in str(patient_id)):
                 self.viewer_panel._target_view_mode_after_load = "processed"
                 self.viewer_panel._target_derived_prefix = cache_item.get('derived_prefix')
 

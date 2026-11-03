@@ -358,5 +358,8 @@
   "dlg_confirm_delete_derived_title": "Delete Processed Series",
   "dlg_confirm_delete_derived_msg": "Delete processed series '{0}' ({1} slices) from the study folder?\n\nOriginal CT and structure files will not be affected.",
   "dlg_confirm_delete_all_derived_title": "Delete All Processed Series",
-  "dlg_confirm_delete_all_derived_msg": "Delete ALL processed series ({0} slices) from study folder '{1}'?\n\nOriginal CT and structure files will not be affected."
+  "dlg_confirm_delete_all_derived_msg": "Delete ALL processed series ({0} slices) from study folder '{1}'?\n\nOriginal CT and structure files will not be affected.",
+  "settings_tab_postprocessing": "Image Postprocessing",
+  "settings_postprocessing_buttons": "Viewer postprocessing buttons:",
+  "tooltip_postprocessing_buttons": "Show mode switch buttons (Original / Split / Processed) in the CT viewer"
 }
