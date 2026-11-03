@@ -2341,7 +2341,7 @@ class DicomViewerPanel(QWidget):
         card_mar_layout.setSpacing(6)
 
         cb_mar = QCheckBox(tr_ui("viewer_algo_mar_v9"), card_mar)
-        cb_mar.setChecked(True)
+        cb_mar.setChecked(False)
         hint_mar = QLabel(tr_ui("viewer_algo_mar_hint"), card_mar)
         hint_mar.setStyleSheet("color: #8E8E93; font-size: 11px; margin-left: 26px; border: none; background: transparent;")
         hint_mar.setWordWrap(True)
@@ -2411,8 +2411,8 @@ class DicomViewerPanel(QWidget):
         rb_layout.setSpacing(6)
 
         rb_stn = QRadioButton(tr_ui("viewer_algo_st_normal"), rb_container)
-        rb_stn.setChecked(True)
         rb_sth = QRadioButton(tr_ui("viewer_algo_st_hard"), rb_container)
+        rb_sth.setChecked(True)
         rb_layout.addWidget(rb_stn)
         rb_layout.addWidget(rb_sth)
 
