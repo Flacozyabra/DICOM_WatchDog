@@ -347,7 +347,7 @@
   "viewer_algo_st_title": "Soft Tissue Contrast Enhancement",
   "viewer_algo_st_hint": "Enhances organ boundaries and fascial spaces",
   "viewer_algo_st_hard": "Hard — Maximum contrast",
-  "viewer_algo_st_normal": "Normal — Balanced contrast recommended for pelvis",
+  "viewer_algo_st_normal": "Normal — Balanced contrast",
   "viewer_new_postprocessing": "New postprocessing...",
   "viewer_postprocess_run_btn": "Start Processing",
   "viewer_postprocessing_running": "Running CT post-processing...",

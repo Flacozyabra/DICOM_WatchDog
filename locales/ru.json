@@ -347,7 +347,7 @@
   "viewer_algo_st_title": "Контрастирование мягких тканей",
   "viewer_algo_st_hint": "Улучшение видимости контуров органов и фасциальных границ",
   "viewer_algo_st_hard": "Hard — максимальный контраст",
-  "viewer_algo_st_normal": "Normal — сбалансированный контраст для малого таза",
+  "viewer_algo_st_normal": "Normal — сбалансированный контраст",
   "viewer_new_postprocessing": "Новый постпроцессинг...",
   "viewer_postprocess_run_btn": "Начать обработку",
   "viewer_postprocessing_running": "Выполняется постпроцессинг КТ...",
