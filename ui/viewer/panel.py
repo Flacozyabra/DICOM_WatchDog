@@ -21,7 +21,7 @@ from PyQt6.QtGui import (
 
 from ui.toggle_switch import ToggleSwitch
 from ui.settings_tabs.settings_utils import apply_dark_title_bar
-from core.config_utils import get_resource_path
+from core.config_utils import get_resource_path, get_temp_dir
 from core.locale_utils import tr_ui
 from core.logger import log_error
 
@@ -56,6 +56,7 @@ class DicomViewerPanel(QWidget):
         self.derived_series_desc = ""
         self.view_mode = "original"
         self.postprocessing_enabled = str(getattr(self.parent_app, 'config', {}).get('image_postprocessing_enabled', 'False')).lower() == 'true'
+        self._temp_derived_dirs = []
         self.postprocess_runner = None
         self._target_view_mode_after_load = None
         self.struct_files = []
@@ -1740,7 +1741,18 @@ class DicomViewerPanel(QWidget):
             self.edit_rx_dose.clearFocus()
         super().mousePressEvent(event)
 
+    def _cleanup_temp_derived(self) -> None:
+        import shutil
+        while getattr(self, "_temp_derived_dirs", []):
+            d = self._temp_derived_dirs.pop()
+            if os.path.exists(d):
+                try:
+                    shutil.rmtree(d, ignore_errors=True)
+                except Exception:
+                    pass
+
     def clear_panel(self) -> None:
+        self._cleanup_temp_derived()
         if self.loader_worker is not None and self.loader_worker.isRunning():
             self.loader_worker.cancel() if hasattr(self.loader_worker, "cancel") else None
             self.loader_worker.quit()
@@ -2435,6 +2447,25 @@ class DicomViewerPanel(QWidget):
         card_st_layout.addWidget(rb_container)
         layout.addWidget(card_st)
 
+        # Option: Save series to disk
+        save_disk_container = QWidget(dlg)
+        save_disk_container.setStyleSheet("border: none; background: transparent;")
+        save_disk_layout = QVBoxLayout(save_disk_container)
+        save_disk_layout.setContentsMargins(4, 6, 4, 0)
+        save_disk_layout.setSpacing(2)
+
+        cb_save_disk = QCheckBox(tr_ui("viewer_algo_save_disk"), save_disk_container)
+        cb_save_disk.setChecked(False)
+        cb_save_disk.setStyleSheet("font-size: 12px; font-weight: 500; color: #E4E4E7;")
+
+        hint_save_disk = QLabel(tr_ui("viewer_algo_save_disk_hint"), save_disk_container)
+        hint_save_disk.setStyleSheet("color: #8E8E93; font-size: 11px; margin-left: 24px; border: none; background: transparent;")
+        hint_save_disk.setWordWrap(True)
+
+        save_disk_layout.addWidget(cb_save_disk)
+        save_disk_layout.addWidget(hint_save_disk)
+        layout.addWidget(save_disk_container)
+
         # Bottom buttons
         btn_layout = QHBoxLayout()
         btn_layout.setContentsMargins(0, 8, 0, 0)
@@ -2512,6 +2543,7 @@ class DicomViewerPanel(QWidget):
                 "mar_protect_fat": cb_mar_protect_fat.isChecked(),
                 "mar_enable_starvation_fill": cb_mar_starv.isChecked(),
                 "mar_enable_micro_edge": cb_mar_edge.isChecked(),
+                "save_to_disk": cb_save_disk.isChecked(),
             }
             if mar_selected and st_selected:
                 algo = ALGORITHM_COMBO_NORMAL if rb_stn.isChecked() else ALGORITHM_COMBO_HARD
@@ -2530,6 +2562,15 @@ class DicomViewerPanel(QWidget):
 
         slice_paths = [f for f, frame in self.sorted_files]
         study_dir = os.path.dirname(slice_paths[0])
+        save_to_disk = bool(params.get("save_to_disk", False)) if params else False
+        if save_to_disk:
+            effective_output_dir = study_dir
+        else:
+            from uuid import uuid4
+            temp_dir = os.path.join(get_temp_dir(), f"dwd_derived_{uuid4().hex[:8]}")
+            os.makedirs(temp_dir, exist_ok=True)
+            self._temp_derived_dirs.append(temp_dir)
+            effective_output_dir = temp_dir
 
         from ui.loading_dialog import LoadingProgressDialog
         self.progress_dialog = LoadingProgressDialog(
@@ -2543,7 +2584,7 @@ class DicomViewerPanel(QWidget):
         self.postprocess_runner = PostprocessingRunner(
             slice_paths=slice_paths,
             algo_type=algo_type,
-            output_dir=study_dir,
+            output_dir=effective_output_dir,
             params=params
         )
         self.postprocess_runner.progress_signal.connect(self._on_postprocess_progress)
@@ -2585,7 +2626,13 @@ class DicomViewerPanel(QWidget):
         output_dir = result.get("output_dir")
         new_uid = result.get("series_uid")
         if output_dir and os.path.exists(output_dir):
-            all_files = [os.path.join(output_dir, f) for f in os.listdir(output_dir) if os.path.isfile(os.path.join(output_dir, f))]
+            study_dir = os.path.dirname(self.sorted_files[0][0]) if self.sorted_files else ""
+            if output_dir == study_dir:
+                all_files = [os.path.join(output_dir, f) for f in os.listdir(output_dir) if os.path.isfile(os.path.join(output_dir, f))]
+            else:
+                orig_files = [f for f, frame in self.sorted_files]
+                temp_files = [os.path.join(output_dir, f) for f in os.listdir(output_dir) if os.path.isfile(os.path.join(output_dir, f))]
+                all_files = orig_files + temp_files
             self._target_view_mode_after_load = target_view_mode
             self._target_derived_uid = new_uid
             self.load_series(all_files)

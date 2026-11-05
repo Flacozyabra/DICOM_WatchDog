@@ -23,6 +23,26 @@ def get_logs_dir():
     os.makedirs(logs_dir, exist_ok=True)
     return logs_dir
 
+def get_temp_dir():
+    temp_dir = os.path.normpath(os.path.join(get_app_data_dir(), "temp"))
+    os.makedirs(temp_dir, exist_ok=True)
+    return temp_dir
+
+def cleanup_temp_dir():
+    """Безопасно удаляет остаточные временные папки производных серий dwd_derived_*."""
+    try:
+        temp_dir = os.path.normpath(os.path.join(get_app_data_dir(), "temp"))
+        if os.path.exists(temp_dir):
+            for item in os.listdir(temp_dir):
+                item_path = os.path.join(temp_dir, item)
+                if os.path.isdir(item_path) and item.startswith("dwd_derived_"):
+                    try:
+                        shutil.rmtree(item_path, ignore_errors=True)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
 def get_resource_path(relative_path):
     rel_clean = os.path.normpath(relative_path)
     

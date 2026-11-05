@@ -18,7 +18,7 @@ from core.archive import move_old_folders_to_archive
 from core.notifier import show_notification
 from core.logger import log_message
 from core.pacs import pacs_dict_create, download_patient_from_pacs, start_background_pacs_server
-from core.config_utils import get_resource_path, VERSION
+from core.config_utils import get_resource_path, cleanup_temp_dir, VERSION
 from core.locale_utils import tr_ui, tr_log, set_current_langs
 from ui.settings_dialog import SettingsDialog, apply_dark_title_bar
 from ui.toggle_switch import ToggleSwitch
@@ -137,6 +137,12 @@ class MainWindow(QMainWindow):
         
         self.init_ui()
         self.apply_theme()
+        
+        # Очистка остаточных временных файлов с прошлых сессий
+        try:
+            cleanup_temp_dir()
+        except Exception:
+            pass
         
         # Инициализация фоновых операций и анимаций
         self.active_file_operations = {}
@@ -1970,6 +1976,12 @@ class MainWindow(QMainWindow):
         try:
             from core.pacs import _global_dicom_server
             _global_dicom_server.stop()
+        except Exception:
+            pass
+
+        # Очистка временных папок сессий вьюера
+        try:
+            cleanup_temp_dir()
         except Exception:
             pass
 

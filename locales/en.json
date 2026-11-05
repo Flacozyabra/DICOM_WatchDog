@@ -361,5 +361,7 @@
   "dlg_confirm_delete_all_derived_msg": "Delete ALL processed series ({0} slices) from study folder '{1}'?\n\nOriginal CT and structure files will not be affected.",
   "settings_tab_postprocessing": "Image Postprocessing",
   "settings_postprocessing_buttons": "Viewer postprocessing buttons:",
-  "tooltip_postprocessing_buttons": "Show mode switch buttons (Original / Split / Processed) in the CT viewer"
+  "tooltip_postprocessing_buttons": "Show mode switch buttons (Original / Split / Processed) in the CT viewer",
+  "viewer_algo_save_disk": "Save series to disk",
+  "viewer_algo_save_disk_hint": "When disabled, series is temporary and discarded upon closing the viewer"
 }
