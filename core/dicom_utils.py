@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import os
 import shutil
 import time
 import json
 from datetime import datetime, date
 from collections import defaultdict
+from typing import Tuple
 import pydicom
 
 from core.logger import log_message
@@ -216,7 +219,7 @@ DERIVED_PREFIX_TITLES = {
 }
 
 
-def parse_derived_prefix(filename: str) -> tuple[str, str]:
+def parse_derived_prefix(filename: str) -> Tuple[str, str]:
     """
     Parses prefix and display title from a derived DICOM filename.
     Returns (prefix, display_title).
