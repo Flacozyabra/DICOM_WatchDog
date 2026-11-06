@@ -10,7 +10,7 @@ from PyQt6.QtGui import QImage, QPainterPath, QPolygonF
 
 from core.locale_utils import tr_ui
 from core.dicom_utils import classify_dicom_file
-from core.postprocessing import clean_series_desc
+from core.postprocessing.dicom_io import clean_series_desc
 from .parsers import safe_dcmread, load_rtstruct, load_rtdose, load_rtplan, _convex_hull_2d
 
 

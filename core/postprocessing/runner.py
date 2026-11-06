@@ -10,8 +10,6 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from pydicom.uid import generate_uid
 
 from .dicom_io import read_dicom_hu, save_derived_dicom_hu
-from .mar_algorithm import process_slice_mar
-from .soft_tissue_algorithm import enhance_soft_tissue_slice_v2
 
 
 ALGORITHM_MAR_V9 = "mar_v9"
@@ -56,6 +54,7 @@ def process_slice_task(task_args: tuple) -> tuple[str, bool, dict]:
         enable_micro = bool(params.get("mar_enable_micro_edge", True))
 
         if algo_type == ALGORITHM_MAR_V9:
+            from .mar_algorithm import process_slice_mar
             metal_thresh = float(params.get("metal_threshold", 2200.0))
             corr_hu, has_metal, stats = process_slice_mar(
                 img_hu,
@@ -80,6 +79,7 @@ def process_slice_task(task_args: tuple) -> tuple[str, bool, dict]:
             return in_path, True, {"has_metal": has_metal, "stats": stats}
 
         elif algo_type in (ALGORITHM_ST_HARD, ALGORITHM_ST_NORMAL):
+            from .soft_tissue_algorithm import enhance_soft_tissue_slice_v2
             mode = "normal" if algo_type == ALGORITHM_ST_NORMAL else "hard"
             use_z = bool(params.get("use_z_filter", False))
             win_c = 40
@@ -105,6 +105,8 @@ def process_slice_task(task_args: tuple) -> tuple[str, bool, dict]:
             return in_path, True, {"mode": mode}
 
         elif algo_type in (ALGORITHM_COMBO_NORMAL, ALGORITHM_COMBO_HARD):
+            from .mar_algorithm import process_slice_mar
+            from .soft_tissue_algorithm import enhance_soft_tissue_slice_v2
             metal_thresh = float(params.get("metal_threshold", 2200.0))
             corr_mar, has_metal, stats = process_slice_mar(
                 img_hu,

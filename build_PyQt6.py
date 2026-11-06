@@ -158,6 +158,8 @@ def build_executable(has_icon):
         args.append("--hidden-import=pynetdicom")
 
     args.append("--hidden-import=unicodedata")
+    args.append("--hidden-import=scipy")
+    args.append("--hidden-import=scipy.ndimage")
 
     # Исключаем PyQt5, чтобы минимизировать размер и предотвратить конфликты
     excludes = [

@@ -16,8 +16,14 @@ from .dicom_io import (
     is_derived_file,
     clean_series_desc,
 )
-from .mar_algorithm import process_slice_mar
-from .soft_tissue_algorithm import enhance_soft_tissue_slice_v2
+def __getattr__(name: str):
+    if name == "process_slice_mar":
+        from .mar_algorithm import process_slice_mar
+        return process_slice_mar
+    if name == "enhance_soft_tissue_slice_v2":
+        from .soft_tissue_algorithm import enhance_soft_tissue_slice_v2
+        return enhance_soft_tissue_slice_v2
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "PostprocessingRunner",

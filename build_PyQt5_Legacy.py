@@ -147,7 +147,8 @@ def check_and_install_dependencies():
         ("watchdog", "watchdog"),
         ("pydicom", "pydicom"),
         ("pynetdicom", "pynetdicom"),
-        ("numpy", "numpy")
+        ("numpy", "numpy"),
+        ("scipy", "scipy")
     ]
     for mod_name, pkg_spec in runtime_deps:
         try:
@@ -233,6 +234,8 @@ def build_executable(has_icon):
         args.append("--hidden-import=pynetdicom")
 
     args.append("--hidden-import=unicodedata")
+    args.append("--hidden-import=scipy")
+    args.append("--hidden-import=scipy.ndimage")
 
     # Exclude PyQt6 — this is a PyQt5-only build
     for m in ["PyQt6", "PyQt6.QtCore", "PyQt6.QtGui", "PyQt6.QtWidgets"]:
