@@ -1,11 +1,12 @@
 """
-core.postprocessing.runner — Multiprocess execution worker for CT postprocessing.
+core.postprocessing.runner — Multithreaded execution worker for CT postprocessing.
 """
 from __future__ import annotations
 
 import os
+import sys
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from PyQt6.QtCore import QThread, pyqtSignal
 from pydicom.uid import generate_uid
 
@@ -244,12 +245,15 @@ class PostprocessingRunner(QThread):
 
             self.progress_signal.emit(0, total_slices, f"0 / {total_slices}")
 
-            with ProcessPoolExecutor(max_workers=workers) as executor:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
                 futures = {executor.submit(process_slice_task, t): t[0] for t in tasks}
 
                 for future in as_completed(futures):
                     if self._is_cancelled:
-                        executor.shutdown(wait=False, cancel_futures=True)
+                        try:
+                            executor.shutdown(wait=False, cancel_futures=True)
+                        except TypeError:
+                            executor.shutdown(wait=False)
                         self.error_signal.emit("Processing cancelled by user.")
                         return
 

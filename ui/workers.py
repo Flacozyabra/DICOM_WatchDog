@@ -283,7 +283,10 @@ class FolderScanWorker(QThread):
                 future_map = {executor.submit(process_single, p): p for p in patient_folders}
                 for future in as_completed(future_map):
                     if self.isInterruptionRequested():
-                        executor.shutdown(wait=False, cancel_futures=True)
+                        try:
+                            executor.shutdown(wait=False, cancel_futures=True)
+                        except TypeError:
+                            executor.shutdown(wait=False)
                         return
                     completed_count += 1
                     self.progress.emit(completed_count, total_folders)
