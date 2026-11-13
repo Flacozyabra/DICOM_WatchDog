@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import numpy as np
+import scipy.ndimage
 
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QPointF, QRectF, QThread, QEvent
 from PyQt6.QtWidgets import (
@@ -216,6 +217,8 @@ class MprSliceWidget(QWidget):
         self.zoom_factor = 1.0
         self.pan_offset = QPointF(0, 0)
         self.rotation_angle = 0.0
+        self.rot_matrix = np.eye(3, dtype=np.float64)
+        self._float_cur = [0.0, 0.0, 0.0]
 
         self.current_pixmap = None
         self._target_rect = QRectF()
@@ -238,6 +241,18 @@ class MprSliceWidget(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setStyleSheet("background-color: #000000; border: none;")
 
+    def set_rotation_matrix(self, rot_matrix: np.ndarray, angle: float) -> None:
+        self.rot_matrix = rot_matrix
+        norm_angle = angle % 360.0
+        if norm_angle > 180.0:
+            norm_angle -= 360.0
+        elif norm_angle < -180.0:
+            norm_angle += 360.0
+        if abs(norm_angle) < 0.05:
+            norm_angle = 0.0
+        self.rotation_angle = norm_angle
+        self.refresh_slice()
+
     def set_rotation(self, angle: float) -> None:
         norm_angle = angle % 360.0
         if norm_angle > 180.0:
@@ -246,9 +261,9 @@ class MprSliceWidget(QWidget):
             norm_angle += 360.0
         if abs(norm_angle) < 0.05:
             norm_angle = 0.0
-        if self.rotation_angle != norm_angle:
+        if abs(self.rotation_angle - norm_angle) > 1e-4:
             self.rotation_angle = norm_angle
-            self.update()
+            self.rotation_changed.emit(self.plane_type, self.rotation_angle)
 
     def event(self, event: QEvent) -> bool:
         event_type = event.type()
@@ -330,22 +345,36 @@ class MprSliceWidget(QWidget):
         self.cur_x = cur_x
         self.cur_y = cur_y
         self.cur_z = cur_z
+        if not getattr(self, "_is_panning", False):
+            self._float_cur = [float(cur_x), float(cur_y), float(cur_z)]
+        self.rot_matrix = np.eye(3, dtype=np.float64)
         self.window_width = window_width
         self.window_center = window_center
         self.refresh_slice()
 
     def set_cursor(self, cur_x: int, cur_y: int, cur_z: int) -> None:
         need_slice_refresh = False
-        if self.plane_type == PLANE_AXIAL and cur_z != self.cur_z:
-            need_slice_refresh = True
-        elif self.plane_type == PLANE_CORONAL and cur_y != self.cur_y:
-            need_slice_refresh = True
-        elif self.plane_type == PLANE_SAGITTAL and cur_x != self.cur_x:
-            need_slice_refresh = True
+        is_oblique = (
+            hasattr(self, "rot_matrix")
+            and self.rot_matrix is not None
+            and not np.allclose(self.rot_matrix, np.eye(3), atol=1e-3)
+        )
+        if is_oblique:
+            if self.cur_x != cur_x or self.cur_y != cur_y or self.cur_z != cur_z:
+                need_slice_refresh = True
+        else:
+            if self.plane_type == PLANE_AXIAL and cur_z != self.cur_z:
+                need_slice_refresh = True
+            elif self.plane_type == PLANE_CORONAL and cur_y != self.cur_y:
+                need_slice_refresh = True
+            elif self.plane_type == PLANE_SAGITTAL and cur_x != self.cur_x:
+                need_slice_refresh = True
 
         self.cur_x = cur_x
         self.cur_y = cur_y
         self.cur_z = cur_z
+        if not getattr(self, "_is_panning", False):
+            self._float_cur = [float(cur_x), float(cur_y), float(cur_z)]
 
         if need_slice_refresh:
             self.refresh_slice()
@@ -366,6 +395,48 @@ class MprSliceWidget(QWidget):
         self.pan_offset = QPointF(pan)
         self.update()
 
+    def _extract_oblique_slice(self) -> np.ndarray:
+        n_z, rows, cols = self.vol.shape
+        dy, dx, dz = self.spacing
+        cx_mm = float(self.cur_x * dx)
+        cy_mm = float(self.cur_y * dy)
+        cz_mm = float(self.cur_z * dz)
+
+        R = getattr(self, "rot_matrix", np.eye(3, dtype=np.float64))
+        ex = R[:, 0]
+        ey = R[:, 1]
+        ez = R[:, 2]
+
+        if self.plane_type == PLANE_AXIAL:
+            u_vec = ex
+            v_vec = ey
+            h, w = rows, cols
+            u_vals = (np.arange(w, dtype=np.float32) - float(self.cur_x)) * float(dx)
+            v_vals = (np.arange(h, dtype=np.float32) - float(self.cur_y)) * float(dy)
+        elif self.plane_type == PLANE_CORONAL:
+            u_vec = ex
+            v_vec = -ez
+            h, w = n_z, cols
+            u_vals = (np.arange(w, dtype=np.float32) - float(self.cur_x)) * float(dx)
+            v_vals = (((n_z - 1.0) - np.arange(h, dtype=np.float32)) - float(self.cur_z)) * float(dz)
+        else:  # PLANE_SAGITTAL
+            u_vec = ey
+            v_vec = -ez
+            h, w = n_z, rows
+            u_vals = (np.arange(w, dtype=np.float32) - float(self.cur_y)) * float(dy)
+            v_vals = (((n_z - 1.0) - np.arange(h, dtype=np.float32)) - float(self.cur_z)) * float(dz)
+
+        uu, vv = np.meshgrid(u_vals, v_vals)
+        px = cx_mm + uu * u_vec[0] + vv * v_vec[0]
+        py = cy_mm + uu * u_vec[1] + vv * v_vec[1]
+        pz = cz_mm + uu * u_vec[2] + vv * v_vec[2]
+
+        coords = np.array([pz / dz, py / dy, px / dx], dtype=np.float32)
+        slice_hu = scipy.ndimage.map_coordinates(
+            self.vol, coords, order=1, mode="constant", cval=-1000.0
+        )
+        return slice_hu
+
     def refresh_slice(self) -> None:
         if self.vol is None:
             self.current_pixmap = None
@@ -378,17 +449,22 @@ class MprSliceWidget(QWidget):
         self.cur_x = max(0, min(cols - 1, self.cur_x))
 
         try:
-            if self.plane_type == PLANE_AXIAL:
-                # XY slice at z: shape (rows, cols)
-                slice_hu = self.vol[self.cur_z, :, :]
-            elif self.plane_type == PLANE_CORONAL:
-                # XZ slice at y: head is superior (vol[::-1, y, :])
-                slice_hu = self.vol[::-1, self.cur_y, :]
-            elif self.plane_type == PLANE_SAGITTAL:
-                # YZ slice at x: head is superior, anterior is left (vol[::-1, :, x])
-                slice_hu = self.vol[::-1, :, self.cur_x]
+            is_identity = (
+                not hasattr(self, "rot_matrix")
+                or self.rot_matrix is None
+                or np.allclose(self.rot_matrix, np.eye(3), atol=1e-3)
+            )
+            if is_identity:
+                if self.plane_type == PLANE_AXIAL:
+                    slice_hu = self.vol[self.cur_z, :, :]
+                elif self.plane_type == PLANE_CORONAL:
+                    slice_hu = self.vol[::-1, self.cur_y, :]
+                elif self.plane_type == PLANE_SAGITTAL:
+                    slice_hu = self.vol[::-1, :, self.cur_x]
+                else:
+                    return
             else:
-                return
+                slice_hu = self._extract_oblique_slice()
 
             ww = max(1.0, float(self.window_width))
             wc = float(self.window_center)
@@ -463,41 +539,43 @@ class MprSliceWidget(QWidget):
         pen_vert.setWidth(1)
         pen_vert.setStyle(PEN_DASH)
 
+        if getattr(self, "_is_panning", False) and hasattr(self, "_float_cur") and self._float_cur is not None:
+            fx_val = float(self._float_cur[0])
+            fy_val = float(self._float_cur[1])
+            fz_val = float(self._float_cur[2])
+        else:
+            fx_val = float(self.cur_x)
+            fy_val = float(self.cur_y)
+            fz_val = float(self.cur_z)
+
         if self.plane_type == PLANE_AXIAL:
             pen_horiz.setColor(COLOR_CORONAL)
             pen_vert.setColor(COLOR_SAGITTAL)
-            cx_img = self.cur_x / max(1, cols)
-            cy_img = self.cur_y / max(1, rows)
+            cx_img = fx_val / max(1.0, float(cols - 1))
+            cy_img = fy_val / max(1.0, float(rows - 1))
             cx_px = draw_x + cx_img * draw_w
             cy_px = draw_y + cy_img * draw_h
 
         elif self.plane_type == PLANE_CORONAL:
             pen_horiz.setColor(COLOR_AXIAL)
             pen_vert.setColor(COLOR_SAGITTAL)
-            cx_img = self.cur_x / max(1, cols)
-            cy_img = ((n_z - 1) - self.cur_z) / max(1, n_z)
+            cx_img = fx_val / max(1.0, float(cols - 1))
+            cy_img = ((n_z - 1.0) - fz_val) / max(1.0, float(n_z - 1))
             cx_px = draw_x + cx_img * draw_w
             cy_px = draw_y + cy_img * draw_h
 
         else: # PLANE_SAGITTAL
             pen_horiz.setColor(COLOR_AXIAL)
             pen_vert.setColor(COLOR_CORONAL)
-            cx_img = self.cur_y / max(1, rows)
-            cy_img = ((n_z - 1) - self.cur_z) / max(1, n_z)
+            cx_img = fy_val / max(1.0, float(rows - 1))
+            cy_img = ((n_z - 1.0) - fz_val) / max(1.0, float(n_z - 1))
             cx_px = draw_x + cx_img * draw_w
             cy_px = draw_y + cy_img * draw_h
 
         self._last_pivot = QPointF(cx_px, cy_px)
 
-        # Render rotated CT slice around crosshair intersection pivot
-        painter.save()
-        if abs(self.rotation_angle) > 1e-4:
-            painter.translate(self._last_pivot)
-            painter.rotate(self.rotation_angle)
-            painter.translate(-self._last_pivot)
-
+        # Render CT slice (already reconstructed in 3D along rotated plane)
         painter.drawPixmap(self._target_rect.toRect(), self.current_pixmap)
-        painter.restore()
 
         # Draw cross lines across the FULL viewport continuously (no gap)
         painter.setPen(pen_horiz)
@@ -677,31 +755,27 @@ class MprSliceWidget(QWidget):
                 n_z, rows, cols = self.vol.shape
                 draw_w = self._target_rect.width()
                 draw_h = self._target_rect.height()
-                new_draw_x = self._target_rect.left() + dx_pan
-                new_draw_y = self._target_rect.top() + dy_pan
-                self._target_rect.moveTo(new_draw_x, new_draw_y)
 
-                cx_screen = self._last_pivot.x() if hasattr(self, "_last_pivot") and not self._last_pivot.isNull() else (self.width() / 2.0)
-                cy_screen = self._last_pivot.y() if hasattr(self, "_last_pivot") and not self._last_pivot.isNull() else (self.height() / 2.0)
-
-                fx = (cx_screen - new_draw_x) / max(1.0, draw_w)
-                fy = (cy_screen - new_draw_y) / max(1.0, draw_h)
-                fx = max(0.0, min(1.0, fx))
-                fy = max(0.0, min(1.0, fy))
-
-                new_x = self.cur_x
-                new_y = self.cur_y
-                new_z = self.cur_z
+                if not hasattr(self, "_float_cur") or self._float_cur is None:
+                    self._float_cur = [float(self.cur_x), float(self.cur_y), float(self.cur_z)]
 
                 if self.plane_type == PLANE_AXIAL:
-                    new_x = int(round(fx * (cols - 1)))
-                    new_y = int(round(fy * (rows - 1)))
+                    self._float_cur[0] -= dx_pan * (cols - 1) / max(1.0, draw_w)
+                    self._float_cur[1] -= dy_pan * (rows - 1) / max(1.0, draw_h)
                 elif self.plane_type == PLANE_CORONAL:
-                    new_x = int(round(fx * (cols - 1)))
-                    new_z = int(round((1.0 - fy) * (n_z - 1)))
+                    self._float_cur[0] -= dx_pan * (cols - 1) / max(1.0, draw_w)
+                    self._float_cur[2] += dy_pan * (n_z - 1) / max(1.0, draw_h)
                 else:  # PLANE_SAGITTAL
-                    new_y = int(round(fx * (rows - 1)))
-                    new_z = int(round((1.0 - fy) * (n_z - 1)))
+                    self._float_cur[1] -= dx_pan * (rows - 1) / max(1.0, draw_w)
+                    self._float_cur[2] += dy_pan * (n_z - 1) / max(1.0, draw_h)
+
+                self._float_cur[0] = max(0.0, min(float(cols - 1), self._float_cur[0]))
+                self._float_cur[1] = max(0.0, min(float(rows - 1), self._float_cur[1]))
+                self._float_cur[2] = max(0.0, min(float(n_z - 1), self._float_cur[2]))
+
+                new_x = int(round(self._float_cur[0]))
+                new_y = int(round(self._float_cur[1]))
+                new_z = int(round(self._float_cur[2]))
 
                 self.set_cursor(new_x, new_y, new_z)
                 self.cursor_moved.emit(new_x, new_y, new_z)
@@ -730,6 +804,7 @@ class MprSliceWidget(QWidget):
         elif event.button() in (BTN_MIDDLE, BTN_RIGHT):
             self._is_panning = False
             self._pan_start = None
+            self._float_cur = [float(self.cur_x), float(self.cur_y), float(self.cur_z)]
             if getattr(self, "_is_rotating", False):
                 self._is_rotating = False
                 self.setCursor(CURSOR_CROSS)
@@ -889,9 +964,19 @@ class MprPanelWidget(QWidget):
         self.window_center = 40.0
         self.zoom_factor = 1.0
         self.pan_offset = QPointF(0, 0)
+        self.rot_x = 0.0
+        self.rot_y = 0.0
+        self.rot_z = 0.0
         self._maximized_plane = None
 
         self._setup_ui()
+
+    def _compute_rotation_matrix(self) -> np.ndarray:
+        rx, ry, rz = np.radians([self.rot_x, self.rot_y, self.rot_z])
+        Rx = np.array([[1, 0, 0], [0, np.cos(rx), -np.sin(rx)], [0, np.sin(rx), np.cos(rx)]], dtype=np.float64)
+        Ry = np.array([[np.cos(ry), 0, np.sin(ry)], [0, 1, 0], [-np.sin(ry), 0, np.cos(ry)]], dtype=np.float64)
+        Rz = np.array([[np.cos(rz), -np.sin(rz), 0], [np.sin(rz), np.cos(rz), 0], [0, 0, 1]], dtype=np.float64)
+        return Rz @ Ry @ Rx
 
     def _setup_ui(self) -> None:
         self.setStyleSheet("background-color: #000000;")
@@ -943,6 +1028,10 @@ class MprPanelWidget(QWidget):
         self.window_center = window_center
         self.zoom_factor = 1.0
         self.pan_offset = QPointF(0, 0)
+        self.rot_x = 0.0
+        self.rot_y = 0.0
+        self.rot_z = 0.0
+        R = np.eye(3, dtype=np.float64)
 
         n_z, rows, cols = vol.shape
         self.cur_x = cols // 2
@@ -952,7 +1041,7 @@ class MprPanelWidget(QWidget):
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
             v.set_zoom(1.0)
             v.set_pan(QPointF(0, 0))
-            v.set_rotation(0.0)
+            v.set_rotation_matrix(R, 0.0)
             v.set_volume_data(
                 vol=self.vol,
                 ipp0=self.ipp0,
@@ -998,17 +1087,34 @@ class MprPanelWidget(QWidget):
                 v.set_pan(pan)
 
     def set_plane_rotation(self, plane_type: str, angle: float) -> None:
-        for p, v in [
-            (PLANE_AXIAL, self.view_axial),
-            (PLANE_CORONAL, self.view_coronal),
-            (PLANE_SAGITTAL, self.view_sagittal),
-        ]:
-            if p == plane_type:
-                v.set_rotation(angle)
+        if plane_type == "all":
+            self.reset_rotation()
+            return
+        if plane_type == PLANE_AXIAL:
+            self.rot_z = angle
+        elif plane_type == PLANE_CORONAL:
+            self.rot_y = angle
+        elif plane_type == PLANE_SAGITTAL:
+            self.rot_x = angle
+
+        R = self._compute_rotation_matrix()
+        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+            a = self.rot_z if v.plane_type == PLANE_AXIAL else (self.rot_y if v.plane_type == PLANE_CORONAL else self.rot_x)
+            v.set_rotation_matrix(R, a)
+
+    def reset_rotation(self) -> None:
+        self.rot_x = 0.0
+        self.rot_y = 0.0
+        self.rot_z = 0.0
+        R = np.eye(3, dtype=np.float64)
+        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+            v.set_rotation_matrix(R, 0.0)
+        self.rotation_changed.emit("all", 0.0)
 
     def reset_to_center(self) -> None:
         if self.vol is None:
             return
+        self.reset_rotation()
         n_z, rows, cols = self.vol.shape
         cx = cols // 2
         cy = rows // 2
@@ -1039,6 +1145,18 @@ class MprPanelWidget(QWidget):
         self.pan_changed.emit(pan)
 
     def _on_subview_rotation_changed(self, plane_type: str, angle: float) -> None:
+        if plane_type == PLANE_AXIAL:
+            self.rot_z = angle
+        elif plane_type == PLANE_CORONAL:
+            self.rot_y = angle
+        elif plane_type == PLANE_SAGITTAL:
+            self.rot_x = angle
+
+        R = self._compute_rotation_matrix()
+        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+            a = self.rot_z if v.plane_type == PLANE_AXIAL else (self.rot_y if v.plane_type == PLANE_CORONAL else self.rot_x)
+            v.set_rotation_matrix(R, a)
+
         self.rotation_changed.emit(plane_type, angle)
 
     def _cycle_maximized_plane(self) -> None:
