@@ -482,9 +482,9 @@ class MprSliceWidget(QWidget):
         if delta == 0:
             return
 
-        # Ctrl + Wheel: Zoom all planes synchronously
+        # Ctrl + Wheel: Zoom all planes synchronously (inverted to match 2D viewer)
         if is_ctrl:
-            factor = 1.1 if delta > 0 else 0.9
+            factor = 0.9 if delta > 0 else 1.1
             new_zoom = max(0.2, min(5.0, self.zoom_factor * factor))
             self.zoom_changed.emit(new_zoom)
             return

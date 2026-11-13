@@ -376,16 +376,21 @@ class DicomViewerPanel(QWidget):
 
         # Горизонтальный слайдер срезов снизу
         self.slider = QSlider(Qt.Orientation.Horizontal, self)
+        self.slider.setInvertedAppearance(True)
         self.slider.valueChanged.connect(self.on_slider_changed)
         self.slider.setStyleSheet("""
+            QSlider:horizontal {
+                height: 14px;
+            }
             QSlider::groove:horizontal {
                 background: #1F2937;
-                height: 6px;
-                border-radius: 3px;
+                height: 2px;
+                border-radius: 1px;
             }
             QSlider::handle:horizontal {
                 background: #3B82F6;
-                width: 30px;
+                width: 12px;
+                height: 12px;
                 margin-top: -5px;
                 margin-bottom: -5px;
                 border-radius: 6px;
@@ -1224,14 +1229,18 @@ class DicomViewerPanel(QWidget):
         self.update_tab_buttons_style()
 
         self.slider.setStyleSheet(f"""
+            QSlider:horizontal {{
+                height: 14px;
+            }}
             QSlider::groove:horizontal {{
                 background: {palette['BORDER_COLOR_ALT']};
-                height: 6px;
-                border-radius: 3px;
+                height: 2px;
+                border-radius: 1px;
             }}
             QSlider::handle:horizontal {{
                 background: {palette['ACCENT_COLOR']};
-                width: 30px;
+                width: 12px;
+                height: 12px;
                 margin-top: -5px;
                 margin-bottom: -5px;
                 border-radius: 6px;
