@@ -318,6 +318,7 @@ class DicomViewerPanel(QWidget):
         self.mpr_container.cursor_changed.connect(self._on_mpr_orig_cursor_changed)
         self.mpr_container.zoom_changed.connect(self._on_mpr_orig_zoom_changed)
         self.mpr_container.pan_changed.connect(self._on_mpr_orig_pan_changed)
+        self.mpr_container.rotation_changed.connect(self._on_mpr_orig_plane_rotated)
         self.mpr_container.hide()
         center_layout.addWidget(self.mpr_container, stretch=1)
 
@@ -325,6 +326,7 @@ class DicomViewerPanel(QWidget):
         self.mpr_container_derived.cursor_changed.connect(self._on_mpr_der_cursor_changed)
         self.mpr_container_derived.zoom_changed.connect(self._on_mpr_der_zoom_changed)
         self.mpr_container_derived.pan_changed.connect(self._on_mpr_der_pan_changed)
+        self.mpr_container_derived.rotation_changed.connect(self._on_mpr_der_plane_rotated)
         self.mpr_container_derived.hide()
         center_layout.addWidget(self.mpr_container_derived, stretch=1)
 
@@ -380,7 +382,7 @@ class DicomViewerPanel(QWidget):
         self.slider.valueChanged.connect(self.on_slider_changed)
         self.slider.setStyleSheet("""
             QSlider:horizontal {
-                height: 14px;
+                height: 12px;
             }
             QSlider::groove:horizontal {
                 background: #1F2937;
@@ -389,11 +391,11 @@ class DicomViewerPanel(QWidget):
             }
             QSlider::handle:horizontal {
                 background: #3B82F6;
-                width: 12px;
-                height: 12px;
-                margin-top: -5px;
-                margin-bottom: -5px;
-                border-radius: 6px;
+                width: 4px;
+                height: 8px;
+                margin-top: -3px;
+                margin-bottom: -3px;
+                border-radius: 1px;
             }
             QSlider::handle:horizontal:hover {
                 background: #60A5FA;
@@ -1230,7 +1232,7 @@ class DicomViewerPanel(QWidget):
 
         self.slider.setStyleSheet(f"""
             QSlider:horizontal {{
-                height: 14px;
+                height: 12px;
             }}
             QSlider::groove:horizontal {{
                 background: {palette['BORDER_COLOR_ALT']};
@@ -1239,11 +1241,11 @@ class DicomViewerPanel(QWidget):
             }}
             QSlider::handle:horizontal {{
                 background: {palette['ACCENT_COLOR']};
-                width: 12px;
-                height: 12px;
-                margin-top: -5px;
-                margin-bottom: -5px;
-                border-radius: 6px;
+                width: 4px;
+                height: 8px;
+                margin-top: -3px;
+                margin-bottom: -3px;
+                border-radius: 1px;
             }}
             QSlider::handle:horizontal:hover {{
                 background: {palette['ACCENT_COLOR_DARK']};
@@ -2370,7 +2372,7 @@ class DicomViewerPanel(QWidget):
             return
         self._syncing_mpr = True
         try:
-            if hasattr(self, "mpr_container_derived") and self.mpr_container_derived.isVisible():
+            if hasattr(self, "mpr_container_derived") and (self.mpr_container_derived.isVisible() or not self.mpr_container_derived.isHidden()):
                 self.mpr_container_derived.set_cursor(x, y, z)
             if self.current_index != z:
                 self.current_index = z
@@ -2385,7 +2387,7 @@ class DicomViewerPanel(QWidget):
             return
         self._syncing_mpr = True
         try:
-            if hasattr(self, "mpr_container") and self.mpr_container.isVisible():
+            if hasattr(self, "mpr_container") and (self.mpr_container.isVisible() or not self.mpr_container.isHidden()):
                 self.mpr_container.set_cursor(x, y, z)
             if self.current_index != z:
                 self.current_index = z
@@ -2400,7 +2402,7 @@ class DicomViewerPanel(QWidget):
             return
         self._syncing_mpr_zoom = True
         try:
-            if hasattr(self, "mpr_container_derived") and self.mpr_container_derived.isVisible():
+            if hasattr(self, "mpr_container_derived") and (self.mpr_container_derived.isVisible() or not self.mpr_container_derived.isHidden()):
                 self.mpr_container_derived.set_zoom(zoom)
         finally:
             self._syncing_mpr_zoom = False
@@ -2410,7 +2412,7 @@ class DicomViewerPanel(QWidget):
             return
         self._syncing_mpr_zoom = True
         try:
-            if hasattr(self, "mpr_container") and self.mpr_container.isVisible():
+            if hasattr(self, "mpr_container") and (self.mpr_container.isVisible() or not self.mpr_container.isHidden()):
                 self.mpr_container.set_zoom(zoom)
         finally:
             self._syncing_mpr_zoom = False
@@ -2420,7 +2422,7 @@ class DicomViewerPanel(QWidget):
             return
         self._syncing_mpr_pan = True
         try:
-            if hasattr(self, "mpr_container_derived") and self.mpr_container_derived.isVisible():
+            if hasattr(self, "mpr_container_derived") and (self.mpr_container_derived.isVisible() or not self.mpr_container_derived.isHidden()):
                 self.mpr_container_derived.set_pan(pan)
         finally:
             self._syncing_mpr_pan = False
@@ -2430,10 +2432,30 @@ class DicomViewerPanel(QWidget):
             return
         self._syncing_mpr_pan = True
         try:
-            if hasattr(self, "mpr_container") and self.mpr_container.isVisible():
+            if hasattr(self, "mpr_container") and (self.mpr_container.isVisible() or not self.mpr_container.isHidden()):
                 self.mpr_container.set_pan(pan)
         finally:
             self._syncing_mpr_pan = False
+
+    def _on_mpr_orig_plane_rotated(self, plane_type: str, angle: float) -> None:
+        if getattr(self, "_syncing_mpr_rot", False):
+            return
+        self._syncing_mpr_rot = True
+        try:
+            if hasattr(self, "mpr_container_derived") and (self.mpr_container_derived.isVisible() or not self.mpr_container_derived.isHidden()):
+                self.mpr_container_derived.set_plane_rotation(plane_type, angle)
+        finally:
+            self._syncing_mpr_rot = False
+
+    def _on_mpr_der_plane_rotated(self, plane_type: str, angle: float) -> None:
+        if getattr(self, "_syncing_mpr_rot", False):
+            return
+        self._syncing_mpr_rot = True
+        try:
+            if hasattr(self, "mpr_container") and (self.mpr_container.isVisible() or not self.mpr_container.isHidden()):
+                self.mpr_container.set_plane_rotation(plane_type, angle)
+        finally:
+            self._syncing_mpr_rot = False
 
     def _on_viewer_zoom_pan(self, zoom: float, pan: QPointF) -> None:
         if self._is_syncing_zoom_pan:

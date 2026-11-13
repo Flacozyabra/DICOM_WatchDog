@@ -22,6 +22,7 @@ ALIGN_LEFT = Qt.AlignmentFlag.AlignLeft if hasattr(Qt, "AlignmentFlag") else Qt.
 ALIGN_RIGHT = Qt.AlignmentFlag.AlignRight if hasattr(Qt, "AlignmentFlag") else Qt.AlignRight
 CURSOR_CROSS = Qt.CursorShape.CrossCursor if hasattr(Qt, "CursorShape") else Qt.CrossCursor
 CURSOR_HAND = Qt.CursorShape.PointingHandCursor if hasattr(Qt, "CursorShape") else Qt.PointingHandCursor
+CURSOR_SIZEALL = Qt.CursorShape.SizeAllCursor if hasattr(Qt, "CursorShape") else Qt.SizeAllCursor
 BTN_LEFT = Qt.MouseButton.LeftButton if hasattr(Qt, "MouseButton") else Qt.LeftButton
 BTN_MIDDLE = Qt.MouseButton.MiddleButton if hasattr(Qt, "MouseButton") else Qt.MiddleButton
 BTN_RIGHT = Qt.MouseButton.RightButton if hasattr(Qt, "MouseButton") else Qt.RightButton
@@ -192,6 +193,7 @@ class MprSliceWidget(QWidget):
     slice_scrolled = pyqtSignal(int, int, int)
     zoom_changed = pyqtSignal(float)
     pan_changed = pyqtSignal(QPointF)
+    rotation_changed = pyqtSignal(str, float) # (plane_type, angle)
     double_clicked = pyqtSignal(str) # plane_type
 
     def __init__(self, plane_type: str, parent: QWidget = None) -> None:
@@ -210,17 +212,46 @@ class MprSliceWidget(QWidget):
 
         self.zoom_factor = 1.0
         self.pan_offset = QPointF(0, 0)
+        self.rotation_angle = 0.0
 
         self.current_pixmap = None
         self._target_rect = QRectF()
         self._is_dragging = False
         self._is_panning = False
+        self._is_rotating = False
         self._pan_start = None
+        self._rot_start_angle = 0.0
+        self._mouse_start_rad = 0.0
+        self._last_pivot = QPointF(0, 0)
+        self._rot_pill_rect = QRectF()
 
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus if hasattr(Qt, "FocusPolicy") else Qt.StrongFocus)
         self.setMouseTracking(True)
         self.setCursor(CURSOR_CROSS)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setStyleSheet("background-color: #0A0A0C; border: 1px solid #1F2937;")
+        self.setStyleSheet("background-color: #000000; border: none;")
+
+    def set_rotation(self, angle: float) -> None:
+        norm_angle = angle % 360.0
+        if norm_angle > 180.0:
+            norm_angle -= 360.0
+        elif norm_angle < -180.0:
+            norm_angle += 360.0
+        if abs(norm_angle) < 0.05:
+            norm_angle = 0.0
+        if self.rotation_angle != norm_angle:
+            self.rotation_angle = norm_angle
+            self.update()
+
+    def _map_screen_to_unrotated(self, pt: QPoint | QPointF) -> QPointF:
+        if abs(self.rotation_angle) < 1e-4 or self._last_pivot is None:
+            return QPointF(pt)
+        rad = math.radians(-self.rotation_angle)
+        dx = pt.x() - self._last_pivot.x()
+        dy = pt.y() - self._last_pivot.y()
+        rx = self._last_pivot.x() + dx * math.cos(rad) - dy * math.sin(rad)
+        ry = self._last_pivot.y() + dx * math.sin(rad) + dy * math.cos(rad)
+        return QPointF(rx, ry)
 
     def set_volume_data(
         self,
@@ -331,7 +362,7 @@ class MprSliceWidget(QWidget):
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#0A0A0C"))
+        painter.fillRect(self.rect(), QColor("#000000"))
 
         if self.vol is None or self.current_pixmap is None:
             painter.setPen(QColor("#6B7280"))
@@ -351,10 +382,7 @@ class MprSliceWidget(QWidget):
         draw_y = (w_height - draw_h) / 2.0 + self.pan_offset.y()
         self._target_rect = QRectF(draw_x, draw_y, draw_w, draw_h)
 
-        # Draw slice pixmap scaled
-        painter.drawPixmap(self._target_rect.toRect(), self.current_pixmap)
-
-        # Draw Crosshair
+        # Crosshair calculations
         n_z, rows, cols = self.vol.shape
         pen_horiz = QPen()
         pen_horiz.setWidth(1)
@@ -388,6 +416,17 @@ class MprSliceWidget(QWidget):
             cx_px = draw_x + cx_img * draw_w
             cy_px = draw_y + cy_img * draw_h
 
+        self._last_pivot = QPointF(cx_px, cy_px)
+
+        # Render rotated contents (Image slice + Crosshair) around crosshair pivot
+        painter.save()
+        if abs(self.rotation_angle) > 1e-4:
+            painter.translate(self._last_pivot)
+            painter.rotate(self.rotation_angle)
+            painter.translate(-self._last_pivot)
+
+        painter.drawPixmap(self._target_rect.toRect(), self.current_pixmap)
+
         # Draw cross lines with small center gap
         gap = 4.0
         painter.setPen(pen_horiz)
@@ -402,7 +441,9 @@ class MprSliceWidget(QWidget):
         if cy_px + gap <= draw_y + draw_h:
             painter.drawLine(QPointF(cx_px, cy_px + gap), QPointF(cx_px, draw_y + draw_h))
 
-        # OSD Header Tag (Plane Name + Index)
+        painter.restore()
+
+        # OSD Header Tag (Plane Name + Index + Rotation Angle)
         self._paint_osd(painter, n_z, rows, cols)
 
     def _paint_osd(self, painter: QPainter, n_z: int, rows: int, cols: int) -> None:
@@ -437,6 +478,21 @@ class MprSliceWidget(QWidget):
         painter.setPen(badge_color)
         painter.drawText(QRectF(14, 8, 110, 22), ALIGN_LEFT | Qt.AlignmentFlag.AlignVCenter, title)
 
+        # Rotation angle badge pill in top-right
+        rot_val = self.rotation_angle
+        is_rotated = abs(rot_val) > 0.05
+        pill_color = QColor("#F59E0B") if is_rotated else QColor("#6B7280")
+        bg_alpha = 70 if is_rotated else 30
+
+        self._rot_pill_rect = QRectF(self.width() - 85, 8, 77, 22)
+        r_brush = QBrush(QColor(pill_color.red(), pill_color.green(), pill_color.blue(), bg_alpha))
+        painter.setBrush(r_brush)
+        painter.drawRoundedRect(self._rot_pill_rect, 4, 4)
+
+        painter.setPen(pill_color)
+        rot_str = f"∠ {rot_val:+.1f}°" if is_rotated else "∠ 0.0°"
+        painter.drawText(self._rot_pill_rect, ALIGN_CENTER, rot_str)
+
         # Slice info at bottom-left: only show slice count for Axial
         if slice_text:
             painter.setPen(QColor("#D1D5DB"))
@@ -445,14 +501,43 @@ class MprSliceWidget(QWidget):
         painter.drawText(QRectF(10, self.height() - 22, 160, 16), ALIGN_LEFT, coord_text)
 
     def mousePressEvent(self, event) -> None:
+        self.setFocus()
+        if hasattr(self, "_rot_pill_rect") and self._rot_pill_rect.contains(event.pos()):
+            self.set_rotation(0.0)
+            self.rotation_changed.emit(self.plane_type, 0.0)
+            return
+
+        is_shift = bool(
+            (event.modifiers() & Qt.KeyboardModifier.ShiftModifier) if hasattr(Qt, "KeyboardModifier")
+            else (event.modifiers() & Qt.ShiftModifier)
+        )
+
         if event.button() == BTN_LEFT:
-            self._is_dragging = True
-            self._update_cursor_from_pos(event.pos())
+            if is_shift:
+                self._is_rotating = True
+                self._rot_start_angle = self.rotation_angle
+                dx = event.pos().x() - self._last_pivot.x()
+                dy = event.pos().y() - self._last_pivot.y()
+                self._mouse_start_rad = math.atan2(dy, dx)
+                self.setCursor(CURSOR_SIZEALL)
+            else:
+                self._is_dragging = True
+                self._update_cursor_from_pos(event.pos())
         elif event.button() in (BTN_MIDDLE, BTN_RIGHT):
             self._is_panning = True
             self._pan_start = event.pos()
 
     def mouseMoveEvent(self, event) -> None:
+        if getattr(self, "_is_rotating", False):
+            dx = event.pos().x() - self._last_pivot.x()
+            dy = event.pos().y() - self._last_pivot.y()
+            curr_rad = math.atan2(dy, dx)
+            delta_deg = math.degrees(curr_rad - self._mouse_start_rad)
+            new_angle = self._rot_start_angle + delta_deg
+            self.set_rotation(new_angle)
+            self.rotation_changed.emit(self.plane_type, self.rotation_angle)
+            return
+
         if self._is_dragging:
             self._update_cursor_from_pos(event.pos())
         elif self._is_panning and self._pan_start is not None:
@@ -463,13 +548,24 @@ class MprSliceWidget(QWidget):
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == BTN_LEFT:
+            if getattr(self, "_is_rotating", False):
+                self._is_rotating = False
+                self.setCursor(CURSOR_CROSS)
             self._is_dragging = False
         elif event.button() in (BTN_MIDDLE, BTN_RIGHT):
             self._is_panning = False
             self._pan_start = None
 
     def mouseDoubleClickEvent(self, event) -> None:
+        is_shift = bool(
+            (event.modifiers() & Qt.KeyboardModifier.ShiftModifier) if hasattr(Qt, "KeyboardModifier")
+            else (event.modifiers() & Qt.ShiftModifier)
+        )
         if event.button() == BTN_LEFT:
+            if is_shift:
+                self.set_rotation(0.0)
+                self.rotation_changed.emit(self.plane_type, 0.0)
+                return
             self.double_clicked.emit(self.plane_type)
 
     def wheelEvent(self, event) -> None:
@@ -478,8 +574,20 @@ class MprSliceWidget(QWidget):
             (modifiers & Qt.KeyboardModifier.ControlModifier) if hasattr(Qt, "KeyboardModifier")
             else (modifiers & Qt.ControlModifier)
         )
+        is_shift = bool(
+            (modifiers & Qt.KeyboardModifier.ShiftModifier) if hasattr(Qt, "KeyboardModifier")
+            else (modifiers & Qt.ShiftModifier)
+        )
         delta = event.angleDelta().y()
         if delta == 0:
+            return
+
+        # Shift + Wheel: Rotate active plane by +/- 1 degree
+        if is_shift:
+            step = 1.0 if delta > 0 else -1.0
+            new_angle = self.rotation_angle + step
+            self.set_rotation(new_angle)
+            self.rotation_changed.emit(self.plane_type, self.rotation_angle)
             return
 
         # Ctrl + Wheel: Zoom all planes synchronously (inverted to match 2D viewer)
@@ -511,13 +619,48 @@ class MprSliceWidget(QWidget):
         self.cursor_moved.emit(new_x, new_y, new_z)
         self.slice_scrolled.emit(new_x, new_y, new_z)
 
+    def keyPressEvent(self, event) -> None:
+        key = event.key()
+        modifiers = event.modifiers()
+        is_ctrl = bool(
+            (modifiers & Qt.KeyboardModifier.ControlModifier) if hasattr(Qt, "KeyboardModifier")
+            else (modifiers & Qt.ControlModifier)
+        )
+        is_alt = bool(
+            (modifiers & Qt.KeyboardModifier.AltModifier) if hasattr(Qt, "KeyboardModifier")
+            else (modifiers & Qt.AltModifier)
+        )
+
+        key_r = Qt.Key.Key_R if hasattr(Qt.Key, "Key_R") else Qt.Key_R
+        key_left = Qt.Key.Key_Left if hasattr(Qt.Key, "Key_Left") else Qt.Key_Left
+        key_right = Qt.Key.Key_Right if hasattr(Qt.Key, "Key_Right") else Qt.Key_Right
+
+        # Key R: Reset rotation (Eclipse TPS standard)
+        if key == key_r:
+            self.set_rotation(0.0)
+            self.rotation_changed.emit(self.plane_type, 0.0)
+            return
+
+        # Ctrl + Left/Right: rotate by 1 deg (with Alt by 5 deg) (Eclipse TPS standard)
+        if is_ctrl and key in (key_left, key_right):
+            step = 5.0 if is_alt else 1.0
+            if key == key_left:
+                step = -step
+            new_angle = self.rotation_angle + step
+            self.set_rotation(new_angle)
+            self.rotation_changed.emit(self.plane_type, self.rotation_angle)
+            return
+
+        super().keyPressEvent(event)
+
     def _update_cursor_from_pos(self, pt) -> None:
         if self.vol is None or self._target_rect.isEmpty():
             return
+        m_pt = self._map_screen_to_unrotated(pt)
         n_z, rows, cols = self.vol.shape
 
-        fx = (pt.x() - self._target_rect.left()) / max(1.0, self._target_rect.width())
-        fy = (pt.y() - self._target_rect.top()) / max(1.0, self._target_rect.height())
+        fx = (m_pt.x() - self._target_rect.left()) / max(1.0, self._target_rect.width())
+        fy = (m_pt.y() - self._target_rect.top()) / max(1.0, self._target_rect.height())
 
         fx = max(0.0, min(1.0, fx))
         fy = max(0.0, min(1.0, fy))
@@ -552,6 +695,7 @@ class MprPanelWidget(QWidget):
     cursor_changed = pyqtSignal(int, int, int) # (x, y, z)
     zoom_changed = pyqtSignal(float)
     pan_changed = pyqtSignal(QPointF)
+    rotation_changed = pyqtSignal(str, float) # (plane_type, angle)
 
     def __init__(self, parent: QWidget = None) -> None:
         super().__init__(parent)
@@ -570,9 +714,10 @@ class MprPanelWidget(QWidget):
         self._setup_ui()
 
     def _setup_ui(self) -> None:
+        self.setStyleSheet("background-color: #000000;")
         self.grid_layout = QGridLayout(self)
-        self.grid_layout.setContentsMargins(2, 2, 2, 2)
-        self.grid_layout.setSpacing(4)
+        self.grid_layout.setContentsMargins(0, 0, 0, 0)
+        self.grid_layout.setSpacing(1)
 
         # 3 Orthogonal viewports
         self.view_axial = MprSliceWidget(PLANE_AXIAL, self)
@@ -583,11 +728,12 @@ class MprPanelWidget(QWidget):
             v.cursor_moved.connect(self._on_subview_cursor_moved)
             v.zoom_changed.connect(self._on_subview_zoom_changed)
             v.pan_changed.connect(self._on_subview_pan_changed)
+            v.rotation_changed.connect(self._on_subview_rotation_changed)
             v.double_clicked.connect(self._toggle_maximize_plane)
 
-        # Empty Frame in Top-Right (0, 1) as requested
+        # Empty Frame in Top-Right (0, 1) as requested (pure black)
         self.view_empty = QFrame(self)
-        self.view_empty.setStyleSheet("background-color: #0A0A0C; border: 1px solid #1F2937;")
+        self.view_empty.setStyleSheet("background-color: #000000; border: none;")
         self.view_empty.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         # Exact layout requested by user:
@@ -625,6 +771,7 @@ class MprPanelWidget(QWidget):
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
             v.set_zoom(1.0)
             v.set_pan(QPointF(0, 0))
+            v.set_rotation(0.0)
             v.set_volume_data(
                 vol=self.vol,
                 ipp0=self.ipp0,
@@ -660,6 +807,15 @@ class MprPanelWidget(QWidget):
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
             v.set_pan(pan)
 
+    def set_plane_rotation(self, plane_type: str, angle: float) -> None:
+        for p, v in [
+            (PLANE_AXIAL, self.view_axial),
+            (PLANE_CORONAL, self.view_coronal),
+            (PLANE_SAGITTAL, self.view_sagittal),
+        ]:
+            if p == plane_type:
+                v.set_rotation(angle)
+
     def reset_to_center(self) -> None:
         if self.vol is None:
             return
@@ -690,6 +846,9 @@ class MprPanelWidget(QWidget):
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
             v.set_pan(pan)
         self.pan_changed.emit(pan)
+
+    def _on_subview_rotation_changed(self, plane_type: str, angle: float) -> None:
+        self.rotation_changed.emit(plane_type, angle)
 
     def _toggle_maximize_plane(self, plane_type: str) -> None:
         if self._maximized_plane == plane_type:
