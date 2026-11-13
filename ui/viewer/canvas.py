@@ -659,9 +659,9 @@ class DicomViewerWidget(QWidget):
         else:
             delta = event.angleDelta().y()
             if delta > 0:
-                self.slice_scrolled.emit(-1)
-            elif delta < 0:
                 self.slice_scrolled.emit(1)
+            elif delta < 0:
+                self.slice_scrolled.emit(-1)
 
     def to_image_coords(self, pt: QPointF) -> tuple[float, float]:
         if not self.image_rect or not self.current_pixmap:
@@ -1882,8 +1882,26 @@ class DicomViewerWidget(QWidget):
                     painter.drawText(rect_info, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, line)
                     y_offset_b -= rect_info.height() + 5
 
-                # Правый нижний HUD (Срезы, шаг и положение пациента)
+                # Правый нижний HUD (Срезы, шаг, положение пациента и Z-координата)
                 lines_right = []
+                if self.current_dataset:
+                    z_val = None
+                    ipp = getattr(self.current_dataset, "ImagePositionPatient", None)
+                    if ipp is not None and len(ipp) >= 3:
+                        try:
+                            z_val = float(ipp[2])
+                        except (ValueError, TypeError):
+                            pass
+                    if z_val is None:
+                        sl = getattr(self.current_dataset, "SliceLocation", None)
+                        if sl is not None:
+                            try:
+                                z_val = float(sl)
+                            except (ValueError, TypeError):
+                                pass
+                    if z_val is not None:
+                        lines_right.append(f"Z: {z_val:.1f} mm")
+
                 if self.total_slices > 0:
                     lines_right.append(tr_ui("hud_slice", self.current_slice, self.total_slices))
                     

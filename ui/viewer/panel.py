@@ -32,7 +32,7 @@ from .workers import (
 )
 from .controls import HUVerticalSlider, DRRProgressDialog
 from .canvas import DicomViewerWidget
-from .mpr_widget import MprPanelWidget, build_ct_volume
+from .mpr_widget import MprPanelWidget, build_ct_volume, MprVolumeLoaderWorker
 from core.postprocessing import (
     PostprocessingRunner, ALGORITHM_MAR_V9, ALGORITHM_ST_HARD, ALGORITHM_ST_NORMAL,
     ALGORITHM_COMBO_NORMAL, ALGORITHM_COMBO_HARD, clean_series_desc
@@ -316,13 +316,15 @@ class DicomViewerPanel(QWidget):
         # Контейнеры мультипланарной реконструкции (MPR)
         self.mpr_container = MprPanelWidget(self)
         self.mpr_container.cursor_changed.connect(self._on_mpr_orig_cursor_changed)
-        self.mpr_container.rotation_changed.connect(self._on_mpr_orig_rotation_changed)
+        self.mpr_container.zoom_changed.connect(self._on_mpr_orig_zoom_changed)
+        self.mpr_container.pan_changed.connect(self._on_mpr_orig_pan_changed)
         self.mpr_container.hide()
         center_layout.addWidget(self.mpr_container, stretch=1)
 
         self.mpr_container_derived = MprPanelWidget(self)
         self.mpr_container_derived.cursor_changed.connect(self._on_mpr_der_cursor_changed)
-        self.mpr_container_derived.rotation_changed.connect(self._on_mpr_der_rotation_changed)
+        self.mpr_container_derived.zoom_changed.connect(self._on_mpr_der_zoom_changed)
+        self.mpr_container_derived.pan_changed.connect(self._on_mpr_der_pan_changed)
         self.mpr_container_derived.hide()
         center_layout.addWidget(self.mpr_container_derived, stretch=1)
 
@@ -2240,15 +2242,48 @@ class DicomViewerPanel(QWidget):
     def toggle_mpr(self) -> None:
         self.mpr_active = self.btn_mpr.isChecked()
         if self.mpr_active:
-            self._ensure_mpr_volumes()
+            ok = self._ensure_mpr_volumes()
+            if not ok:
+                self.mpr_active = False
+                self.btn_mpr.setChecked(False)
         self._update_viewports_visibility()
         self.update_buttons_style()
 
-    def _ensure_mpr_volumes(self) -> None:
-        if self.mpr_vol_orig is None and self.sorted_files:
-            res = build_ct_volume(self.sorted_files)
-            if res:
-                self.mpr_vol_orig, self.mpr_ipp0_orig, self.mpr_spacing_orig = res
+    def _ensure_mpr_volumes(self) -> bool:
+        need_orig = (self.mpr_vol_orig is None and bool(self.sorted_files))
+        need_derived = (
+            self.view_mode in ("side_by_side", "processed")
+            and self.mpr_vol_derived is None
+            and bool(self.derived_files)
+        )
+
+        if not need_orig and not need_derived:
+            return True
+
+        from ui.loading_dialog import LoadingProgressDialog
+
+        total_slices = (len(self.sorted_files) if need_orig else 0) + (len(self.derived_files) if need_derived else 0)
+        progress_dialog = LoadingProgressDialog(
+            self,
+            title=tr_ui("viewer_mpr_tooltip") or "MPR",
+            show_cancel=False
+        )
+        progress_dialog.set_custom_progress(0, 100, tr_ui("loading_dicom_files", 0, total_slices))
+
+        worker = MprVolumeLoaderWorker(
+            files_orig=self.sorted_files if need_orig else [],
+            files_derived=self.derived_files if need_derived else [],
+            need_orig=need_orig,
+            need_derived=need_derived,
+            parent=self
+        )
+
+        def on_prog(cur: int, tot: int, text: str) -> None:
+            progress_dialog.set_custom_progress(cur, tot, text)
+
+        def on_fin(res_orig, res_der) -> None:
+            if res_orig is not None:
+                self.mpr_vol_orig, self.mpr_ipp0_orig, self.mpr_spacing_orig = res_orig
                 self.mpr_container.set_volume_data(
                     self.mpr_vol_orig,
                     self.mpr_ipp0_orig,
@@ -2257,26 +2292,46 @@ class DicomViewerPanel(QWidget):
                     self.window_center,
                     initial_z=max(0, self.current_index)
                 )
+            if res_der is not None:
+                self.mpr_vol_derived, self.mpr_ipp0_derived, self.mpr_spacing_derived = res_der
+                self.mpr_container_derived.set_volume_data(
+                    self.mpr_vol_derived,
+                    self.mpr_ipp0_derived,
+                    self.mpr_spacing_derived,
+                    self.window_width,
+                    self.window_center,
+                    initial_z=max(0, self.current_index)
+                )
+            progress_dialog.accept()
 
-        if self.view_mode in ("side_by_side", "processed") and self.derived_files:
-            if self.mpr_vol_derived is None:
-                res_der = build_ct_volume(self.derived_files)
-                if res_der:
-                    self.mpr_vol_derived, self.mpr_ipp0_derived, self.mpr_spacing_derived = res_der
-                    self.mpr_container_derived.set_volume_data(
-                        self.mpr_vol_derived,
-                        self.mpr_ipp0_derived,
-                        self.mpr_spacing_derived,
-                        self.window_width,
-                        self.window_center,
-                        initial_z=max(0, self.current_index)
-                    )
+        def on_err(err_msg: str) -> None:
+            log_error(f"Failed to build MPR volumes: {err_msg}")
+            progress_dialog.reject()
+
+        worker.progress_signal.connect(on_prog)
+        worker.finished_signal.connect(on_fin)
+        worker.error_signal.connect(on_err)
+        worker.start()
+
+        progress_dialog.exec()
+        worker.wait()
+
+        if need_orig and self.mpr_vol_orig is None:
+            return False
+        return True
 
     def _update_viewports_visibility(self) -> None:
         if getattr(self, "mpr_active", False):
+            ok = self._ensure_mpr_volumes()
+            if not ok:
+                self.mpr_active = False
+                self.btn_mpr.setChecked(False)
+                self.update_buttons_style()
+                self._update_viewports_visibility()
+                return
+
             self.viewer.hide()
             self.viewer_derived.hide()
-            self._ensure_mpr_volumes()
             if self.view_mode == "side_by_side":
                 self.mpr_container.show()
                 self.mpr_container_derived.show()
@@ -2331,25 +2386,45 @@ class DicomViewerPanel(QWidget):
         finally:
             self._syncing_mpr = False
 
-    def _on_mpr_orig_rotation_changed(self, yaw: float, pitch: float) -> None:
-        if getattr(self, "_syncing_mpr_rot", False):
+    def _on_mpr_orig_zoom_changed(self, zoom: float) -> None:
+        if getattr(self, "_syncing_mpr_zoom", False):
             return
-        self._syncing_mpr_rot = True
+        self._syncing_mpr_zoom = True
         try:
             if hasattr(self, "mpr_container_derived") and self.mpr_container_derived.isVisible():
-                self.mpr_container_derived.set_rotation(yaw, pitch)
+                self.mpr_container_derived.set_zoom(zoom)
         finally:
-            self._syncing_mpr_rot = False
+            self._syncing_mpr_zoom = False
 
-    def _on_mpr_der_rotation_changed(self, yaw: float, pitch: float) -> None:
-        if getattr(self, "_syncing_mpr_rot", False):
+    def _on_mpr_der_zoom_changed(self, zoom: float) -> None:
+        if getattr(self, "_syncing_mpr_zoom", False):
             return
-        self._syncing_mpr_rot = True
+        self._syncing_mpr_zoom = True
         try:
             if hasattr(self, "mpr_container") and self.mpr_container.isVisible():
-                self.mpr_container.set_rotation(yaw, pitch)
+                self.mpr_container.set_zoom(zoom)
         finally:
-            self._syncing_mpr_rot = False
+            self._syncing_mpr_zoom = False
+
+    def _on_mpr_orig_pan_changed(self, pan: QPointF) -> None:
+        if getattr(self, "_syncing_mpr_pan", False):
+            return
+        self._syncing_mpr_pan = True
+        try:
+            if hasattr(self, "mpr_container_derived") and self.mpr_container_derived.isVisible():
+                self.mpr_container_derived.set_pan(pan)
+        finally:
+            self._syncing_mpr_pan = False
+
+    def _on_mpr_der_pan_changed(self, pan: QPointF) -> None:
+        if getattr(self, "_syncing_mpr_pan", False):
+            return
+        self._syncing_mpr_pan = True
+        try:
+            if hasattr(self, "mpr_container") and self.mpr_container.isVisible():
+                self.mpr_container.set_pan(pan)
+        finally:
+            self._syncing_mpr_pan = False
 
     def _on_viewer_zoom_pan(self, zoom: float, pan: QPointF) -> None:
         if self._is_syncing_zoom_pan:
@@ -2922,9 +2997,10 @@ class DicomViewerPanel(QWidget):
             self.set_current_slice(value)
 
     def on_slice_scrolled(self, step: int) -> None:
-        new_index = self.current_index + step
-        if 0 <= new_index < len(self.sorted_files):
-            self.set_current_slice(new_index)
+        if not self.sorted_files:
+            return
+        new_index = (self.current_index + step) % len(self.sorted_files)
+        self.set_current_slice(new_index)
 
     def on_window_changed(self, width: float, center: float) -> None:
         self.window_width = width
