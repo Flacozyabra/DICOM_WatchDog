@@ -23,6 +23,8 @@ ALIGN_RIGHT = Qt.AlignmentFlag.AlignRight if hasattr(Qt, "AlignmentFlag") else Q
 CURSOR_CROSS = Qt.CursorShape.CrossCursor if hasattr(Qt, "CursorShape") else Qt.CrossCursor
 CURSOR_HAND = Qt.CursorShape.PointingHandCursor if hasattr(Qt, "CursorShape") else Qt.PointingHandCursor
 CURSOR_SIZEALL = Qt.CursorShape.SizeAllCursor if hasattr(Qt, "CursorShape") else Qt.SizeAllCursor
+CURSOR_SIZEVER = Qt.CursorShape.SizeVerCursor if hasattr(Qt, "CursorShape") else Qt.SizeVerCursor
+CURSOR_SIZEHOR = Qt.CursorShape.SizeHorCursor if hasattr(Qt, "CursorShape") else Qt.SizeHorCursor
 BTN_LEFT = Qt.MouseButton.LeftButton if hasattr(Qt, "MouseButton") else Qt.LeftButton
 BTN_MIDDLE = Qt.MouseButton.MiddleButton if hasattr(Qt, "MouseButton") else Qt.MiddleButton
 BTN_RIGHT = Qt.MouseButton.RightButton if hasattr(Qt, "MouseButton") else Qt.RightButton
@@ -216,12 +218,13 @@ class MprSliceWidget(QWidget):
 
         self.current_pixmap = None
         self._target_rect = QRectF()
-        self._is_dragging = False
         self._is_panning = False
-        self._is_rotating = False
         self._pan_start = None
-        self._rot_start_angle = 0.0
-        self._mouse_start_rad = 0.0
+        self._dragging_axis = None  # None, "horizontal", "vertical", "both"
+        self._handle_h_left = QRectF()
+        self._handle_h_right = QRectF()
+        self._handle_v_top = QRectF()
+        self._handle_v_bottom = QRectF()
         self._last_pivot = QPointF(0, 0)
         self._rot_pill_rect = QRectF()
 
@@ -252,6 +255,43 @@ class MprSliceWidget(QWidget):
         rx = self._last_pivot.x() + dx * math.cos(rad) - dy * math.sin(rad)
         ry = self._last_pivot.y() + dx * math.sin(rad) + dy * math.cos(rad)
         return QPointF(rx, ry)
+
+    def _update_axis_pos(self, horizontal_y: float = None, vertical_x: float = None) -> None:
+        if self.vol is None or self._target_rect.isEmpty():
+            return
+        n_z, rows, cols = self.vol.shape
+
+        new_x = self.cur_x
+        new_y = self.cur_y
+        new_z = self.cur_z
+
+        draw_x = self._target_rect.left()
+        draw_y = self._target_rect.top()
+        draw_w = self._target_rect.width()
+        draw_h = self._target_rect.height()
+
+        if vertical_x is not None:
+            fx = (vertical_x - draw_x) / max(1.0, draw_w)
+            fx = max(0.0, min(1.0, fx))
+            if self.plane_type == PLANE_AXIAL:
+                new_x = int(round(fx * (cols - 1)))
+            elif self.plane_type == PLANE_CORONAL:
+                new_x = int(round(fx * (cols - 1)))
+            else:  # PLANE_SAGITTAL
+                new_y = int(round(fx * (rows - 1)))
+
+        if horizontal_y is not None:
+            fy = (horizontal_y - draw_y) / max(1.0, draw_h)
+            fy = max(0.0, min(1.0, fy))
+            if self.plane_type == PLANE_AXIAL:
+                new_y = int(round(fy * (rows - 1)))
+            elif self.plane_type == PLANE_CORONAL:
+                new_z = int(round((1.0 - fy) * (n_z - 1)))
+            else:  # PLANE_SAGITTAL
+                new_z = int(round((1.0 - fy) * (n_z - 1)))
+
+        self.set_cursor(new_x, new_y, new_z)
+        self.cursor_moved.emit(new_x, new_y, new_z)
 
     def set_volume_data(
         self,
@@ -418,30 +458,49 @@ class MprSliceWidget(QWidget):
 
         self._last_pivot = QPointF(cx_px, cy_px)
 
-        # Render rotated contents (Image slice + Crosshair) around crosshair pivot
+        # Render rotated CT slice around image center
         painter.save()
         if abs(self.rotation_angle) > 1e-4:
-            painter.translate(self._last_pivot)
+            center_pt = self._target_rect.center()
+            painter.translate(center_pt)
             painter.rotate(self.rotation_angle)
-            painter.translate(-self._last_pivot)
+            painter.translate(-center_pt)
 
         painter.drawPixmap(self._target_rect.toRect(), self.current_pixmap)
+        painter.restore()
 
-        # Draw cross lines with small center gap
-        gap = 4.0
+        # Draw cross lines across the FULL viewport (from 0 to w_width and 0 to w_height)
+        gap = 5.0
         painter.setPen(pen_horiz)
-        if draw_x <= cx_px - gap:
-            painter.drawLine(QPointF(draw_x, cy_px), QPointF(cx_px - gap, cy_px))
-        if cx_px + gap <= draw_x + draw_w:
-            painter.drawLine(QPointF(cx_px + gap, cy_px), QPointF(draw_x + draw_w, cy_px))
+        if cx_px - gap > 0:
+            painter.drawLine(QPointF(0, cy_px), QPointF(cx_px - gap, cy_px))
+        if cx_px + gap < w_width:
+            painter.drawLine(QPointF(cx_px + gap, cy_px), QPointF(w_width, cy_px))
 
         painter.setPen(pen_vert)
-        if draw_y <= cy_px - gap:
-            painter.drawLine(QPointF(cx_px, draw_y), QPointF(cx_px, cy_px - gap))
-        if cy_px + gap <= draw_y + draw_h:
-            painter.drawLine(QPointF(cx_px, cy_px + gap), QPointF(cx_px, draw_y + draw_h))
+        if cy_px - gap > 0:
+            painter.drawLine(QPointF(cx_px, 0), QPointF(cx_px, cy_px - gap))
+        if cy_px + gap < w_height:
+            painter.drawLine(QPointF(cx_px, cy_px + gap), QPointF(cx_px, w_height))
 
-        painter.restore()
+        # Handle dimensions: 14x8 for horiz, 8x14 for vert
+        self._handle_h_left = QRectF(2, cy_px - 4, 14, 8)
+        self._handle_h_right = QRectF(w_width - 16, cy_px - 4, 14, 8)
+        self._handle_v_top = QRectF(cx_px - 4, 2, 8, 14)
+        self._handle_v_bottom = QRectF(cx_px - 4, w_height - 16, 8, 14)
+
+        # Draw handles with white border and axis color fill
+        h_color = pen_horiz.color()
+        v_color = pen_vert.color()
+
+        painter.setPen(QPen(QColor("#FFFFFF"), 1))
+        painter.setBrush(QBrush(h_color))
+        painter.drawRoundedRect(self._handle_h_left, 2, 2)
+        painter.drawRoundedRect(self._handle_h_right, 2, 2)
+
+        painter.setBrush(QBrush(v_color))
+        painter.drawRoundedRect(self._handle_v_top, 2, 2)
+        painter.drawRoundedRect(self._handle_v_bottom, 2, 2)
 
         # OSD Header Tag (Plane Name + Index + Rotation Angle)
         self._paint_osd(painter, n_z, rows, cols)
@@ -502,56 +561,81 @@ class MprSliceWidget(QWidget):
 
     def mousePressEvent(self, event) -> None:
         self.setFocus()
-        if hasattr(self, "_rot_pill_rect") and self._rot_pill_rect.contains(event.pos()):
+        pos_f = QPointF(event.pos())
+        if hasattr(self, "_rot_pill_rect") and self._rot_pill_rect.contains(pos_f):
             self.set_rotation(0.0)
             self.rotation_changed.emit(self.plane_type, 0.0)
             return
 
-        is_shift = bool(
-            (event.modifiers() & Qt.KeyboardModifier.ShiftModifier) if hasattr(Qt, "KeyboardModifier")
-            else (event.modifiers() & Qt.ShiftModifier)
-        )
-
         if event.button() == BTN_LEFT:
-            if is_shift:
-                self._is_rotating = True
-                self._rot_start_angle = self.rotation_angle
-                dx = event.pos().x() - self._last_pivot.x()
-                dy = event.pos().y() - self._last_pivot.y()
-                self._mouse_start_rad = math.atan2(dy, dx)
-                self.setCursor(CURSOR_SIZEALL)
+            cx = self._last_pivot.x()
+            cy = self._last_pivot.y()
+
+            # Check handles or lines
+            is_h = (
+                (hasattr(self, "_handle_h_left") and (self._handle_h_left.contains(pos_f) or self._handle_h_right.contains(pos_f)))
+                or abs(pos_f.y() - cy) <= 6
+            )
+            is_v = (
+                (hasattr(self, "_handle_v_top") and (self._handle_v_top.contains(pos_f) or self._handle_v_bottom.contains(pos_f)))
+                or abs(pos_f.x() - cx) <= 6
+            )
+
+            dist_center = math.hypot(pos_f.x() - cx, pos_f.y() - cy)
+            if dist_center <= 10:
+                self._dragging_axis = "both"
+            elif is_h:
+                self._dragging_axis = "horizontal"
+                self._update_axis_pos(horizontal_y=pos_f.y())
+            elif is_v:
+                self._dragging_axis = "vertical"
+                self._update_axis_pos(vertical_x=pos_f.x())
             else:
-                self._is_dragging = True
-                self._update_cursor_from_pos(event.pos())
+                self._dragging_axis = None
+                # Clicking free space does NOT move crosshairs
+
         elif event.button() in (BTN_MIDDLE, BTN_RIGHT):
             self._is_panning = True
             self._pan_start = event.pos()
 
     def mouseMoveEvent(self, event) -> None:
-        if getattr(self, "_is_rotating", False):
-            dx = event.pos().x() - self._last_pivot.x()
-            dy = event.pos().y() - self._last_pivot.y()
-            curr_rad = math.atan2(dy, dx)
-            delta_deg = math.degrees(curr_rad - self._mouse_start_rad)
-            new_angle = self._rot_start_angle + delta_deg
-            self.set_rotation(new_angle)
-            self.rotation_changed.emit(self.plane_type, self.rotation_angle)
+        pos_f = QPointF(event.pos())
+
+        # Handle axis dragging
+        if getattr(self, "_dragging_axis", None) is not None:
+            if self._dragging_axis == "horizontal":
+                self._update_axis_pos(horizontal_y=pos_f.y())
+            elif self._dragging_axis == "vertical":
+                self._update_axis_pos(vertical_x=pos_f.x())
+            elif self._dragging_axis == "both":
+                self._update_axis_pos(horizontal_y=pos_f.y(), vertical_x=pos_f.x())
             return
 
-        if self._is_dragging:
-            self._update_cursor_from_pos(event.pos())
-        elif self._is_panning and self._pan_start is not None:
+        # Handle panning
+        if getattr(self, "_is_panning", False) and self._pan_start is not None:
             delta = event.pos() - self._pan_start
             self._pan_start = event.pos()
             new_pan = self.pan_offset + QPointF(delta.x(), delta.y())
             self.pan_changed.emit(new_pan)
+            return
+
+        # Hover cursor update
+        if hasattr(self, "_last_pivot"):
+            cx = self._last_pivot.x()
+            cy = self._last_pivot.y()
+            dist_c = math.hypot(pos_f.x() - cx, pos_f.y() - cy)
+            if dist_c <= 10:
+                self.setCursor(CURSOR_SIZEALL)
+            elif (hasattr(self, "_handle_h_left") and (self._handle_h_left.contains(pos_f) or self._handle_h_right.contains(pos_f))) or abs(pos_f.y() - cy) <= 6:
+                self.setCursor(CURSOR_SIZEVER)
+            elif (hasattr(self, "_handle_v_top") and (self._handle_v_top.contains(pos_f) or self._handle_v_bottom.contains(pos_f))) or abs(pos_f.x() - cx) <= 6:
+                self.setCursor(CURSOR_SIZEHOR)
+            else:
+                self.setCursor(CURSOR_CROSS)
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == BTN_LEFT:
-            if getattr(self, "_is_rotating", False):
-                self._is_rotating = False
-                self.setCursor(CURSOR_CROSS)
-            self._is_dragging = False
+            self._dragging_axis = None
         elif event.button() in (BTN_MIDDLE, BTN_RIGHT):
             self._is_panning = False
             self._pan_start = None
