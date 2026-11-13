@@ -316,11 +316,13 @@ class DicomViewerPanel(QWidget):
         # Контейнеры мультипланарной реконструкции (MPR)
         self.mpr_container = MprPanelWidget(self)
         self.mpr_container.cursor_changed.connect(self._on_mpr_orig_cursor_changed)
+        self.mpr_container.rotation_changed.connect(self._on_mpr_orig_rotation_changed)
         self.mpr_container.hide()
         center_layout.addWidget(self.mpr_container, stretch=1)
 
         self.mpr_container_derived = MprPanelWidget(self)
         self.mpr_container_derived.cursor_changed.connect(self._on_mpr_der_cursor_changed)
+        self.mpr_container_derived.rotation_changed.connect(self._on_mpr_der_rotation_changed)
         self.mpr_container_derived.hide()
         center_layout.addWidget(self.mpr_container_derived, stretch=1)
 
@@ -2328,6 +2330,26 @@ class DicomViewerPanel(QWidget):
                 self.slider.blockSignals(False)
         finally:
             self._syncing_mpr = False
+
+    def _on_mpr_orig_rotation_changed(self, yaw: float, pitch: float) -> None:
+        if getattr(self, "_syncing_mpr_rot", False):
+            return
+        self._syncing_mpr_rot = True
+        try:
+            if hasattr(self, "mpr_container_derived") and self.mpr_container_derived.isVisible():
+                self.mpr_container_derived.set_rotation(yaw, pitch)
+        finally:
+            self._syncing_mpr_rot = False
+
+    def _on_mpr_der_rotation_changed(self, yaw: float, pitch: float) -> None:
+        if getattr(self, "_syncing_mpr_rot", False):
+            return
+        self._syncing_mpr_rot = True
+        try:
+            if hasattr(self, "mpr_container") and self.mpr_container.isVisible():
+                self.mpr_container.set_rotation(yaw, pitch)
+        finally:
+            self._syncing_mpr_rot = False
 
     def _on_viewer_zoom_pan(self, zoom: float, pan: QPointF) -> None:
         if self._is_syncing_zoom_pan:
