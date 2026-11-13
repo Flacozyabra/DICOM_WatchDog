@@ -318,7 +318,9 @@ class DicomViewerPanel(QWidget):
         self.mpr_container.cursor_changed.connect(self._on_mpr_orig_cursor_changed)
         self.mpr_container.zoom_changed.connect(self._on_mpr_orig_zoom_changed)
         self.mpr_container.pan_changed.connect(self._on_mpr_orig_pan_changed)
+        self.mpr_container.plane_pan_changed.connect(self._on_mpr_orig_plane_pan_changed)
         self.mpr_container.rotation_changed.connect(self._on_mpr_orig_plane_rotated)
+        self.mpr_container.plane_maximized.connect(self._on_mpr_orig_plane_maximized)
         self.mpr_container.hide()
         center_layout.addWidget(self.mpr_container, stretch=1)
 
@@ -326,7 +328,9 @@ class DicomViewerPanel(QWidget):
         self.mpr_container_derived.cursor_changed.connect(self._on_mpr_der_cursor_changed)
         self.mpr_container_derived.zoom_changed.connect(self._on_mpr_der_zoom_changed)
         self.mpr_container_derived.pan_changed.connect(self._on_mpr_der_pan_changed)
+        self.mpr_container_derived.plane_pan_changed.connect(self._on_mpr_der_plane_pan_changed)
         self.mpr_container_derived.rotation_changed.connect(self._on_mpr_der_plane_rotated)
+        self.mpr_container_derived.plane_maximized.connect(self._on_mpr_der_plane_maximized)
         self.mpr_container_derived.hide()
         center_layout.addWidget(self.mpr_container_derived, stretch=1)
 
@@ -2456,6 +2460,46 @@ class DicomViewerPanel(QWidget):
                 self.mpr_container.set_plane_rotation(plane_type, angle)
         finally:
             self._syncing_mpr_rot = False
+
+    def _on_mpr_orig_plane_pan_changed(self, plane_type: str, pan: QPointF) -> None:
+        if getattr(self, "_syncing_mpr_pan", False):
+            return
+        self._syncing_mpr_pan = True
+        try:
+            if hasattr(self, "mpr_container_derived") and (self.mpr_container_derived.isVisible() or not self.mpr_container_derived.isHidden()):
+                self.mpr_container_derived.set_plane_pan(plane_type, pan)
+        finally:
+            self._syncing_mpr_pan = False
+
+    def _on_mpr_der_plane_pan_changed(self, plane_type: str, pan: QPointF) -> None:
+        if getattr(self, "_syncing_mpr_pan", False):
+            return
+        self._syncing_mpr_pan = True
+        try:
+            if hasattr(self, "mpr_container") and (self.mpr_container.isVisible() or not self.mpr_container.isHidden()):
+                self.mpr_container.set_plane_pan(plane_type, pan)
+        finally:
+            self._syncing_mpr_pan = False
+
+    def _on_mpr_orig_plane_maximized(self, plane_type: str) -> None:
+        if getattr(self, "_syncing_mpr_max", False):
+            return
+        self._syncing_mpr_max = True
+        try:
+            if hasattr(self, "mpr_container_derived") and (self.mpr_container_derived.isVisible() or not self.mpr_container_derived.isHidden()):
+                self.mpr_container_derived._set_maximized_plane(plane_type or None)
+        finally:
+            self._syncing_mpr_max = False
+
+    def _on_mpr_der_plane_maximized(self, plane_type: str) -> None:
+        if getattr(self, "_syncing_mpr_max", False):
+            return
+        self._syncing_mpr_max = True
+        try:
+            if hasattr(self, "mpr_container") and (self.mpr_container.isVisible() or not self.mpr_container.isHidden()):
+                self.mpr_container._set_maximized_plane(plane_type or None)
+        finally:
+            self._syncing_mpr_max = False
 
     def _on_viewer_zoom_pan(self, zoom: float, pan: QPointF) -> None:
         if self._is_syncing_zoom_pan:
