@@ -32,6 +32,7 @@ from .workers import (
 )
 from .controls import HUVerticalSlider, DRRProgressDialog
 from .canvas import DicomViewerWidget
+from .mpr_widget import MprPanelWidget, build_ct_volume
 from core.postprocessing import (
     PostprocessingRunner, ALGORITHM_MAR_V9, ALGORITHM_ST_HARD, ALGORITHM_ST_NORMAL,
     ALGORITHM_COMBO_NORMAL, ALGORITHM_COMBO_HARD, clean_series_desc
@@ -59,6 +60,14 @@ class DicomViewerPanel(QWidget):
         self._temp_derived_dirs = []
         self.postprocess_runner = None
         self._target_view_mode_after_load = None
+        self.mpr_active = False
+        self.mpr_vol_orig = None
+        self.mpr_ipp0_orig = None
+        self.mpr_spacing_orig = None
+        self.mpr_vol_derived = None
+        self.mpr_ipp0_derived = None
+        self.mpr_spacing_derived = None
+        self._syncing_mpr = False
         self.struct_files = []
         self.dose_files = []
         self.plan_files = []
@@ -251,6 +260,17 @@ class DicomViewerPanel(QWidget):
         self.btn_hu.clicked.connect(self.toggle_hu)
         top_layout.addWidget(self.btn_hu)
 
+        # Кнопка мультипланарной реконструкции (MPR)
+        self.img_mpr = QIcon(get_resource_path("themes/mpr.png"))
+        self.btn_mpr = QPushButton(self)
+        self.btn_mpr.setIcon(self.img_mpr)
+        self.btn_mpr.setIconSize(QSize(20, 20))
+        self.btn_mpr.setFixedSize(28, 28)
+        self.btn_mpr.setCheckable(True)
+        self.btn_mpr.setToolTip(tr_ui("viewer_mpr_tooltip"))
+        self.btn_mpr.clicked.connect(self.toggle_mpr)
+        top_layout.addWidget(self.btn_mpr)
+
         # Кнопка скрытия надписей OSD
         self.btn_osd = QPushButton(self)
         self.btn_osd.setIcon(self.img_osd)
@@ -292,6 +312,17 @@ class DicomViewerPanel(QWidget):
         self.viewer_derived.zoom_pan_changed.connect(self._on_derived_zoom_pan)
         self.viewer_derived.hide()
         center_layout.addWidget(self.viewer_derived, stretch=1)
+
+        # Контейнеры мультипланарной реконструкции (MPR)
+        self.mpr_container = MprPanelWidget(self)
+        self.mpr_container.cursor_changed.connect(self._on_mpr_orig_cursor_changed)
+        self.mpr_container.hide()
+        center_layout.addWidget(self.mpr_container, stretch=1)
+
+        self.mpr_container_derived = MprPanelWidget(self)
+        self.mpr_container_derived.cursor_changed.connect(self._on_mpr_der_cursor_changed)
+        self.mpr_container_derived.hide()
+        center_layout.addWidget(self.mpr_container_derived, stretch=1)
 
         # Создаем и добавляем шкалу HU справа
         self.setup_hu_panel()
@@ -1053,6 +1084,8 @@ class DicomViewerPanel(QWidget):
             self.btn_bev.setToolTip(tr_ui("viewer_bev_tooltip"))
         self.btn_ruler.setToolTip("Линейка")
         self.btn_hu.setToolTip("Настройка окна HU")
+        if hasattr(self, "btn_mpr"):
+            self.btn_mpr.setToolTip(tr_ui("viewer_mpr_tooltip"))
         self.btn_osd.setToolTip("Показать/скрыть надписи")
         self.btn_close.setToolTip("Закрыть просмотр")
         if hasattr(self, "btn_mode_orig"):
@@ -1388,6 +1421,8 @@ class DicomViewerPanel(QWidget):
             self.btn_ruler.setStyleSheet(style_ruler_active if getattr(self.viewer, "ruler_active", False) else style_ruler_inactive)
         if hasattr(self, "btn_hu"):
             self.btn_hu.setStyleSheet(style_hu_active if getattr(self.viewer, "hu_active", False) else style_hu_inactive)
+        if hasattr(self, "btn_mpr"):
+            self.btn_mpr.setStyleSheet(style_ruler_active if getattr(self, "mpr_active", False) else style_ruler_inactive)
         if hasattr(self, "btn_osd"):
             self.btn_osd.setStyleSheet(style_osd_active if getattr(self.viewer, "osd_visible", False) else style_osd_inactive)
         if hasattr(self, "btn_close"):
@@ -1783,6 +1818,20 @@ class DicomViewerPanel(QWidget):
         if hasattr(self, "hu_panel"):
             self.hu_panel.hide()
 
+        self.mpr_vol_orig = None
+        self.mpr_ipp0_orig = None
+        self.mpr_spacing_orig = None
+        self.mpr_vol_derived = None
+        self.mpr_ipp0_derived = None
+        self.mpr_spacing_derived = None
+        self.mpr_active = False
+        if hasattr(self, "btn_mpr"):
+            self.btn_mpr.setChecked(False)
+        if hasattr(self, "mpr_container"):
+            self.mpr_container.hide()
+        if hasattr(self, "mpr_container_derived"):
+            self.mpr_container_derived.hide()
+
         self.derived_files = []
         self.all_derived_series = {}
         self.current_derived_uid = ""
@@ -1860,6 +1909,12 @@ class DicomViewerPanel(QWidget):
         self.is_loading = True
         self.sorted_files = []
         self.current_index = -1
+        self.mpr_vol_orig = None
+        self.mpr_ipp0_orig = None
+        self.mpr_spacing_orig = None
+        self.mpr_vol_derived = None
+        self.mpr_ipp0_derived = None
+        self.mpr_spacing_derived = None
         self._need_initial_window = True
         self.pixmap_cache.clear()
         self.viewer.clear_viewer()
@@ -2175,17 +2230,104 @@ class DicomViewerPanel(QWidget):
             self.btn_mode_side.setChecked(mode == "side_by_side")
             self.btn_mode_proc.setChecked(mode == "processed")
 
-        if mode == "side_by_side":
-            self.viewer.show()
-            self.viewer_derived.show()
-            self.viewer_derived.set_osd_visible(self.viewer.osd_visible)
-            self.viewer_derived.set_zoom_pan(self.viewer.zoom_factor, self.viewer.pan_offset)
-        else:
-            self.viewer.show()
-            self.viewer_derived.hide()
+        self._update_viewports_visibility()
 
         if self.current_index >= 0:
             self.set_current_slice(self.current_index)
+
+    def toggle_mpr(self) -> None:
+        self.mpr_active = self.btn_mpr.isChecked()
+        if self.mpr_active:
+            self._ensure_mpr_volumes()
+        self._update_viewports_visibility()
+        self.update_buttons_style()
+
+    def _ensure_mpr_volumes(self) -> None:
+        if self.mpr_vol_orig is None and self.sorted_files:
+            res = build_ct_volume(self.sorted_files)
+            if res:
+                self.mpr_vol_orig, self.mpr_ipp0_orig, self.mpr_spacing_orig = res
+                self.mpr_container.set_volume_data(
+                    self.mpr_vol_orig,
+                    self.mpr_ipp0_orig,
+                    self.mpr_spacing_orig,
+                    self.window_width,
+                    self.window_center,
+                    initial_z=max(0, self.current_index)
+                )
+
+        if self.view_mode in ("side_by_side", "processed") and self.derived_files:
+            if self.mpr_vol_derived is None:
+                res_der = build_ct_volume(self.derived_files)
+                if res_der:
+                    self.mpr_vol_derived, self.mpr_ipp0_derived, self.mpr_spacing_derived = res_der
+                    self.mpr_container_derived.set_volume_data(
+                        self.mpr_vol_derived,
+                        self.mpr_ipp0_derived,
+                        self.mpr_spacing_derived,
+                        self.window_width,
+                        self.window_center,
+                        initial_z=max(0, self.current_index)
+                    )
+
+    def _update_viewports_visibility(self) -> None:
+        if getattr(self, "mpr_active", False):
+            self.viewer.hide()
+            self.viewer_derived.hide()
+            self._ensure_mpr_volumes()
+            if self.view_mode == "side_by_side":
+                self.mpr_container.show()
+                self.mpr_container_derived.show()
+            elif self.view_mode == "processed" and self.has_derived:
+                self.mpr_container.hide()
+                self.mpr_container_derived.show()
+            else:
+                self.mpr_container.show()
+                self.mpr_container_derived.hide()
+        else:
+            if hasattr(self, "mpr_container"):
+                self.mpr_container.hide()
+            if hasattr(self, "mpr_container_derived"):
+                self.mpr_container_derived.hide()
+
+            if self.view_mode == "side_by_side":
+                self.viewer.show()
+                self.viewer_derived.show()
+                self.viewer_derived.set_osd_visible(self.viewer.osd_visible)
+                self.viewer_derived.set_zoom_pan(self.viewer.zoom_factor, self.viewer.pan_offset)
+            else:
+                self.viewer.show()
+                self.viewer_derived.hide()
+
+    def _on_mpr_orig_cursor_changed(self, x: int, y: int, z: int) -> None:
+        if getattr(self, "_syncing_mpr", False):
+            return
+        self._syncing_mpr = True
+        try:
+            if hasattr(self, "mpr_container_derived") and self.mpr_container_derived.isVisible():
+                self.mpr_container_derived.set_cursor(x, y, z)
+            if self.current_index != z:
+                self.current_index = z
+                self.slider.blockSignals(True)
+                self.slider.setValue(z)
+                self.slider.blockSignals(False)
+        finally:
+            self._syncing_mpr = False
+
+    def _on_mpr_der_cursor_changed(self, x: int, y: int, z: int) -> None:
+        if getattr(self, "_syncing_mpr", False):
+            return
+        self._syncing_mpr = True
+        try:
+            if hasattr(self, "mpr_container") and self.mpr_container.isVisible():
+                self.mpr_container.set_cursor(x, y, z)
+            if self.current_index != z:
+                self.current_index = z
+                self.slider.blockSignals(True)
+                self.slider.setValue(z)
+                self.slider.blockSignals(False)
+        finally:
+            self._syncing_mpr = False
 
     def _on_viewer_zoom_pan(self, zoom: float, pan: QPointF) -> None:
         if self._is_syncing_zoom_pan:
@@ -2656,6 +2798,12 @@ class DicomViewerPanel(QWidget):
         self.current_index = index
         self.slider.setValue(index)
 
+        if getattr(self, "mpr_active", False):
+            if hasattr(self, "mpr_container") and self.mpr_container.isVisible():
+                self.mpr_container.set_cursor(self.mpr_container.cur_x, self.mpr_container.cur_y, index)
+            if hasattr(self, "mpr_container_derived") and self.mpr_container_derived.isVisible():
+                self.mpr_container_derived.set_cursor(self.mpr_container_derived.cur_x, self.mpr_container_derived.cur_y, index)
+
         orig_fp, orig_frame = self.sorted_files[index]
 
         if getattr(self, "_need_initial_window", False):
@@ -2742,6 +2890,13 @@ class DicomViewerPanel(QWidget):
             return
 
         if not self.is_loading and value != self.current_index:
+            if getattr(self, "mpr_active", False):
+                self.current_index = value
+                if hasattr(self, "mpr_container") and self.mpr_container.isVisible():
+                    self.mpr_container.set_cursor(self.mpr_container.cur_x, self.mpr_container.cur_y, value)
+                if hasattr(self, "mpr_container_derived") and self.mpr_container_derived.isVisible():
+                    self.mpr_container_derived.set_cursor(self.mpr_container_derived.cur_x, self.mpr_container_derived.cur_y, value)
+                return
             self.set_current_slice(value)
 
     def on_slice_scrolled(self, step: int) -> None:
@@ -2786,6 +2941,11 @@ class DicomViewerPanel(QWidget):
                 if pixmap_der:
                     self.viewer_derived.set_dicom_image(pixmap_der, ds_der)
                     self.viewer_derived.set_window_params(self.window_width, self.window_center)
+
+        if hasattr(self, "mpr_container") and self.mpr_container.isVisible():
+            self.mpr_container.set_window_params(self.window_width, self.window_center)
+        if hasattr(self, "mpr_container_derived") and self.mpr_container_derived.isVisible():
+            self.mpr_container_derived.set_window_params(self.window_width, self.window_center)
 
     def apply_preset(self, index: int) -> None:
         preset_type = self.cb_presets.itemData(index)
