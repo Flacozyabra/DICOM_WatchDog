@@ -658,9 +658,13 @@ class MprSliceWidget(QWidget):
 
         # Rotation angle badge pill in top-right
         rot_val = self.rotation_angle
+        parent_panel = self.parent()
+        has_any_rot = False
+        if hasattr(parent_panel, "rot_x") and hasattr(parent_panel, "rot_y") and hasattr(parent_panel, "rot_z"):
+            has_any_rot = (abs(parent_panel.rot_x) > 0.05 or abs(parent_panel.rot_y) > 0.05 or abs(parent_panel.rot_z) > 0.05)
         is_rotated = abs(rot_val) > 0.05
-        pill_color = QColor("#F59E0B") if is_rotated else QColor("#6B7280")
-        bg_alpha = 70 if is_rotated else 30
+        pill_color = QColor("#F59E0B") if (is_rotated or has_any_rot) else QColor("#6B7280")
+        bg_alpha = 70 if (is_rotated or has_any_rot) else 30
 
         self._rot_pill_rect = QRectF(self.width() - 85, 8, 77, 22)
         r_brush = QBrush(QColor(pill_color.red(), pill_color.green(), pill_color.blue(), bg_alpha))
@@ -682,8 +686,12 @@ class MprSliceWidget(QWidget):
         self.setFocus()
         pos_f = QPointF(event.pos())
         if hasattr(self, "_rot_pill_rect") and self._rot_pill_rect.contains(pos_f):
-            self.set_rotation(0.0)
-            self.rotation_changed.emit(self.plane_type, 0.0)
+            parent_panel = self.parent()
+            if hasattr(parent_panel, "reset_rotation"):
+                parent_panel.reset_rotation()
+            else:
+                self.set_rotation(0.0)
+                self.rotation_changed.emit(self.plane_type, 0.0)
             return
 
         if event.button() == BTN_LEFT:
@@ -718,8 +726,10 @@ class MprSliceWidget(QWidget):
                 (event.modifiers() & Qt.KeyboardModifier.ShiftModifier) if hasattr(Qt, "KeyboardModifier")
                 else (event.modifiers() & Qt.ShiftModifier)
             )
-            if event.button() == BTN_MIDDLE and is_shift:
+            if is_shift:
+                # Shift strictly locks to rotation mode (never panning)
                 self._is_rotating = True
+                self._is_panning = False
                 self._rot_start_angle = self.rotation_angle
                 cx = self._last_pivot.x()
                 cy = self._last_pivot.y()
@@ -729,19 +739,26 @@ class MprSliceWidget(QWidget):
                 self.setCursor(CURSOR_SIZEALL)
             else:
                 self._is_panning = True
+                self._is_rotating = False
                 self._pan_start = event.pos()
 
     def mouseMoveEvent(self, event) -> None:
         pos_f = QPointF(event.pos())
 
-        # Handle Shift + MMB rotation around crosshair pivot (inverted to follow hand movement)
+        # Handle Shift + MMB/RMB rotation around crosshair pivot (inverted to follow hand movement)
         if getattr(self, "_is_rotating", False):
             cx = self._last_pivot.x()
             cy = self._last_pivot.y()
             dx = pos_f.x() - cx
             dy = pos_f.y() - cy
+            dist = math.hypot(dx, dy)
+            if dist < 8.0:
+                # Deadzone right at pivot to avoid wild angle spin
+                return
             curr_rad = math.atan2(dy, dx)
             delta_deg = math.degrees(curr_rad - self._mouse_start_rad)
+            # Normalize delta to [-180, 180] to prevent sudden branch-cut jumps
+            delta_deg = (delta_deg + 180.0) % 360.0 - 180.0
             new_angle = round(self._rot_start_angle - delta_deg, 1)
             self.set_rotation(new_angle)
             self.rotation_changed.emit(self.plane_type, self.rotation_angle)
@@ -821,15 +838,16 @@ class MprSliceWidget(QWidget):
         if event.button() == BTN_LEFT:
             self._dragging_axis = None
         elif event.button() in (BTN_MIDDLE, BTN_RIGHT):
-            self._is_panning = False
-            self._pan_start = None
-            self._float_cur = [float(self.cur_x), float(self.cur_y), float(self.cur_z)]
-            parent_panel = self.parent()
-            if hasattr(parent_panel, "on_subview_pan_ended"):
-                parent_panel.on_subview_pan_ended()
             if getattr(self, "_is_rotating", False):
                 self._is_rotating = False
                 self.setCursor(CURSOR_CROSS)
+            elif getattr(self, "_is_panning", False):
+                self._is_panning = False
+                self._pan_start = None
+                self._float_cur = [float(self.cur_x), float(self.cur_y), float(self.cur_z)]
+                parent_panel = self.parent()
+                if hasattr(parent_panel, "on_subview_pan_ended"):
+                    parent_panel.on_subview_pan_ended()
 
     def mouseDoubleClickEvent(self, event) -> None:
         is_shift = bool(
@@ -838,8 +856,12 @@ class MprSliceWidget(QWidget):
         )
         if event.button() == BTN_LEFT:
             if is_shift:
-                self.set_rotation(0.0)
-                self.rotation_changed.emit(self.plane_type, 0.0)
+                parent_panel = self.parent()
+                if hasattr(parent_panel, "reset_rotation"):
+                    parent_panel.reset_rotation()
+                else:
+                    self.set_rotation(0.0)
+                    self.rotation_changed.emit(self.plane_type, 0.0)
                 return
             self.double_clicked.emit(self.plane_type)
 
@@ -914,10 +936,14 @@ class MprSliceWidget(QWidget):
         key_left = Qt.Key.Key_Left if hasattr(Qt.Key, "Key_Left") else Qt.Key_Left
         key_right = Qt.Key.Key_Right if hasattr(Qt.Key, "Key_Right") else Qt.Key_Right
 
-        # Key R: Reset rotation (Eclipse TPS standard)
+        # Key R: Reset rotation across all planes (Eclipse TPS standard)
         if key == key_r:
-            self.set_rotation(0.0)
-            self.rotation_changed.emit(self.plane_type, 0.0)
+            parent_panel = self.parent()
+            if hasattr(parent_panel, "reset_rotation"):
+                parent_panel.reset_rotation()
+            else:
+                self.set_rotation(0.0)
+                self.rotation_changed.emit(self.plane_type, 0.0)
             return
 
         # Ctrl + Left/Right: rotate by 0.1 deg (with Alt by 1.0 deg) (Eclipse TPS standard)
