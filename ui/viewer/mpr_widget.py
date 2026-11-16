@@ -745,7 +745,7 @@ class MprSliceWidget(QWidget):
     def mouseMoveEvent(self, event) -> None:
         pos_f = QPointF(event.pos())
 
-        # Handle Shift + MMB/RMB rotation around crosshair pivot (inverted to follow hand movement)
+        # Handle Shift + MMB/RMB rotation around crosshair pivot (follows hand movement)
         if getattr(self, "_is_rotating", False):
             cx = self._last_pivot.x()
             cy = self._last_pivot.y()
@@ -759,7 +759,7 @@ class MprSliceWidget(QWidget):
             delta_deg = math.degrees(curr_rad - self._mouse_start_rad)
             # Normalize delta to [-180, 180] to prevent sudden branch-cut jumps
             delta_deg = (delta_deg + 180.0) % 360.0 - 180.0
-            new_angle = round(self._rot_start_angle - delta_deg, 1)
+            new_angle = round(self._rot_start_angle + delta_deg, 1)
             self.set_rotation(new_angle)
             self.rotation_changed.emit(self.plane_type, self.rotation_angle)
             return
@@ -776,6 +776,22 @@ class MprSliceWidget(QWidget):
 
         # Handle panning (Middle button or Right button without Shift)
         if getattr(self, "_is_panning", False) and self._pan_start is not None:
+            modifiers = event.modifiers()
+            is_shift = bool(
+                (modifiers & Qt.KeyboardModifier.ShiftModifier) if hasattr(Qt, "KeyboardModifier")
+                else (modifiers & Qt.ShiftModifier)
+            )
+            if is_shift:
+                self._is_panning = False
+                self._is_rotating = True
+                self._rot_start_angle = self.rotation_angle
+                cx = self._last_pivot.x()
+                cy = self._last_pivot.y()
+                dx = pos_f.x() - cx
+                dy = pos_f.y() - cy
+                self._mouse_start_rad = math.atan2(dy, dx)
+                self.setCursor(CURSOR_SIZEALL)
+                return
             delta = event.pos() - self._pan_start
             self._pan_start = event.pos()
 
@@ -1030,7 +1046,7 @@ class MprPanelWidget(QWidget):
         rx, ry, rz = np.radians([self.rot_x, self.rot_y, self.rot_z])
         Rx = np.array([[1, 0, 0], [0, np.cos(rx), -np.sin(rx)], [0, np.sin(rx), np.cos(rx)]], dtype=np.float64)
         Ry = np.array([[np.cos(ry), 0, np.sin(ry)], [0, 1, 0], [-np.sin(ry), 0, np.cos(ry)]], dtype=np.float64)
-        Rz = np.array([[np.cos(rz), -np.sin(rz), 0], [np.sin(rz), np.cos(rz), 0], [0, 0, 1]], dtype=np.float64)
+        Rz = np.array([[np.cos(rz), np.sin(rz), 0], [-np.sin(rz), np.cos(rz), 0], [0, 0, 1]], dtype=np.float64)
         # Intrinsic rotation: axial rotation (Rz) acts directly around the tilted long axis (Ry @ Rx)
         return Ry @ Rx @ Rz
 
