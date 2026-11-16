@@ -1031,7 +1031,8 @@ class MprPanelWidget(QWidget):
         Rx = np.array([[1, 0, 0], [0, np.cos(rx), -np.sin(rx)], [0, np.sin(rx), np.cos(rx)]], dtype=np.float64)
         Ry = np.array([[np.cos(ry), 0, np.sin(ry)], [0, 1, 0], [-np.sin(ry), 0, np.cos(ry)]], dtype=np.float64)
         Rz = np.array([[np.cos(rz), -np.sin(rz), 0], [np.sin(rz), np.cos(rz), 0], [0, 0, 1]], dtype=np.float64)
-        return Rz @ Ry @ Rx
+        # Intrinsic rotation: axial rotation (Rz) acts directly around the tilted long axis (Ry @ Rx)
+        return Ry @ Rx @ Rz
 
     def _setup_ui(self) -> None:
         self.setStyleSheet("background-color: #000000;")
