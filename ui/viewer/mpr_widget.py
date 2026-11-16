@@ -196,6 +196,7 @@ class MprSliceWidget(QWidget):
     slice_scrolled = pyqtSignal(int, int, int)
     zoom_changed = pyqtSignal(float)
     pan_changed = pyqtSignal(QPointF)
+    pan_delta_requested = pyqtSignal(str, float, float) # (plane_type, dx, dy)
     rotation_changed = pyqtSignal(str, float) # (plane_type, angle)
     double_clicked = pyqtSignal(str) # plane_type
     cycle_plane_requested = pyqtSignal()
@@ -358,20 +359,14 @@ class MprSliceWidget(QWidget):
 
     def set_cursor(self, cur_x: int, cur_y: int, cur_z: int) -> None:
         need_slice_refresh = False
-        is_oblique = (
-            hasattr(self, "rot_matrix")
-            and self.rot_matrix is not None
-            and not np.allclose(self.rot_matrix, np.eye(3), atol=1e-3)
-        )
-        if is_oblique:
-            if self.cur_x != cur_x or self.cur_y != cur_y or self.cur_z != cur_z:
+        if self.plane_type == PLANE_AXIAL:
+            if cur_z != self.cur_z:
                 need_slice_refresh = True
-        else:
-            if self.plane_type == PLANE_AXIAL and cur_z != self.cur_z:
+        elif self.plane_type == PLANE_CORONAL:
+            if cur_y != self.cur_y:
                 need_slice_refresh = True
-            elif self.plane_type == PLANE_CORONAL and cur_y != self.cur_y:
-                need_slice_refresh = True
-            elif self.plane_type == PLANE_SAGITTAL and cur_x != self.cur_x:
+        elif self.plane_type == PLANE_SAGITTAL:
+            if cur_x != self.cur_x:
                 need_slice_refresh = True
 
         self.cur_x = cur_x
@@ -399,6 +394,17 @@ class MprSliceWidget(QWidget):
         self.pan_offset = QPointF(pan)
         self.update()
 
+    def _compute_scale(self) -> float:
+        parent_panel = self.parent()
+        if hasattr(parent_panel, "get_unified_scale"):
+            s = parent_panel.get_unified_scale()
+            if s > 0:
+                return s
+        w_width = float(self.width())
+        w_height = float(self.height())
+        max_w, max_h = self._get_volume_max_dims()
+        return min(w_width / max_w, w_height / max_h) * self.zoom_factor
+
     def _extract_oblique_slice(self) -> np.ndarray:
         n_z, rows, cols = self.vol.shape
         dy, dx, dz = self.spacing
@@ -412,9 +418,10 @@ class MprSliceWidget(QWidget):
             cur_y_val = float(self.cur_y)
             cur_z_val = float(self.cur_z)
 
-        cx_mm = cur_x_val * float(dx)
-        cy_mm = cur_y_val * float(dy)
-        cz_mm = cur_z_val * float(dz)
+        mid_x_mm = (cols - 1.0) / 2.0 * float(dx)
+        mid_y_mm = (rows - 1.0) / 2.0 * float(dy)
+        mid_z_mm = (n_z - 1.0) / 2.0 * float(dz)
+        mid_r = (n_z - 1.0) / 2.0
 
         R = getattr(self, "rot_matrix", np.eye(3, dtype=np.float64))
         ex = R[:, 0]
@@ -422,30 +429,31 @@ class MprSliceWidget(QWidget):
         ez = R[:, 2]
 
         if self.plane_type == PLANE_AXIAL:
-            u_vec = ex
-            v_vec = ey
-            h, w = rows, cols
-            u_vals = (np.arange(w, dtype=np.float32) - cur_x_val) * float(dx)
-            v_vals = (np.arange(h, dtype=np.float32) - cur_y_val) * float(dy)
-        elif self.plane_type == PLANE_CORONAL:
-            u_vec = ex
-            v_vec = -ez
-            h, w = n_z, cols
-            cur_r = (n_z - 1.0) - cur_z_val
-            u_vals = (np.arange(w, dtype=np.float32) - cur_x_val) * float(dx)
-            v_vals = (np.arange(h, dtype=np.float32) - cur_r) * float(dz)
-        else:  # PLANE_SAGITTAL
-            u_vec = ey
-            v_vec = -ez
-            h, w = n_z, rows
-            cur_r = (n_z - 1.0) - cur_z_val
-            u_vals = (np.arange(w, dtype=np.float32) - cur_y_val) * float(dy)
-            v_vals = (np.arange(h, dtype=np.float32) - cur_r) * float(dz)
+            w_z = (cur_z_val - (n_z - 1.0) / 2.0) * float(dz)
+            u_vals = (np.arange(cols, dtype=np.float32) - (cols - 1.0) / 2.0) * float(dx)
+            v_vals = (np.arange(rows, dtype=np.float32) - (rows - 1.0) / 2.0) * float(dy)
+            uu, vv = np.meshgrid(u_vals, v_vals)
+            px = mid_x_mm + uu * ex[0] + vv * ey[0] + w_z * ez[0]
+            py = mid_y_mm + uu * ex[1] + vv * ey[1] + w_z * ez[1]
+            pz = mid_z_mm + uu * ex[2] + vv * ey[2] + w_z * ez[2]
 
-        uu, vv = np.meshgrid(u_vals, v_vals)
-        px = cx_mm + uu * u_vec[0] + vv * v_vec[0]
-        py = cy_mm + uu * u_vec[1] + vv * v_vec[1]
-        pz = cz_mm + uu * u_vec[2] + vv * v_vec[2]
+        elif self.plane_type == PLANE_CORONAL:
+            w_y = (cur_y_val - (rows - 1.0) / 2.0) * float(dy)
+            u_vals = (np.arange(cols, dtype=np.float32) - (cols - 1.0) / 2.0) * float(dx)
+            v_vals = (np.arange(n_z, dtype=np.float32) - mid_r) * float(dz)
+            uu, vv = np.meshgrid(u_vals, v_vals)
+            px = mid_x_mm + uu * ex[0] + w_y * ey[0] + vv * (-ez[0])
+            py = mid_y_mm + uu * ex[1] + w_y * ey[1] + vv * (-ez[1])
+            pz = mid_z_mm + uu * ex[2] + w_y * ey[2] + vv * (-ez[2])
+
+        else:  # PLANE_SAGITTAL
+            w_x = (cur_x_val - (cols - 1.0) / 2.0) * float(dx)
+            u_vals = (np.arange(rows, dtype=np.float32) - (rows - 1.0) / 2.0) * float(dy)
+            v_vals = (np.arange(n_z, dtype=np.float32) - mid_r) * float(dz)
+            uu, vv = np.meshgrid(u_vals, v_vals)
+            px = mid_x_mm + w_x * ex[0] + uu * ey[0] + vv * (-ez[0])
+            py = mid_y_mm + w_x * ex[1] + uu * ey[1] + vv * (-ez[1])
+            pz = mid_z_mm + w_x * ex[2] + uu * ey[2] + vv * (-ez[2])
 
         coords = np.array([pz / dz, py / dy, px / dx], dtype=np.float32)
         slice_hu = scipy.ndimage.map_coordinates(
@@ -537,8 +545,7 @@ class MprSliceWidget(QWidget):
         phys_w, phys_h, img_w, img_h = self._get_physical_dims()
 
         # Compute aspect-preserving fit rectangle with unified volume scale and pan
-        max_w, max_h = self._get_volume_max_dims()
-        scale = min(w_width / max_w, w_height / max_h) * self.zoom_factor
+        scale = self._compute_scale()
         draw_w = phys_w * scale
         draw_h = phys_h * scale
         draw_x = (w_width - draw_w) / 2.0 + self.pan_offset.x()
@@ -555,7 +562,7 @@ class MprSliceWidget(QWidget):
         pen_vert.setWidth(1)
         pen_vert.setStyle(PEN_DASH)
 
-        if getattr(self, "_is_panning", False) and hasattr(self, "_float_cur") and self._float_cur is not None:
+        if hasattr(self, "_float_cur") and self._float_cur is not None:
             fx_val = float(self._float_cur[0])
             fy_val = float(self._float_cur[1])
             fz_val = float(self._float_cur[2])
@@ -797,6 +804,7 @@ class MprSliceWidget(QWidget):
                 self.cursor_moved.emit(new_x, new_y, new_z)
 
             self.pan_changed.emit(self.pan_offset)
+            self.pan_delta_requested.emit(self.plane_type, dx_pan, dy_pan)
             self.update()
             return
 
@@ -821,6 +829,9 @@ class MprSliceWidget(QWidget):
             self._is_panning = False
             self._pan_start = None
             self._float_cur = [float(self.cur_x), float(self.cur_y), float(self.cur_z)]
+            parent_panel = self.parent()
+            if hasattr(parent_panel, "on_subview_pan_ended"):
+                parent_panel.on_subview_pan_ended()
             if getattr(self, "_is_rotating", False):
                 self._is_rotating = False
                 self.setCursor(CURSOR_CROSS)
@@ -984,6 +995,9 @@ class MprPanelWidget(QWidget):
         self.window_center = 40.0
         self.zoom_factor = 1.0
         self.pan_offset = QPointF(0, 0)
+        self.pan_x = 0.0
+        self.pan_y = 0.0
+        self.pan_z = 0.0
         self.rot_x = 0.0
         self.rot_y = 0.0
         self.rot_z = 0.0
@@ -1003,6 +1017,10 @@ class MprPanelWidget(QWidget):
         self.grid_layout = QGridLayout(self)
         self.grid_layout.setContentsMargins(0, 0, 0, 0)
         self.grid_layout.setSpacing(1)
+        self.grid_layout.setRowStretch(0, 1)
+        self.grid_layout.setRowStretch(1, 1)
+        self.grid_layout.setColumnStretch(0, 1)
+        self.grid_layout.setColumnStretch(1, 1)
 
         # 3 Orthogonal viewports
         self.view_axial = MprSliceWidget(PLANE_AXIAL, self)
@@ -1013,6 +1031,7 @@ class MprPanelWidget(QWidget):
             v.cursor_moved.connect(self._on_subview_cursor_moved)
             v.zoom_changed.connect(self._on_subview_zoom_changed)
             v.pan_changed.connect(self._on_subview_pan_changed)
+            v.pan_delta_requested.connect(self._on_subview_pan_delta)
             v.rotation_changed.connect(self._on_subview_rotation_changed)
             v.double_clicked.connect(self._toggle_maximize_plane)
             v.cycle_plane_requested.connect(self._cycle_maximized_plane)
@@ -1048,6 +1067,9 @@ class MprPanelWidget(QWidget):
         self.window_center = window_center
         self.zoom_factor = 1.0
         self.pan_offset = QPointF(0, 0)
+        self.pan_x = 0.0
+        self.pan_y = 0.0
+        self.pan_z = 0.0
         self.rot_x = 0.0
         self.rot_y = 0.0
         self.rot_z = 0.0
@@ -1092,19 +1114,41 @@ class MprPanelWidget(QWidget):
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
             v.set_zoom(self.zoom_factor)
 
+    def get_unified_scale(self) -> float:
+        if getattr(self, "_maximized_plane", None) is not None:
+            return 0.0
+        if self.vol is None:
+            return 0.0
+        spacing = float(self.grid_layout.spacing())
+        cell_w = max(1.0, (float(self.width()) - spacing) / 2.0)
+        cell_h = max(1.0, (float(self.height()) - spacing) / 2.0)
+        n_z, rows, cols = self.vol.shape
+        dy, dx, dz = self.spacing
+        max_w = max(float(cols * dx), float(rows * dy))
+        max_h = max(float(rows * dy), float(n_z * dz))
+        return min(cell_w / max_w, cell_h / max_h) * self.zoom_factor
+
     def set_pan(self, pan: QPointF) -> None:
         self.pan_offset = QPointF(pan)
-        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
-            v.set_pan(pan)
+        self.pan_x = pan.x()
+        self.pan_y = pan.y()
+        self.view_axial.set_pan(QPointF(self.pan_x, self.pan_y))
+        self.view_coronal.set_pan(QPointF(self.pan_x, self.pan_z))
+        self.view_sagittal.set_pan(QPointF(self.pan_y, self.pan_z))
 
     def set_plane_pan(self, plane_type: str, pan: QPointF) -> None:
-        for p, v in [
-            (PLANE_AXIAL, self.view_axial),
-            (PLANE_CORONAL, self.view_coronal),
-            (PLANE_SAGITTAL, self.view_sagittal),
-        ]:
-            if p == plane_type:
-                v.set_pan(pan)
+        if plane_type == PLANE_AXIAL:
+            self.pan_x = pan.x()
+            self.pan_y = pan.y()
+        elif plane_type == PLANE_CORONAL:
+            self.pan_x = pan.x()
+            self.pan_z = pan.y()
+        elif plane_type == PLANE_SAGITTAL:
+            self.pan_y = pan.x()
+            self.pan_z = pan.y()
+        self.view_axial.set_pan(QPointF(self.pan_x, self.pan_y))
+        self.view_coronal.set_pan(QPointF(self.pan_x, self.pan_z))
+        self.view_sagittal.set_pan(QPointF(self.pan_y, self.pan_z))
 
     def set_plane_rotation(self, plane_type: str, angle: float) -> None:
         if plane_type == "all":
@@ -1135,6 +1179,13 @@ class MprPanelWidget(QWidget):
         if self.vol is None:
             return
         self.reset_rotation()
+        self.pan_x = 0.0
+        self.pan_y = 0.0
+        self.pan_z = 0.0
+        self.pan_offset = QPointF(0, 0)
+        self.view_axial.set_pan(QPointF(0, 0))
+        self.view_coronal.set_pan(QPointF(0, 0))
+        self.view_sagittal.set_pan(QPointF(0, 0))
         n_z, rows, cols = self.vol.shape
         cx = cols // 2
         cy = rows // 2
@@ -1146,16 +1197,46 @@ class MprPanelWidget(QWidget):
         self.cur_x = x
         self.cur_y = y
         self.cur_z = z
+        sender_view = self.sender()
+        float_cur = getattr(sender_view, "_float_cur", None)
+        is_panning = getattr(sender_view, "_is_panning", False)
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
-            if v != self.sender():
+            if v != sender_view:
+                if float_cur is not None:
+                    v._float_cur = list(float_cur)
+                v._is_panning = is_panning
                 v.set_cursor(x, y, z)
         self.cursor_changed.emit(x, y, z)
+
+    def on_subview_pan_ended(self) -> None:
+        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+            v._is_panning = False
+            v._float_cur = [float(v.cur_x), float(v.cur_y), float(v.cur_z)]
+            v.update()
 
     def _on_subview_zoom_changed(self, zoom: float) -> None:
         self.zoom_factor = max(0.05, min(30.0, float(zoom)))
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
             v.set_zoom(self.zoom_factor)
         self.zoom_changed.emit(self.zoom_factor)
+
+    def _on_subview_pan_delta(self, plane_type: str, dx: float, dy: float) -> None:
+        if plane_type == PLANE_AXIAL:
+            self.pan_x += dx
+            self.pan_y += dy
+        elif plane_type == PLANE_CORONAL:
+            self.pan_x += dx
+            self.pan_z += dy
+        else:  # PLANE_SAGITTAL
+            self.pan_y += dx
+            self.pan_z += dy
+
+        self.view_axial.set_pan(QPointF(self.pan_x, self.pan_y))
+        self.view_coronal.set_pan(QPointF(self.pan_x, self.pan_z))
+        self.view_sagittal.set_pan(QPointF(self.pan_y, self.pan_z))
+        if plane_type:
+            self.plane_pan_changed.emit(plane_type, QPointF(self.pan_x, self.pan_y))
+        self.pan_changed.emit(QPointF(self.pan_x, self.pan_y))
 
     def _on_subview_pan_changed(self, pan: QPointF) -> None:
         sender_view = self.sender()
