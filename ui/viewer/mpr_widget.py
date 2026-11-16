@@ -398,9 +398,19 @@ class MprSliceWidget(QWidget):
     def _extract_oblique_slice(self) -> np.ndarray:
         n_z, rows, cols = self.vol.shape
         dy, dx, dz = self.spacing
-        cx_mm = float(self.cur_x * dx)
-        cy_mm = float(self.cur_y * dy)
-        cz_mm = float(self.cur_z * dz)
+
+        if getattr(self, "_is_panning", False) and hasattr(self, "_float_cur") and self._float_cur is not None:
+            cur_x_val = float(self._float_cur[0])
+            cur_y_val = float(self._float_cur[1])
+            cur_z_val = float(self._float_cur[2])
+        else:
+            cur_x_val = float(self.cur_x)
+            cur_y_val = float(self.cur_y)
+            cur_z_val = float(self.cur_z)
+
+        cx_mm = cur_x_val * float(dx)
+        cy_mm = cur_y_val * float(dy)
+        cz_mm = cur_z_val * float(dz)
 
         R = getattr(self, "rot_matrix", np.eye(3, dtype=np.float64))
         ex = R[:, 0]
@@ -411,20 +421,22 @@ class MprSliceWidget(QWidget):
             u_vec = ex
             v_vec = ey
             h, w = rows, cols
-            u_vals = (np.arange(w, dtype=np.float32) - float(self.cur_x)) * float(dx)
-            v_vals = (np.arange(h, dtype=np.float32) - float(self.cur_y)) * float(dy)
+            u_vals = (np.arange(w, dtype=np.float32) - cur_x_val) * float(dx)
+            v_vals = (np.arange(h, dtype=np.float32) - cur_y_val) * float(dy)
         elif self.plane_type == PLANE_CORONAL:
             u_vec = ex
             v_vec = -ez
             h, w = n_z, cols
-            u_vals = (np.arange(w, dtype=np.float32) - float(self.cur_x)) * float(dx)
-            v_vals = (((n_z - 1.0) - np.arange(h, dtype=np.float32)) - float(self.cur_z)) * float(dz)
+            cur_r = (n_z - 1.0) - cur_z_val
+            u_vals = (np.arange(w, dtype=np.float32) - cur_x_val) * float(dx)
+            v_vals = (np.arange(h, dtype=np.float32) - cur_r) * float(dz)
         else:  # PLANE_SAGITTAL
             u_vec = ey
             v_vec = -ez
             h, w = n_z, rows
-            u_vals = (np.arange(w, dtype=np.float32) - float(self.cur_y)) * float(dy)
-            v_vals = (((n_z - 1.0) - np.arange(h, dtype=np.float32)) - float(self.cur_z)) * float(dz)
+            cur_r = (n_z - 1.0) - cur_z_val
+            u_vals = (np.arange(w, dtype=np.float32) - cur_y_val) * float(dy)
+            v_vals = (np.arange(h, dtype=np.float32) - cur_r) * float(dz)
 
         uu, vv = np.meshgrid(u_vals, v_vals)
         px = cx_mm + uu * u_vec[0] + vv * v_vec[0]
