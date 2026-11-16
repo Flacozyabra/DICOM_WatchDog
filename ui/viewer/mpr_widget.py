@@ -6,7 +6,7 @@ import scipy.ndimage
 
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QPointF, QRectF, QThread, QEvent
 from PyQt6.QtWidgets import (
-    QWidget, QGridLayout, QFrame, QSizePolicy
+    QWidget, QGridLayout, QFrame, QSizePolicy, QMenu, QMessageBox
 )
 from PyQt6.QtGui import (
     QPainter, QPen, QColor, QFont, QPixmap, QImage,
@@ -186,6 +186,135 @@ def build_ct_volume(sorted_files: list) -> tuple[np.ndarray, list[float], tuple[
     return load_ct_volume_data(sorted_files)
 
 
+def detect_applicator_orientation(
+    vol: np.ndarray,
+    spacing: tuple[float, float, float]
+) -> dict | None:
+    """
+    Detects high-density metallic brachytherapy applicator (tandem/metrocolpostat) in 3D volume.
+    Calculates primary shaft tilt (rot_x, rot_y), bend plane angle (rot_z), and pivot voxel.
+    Returns:
+        dict: {
+            "cur_x": int,
+            "cur_y": int,
+            "cur_z": int,
+            "rot_x": float,
+            "rot_y": float,
+            "rot_z": float,
+        }
+        or None if no applicator detected.
+    """
+    if vol is None or vol.ndim != 3:
+        return None
+
+    dy, dx, dz = float(spacing[0]), float(spacing[1]), float(spacing[2])
+    n_z, rows, cols = vol.shape
+
+    # Metallic density threshold (> 2000 HU, fallback to 1500 HU)
+    thresh = 2000.0
+    metal_mask = vol > thresh
+    if np.sum(metal_mask) < 50:
+        thresh = 1500.0
+        metal_mask = vol > thresh
+        if np.sum(metal_mask) < 50:
+            return None
+
+    z_metal = np.argwhere(np.any(metal_mask, axis=(1, 2))).flatten()
+    if len(z_metal) < 10:
+        return None
+
+    z_top = int(z_metal.max())
+    top_coords = np.argwhere(metal_mask[z_top])
+    if len(top_coords) == 0:
+        return None
+    prev_c = np.mean(top_coords, axis=0)  # [y, x]
+
+    track = []
+    for z in range(z_top, -1, -1):
+        sl = metal_mask[z]
+        if not np.any(sl):
+            continue
+        labeled, num = scipy.ndimage.label(sl)
+        if num == 0:
+            continue
+        best_dist = 1e9
+        best_c = None
+        for i in range(1, num + 1):
+            comp_pts = np.argwhere(labeled == i)
+            c = np.mean(comp_pts, axis=0)
+            d = math.hypot(float(c[0] - prev_c[0]), float(c[1] - prev_c[1]))
+            if d < best_dist:
+                best_dist = d
+                best_c = c
+        if best_dist < 15.0:  # max jump threshold between adjacent slices
+            track.append((z, float(best_c[0]), float(best_c[1])))
+            prev_c = best_c
+
+    if len(track) < 10:
+        return None
+
+    track_arr = np.array(track)  # [z, y, x]
+    pts_mm = np.column_stack([track_arr[:, 2] * dx, track_arr[:, 1] * dy, track_arr[:, 0] * dz])
+
+    n_pts = len(track_arr)
+    # The upper ~35-40% is the curved tip, lower ~60-65% is the straight shaft
+    split_idx = max(5, int(n_pts * 0.4))
+    tip_pts = pts_mm[:split_idx]
+    shaft_pts = pts_mm[split_idx:]
+
+    if len(shaft_pts) < 5:
+        shaft_pts = pts_mm
+
+    # PCA on shaft to get longitudinal direction V_shaft
+    mean_shaft = np.mean(shaft_pts, axis=0)
+    cov = np.cov(shaft_pts - mean_shaft, rowvar=False)
+    eigvals, eigvecs = np.linalg.eigh(cov)
+    v_shaft = eigvecs[:, -1]
+    if v_shaft[2] < 0:
+        v_shaft = -v_shaft
+
+    # Calculate rot_x and rot_y
+    rot_x = float(np.degrees(-np.arcsin(np.clip(v_shaft[1], -1.0, 1.0))))
+    cos_rx = math.cos(math.radians(rot_x))
+    if abs(cos_rx) > 1e-4:
+        rot_y = float(np.degrees(np.arcsin(np.clip(v_shaft[0] / cos_rx, -1.0, 1.0))))
+    else:
+        rot_y = 0.0
+
+    # Pivot point at the transition/cervical junction
+    pivot_z_idx = min(len(track_arr) - 1, split_idx)
+    pivot_voxel = track_arr[pivot_z_idx]
+    cur_z = int(round(pivot_voxel[0]))
+    cur_y = int(round(pivot_voxel[1]))
+    cur_x = int(round(pivot_voxel[2]))
+
+    # Calculate rot_z (axial bend angle)
+    rx = math.radians(rot_x)
+    ry = math.radians(rot_y)
+    Rx = np.array([[1, 0, 0], [0, math.cos(rx), -math.sin(rx)], [0, math.sin(rx), math.cos(rx)]])
+    Ry = np.array([[math.cos(ry), 0, math.sin(ry)], [0, 1, 0], [-math.sin(ry), 0, math.cos(ry)]])
+    A = Ry @ Rx
+
+    pivot_pt_mm = pts_mm[pivot_z_idx]
+    Q_tip = (tip_pts - pivot_pt_mm) @ A
+    v_bend = np.mean(Q_tip[:, 0:2], axis=0)
+    bend_mag = math.hypot(float(v_bend[0]), float(v_bend[1]))
+
+    if bend_mag > 0.5:
+        rot_z = float(np.degrees(math.atan2(float(v_bend[0]), float(v_bend[1]))))
+    else:
+        rot_z = 0.0
+
+    return {
+        "cur_x": cur_x,
+        "cur_y": cur_y,
+        "cur_z": cur_z,
+        "rot_x": round(rot_x, 1),
+        "rot_y": round(rot_y, 1),
+        "rot_z": round(rot_z, 1)
+    }
+
+
 class MprSliceWidget(QWidget):
     """
     Individual viewport for rendering one orthogonal plane (Axial, Coronal, or Sagittal).
@@ -235,6 +364,7 @@ class MprSliceWidget(QWidget):
         self._handle_v_bottom = QRectF()
         self._last_pivot = QPointF(0, 0)
         self._rot_pill_rect = QRectF()
+        self._context_menu_shown = False
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus if hasattr(Qt, "FocusPolicy") else Qt.StrongFocus)
         self.setMouseTracking(True)
@@ -684,6 +814,7 @@ class MprSliceWidget(QWidget):
 
     def mousePressEvent(self, event) -> None:
         self.setFocus()
+        self._context_menu_shown = False
         pos_f = QPointF(event.pos())
         if hasattr(self, "_rot_pill_rect") and self._rot_pill_rect.contains(pos_f):
             parent_panel = self.parent()
@@ -859,11 +990,81 @@ class MprSliceWidget(QWidget):
                 self.setCursor(CURSOR_CROSS)
             elif getattr(self, "_is_panning", False):
                 self._is_panning = False
+                if event.button() == BTN_RIGHT and not getattr(self, "_context_menu_shown", False):
+                    if self._pan_start is not None:
+                        curr_pos = event.pos()
+                        dist = math.hypot(float(curr_pos.x() - self._pan_start.x()), float(curr_pos.y() - self._pan_start.y()))
+                        if dist < 5.0:
+                            self._context_menu_shown = True
+                            g_pos = event.globalPosition().toPoint() if hasattr(event, "globalPosition") else event.globalPos()
+                            self._show_context_menu(g_pos)
                 self._pan_start = None
                 self._float_cur = [float(self.cur_x), float(self.cur_y), float(self.cur_z)]
                 parent_panel = self.parent()
                 if hasattr(parent_panel, "on_subview_pan_ended"):
                     parent_panel.on_subview_pan_ended()
+
+    def contextMenuEvent(self, event) -> None:
+        if not getattr(self, "_context_menu_shown", False):
+            self._context_menu_shown = True
+            g_pos = event.globalPos()
+            self._show_context_menu(g_pos)
+
+    def _show_context_menu(self, global_pos: QPoint) -> None:
+        parent_panel = self.parent()
+        if parent_panel is None:
+            return
+
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #1F2937;
+                color: #F9FAFB;
+                border: 1px solid #374151;
+                border-radius: 6px;
+                padding: 4px;
+                font-family: 'Segoe UI';
+                font-size: 12px;
+            }
+            QMenu::item {
+                padding: 6px 20px 6px 12px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #2563EB;
+                color: #FFFFFF;
+            }
+            QMenu::item:disabled {
+                color: #6B7280;
+            }
+            QMenu::separator {
+                height: 1px;
+                background: #374151;
+                margin: 4px 8px;
+            }
+        """)
+
+        action_align = menu.addAction("Выровнять оси по аппликатору")
+        action_reset = menu.addAction("Сбросить поворот осей (R)")
+        menu.addSeparator()
+        action_export = menu.addAction("Экспорт выровненного КТ в DICOM (для Eclipse)...")
+
+        if hasattr(parent_panel, "auto_align_applicator"):
+            action_align.triggered.connect(parent_panel.auto_align_applicator)
+        else:
+            action_align.setEnabled(False)
+
+        if hasattr(parent_panel, "reset_rotation"):
+            action_reset.triggered.connect(parent_panel.reset_rotation)
+        else:
+            action_reset.setEnabled(False)
+
+        if hasattr(parent_panel, "export_aligned_dicom_series"):
+            action_export.triggered.connect(parent_panel.export_aligned_dicom_series)
+        else:
+            action_export.setEnabled(False)
+
+        menu.exec(global_pos)
 
     def mouseDoubleClickEvent(self, event) -> None:
         is_shift = bool(
@@ -1230,6 +1431,45 @@ class MprPanelWidget(QWidget):
         cz = n_z // 2
         self.set_cursor(cx, cy, cz)
         self.cursor_changed.emit(cx, cy, cz)
+
+    def auto_align_applicator(self) -> bool:
+        if self.vol is None:
+            return False
+
+        res = detect_applicator_orientation(self.vol, self.spacing)
+        if res is None:
+            QMessageBox.information(
+                self,
+                "Авто-выравнивание",
+                "Металлический аппликатор (метрокольпостат) не обнаружен в КТ-объеме."
+            )
+            return False
+
+        self.rot_x = res["rot_x"]
+        self.rot_y = res["rot_y"]
+        self.rot_z = res["rot_z"]
+        self.cur_x = res["cur_x"]
+        self.cur_y = res["cur_y"]
+        self.cur_z = res["cur_z"]
+
+        R = self._compute_rotation_matrix()
+        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+            a = self.rot_z if v.plane_type == PLANE_AXIAL else (self.rot_y if v.plane_type == PLANE_CORONAL else self.rot_x)
+            v._float_cur = [float(self.cur_x), float(self.cur_y), float(self.cur_z)]
+            v.set_rotation_matrix(R, a)
+            v.set_cursor(self.cur_x, self.cur_y, self.cur_z)
+
+        self.rotation_changed.emit("all", 0.0)
+        self.cursor_changed.emit(self.cur_x, self.cur_y, self.cur_z)
+        return True
+
+    def export_aligned_dicom_series(self) -> None:
+        """Placeholder for Step 2 export."""
+        QMessageBox.information(
+            self,
+            "Экспорт КТ в DICOM",
+            "Функция экспорта выровненной КТ-серии будет выполнена на Шаге 2."
+        )
 
     def _on_subview_cursor_moved(self, x: int, y: int, z: int) -> None:
         self.cur_x = x
