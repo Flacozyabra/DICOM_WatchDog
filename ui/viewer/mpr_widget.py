@@ -418,42 +418,37 @@ class MprSliceWidget(QWidget):
             cur_y_val = float(self.cur_y)
             cur_z_val = float(self.cur_z)
 
-        mid_x_mm = (cols - 1.0) / 2.0 * float(dx)
-        mid_y_mm = (rows - 1.0) / 2.0 * float(dy)
-        mid_z_mm = (n_z - 1.0) / 2.0 * float(dz)
-        mid_r = (n_z - 1.0) / 2.0
+        cx_rot = cur_x_val * float(dx)
+        cy_rot = cur_y_val * float(dy)
+        cz_rot = cur_z_val * float(dz)
 
         R = getattr(self, "rot_matrix", np.eye(3, dtype=np.float64))
-        ex = R[:, 0]
-        ey = R[:, 1]
-        ez = R[:, 2]
 
         if self.plane_type == PLANE_AXIAL:
-            w_z = (cur_z_val - (n_z - 1.0) / 2.0) * float(dz)
-            u_vals = (np.arange(cols, dtype=np.float32) - (cols - 1.0) / 2.0) * float(dx)
-            v_vals = (np.arange(rows, dtype=np.float32) - (rows - 1.0) / 2.0) * float(dy)
-            uu, vv = np.meshgrid(u_vals, v_vals)
-            px = mid_x_mm + uu * ex[0] + vv * ey[0] + w_z * ez[0]
-            py = mid_y_mm + uu * ex[1] + vv * ey[1] + w_z * ez[1]
-            pz = mid_z_mm + uu * ex[2] + vv * ey[2] + w_z * ez[2]
+            u_ax = (np.arange(cols, dtype=np.float32) - cur_x_val) * float(dx)
+            v_ax = (np.arange(rows, dtype=np.float32) - cur_y_val) * float(dy)
+            uu, vv = np.meshgrid(u_ax, v_ax)
+            px = cx_rot + uu * R[0, 0] + vv * R[0, 1]
+            py = cy_rot + uu * R[1, 0] + vv * R[1, 1]
+            pz = cz_rot + uu * R[2, 0] + vv * R[2, 1]
 
         elif self.plane_type == PLANE_CORONAL:
-            w_y = (cur_y_val - (rows - 1.0) / 2.0) * float(dy)
-            u_vals = (np.arange(cols, dtype=np.float32) - (cols - 1.0) / 2.0) * float(dx)
-            v_vals = (np.arange(n_z, dtype=np.float32) - mid_r) * float(dz)
-            uu, vv = np.meshgrid(u_vals, v_vals)
-            px = mid_x_mm + uu * ex[0] + w_y * ey[0] + vv * (-ez[0])
-            py = mid_y_mm + uu * ex[1] + w_y * ey[1] + vv * (-ez[1])
-            pz = mid_z_mm + uu * ex[2] + w_y * ey[2] + vv * (-ez[2])
+            u_cor = (np.arange(cols, dtype=np.float32) - cur_x_val) * float(dx)
+            cur_r_cor = (n_z - 1.0) - cur_z_val
+            v_cor = (cur_r_cor - np.arange(n_z, dtype=np.float32)) * float(dz)
+            uu, vv = np.meshgrid(u_cor, v_cor)
+            px = cx_rot + uu * R[0, 0] + vv * R[0, 2]
+            py = cy_rot + uu * R[1, 0] + vv * R[1, 2]
+            pz = cz_rot + uu * R[2, 0] + vv * R[2, 2]
 
         else:  # PLANE_SAGITTAL
-            w_x = (cur_x_val - (cols - 1.0) / 2.0) * float(dx)
-            u_vals = (np.arange(rows, dtype=np.float32) - (rows - 1.0) / 2.0) * float(dy)
-            v_vals = (np.arange(n_z, dtype=np.float32) - mid_r) * float(dz)
-            uu, vv = np.meshgrid(u_vals, v_vals)
-            px = mid_x_mm + w_x * ex[0] + uu * ey[0] + vv * (-ez[0])
-            py = mid_y_mm + w_x * ex[1] + uu * ey[1] + vv * (-ez[1])
-            pz = mid_z_mm + w_x * ex[2] + uu * ey[2] + vv * (-ez[2])
+            u_sag = (np.arange(rows, dtype=np.float32) - cur_y_val) * float(dy)
+            cur_r_sag = (n_z - 1.0) - cur_z_val
+            v_sag = (cur_r_sag - np.arange(n_z, dtype=np.float32)) * float(dz)
+            uu, vv = np.meshgrid(u_sag, v_sag)
+            px = cx_rot + uu * R[0, 1] + vv * R[0, 2]
+            py = cy_rot + uu * R[1, 1] + vv * R[1, 2]
+            pz = cz_rot + uu * R[2, 1] + vv * R[2, 2]
 
         coords = np.array([pz / dz, py / dy, px / dx], dtype=np.float32)
         slice_hu = scipy.ndimage.map_coordinates(
@@ -1275,12 +1270,22 @@ class MprPanelWidget(QWidget):
         self._maximized_plane = plane_type
         if plane_type is None:
             # Restore 2x2 layout
+            self.grid_layout.setRowStretch(0, 1)
+            self.grid_layout.setRowStretch(1, 1)
+            self.grid_layout.setColumnStretch(0, 1)
+            self.grid_layout.setColumnStretch(1, 1)
             self.view_axial.show()
             self.view_empty.show()
             self.view_coronal.show()
             self.view_sagittal.show()
         else:
-            # Maximize clicked plane
+            # Maximize clicked plane: assign 100% stretch to its row and column
+            active_row = 0 if plane_type == PLANE_AXIAL else 1
+            active_col = 1 if plane_type == PLANE_SAGITTAL else 0
+            self.grid_layout.setRowStretch(0, 1 if active_row == 0 else 0)
+            self.grid_layout.setRowStretch(1, 1 if active_row == 1 else 0)
+            self.grid_layout.setColumnStretch(0, 1 if active_col == 0 else 0)
+            self.grid_layout.setColumnStretch(1, 1 if active_col == 1 else 0)
             for p, v in [
                 (PLANE_AXIAL, self.view_axial),
                 (PLANE_CORONAL, self.view_coronal),
