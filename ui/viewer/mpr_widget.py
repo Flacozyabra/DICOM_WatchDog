@@ -250,6 +250,8 @@ class MprSliceWidget(QWidget):
             norm_angle += 360.0
         if abs(norm_angle) < 0.05:
             norm_angle = 0.0
+        else:
+            norm_angle = round(norm_angle, 1)
         self.rotation_angle = norm_angle
         self.refresh_slice()
 
@@ -261,6 +263,8 @@ class MprSliceWidget(QWidget):
             norm_angle += 360.0
         if abs(norm_angle) < 0.05:
             norm_angle = 0.0
+        else:
+            norm_angle = round(norm_angle, 1)
         if abs(self.rotation_angle - norm_angle) > 1e-4:
             self.rotation_angle = norm_angle
             self.rotation_changed.emit(self.plane_type, self.rotation_angle)
@@ -388,7 +392,7 @@ class MprSliceWidget(QWidget):
             self.refresh_slice()
 
     def set_zoom(self, zoom: float) -> None:
-        self.zoom_factor = zoom
+        self.zoom_factor = max(0.05, min(30.0, float(zoom)))
         self.update()
 
     def set_pan(self, pan: QPointF) -> None:
@@ -728,7 +732,7 @@ class MprSliceWidget(QWidget):
     def mouseMoveEvent(self, event) -> None:
         pos_f = QPointF(event.pos())
 
-        # Handle Shift + MMB rotation around crosshair pivot
+        # Handle Shift + MMB rotation around crosshair pivot (inverted to follow hand movement)
         if getattr(self, "_is_rotating", False):
             cx = self._last_pivot.x()
             cy = self._last_pivot.y()
@@ -736,7 +740,7 @@ class MprSliceWidget(QWidget):
             dy = pos_f.y() - cy
             curr_rad = math.atan2(dy, dx)
             delta_deg = math.degrees(curr_rad - self._mouse_start_rad)
-            new_angle = self._rot_start_angle + delta_deg
+            new_angle = round(self._rot_start_angle - delta_deg, 1)
             self.set_rotation(new_angle)
             self.rotation_changed.emit(self.plane_type, self.rotation_angle)
             return
@@ -847,10 +851,14 @@ class MprSliceWidget(QWidget):
         if delta == 0:
             return
 
-        # Shift + Wheel: Rotate active plane by +/- 1 degree
+        # Shift + Wheel: Rotate active plane by +/- 0.1 degree (with Alt: +/- 1.0 degree)
         if is_shift:
-            step = 1.0 if delta > 0 else -1.0
-            new_angle = self.rotation_angle + step
+            is_alt = bool(
+                (modifiers & Qt.KeyboardModifier.AltModifier) if hasattr(Qt, "KeyboardModifier")
+                else (modifiers & Qt.AltModifier)
+            )
+            step = (1.0 if is_alt else 0.1) if delta > 0 else (-1.0 if is_alt else -0.1)
+            new_angle = round(self.rotation_angle + step, 1)
             self.set_rotation(new_angle)
             self.rotation_changed.emit(self.plane_type, self.rotation_angle)
             return
@@ -858,7 +866,7 @@ class MprSliceWidget(QWidget):
         # Ctrl + Wheel: Zoom all planes synchronously (inverted to match 2D viewer)
         if is_ctrl:
             factor = 0.9 if delta > 0 else 1.1
-            new_zoom = max(0.2, min(5.0, self.zoom_factor * factor))
+            new_zoom = max(0.05, min(30.0, self.zoom_factor * factor))
             self.zoom_changed.emit(new_zoom)
             return
 
@@ -906,12 +914,12 @@ class MprSliceWidget(QWidget):
             self.rotation_changed.emit(self.plane_type, 0.0)
             return
 
-        # Ctrl + Left/Right: rotate by 1 deg (with Alt by 5 deg) (Eclipse TPS standard)
+        # Ctrl + Left/Right: rotate by 0.1 deg (with Alt by 1.0 deg) (Eclipse TPS standard)
         if is_ctrl and key in (key_left, key_right):
-            step = 5.0 if is_alt else 1.0
+            step = 1.0 if is_alt else 0.1
             if key == key_left:
                 step = -step
-            new_angle = self.rotation_angle + step
+            new_angle = round(self.rotation_angle + step, 1)
             self.set_rotation(new_angle)
             self.rotation_changed.emit(self.plane_type, self.rotation_angle)
             return
@@ -1080,9 +1088,9 @@ class MprPanelWidget(QWidget):
             v.set_window_params(width, center)
 
     def set_zoom(self, zoom: float) -> None:
-        self.zoom_factor = zoom
+        self.zoom_factor = max(0.05, min(30.0, float(zoom)))
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
-            v.set_zoom(zoom)
+            v.set_zoom(self.zoom_factor)
 
     def set_pan(self, pan: QPointF) -> None:
         self.pan_offset = QPointF(pan)
@@ -1144,10 +1152,10 @@ class MprPanelWidget(QWidget):
         self.cursor_changed.emit(x, y, z)
 
     def _on_subview_zoom_changed(self, zoom: float) -> None:
-        self.zoom_factor = zoom
+        self.zoom_factor = max(0.05, min(30.0, float(zoom)))
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
-            v.set_zoom(zoom)
-        self.zoom_changed.emit(zoom)
+            v.set_zoom(self.zoom_factor)
+        self.zoom_changed.emit(self.zoom_factor)
 
     def _on_subview_pan_changed(self, pan: QPointF) -> None:
         sender_view = self.sender()
