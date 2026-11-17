@@ -391,13 +391,8 @@ class MprExportAlignedWorker(QThread):
                 return
 
             study_dir = os.path.dirname(self.slice_paths[0])
-            if self.mode == "new":
-                output_dir = os.path.join(study_dir, "CT_Aligned")
-                os.makedirs(output_dir, exist_ok=True)
-                new_series_uid = generate_uid()
-            else:
-                output_dir = study_dir
-                new_series_uid = generate_uid()
+            output_dir = study_dir
+            new_series_uid = generate_uid()
 
             dy, dx, dz = self.spacing
             n_z, rows, cols = self.vol.shape
@@ -475,7 +470,12 @@ class MprExportAlignedWorker(QThread):
                     except Exception:
                         ds.SeriesNumber = 101
                     ds.ImageType = ["DERIVED", "SECONDARY", "AXIAL"]
-                    out_fp = os.path.join(output_dir, f"CT_ALIGNED_{k + 1:04d}.dcm")
+                    orig_fname = os.path.basename(in_fp)
+                    if orig_fname.upper().startswith("DERIVED_"):
+                        out_fname = f"DERIVED_ALIGNED_{orig_fname.split('_', 2)[-1]}"
+                    else:
+                        out_fname = f"DERIVED_ALIGNED_{orig_fname}"
+                    out_fp = os.path.join(output_dir, out_fname)
                 else:
                     out_fp = in_fp
 

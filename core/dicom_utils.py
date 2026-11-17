@@ -216,6 +216,7 @@ DERIVED_PREFIX_TITLES = {
     "STH": "Soft Tissue Hard",
     "MAR_STN": "MAR v9 + ST Normal",
     "MAR_STH": "MAR v9 + ST Hard",
+    "ALIGNED": "Aligned",
 }
 
 
@@ -226,13 +227,14 @@ def parse_derived_prefix(filename: str) -> Tuple[str, str]:
     Examples:
       'DERIVED_MAR_CT.1.dcm'     -> ('MAR', 'MAR v9')
       'DERIVED_MAR_STN_CT.1.dcm' -> ('MAR_STN', 'MAR v9 + ST Normal')
+      'DERIVED_ALIGNED_CT.1.dcm' -> ('ALIGNED', 'Aligned')
       'DERIVED_CT.1.dcm'         -> ('DERIVED', 'Postprocessed')
     """
     upper = os.path.basename(filename).upper()
     if not upper.startswith("DERIVED_"):
         return "", ""
     rest = upper[len("DERIVED_"):]
-    for pref in ("MAR_STN", "MAR_STH", "MAR", "STN", "STH"):
+    for pref in ("MAR_STN", "MAR_STH", "MAR", "STN", "STH", "ALIGNED"):
         if rest.startswith(pref + "_") or rest.startswith(pref + "."):
             return pref, DERIVED_PREFIX_TITLES[pref]
     return "DERIVED", "Postprocessed"
