@@ -61,6 +61,7 @@ class DicomViewerPanel(QWidget):
         self.postprocess_runner = None
         self._target_view_mode_after_load = None
         self.mpr_active = False
+        self._mpr_did_maximize_window = False
         self.mpr_vol_orig = None
         self.mpr_ipp0_orig = None
         self.mpr_spacing_orig = None
@@ -89,6 +90,33 @@ class DicomViewerPanel(QWidget):
         self.default_ww = 400.0
 
         self.setup_ui()
+        default_zoom = self._get_default_zoom()
+        self.viewer.zoom_factor = default_zoom
+        if hasattr(self, "viewer_derived"):
+            self.viewer_derived.zoom_factor = default_zoom
+
+    def _get_default_zoom(self) -> float:
+        cfg = getattr(self.parent_app, "config", {}) or {}
+        try:
+            pct = float(cfg.get("viewer_default_zoom", 150))
+        except (TypeError, ValueError):
+            pct = 150.0
+        return max(0.5, min(4.0, pct / 100.0))
+
+    def _apply_mpr_window_maximize(self, enter: bool) -> None:
+        app_win = getattr(self, "parent_app", None)
+        if app_win is None or not hasattr(app_win, "isMaximized"):
+            return
+        if enter:
+            cfg = getattr(app_win, "config", {}) or {}
+            enabled = str(cfg.get("mpr_fullscreen_on_open", "False")).lower() == "true"
+            if enabled and not app_win.isMaximized():
+                self._mpr_did_maximize_window = True
+                app_win.showMaximized()
+        elif getattr(self, "_mpr_did_maximize_window", False):
+            self._mpr_did_maximize_window = False
+            if app_win.isMaximized():
+                app_win.showNormal()
 
     def setup_ui(self) -> None:
         root_layout = QHBoxLayout(self)
@@ -112,8 +140,6 @@ class DicomViewerPanel(QWidget):
         self.lbl_info.setStyleSheet("font-size: 13px; font-weight: bold; color: #FFFFFF;")
         self.lbl_info.hide()
         top_layout.addWidget(self.lbl_info)
-
-        top_layout.addStretch()
 
         # Метка и выпадающий список для выбора плана RTPLAN (и связанной дозы RTDOSE)
         self.lbl_plan = QLabel("PLAN", self)
@@ -180,7 +206,23 @@ class DicomViewerPanel(QWidget):
         self.cb_structures.setEnabled(False)
         top_layout.addWidget(self.cb_structures)
 
+        # Кнопка отображения пучков на срезах КТ
+        self.btn_beams = QPushButton(tr_ui("viewer_beams_btn"), self)
+        self.btn_beams.setFixedSize(50, 28)
+        self.btn_beams.setToolTip(tr_ui("viewer_beams_tooltip"))
+        self.btn_beams.setEnabled(False)
+        self.btn_beams.clicked.connect(self.toggle_beams)
+        top_layout.addWidget(self.btn_beams)
 
+        # Кнопка "Вид из пучка" (BEV)
+        self.btn_bev = QPushButton(tr_ui("viewer_bev_btn"), self)
+        self.btn_bev.setFixedSize(36, 28)
+        self.btn_bev.setToolTip(tr_ui("viewer_bev_tooltip"))
+        self.btn_bev.setEnabled(False)
+        self.btn_bev.clicked.connect(self.toggle_bev)
+        top_layout.addWidget(self.btn_bev)
+
+        top_layout.addStretch()
 
         # Метка и выпадающий список пресетов HU
         self.lbl_presets = QLabel("HU", self)
@@ -215,22 +257,6 @@ class DicomViewerPanel(QWidget):
         self.img_hu = QIcon(get_resource_path("themes/hu.png"))
         self.img_osd = QIcon(get_resource_path("themes/eye.png"))
         self.img_close = QIcon(get_resource_path("themes/close.png"))
-
-        # Кнопка отображения пучков на срезах КТ
-        self.btn_beams = QPushButton(tr_ui("viewer_beams_btn"), self)
-        self.btn_beams.setFixedSize(50, 28)
-        self.btn_beams.setToolTip(tr_ui("viewer_beams_tooltip"))
-        self.btn_beams.setEnabled(False)
-        self.btn_beams.clicked.connect(self.toggle_beams)
-        top_layout.addWidget(self.btn_beams)
-
-        # Кнопка "Вид из пучка" (BEV)
-        self.btn_bev = QPushButton(tr_ui("viewer_bev_btn"), self)
-        self.btn_bev.setFixedSize(36, 28)
-        self.btn_bev.setToolTip(tr_ui("viewer_bev_tooltip"))
-        self.btn_bev.setEnabled(False)
-        self.btn_bev.clicked.connect(self.toggle_bev)
-        top_layout.addWidget(self.btn_bev)
 
         # Кнопка "Доза в точке"
         self.btn_dose_point = QPushButton(self)
@@ -1041,6 +1067,7 @@ class DicomViewerPanel(QWidget):
         self.cb_presets.addItem(tr_ui("viewer_preset_bone"), "bone")
         self.cb_presets.addItem(tr_ui("viewer_preset_lung"), "lung")
         self.cb_presets.addItem(tr_ui("viewer_preset_brain"), "brain")
+        self.cb_presets.addItem(tr_ui("viewer_preset_iron"), "iron")
         if cur_idx >= 0:
             self.cb_presets.setCurrentIndex(cur_idx)
         self.cb_presets.blockSignals(False)
@@ -1844,6 +1871,7 @@ class DicomViewerPanel(QWidget):
         self.mpr_ipp0_derived = None
         self.mpr_spacing_derived = None
         self.mpr_active = False
+        self._apply_mpr_window_maximize(False)
         if hasattr(self, "btn_mpr"):
             self.btn_mpr.setChecked(False)
         if hasattr(self, "mpr_container"):
@@ -1937,6 +1965,10 @@ class DicomViewerPanel(QWidget):
         self._need_initial_window = True
         self.pixmap_cache.clear()
         self.viewer.clear_viewer()
+        default_zoom = self._get_default_zoom()
+        self.viewer.set_zoom_pan(default_zoom, QPointF(0, 0))
+        if hasattr(self, "viewer_derived"):
+            self.viewer_derived.set_zoom_pan(default_zoom, QPointF(0, 0))
         self.hu_panel.hide()
         self.update_buttons_style()
 
@@ -2262,6 +2294,7 @@ class DicomViewerPanel(QWidget):
                 self.mpr_active = False
                 self.btn_mpr.setChecked(False)
         self._update_viewports_visibility()
+        self._apply_mpr_window_maximize(self.mpr_active)
         self.update_buttons_style()
 
     def _ensure_mpr_volumes(self) -> bool:
@@ -2297,6 +2330,7 @@ class DicomViewerPanel(QWidget):
             progress_dialog.set_custom_progress(cur, tot, text)
 
         def on_fin(res_orig, res_der) -> None:
+            default_zoom = self._get_default_zoom()
             if res_orig is not None:
                 self.mpr_vol_orig, self.mpr_ipp0_orig, self.mpr_spacing_orig = res_orig
                 self.mpr_container.set_volume_data(
@@ -2306,7 +2340,8 @@ class DicomViewerPanel(QWidget):
                     self.window_width,
                     self.window_center,
                     initial_z=max(0, self.current_index),
-                    slice_files=self.sorted_files
+                    slice_files=self.sorted_files,
+                    initial_zoom=default_zoom
                 )
             if res_der is not None:
                 self.mpr_vol_derived, self.mpr_ipp0_derived, self.mpr_spacing_derived = res_der
@@ -2317,7 +2352,8 @@ class DicomViewerPanel(QWidget):
                     self.window_width,
                     self.window_center,
                     initial_z=max(0, self.current_index),
-                    slice_files=self.derived_files
+                    slice_files=self.derived_files,
+                    initial_zoom=default_zoom
                 )
             progress_dialog.accept()
 
@@ -2379,7 +2415,8 @@ class DicomViewerPanel(QWidget):
         self._syncing_mpr = True
         try:
             if hasattr(self, "mpr_container_derived") and (self.mpr_container_derived.isVisible() or not self.mpr_container_derived.isHidden()):
-                self.mpr_container_derived.set_cursor(x, y, z)
+                float_cur = getattr(self.mpr_container, "_float_cur", None)
+                self.mpr_container_derived.set_cursor(x, y, z, float_cur=float_cur)
             if self.current_index != z:
                 self.current_index = z
                 self.slider.blockSignals(True)
@@ -2394,7 +2431,8 @@ class DicomViewerPanel(QWidget):
         self._syncing_mpr = True
         try:
             if hasattr(self, "mpr_container") and (self.mpr_container.isVisible() or not self.mpr_container.isHidden()):
-                self.mpr_container.set_cursor(x, y, z)
+                float_cur = getattr(self.mpr_container_derived, "_float_cur", None)
+                self.mpr_container.set_cursor(x, y, z, float_cur=float_cur)
             if self.current_index != z:
                 self.current_index = z
                 self.slider.blockSignals(True)
@@ -2974,9 +3012,9 @@ class DicomViewerPanel(QWidget):
 
         if getattr(self, "mpr_active", False):
             if hasattr(self, "mpr_container") and self.mpr_container.isVisible():
-                self.mpr_container.set_cursor(self.mpr_container.cur_x, self.mpr_container.cur_y, index)
+                self.mpr_container.scroll_axial_to(index)
             if hasattr(self, "mpr_container_derived") and self.mpr_container_derived.isVisible():
-                self.mpr_container_derived.set_cursor(self.mpr_container_derived.cur_x, self.mpr_container_derived.cur_y, index)
+                self.mpr_container_derived.scroll_axial_to(index)
 
         orig_fp, orig_frame = self.sorted_files[index]
 
@@ -3067,9 +3105,9 @@ class DicomViewerPanel(QWidget):
             if getattr(self, "mpr_active", False):
                 self.current_index = value
                 if hasattr(self, "mpr_container") and self.mpr_container.isVisible():
-                    self.mpr_container.set_cursor(self.mpr_container.cur_x, self.mpr_container.cur_y, value)
+                    self.mpr_container.scroll_axial_to(value)
                 if hasattr(self, "mpr_container_derived") and self.mpr_container_derived.isVisible():
-                    self.mpr_container_derived.set_cursor(self.mpr_container_derived.cur_x, self.mpr_container_derived.cur_y, value)
+                    self.mpr_container_derived.scroll_axial_to(value)
                 return
             self.set_current_slice(value)
 
@@ -3124,22 +3162,18 @@ class DicomViewerPanel(QWidget):
 
     def apply_preset(self, index: int) -> None:
         preset_type = self.cb_presets.itemData(index)
-        
+        preset_map = {
+            "soft": (400.0, 40.0),
+            "bone": (1500.0, 300.0),
+            "lung": (1500.0, -600.0),
+            "brain": (80.0, 40.0),
+            "iron": (16000.0, 8000.0),
+        }
         if preset_type == "dicom":
             self.window_width = self.default_ww
             self.window_center = self.default_wc
-        elif preset_type == "soft":
-            self.window_width = 400.0
-            self.window_center = 40.0
-        elif preset_type == "bone":
-            self.window_width = 1500.0
-            self.window_center = 300.0
-        elif preset_type == "lung":
-            self.window_width = 1500.0
-            self.window_center = -600.0
-        elif preset_type == "brain":
-            self.window_width = 80.0
-            self.window_center = 40.0
+        elif preset_type in preset_map:
+            self.window_width, self.window_center = preset_map[preset_type]
 
         self.on_window_changed(self.window_width, self.window_center)
 

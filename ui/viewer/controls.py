@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QRect
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
@@ -133,10 +134,12 @@ class HUVerticalSlider(QWidget):
         self.drag_start_lower = 0.0
         self.drag_start_upper = 0.0
 
-        self.setMinimumWidth(60)
+        self.setMinimumWidth(64)
         self.setMouseTracking(True)
 
     def set_values(self, lower: float, upper: float) -> None:
+        self.min_hu = -1000.0 if lower >= -1000.0 else float(math.floor(lower / 1000.0) * 1000.0)
+        self.max_hu = 3000.0 if upper <= 3000.0 else float(math.ceil(upper / 1000.0) * 1000.0)
         lower = max(self.min_hu, min(self.max_hu, lower))
         upper = max(self.min_hu, min(self.max_hu, upper))
         if lower > upper:
@@ -206,12 +209,21 @@ class HUVerticalSlider(QWidget):
         font.setPointSize(8)
         painter.setFont(font)
         
-        for hu in range(int(self.min_hu), int(self.max_hu) + 1, 500):
+        hu_span = self.max_hu - self.min_hu
+        if hu_span > 10000:
+            label_step = 4000
+            tick_step = 2000
+        elif hu_span > 5000:
+            label_step = 2000
+            tick_step = 1000
+        else:
+            label_step = 1000
+            tick_step = 500
+        for hu in range(int(self.min_hu), int(self.max_hu) + 1, tick_step):
             y_tick = self._hu_to_y(hu)
             painter.drawLine(cx - self.bar_width // 2 - 2, y_tick, cx - self.bar_width // 2, y_tick)
             
-            # Подписи (каждые 1000 HU)
-            if hu % 1000 == 0:
+            if hu % label_step == 0:
                 painter.setPen(QPen(QColor("#9CA3AF"), 1))
                 painter.drawText(cx + self.bar_width // 2 + 5, y_tick + 3, str(hu))
                 painter.setPen(QPen(QColor("#4B5563"), 1))

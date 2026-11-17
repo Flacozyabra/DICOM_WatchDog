@@ -10,7 +10,7 @@ from pydicom.uid import generate_uid
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QPointF, QRectF, QThread, QEvent
 from PyQt6.QtWidgets import (
     QWidget, QGridLayout, QFrame, QSizePolicy, QMenu, QMessageBox,
-    QDialog, QVBoxLayout, QLabel, QPushButton
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
 )
 from PyQt6.QtGui import (
     QPainter, QPen, QColor, QFont, QPixmap, QImage,
@@ -201,25 +201,29 @@ def show_dark_message_box(
     apply_dark_title_bar(dlg)
     dlg.setStyleSheet("""
         QMessageBox {
-            background-color: #111827;
-            font-family: 'Segoe UI';
+            background-color: #202020;
+            font-family: 'Segoe UI', -apple-system, Roboto, sans-serif;
         }
         QLabel {
-            color: #F9FAFB;
+            background-color: transparent;
+            border: none;
+            color: #ffffff;
             font-size: 13px;
         }
         QPushButton {
-            background-color: #2563EB;
-            color: #FFFFFF;
+            background-color: #1f538d;
+            color: #ffffff;
             border: none;
             border-radius: 6px;
             padding: 6px 18px;
-            font-size: 12px;
-            font-weight: 500;
-            min-width: 65px;
+            font-size: 13px;
+            min-width: 72px;
         }
         QPushButton:hover {
-            background-color: #1D4ED8;
+            background-color: #2a69a5;
+        }
+        QPushButton:pressed {
+            background-color: #1a4675;
         }
     """)
     return dlg.exec()
@@ -228,7 +232,7 @@ def show_dark_message_box(
 class MprExportChoiceDialog(QDialog):
     """
     Dark-themed modal dialog prompting user whether to replace original CT
-    or save aligned series as a new DICOM series for Eclipse.
+    or save aligned series as a new DICOM series.
     """
     def __init__(
         self,
@@ -239,101 +243,125 @@ class MprExportChoiceDialog(QDialog):
         n_slices: int
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Экспорт выровненного КТ в DICOM")
+        self.setWindowTitle(tr_ui("viewer_mpr_save_title"))
         self.setMinimumWidth(440)
         self.selected_action = None  # "replace", "new", or None
 
         apply_dark_title_bar(self)
         self.setStyleSheet("""
             QDialog {
-                background-color: #111827;
-                color: #F9FAFB;
-                font-family: 'Segoe UI';
+                background-color: #202020;
+                color: #ffffff;
+                font-family: 'Segoe UI', -apple-system, Roboto, sans-serif;
             }
             QLabel {
-                color: #F9FAFB;
+                background-color: transparent;
+                border: none;
+                color: #ffffff;
+            }
+            QFrame#mprSaveInfoCard {
+                background-color: #161616;
+                border: 1px solid #2d2d2d;
+                border-radius: 8px;
             }
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(14)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(12)
 
-        title_lbl = QLabel("Экспорт выровненного КТ (для Eclipse)")
-        title_lbl.setStyleSheet("font-size: 15px; font-weight: bold; color: #FFFFFF;")
+        title_lbl = QLabel(tr_ui("viewer_mpr_save_header"), self)
+        title_lbl.setStyleSheet("font-size: 15px; font-weight: bold; color: #ffffff;")
         layout.addWidget(title_lbl)
 
+        info_card = QFrame(self)
+        info_card.setObjectName("mprSaveInfoCard")
+        info_layout = QVBoxLayout(info_card)
+        info_layout.setContentsMargins(14, 12, 14, 12)
         info_lbl = QLabel(
-            f"Текущие углы выравнивания осей:\n"
-            f"  • Аксиальная (XY): {rot_z:+.1f}°\n"
-            f"  • Коронарная (XZ): {rot_y:+.1f}°\n"
-            f"  • Сагиттальная (YZ): {rot_x:+.1f}°\n"
-            f"Срезов для пересчета: {n_slices}\n\n"
-            f"Выберите способ сохранения серии:"
+            tr_ui("viewer_mpr_save_info", rot_z, rot_y, rot_x, n_slices),
+            info_card
         )
-        info_lbl.setStyleSheet("font-size: 13px; color: #D1D5DB; line-height: 1.4;")
-        layout.addWidget(info_lbl)
+        info_lbl.setStyleSheet("font-size: 13px; color: #d4d4d8;")
+        info_lbl.setWordWrap(True)
+        info_layout.addWidget(info_lbl)
+        layout.addWidget(info_card)
 
-        btn_replace = QPushButton("Заменить исходное КТ")
-        btn_replace.setCursor(CURSOR_HAND)
-        btn_replace.setStyleSheet("""
-            QPushButton {
-                background-color: #DC2626;
-                color: #FFFFFF;
-                border: none;
-                border-radius: 6px;
-                padding: 10px 16px;
-                font-size: 13px;
-                font-weight: bold;
-                text-align: left;
-            }
-            QPushButton:hover {
-                background-color: #B91C1C;
-            }
-        """)
-        btn_replace.setToolTip("Перезаписать исходные DICOM файлы в папке исследования")
-        btn_replace.clicked.connect(self._on_replace)
-        layout.addWidget(btn_replace)
-
-        btn_new = QPushButton("Сохранить как новое КТ (в папку CT_Aligned)")
+        btn_new = QPushButton(tr_ui("viewer_mpr_save_new"), self)
         btn_new.setCursor(CURSOR_HAND)
         btn_new.setStyleSheet("""
             QPushButton {
-                background-color: #2563EB;
-                color: #FFFFFF;
+                background-color: #1f538d;
+                color: #ffffff;
                 border: none;
                 border-radius: 6px;
-                padding: 10px 16px;
+                padding: 10px 14px;
                 font-size: 13px;
-                font-weight: bold;
+                font-weight: 600;
                 text-align: left;
             }
             QPushButton:hover {
-                background-color: #1D4ED8;
+                background-color: #2a69a5;
+            }
+            QPushButton:pressed {
+                background-color: #1a4675;
             }
         """)
-        btn_new.setToolTip("Сохранить в подпапку CT_Aligned с новым SeriesInstanceUID")
+        btn_new.setToolTip(tr_ui("viewer_mpr_save_new_tip"))
         btn_new.clicked.connect(self._on_new)
         layout.addWidget(btn_new)
 
-        btn_cancel = QPushButton("Отмена")
-        btn_cancel.setCursor(CURSOR_HAND)
-        btn_cancel.setStyleSheet("""
+        btn_replace = QPushButton(tr_ui("viewer_mpr_save_replace"), self)
+        btn_replace.setCursor(CURSOR_HAND)
+        btn_replace.setStyleSheet("""
             QPushButton {
-                background-color: #374151;
-                color: #9CA3AF;
-                border: none;
+                background-color: #2a1818;
+                color: #fca5a5;
+                border: 1px solid #7f2929;
                 border-radius: 6px;
-                padding: 8px 16px;
-                font-size: 12px;
+                padding: 10px 14px;
+                font-size: 13px;
+                font-weight: 600;
+                text-align: left;
             }
             QPushButton:hover {
-                background-color: #4B5563;
-                color: #FFFFFF;
+                background-color: #3a1f1f;
+                border-color: #a63434;
+                color: #ffffff;
+            }
+            QPushButton:pressed {
+                background-color: #221212;
+            }
+        """)
+        btn_replace.setToolTip(tr_ui("viewer_mpr_save_replace_tip"))
+        btn_replace.clicked.connect(self._on_replace)
+        layout.addWidget(btn_replace)
+
+        bottom_row = QHBoxLayout()
+        bottom_row.addStretch()
+        btn_cancel = QPushButton(tr_ui("btn_cancel"), self)
+        btn_cancel.setCursor(CURSOR_HAND)
+        btn_cancel.setFixedHeight(32)
+        btn_cancel.setMinimumWidth(96)
+        btn_cancel.setStyleSheet("""
+            QPushButton {
+                background-color: #3a3a3a;
+                color: #ffffff;
+                border: 1px solid #555555;
+                border-radius: 6px;
+                padding: 4px 16px;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4a;
+            }
+            QPushButton:pressed {
+                background-color: #2a2a2a;
             }
         """)
         btn_cancel.clicked.connect(self.reject)
-        layout.addWidget(btn_cancel)
+        bottom_row.addWidget(btn_cancel)
+        layout.addLayout(bottom_row)
 
     def _on_replace(self) -> None:
         self.selected_action = "replace"
@@ -365,7 +393,9 @@ class MprExportAlignedWorker(QThread):
         cur_y: int,
         cur_z: int,
         mode: str,
-        parent=None
+        parent=None,
+        origin_mm: np.ndarray | list[float] | None = None,
+        float_cur: list[float] | tuple[float, float, float] | None = None
     ) -> None:
         super().__init__(parent)
         self.slice_paths = list(slice_paths)
@@ -378,6 +408,8 @@ class MprExportAlignedWorker(QThread):
         self.cur_y = int(cur_y)
         self.cur_z = int(cur_z)
         self.mode = mode
+        self.origin_mm = np.array(origin_mm, dtype=np.float64) if origin_mm is not None else np.zeros(3, dtype=np.float64)
+        self.float_cur = list(float_cur) if float_cur is not None else [float(self.cur_x), float(self.cur_y), float(self.cur_z)]
         self._is_cancelled = False
 
     def cancel(self) -> None:
@@ -387,7 +419,7 @@ class MprExportAlignedWorker(QThread):
         try:
             n_slices = len(self.slice_paths)
             if n_slices == 0 or self.vol is None:
-                self.error_signal.emit("Нет данных для экспорта.")
+                self.error_signal.emit(tr_ui("viewer_mpr_no_export_data"))
                 return
 
             study_dir = os.path.dirname(self.slice_paths[0])
@@ -403,12 +435,11 @@ class MprExportAlignedWorker(QThread):
             Rz = np.array([[np.cos(rz), np.sin(rz), 0], [-np.sin(rz), np.cos(rz), 0], [0, 0, 1]], dtype=np.float64)
             R = Ry @ Rx @ Rz
 
-            cx_rot = self.cur_x * dx
-            cy_rot = self.cur_y * dy
-            cz_rot = self.cur_z * dz
+            c_world = _compute_world_cursor_mm(R, self.origin_mm, self.float_cur, self.spacing)
+            cx_rot, cy_rot, cz_rot = float(c_world[0]), float(c_world[1]), float(c_world[2])
 
-            u_ax = (np.arange(cols, dtype=np.float32) - self.cur_x) * dx
-            v_ax = (np.arange(rows, dtype=np.float32) - self.cur_y) * dy
+            u_ax = (np.arange(cols, dtype=np.float32) - float(self.float_cur[0])) * dx
+            v_ax = (np.arange(rows, dtype=np.float32) - float(self.float_cur[1])) * dy
             uu, vv = np.meshgrid(u_ax, v_ax)
 
             out_files = []
@@ -420,7 +451,7 @@ class MprExportAlignedWorker(QThread):
                 in_fp = self.slice_paths[k]
                 self.progress_signal.emit(k + 1, n_slices, f"{k + 1} / {n_slices}")
 
-                w = (k - self.cur_z) * dz
+                w = (k - float(self.float_cur[2])) * dz
                 px = cx_rot + uu * R[0, 0] + vv * R[0, 1] + w * R[0, 2]
                 py = cy_rot + uu * R[1, 0] + vv * R[1, 1] + w * R[1, 2]
                 pz = cz_rot + uu * R[2, 0] + vv * R[2, 1] + w * R[2, 2]
@@ -597,12 +628,17 @@ def detect_applicator_orientation(
     else:
         rot_y = 0.0
 
-    # Pivot point at the transition/cervical junction
+    # Pivot point at the transition/cervical junction projected onto the fitted shaft axis
     pivot_z_idx = min(len(track_arr) - 1, split_idx)
-    pivot_voxel = track_arr[pivot_z_idx]
-    cur_z = int(round(pivot_voxel[0]))
-    cur_y = int(round(pivot_voxel[1]))
-    cur_x = int(round(pivot_voxel[2]))
+    raw_pivot_mm = pts_mm[pivot_z_idx]
+    proj_t = float(np.dot(raw_pivot_mm - mean_shaft, v_shaft))
+    pivot_pt_mm = mean_shaft + proj_t * v_shaft
+    pivot_fx = float(np.clip(pivot_pt_mm[0] / dx, 0.0, float(cols - 1)))
+    pivot_fy = float(np.clip(pivot_pt_mm[1] / dy, 0.0, float(rows - 1)))
+    pivot_fz = float(np.clip(pivot_pt_mm[2] / dz, 0.0, float(n_z - 1)))
+    cur_x = int(round(pivot_fx))
+    cur_y = int(round(pivot_fy))
+    cur_z = int(round(pivot_fz))
 
     # Calculate rot_z (axial bend angle)
     rx = math.radians(rot_x)
@@ -611,7 +647,6 @@ def detect_applicator_orientation(
     Ry = np.array([[math.cos(ry), 0, math.sin(ry)], [0, 1, 0], [-math.sin(ry), 0, math.cos(ry)]])
     A = Ry @ Rx
 
-    pivot_pt_mm = pts_mm[pivot_z_idx]
     Q_tip = (tip_pts - pivot_pt_mm) @ A
     v_bend = np.mean(Q_tip[:, 0:2], axis=0)
     bend_mag = math.hypot(float(v_bend[0]), float(v_bend[1]))
@@ -631,10 +666,27 @@ def detect_applicator_orientation(
         "cur_x": cur_x,
         "cur_y": cur_y,
         "cur_z": cur_z,
+        "float_cur": [pivot_fx, pivot_fy, pivot_fz],
         "rot_x": round(rot_x, 1),
         "rot_y": round(rot_y, 1),
         "rot_z": round(rot_z, 1)
     }
+
+
+def _compute_world_cursor_mm(
+    rot_matrix: np.ndarray,
+    origin_mm: np.ndarray,
+    float_cur: list[float] | tuple[float, float, float],
+    spacing: tuple[float, float, float]
+) -> np.ndarray:
+    """Map rotated-frame voxel cursor (sx, sy, sz) to 3D volume coordinates in mm."""
+    dy, dx, dz = float(spacing[0]), float(spacing[1]), float(spacing[2])
+    s_mm = np.array([
+        float(float_cur[0]) * dx,
+        float(float_cur[1]) * dy,
+        float(float_cur[2]) * dz,
+    ], dtype=np.float64)
+    return origin_mm + rot_matrix @ s_mm
 
 
 class MprSliceWidget(QWidget):
@@ -670,6 +722,7 @@ class MprSliceWidget(QWidget):
         self.pan_offset = QPointF(0, 0)
         self.rotation_angle = 0.0
         self.rot_matrix = np.eye(3, dtype=np.float64)
+        self.frame_origin_mm = np.zeros(3, dtype=np.float64)
         self._float_cur = [0.0, 0.0, 0.0]
 
         self.current_pixmap = None
@@ -692,10 +745,17 @@ class MprSliceWidget(QWidget):
         self.setMouseTracking(True)
         self.setCursor(CURSOR_CROSS)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setStyleSheet("background-color: #000000; border: none;")
+        self.setStyleSheet("MprSliceWidget { background-color: #000000; border: none; }")
 
-    def set_rotation_matrix(self, rot_matrix: np.ndarray, angle: float) -> None:
+    def set_rotation_matrix(
+        self,
+        rot_matrix: np.ndarray,
+        angle: float,
+        frame_origin_mm: np.ndarray | None = None
+    ) -> None:
         self.rot_matrix = rot_matrix
+        if frame_origin_mm is not None:
+            self.frame_origin_mm = np.array(frame_origin_mm, dtype=np.float64)
         norm_angle = angle % 360.0
         if norm_angle > 180.0:
             norm_angle -= 360.0
@@ -748,41 +808,50 @@ class MprSliceWidget(QWidget):
         ry = self._last_pivot.y() + dx * math.sin(rad) + dy * math.cos(rad)
         return QPointF(rx, ry)
 
+    def _is_rotated(self) -> bool:
+        return not (
+            not hasattr(self, "rot_matrix")
+            or self.rot_matrix is None
+            or np.allclose(self.rot_matrix, np.eye(3), atol=1e-3)
+        )
+
+    def _get_float_cursor(self) -> list[float]:
+        if getattr(self, "_float_cur", None) is not None:
+            return [float(self._float_cur[0]), float(self._float_cur[1]), float(self._float_cur[2])]
+        return [float(self.cur_x), float(self.cur_y), float(self.cur_z)]
+
+    def _get_plane_axes_spec(self) -> tuple[int, int, int, int, bool, int, int]:
+        """Return (h_idx, h_dim, v_idx, v_dim, v_flip, n_idx, n_dim) for the active plane."""
+        n_z, rows, cols = self.vol.shape
+        if self.plane_type == PLANE_AXIAL:
+            return 0, cols, 1, rows, False, 2, n_z
+        if self.plane_type == PLANE_CORONAL:
+            return 0, cols, 2, n_z, True, 1, rows
+        return 1, rows, 2, n_z, True, 0, cols
+
     def _update_axis_pos(self, horizontal_y: float = None, vertical_x: float = None) -> None:
         if self.vol is None or self._target_rect.isEmpty():
             return
-        n_z, rows, cols = self.vol.shape
-
-        new_x = self.cur_x
-        new_y = self.cur_y
-        new_z = self.cur_z
 
         draw_x = self._target_rect.left()
         draw_y = self._target_rect.top()
         draw_w = self._target_rect.width()
         draw_h = self._target_rect.height()
 
+        new_float = self._get_float_cursor()
+        h_idx, h_dim, v_idx, v_dim, v_flip, _, _ = self._get_plane_axes_spec()
+
         if vertical_x is not None:
-            fx = (vertical_x - draw_x) / max(1.0, draw_w)
-            fx = max(0.0, min(1.0, fx))
-            if self.plane_type == PLANE_AXIAL:
-                new_x = int(round(fx * (cols - 1)))
-            elif self.plane_type == PLANE_CORONAL:
-                new_x = int(round(fx * (cols - 1)))
-            else:  # PLANE_SAGITTAL
-                new_y = int(round(fx * (rows - 1)))
-
+            fx = max(0.0, min(1.0, (vertical_x - draw_x) / max(1.0, draw_w)))
+            new_float[h_idx] = fx * float(h_dim - 1)
         if horizontal_y is not None:
-            fy = (horizontal_y - draw_y) / max(1.0, draw_h)
-            fy = max(0.0, min(1.0, fy))
-            if self.plane_type == PLANE_AXIAL:
-                new_y = int(round(fy * (rows - 1)))
-            elif self.plane_type == PLANE_CORONAL:
-                new_z = int(round((1.0 - fy) * (n_z - 1)))
-            else:  # PLANE_SAGITTAL
-                new_z = int(round((1.0 - fy) * (n_z - 1)))
+            fy = max(0.0, min(1.0, (horizontal_y - draw_y) / max(1.0, draw_h)))
+            new_float[v_idx] = ((1.0 - fy) if v_flip else fy) * float(v_dim - 1)
 
-        self.set_cursor(new_x, new_y, new_z)
+        new_x = int(round(new_float[0]))
+        new_y = int(round(new_float[1]))
+        new_z = int(round(new_float[2]))
+        self.set_cursor(new_x, new_y, new_z, float_cur=new_float)
         self.cursor_moved.emit(new_x, new_y, new_z)
 
     def set_volume_data(
@@ -805,27 +874,41 @@ class MprSliceWidget(QWidget):
         if not getattr(self, "_is_panning", False):
             self._float_cur = [float(cur_x), float(cur_y), float(cur_z)]
         self.rot_matrix = np.eye(3, dtype=np.float64)
+        self.frame_origin_mm = np.zeros(3, dtype=np.float64)
         self.window_width = window_width
         self.window_center = window_center
         self.refresh_slice()
 
-    def set_cursor(self, cur_x: int, cur_y: int, cur_z: int) -> None:
+    def set_cursor(
+        self,
+        cur_x: int,
+        cur_y: int,
+        cur_z: int,
+        float_cur: list[float] | tuple[float, float, float] | None = None
+    ) -> None:
+        old_float = self._get_float_cursor()
+        if float_cur is not None:
+            new_float = [float(float_cur[0]), float(float_cur[1]), float(float_cur[2])]
+        elif getattr(self, "_is_panning", False) and getattr(self, "_float_cur", None) is not None:
+            new_float = list(self._float_cur)
+        else:
+            new_float = [float(cur_x), float(cur_y), float(cur_z)]
+
         need_slice_refresh = False
-        if self.plane_type == PLANE_AXIAL:
-            if cur_z != self.cur_z:
-                need_slice_refresh = True
-        elif self.plane_type == PLANE_CORONAL:
-            if cur_y != self.cur_y:
-                need_slice_refresh = True
-        elif self.plane_type == PLANE_SAGITTAL:
-            if cur_x != self.cur_x:
-                need_slice_refresh = True
+        if self.vol is not None:
+            _, _, _, _, _, n_idx, _ = self._get_plane_axes_spec()
+            if self._is_rotated():
+                # Only the slice orthogonal to n_idx changes when s[n_idx] changes; other two planes stay fixed
+                need_slice_refresh = abs(new_float[n_idx] - old_float[n_idx]) > 1e-5
+            else:
+                old_int = (self.cur_x, self.cur_y, self.cur_z)
+                new_int = (cur_x, cur_y, cur_z)
+                need_slice_refresh = new_int[n_idx] != old_int[n_idx]
 
         self.cur_x = cur_x
         self.cur_y = cur_y
         self.cur_z = cur_z
-        if not getattr(self, "_is_panning", False):
-            self._float_cur = [float(cur_x), float(cur_y), float(cur_z)]
+        self._float_cur = new_float
 
         if need_slice_refresh:
             self.refresh_slice()
@@ -861,20 +944,12 @@ class MprSliceWidget(QWidget):
         n_z, rows, cols = self.vol.shape
         dy, dx, dz = self.spacing
 
-        if getattr(self, "_is_panning", False) and hasattr(self, "_float_cur") and self._float_cur is not None:
-            cur_x_val = float(self._float_cur[0])
-            cur_y_val = float(self._float_cur[1])
-            cur_z_val = float(self._float_cur[2])
-        else:
-            cur_x_val = float(self.cur_x)
-            cur_y_val = float(self.cur_y)
-            cur_z_val = float(self.cur_z)
-
-        cx_rot = cur_x_val * float(dx)
-        cy_rot = cur_y_val * float(dy)
-        cz_rot = cur_z_val * float(dz)
+        cur_x_val, cur_y_val, cur_z_val = self._get_float_cursor()
 
         R = getattr(self, "rot_matrix", np.eye(3, dtype=np.float64))
+        origin_mm = getattr(self, "frame_origin_mm", np.zeros(3, dtype=np.float64))
+        c_world = _compute_world_cursor_mm(R, origin_mm, (cur_x_val, cur_y_val, cur_z_val), self.spacing)
+        cx_rot, cy_rot, cz_rot = float(c_world[0]), float(c_world[1]), float(c_world[2])
 
         if self.plane_type == PLANE_AXIAL:
             u_ax = (np.arange(cols, dtype=np.float32) - cur_x_val) * float(dx)
@@ -920,12 +995,7 @@ class MprSliceWidget(QWidget):
         self.cur_x = max(0, min(cols - 1, self.cur_x))
 
         try:
-            is_identity = (
-                not hasattr(self, "rot_matrix")
-                or self.rot_matrix is None
-                or np.allclose(self.rot_matrix, np.eye(3), atol=1e-3)
-            )
-            if is_identity:
+            if not self._is_rotated():
                 if self.plane_type == PLANE_AXIAL:
                     slice_hu = self.vol[self.cur_z, :, :]
                 elif self.plane_type == PLANE_CORONAL:
@@ -1099,33 +1169,23 @@ class MprSliceWidget(QWidget):
             mm_val = self.ipp0[0] + self.cur_x * self.spacing[1]
             coord_text = f"X: {mm_val:.1f} mm"
 
-        # Badge pill at top-left
-        painter.setPen(Qt.PenStyle.NoPen if hasattr(Qt, "PenStyle") else Qt.NoPen)
-        b_brush = QBrush(QColor(badge_color.red(), badge_color.green(), badge_color.blue(), 50))
-        painter.setBrush(b_brush)
-        painter.drawRoundedRect(QRectF(8, 8, 120, 22), 4, 4)
-
+        # Plane title at top-left (transparent background)
         painter.setPen(badge_color)
-        painter.drawText(QRectF(14, 8, 110, 22), ALIGN_LEFT | Qt.AlignmentFlag.AlignVCenter, title)
+        painter.drawText(QRectF(10, 8, 140, 22), ALIGN_LEFT | Qt.AlignmentFlag.AlignVCenter, title)
 
-        # Rotation angle badge pill in top-right
+        # Rotation angle indicator in top-right (transparent background, keep click hit-box)
         rot_val = self.rotation_angle
         parent_panel = self.parent()
         has_any_rot = False
         if hasattr(parent_panel, "rot_x") and hasattr(parent_panel, "rot_y") and hasattr(parent_panel, "rot_z"):
             has_any_rot = (abs(parent_panel.rot_x) > 0.05 or abs(parent_panel.rot_y) > 0.05 or abs(parent_panel.rot_z) > 0.05)
         is_rotated = abs(rot_val) > 0.05
-        pill_color = QColor("#F59E0B") if (is_rotated or has_any_rot) else QColor("#6B7280")
-        bg_alpha = 70 if (is_rotated or has_any_rot) else 30
+        pill_color = QColor("#F59E0B") if (is_rotated or has_any_rot) else QColor("#9CA3AF")
 
-        self._rot_pill_rect = QRectF(self.width() - 85, 8, 77, 22)
-        r_brush = QBrush(QColor(pill_color.red(), pill_color.green(), pill_color.blue(), bg_alpha))
-        painter.setBrush(r_brush)
-        painter.drawRoundedRect(self._rot_pill_rect, 4, 4)
-
+        self._rot_pill_rect = QRectF(self.width() - 85, 8, 75, 22)
         painter.setPen(pill_color)
         rot_str = f"∠ {rot_val:+.1f}°" if is_rotated else "∠ 0.0°"
-        painter.drawText(self._rot_pill_rect, ALIGN_CENTER, rot_str)
+        painter.drawText(self._rot_pill_rect, ALIGN_RIGHT | Qt.AlignmentFlag.AlignVCenter, rot_str)
 
         # Slice info at bottom-left: only show slice count for Axial
         if slice_text:
@@ -1213,6 +1273,8 @@ class MprSliceWidget(QWidget):
             delta_deg = math.degrees(curr_rad - self._mouse_start_rad)
             # Normalize delta to [-180, 180] to prevent sudden branch-cut jumps
             delta_deg = (delta_deg + 180.0) % 360.0 - 180.0
+            if self.plane_type == PLANE_CORONAL:
+                delta_deg = -delta_deg
             new_angle = round(self._rot_start_angle + delta_deg, 1)
             self.set_rotation(new_angle)
             self.rotation_changed.emit(self.plane_type, self.rotation_angle)
@@ -1282,7 +1344,7 @@ class MprSliceWidget(QWidget):
                 new_y = int(round(self._float_cur[1]))
                 new_z = int(round(self._float_cur[2]))
 
-                self.set_cursor(new_x, new_y, new_z)
+                self.set_cursor(new_x, new_y, new_z, float_cur=self._float_cur)
                 self.cursor_moved.emit(new_x, new_y, new_z)
 
             self.pan_changed.emit(self.pan_offset)
@@ -1314,7 +1376,6 @@ class MprSliceWidget(QWidget):
             elif getattr(self, "_is_panning", False):
                 self._is_panning = False
                 self._pan_start = None
-                self._float_cur = [float(self.cur_x), float(self.cur_y), float(self.cur_z)]
                 parent_panel = self.parent()
                 if hasattr(parent_panel, "on_subview_pan_ended"):
                     parent_panel.on_subview_pan_ended()
@@ -1331,9 +1392,9 @@ class MprSliceWidget(QWidget):
         menu = QMenu(self)
         menu.setStyleSheet("""
             QMenu {
-                background-color: #1F2937;
-                color: #F9FAFB;
-                border: 1px solid #374151;
+                background-color: #0f0f0f;
+                color: #ffffff;
+                border: 1px solid #3d3d3d;
                 border-radius: 6px;
                 padding: 4px;
                 font-family: 'Segoe UI';
@@ -1341,36 +1402,31 @@ class MprSliceWidget(QWidget):
             }
             QMenu::item {
                 padding: 6px 20px 6px 12px;
+                background-color: transparent;
                 border-radius: 4px;
             }
             QMenu::item:selected {
-                background-color: #2563EB;
-                color: #FFFFFF;
+                background-color: #1f538d;
+                color: #ffffff;
             }
             QMenu::item:disabled {
-                color: #6B7280;
+                color: #666666;
             }
             QMenu::separator {
                 height: 1px;
-                background: #374151;
+                background: #2d2d2d;
                 margin: 4px 8px;
             }
         """)
 
-        action_align = menu.addAction("Выровнять оси по аппликатору")
-        action_reset = menu.addAction("Сбросить поворот осей (R)")
+        action_align = menu.addAction(tr_ui("viewer_mpr_ctx_align"))
         menu.addSeparator()
-        action_export = menu.addAction("Экспорт выровненного КТ в DICOM (для Eclipse)...")
+        action_export = menu.addAction(tr_ui("viewer_mpr_ctx_save"))
 
         if hasattr(parent_panel, "auto_align_applicator"):
             action_align.triggered.connect(parent_panel.auto_align_applicator)
         else:
             action_align.setEnabled(False)
-
-        if hasattr(parent_panel, "reset_rotation"):
-            action_reset.triggered.connect(parent_panel.reset_rotation)
-        else:
-            action_reset.setEnabled(False)
 
         if hasattr(parent_panel, "export_aligned_dicom_series"):
             action_export.triggered.connect(parent_panel.export_aligned_dicom_series)
@@ -1416,6 +1472,8 @@ class MprSliceWidget(QWidget):
                 else (modifiers & Qt.AltModifier)
             )
             step = (1.0 if is_alt else 0.1) if delta > 0 else (-1.0 if is_alt else -0.1)
+            if self.plane_type == PLANE_CORONAL:
+                step = -step
             new_angle = round(self.rotation_angle + step, 1)
             self.set_rotation(new_angle)
             self.rotation_changed.emit(self.plane_type, self.rotation_angle)
@@ -1428,43 +1486,31 @@ class MprSliceWidget(QWidget):
             self.zoom_changed.emit(new_zoom)
             return
 
-        # Standard Wheel: Cyclic Slice Navigation
+        # Standard Wheel: Cyclic Slice Navigation along active plane normal
         step = 1 if delta > 0 else -1
 
         if self.vol is None:
             return
-        n_z, rows, cols = self.vol.shape
 
-        new_x = self.cur_x
-        new_y = self.cur_y
-        new_z = self.cur_z
+        _, _, _, _, _, n_idx, n_dim = self._get_plane_axes_spec()
+        new_float = self._get_float_cursor()
+        curr_val = new_float[n_idx]
+        if step > 0:
+            new_val = 0.0 if curr_val >= float(n_dim - 1) - 1e-4 else min(float(n_dim - 1), curr_val + float(step))
+        else:
+            new_val = float(n_dim - 1) if curr_val <= 1e-4 else max(0.0, curr_val + float(step))
+        new_float[n_idx] = new_val
+        new_x = int(round(new_float[0]))
+        new_y = int(round(new_float[1]))
+        new_z = int(round(new_float[2]))
 
-        if self.plane_type == PLANE_AXIAL:
-            new_z = (self.cur_z + step) % n_z
-        elif self.plane_type == PLANE_CORONAL:
-            new_y = (self.cur_y + step) % rows
-        else: # PLANE_SAGITTAL
-            new_x = (self.cur_x + step) % cols
-
-        self.set_cursor(new_x, new_y, new_z)
+        self.set_cursor(new_x, new_y, new_z, float_cur=new_float)
         self.cursor_moved.emit(new_x, new_y, new_z)
         self.slice_scrolled.emit(new_x, new_y, new_z)
 
     def keyPressEvent(self, event) -> None:
         key = event.key()
-        modifiers = event.modifiers()
-        is_ctrl = bool(
-            (modifiers & Qt.KeyboardModifier.ControlModifier) if hasattr(Qt, "KeyboardModifier")
-            else (modifiers & Qt.ControlModifier)
-        )
-        is_alt = bool(
-            (modifiers & Qt.KeyboardModifier.AltModifier) if hasattr(Qt, "KeyboardModifier")
-            else (modifiers & Qt.AltModifier)
-        )
-
         key_r = Qt.Key.Key_R if hasattr(Qt.Key, "Key_R") else Qt.Key_R
-        key_left = Qt.Key.Key_Left if hasattr(Qt.Key, "Key_Left") else Qt.Key_Left
-        key_right = Qt.Key.Key_Right if hasattr(Qt.Key, "Key_Right") else Qt.Key_Right
 
         # Key R: Reset rotation across all planes (Eclipse TPS standard)
         if key == key_r:
@@ -1474,16 +1520,6 @@ class MprSliceWidget(QWidget):
             else:
                 self.set_rotation(0.0)
                 self.rotation_changed.emit(self.plane_type, 0.0)
-            return
-
-        # Ctrl + Left/Right: rotate by 0.1 deg (with Alt by 1.0 deg) (Eclipse TPS standard)
-        if is_ctrl and key in (key_left, key_right):
-            step = 1.0 if is_alt else 0.1
-            if key == key_left:
-                step = -step
-            new_angle = round(self.rotation_angle + step, 1)
-            self.set_rotation(new_angle)
-            self.rotation_changed.emit(self.plane_type, self.rotation_angle)
             return
 
         super().keyPressEvent(event)
@@ -1542,6 +1578,7 @@ class MprPanelWidget(QWidget):
         self.cur_x = 0
         self.cur_y = 0
         self.cur_z = 0
+        self._float_cur = [0.0, 0.0, 0.0]
         self.window_width = 400.0
         self.window_center = 40.0
         self.zoom_factor = 1.0
@@ -1552,6 +1589,8 @@ class MprPanelWidget(QWidget):
         self.rot_x = 0.0
         self.rot_y = 0.0
         self.rot_z = 0.0
+        self._rot_matrix = np.eye(3, dtype=np.float64)
+        self._frame_origin_mm = np.zeros(3, dtype=np.float64)
         self._maximized_plane = None
 
         self._setup_ui()
@@ -1565,7 +1604,7 @@ class MprPanelWidget(QWidget):
         return Ry @ Rx @ Rz
 
     def _setup_ui(self) -> None:
-        self.setStyleSheet("background-color: #000000;")
+        self.setStyleSheet("MprPanelWidget { background-color: #000000; }")
         self.grid_layout = QGridLayout(self)
         self.grid_layout.setContentsMargins(0, 0, 0, 0)
         self.grid_layout.setSpacing(1)
@@ -1611,7 +1650,8 @@ class MprPanelWidget(QWidget):
         window_width: float,
         window_center: float,
         initial_z: int = None,
-        slice_files: list = None
+        slice_files: list = None,
+        initial_zoom: float = 1.0
     ) -> None:
         self.vol = vol
         self.ipp0 = list(ipp0)
@@ -1619,7 +1659,7 @@ class MprPanelWidget(QWidget):
         self.window_width = window_width
         self.window_center = window_center
         self.slice_files = [item[0] if isinstance(item, tuple) else item for item in (slice_files or [])]
-        self.zoom_factor = 1.0
+        self.zoom_factor = max(0.05, min(30.0, float(initial_zoom)))
         self.pan_offset = QPointF(0, 0)
         self.pan_x = 0.0
         self.pan_y = 0.0
@@ -1628,16 +1668,19 @@ class MprPanelWidget(QWidget):
         self.rot_y = 0.0
         self.rot_z = 0.0
         R = np.eye(3, dtype=np.float64)
+        self._rot_matrix = R
+        self._frame_origin_mm = np.zeros(3, dtype=np.float64)
 
         n_z, rows, cols = vol.shape
         self.cur_x = cols // 2
         self.cur_y = rows // 2
         self.cur_z = (n_z // 2) if initial_z is None else max(0, min(n_z - 1, initial_z))
+        self._float_cur = [float(self.cur_x), float(self.cur_y), float(self.cur_z)]
 
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
-            v.set_zoom(1.0)
+            v.set_zoom(self.zoom_factor)
             v.set_pan(QPointF(0, 0))
-            v.set_rotation_matrix(R, 0.0)
+            v.set_rotation_matrix(R, 0.0, frame_origin_mm=self._frame_origin_mm)
             v.set_volume_data(
                 vol=self.vol,
                 ipp0=self.ipp0,
@@ -1649,13 +1692,34 @@ class MprPanelWidget(QWidget):
                 window_center=self.window_center
             )
 
-    def set_cursor(self, cur_x: int, cur_y: int, cur_z: int) -> None:
+    def set_cursor(
+        self,
+        cur_x: int,
+        cur_y: int,
+        cur_z: int,
+        float_cur: list[float] | tuple[float, float, float] | None = None
+    ) -> None:
         self.cur_x = cur_x
         self.cur_y = cur_y
         self.cur_z = cur_z
+        self._float_cur = (
+            [float(float_cur[0]), float(float_cur[1]), float(float_cur[2])]
+            if float_cur is not None
+            else [float(cur_x), float(cur_y), float(cur_z)]
+        )
 
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
-            v.set_cursor(cur_x, cur_y, cur_z)
+            v.set_cursor(cur_x, cur_y, cur_z, float_cur=self._float_cur)
+
+    def scroll_axial_to(self, target_z: int) -> None:
+        """Scroll axial plane along rotated axis R[:, 2] while keeping Coronal and Sagittal fixed."""
+        if self.vol is None:
+            return
+        n_z = self.vol.shape[0]
+        target_z = max(0, min(n_z - 1, int(target_z)))
+        curr = list(getattr(self, "_float_cur", [float(self.cur_x), float(self.cur_y), float(self.cur_z)]))
+        new_float = [float(curr[0]), float(curr[1]), float(target_z)]
+        self.set_cursor(int(round(new_float[0])), int(round(new_float[1])), target_z, float_cur=new_float)
 
     def set_window_params(self, width: float, center: float) -> None:
         self.window_width = width
@@ -1704,6 +1768,51 @@ class MprPanelWidget(QWidget):
         self.view_coronal.set_pan(QPointF(self.pan_x, self.pan_z))
         self.view_sagittal.set_pan(QPointF(self.pan_y, self.pan_z))
 
+    def _apply_rotation_around_cursor(self, R_new: np.ndarray, is_reset: bool = False) -> None:
+        """Update rotation matrix while keeping the 3D world point under the crosshair stationary."""
+        R_old = self._rot_matrix
+        O_old = self._frame_origin_mm
+        curr = list(getattr(self, "_float_cur", [float(self.cur_x), float(self.cur_y), float(self.cur_z)]))
+        is_identity = is_reset or np.allclose(R_new, np.eye(3), atol=1e-3)
+        cursor_changed = False
+
+        if self.vol is not None:
+            n_z, rows, cols = self.vol.shape
+            dy, dx, dz = float(self.spacing[0]), float(self.spacing[1]), float(self.spacing[2])
+            c_world = _compute_world_cursor_mm(R_old, O_old, curr, self.spacing)
+            if is_identity:
+                O_new = np.zeros(3, dtype=np.float64)
+                new_float = [
+                    float(np.clip(c_world[0] / dx, 0.0, float(cols - 1))),
+                    float(np.clip(c_world[1] / dy, 0.0, float(rows - 1))),
+                    float(np.clip(c_world[2] / dz, 0.0, float(n_z - 1))),
+                ]
+                new_x, new_y, new_z = int(round(new_float[0])), int(round(new_float[1])), int(round(new_float[2]))
+                cursor_changed = (new_x, new_y, new_z) != (self.cur_x, self.cur_y, self.cur_z)
+                self._float_cur = new_float
+                self.cur_x, self.cur_y, self.cur_z = new_x, new_y, new_z
+                for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+                    v.cur_x, v.cur_y, v.cur_z = new_x, new_y, new_z
+                    v._float_cur = list(new_float)
+            else:
+                s_mm = np.array([curr[0] * dx, curr[1] * dy, curr[2] * dz], dtype=np.float64)
+                O_new = c_world - R_new @ s_mm
+        else:
+            O_new = np.zeros(3, dtype=np.float64)
+
+        self._rot_matrix = np.eye(3, dtype=np.float64) if is_identity else R_new
+        self._frame_origin_mm = O_new
+
+        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+            a = (
+                0.0 if is_reset else
+                (self.rot_z if v.plane_type == PLANE_AXIAL else (self.rot_y if v.plane_type == PLANE_CORONAL else self.rot_x))
+            )
+            v.set_rotation_matrix(self._rot_matrix, a, frame_origin_mm=self._frame_origin_mm)
+
+        if cursor_changed:
+            self.cursor_changed.emit(self.cur_x, self.cur_y, self.cur_z)
+
     def set_plane_rotation(self, plane_type: str, angle: float) -> None:
         if plane_type == "all":
             self.reset_rotation()
@@ -1715,18 +1824,13 @@ class MprPanelWidget(QWidget):
         elif plane_type == PLANE_SAGITTAL:
             self.rot_x = angle
 
-        R = self._compute_rotation_matrix()
-        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
-            a = self.rot_z if v.plane_type == PLANE_AXIAL else (self.rot_y if v.plane_type == PLANE_CORONAL else self.rot_x)
-            v.set_rotation_matrix(R, a)
+        self._apply_rotation_around_cursor(self._compute_rotation_matrix())
 
     def reset_rotation(self) -> None:
         self.rot_x = 0.0
         self.rot_y = 0.0
         self.rot_z = 0.0
-        R = np.eye(3, dtype=np.float64)
-        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
-            v.set_rotation_matrix(R, 0.0)
+        self._apply_rotation_around_cursor(np.eye(3, dtype=np.float64), is_reset=True)
         self.rotation_changed.emit("all", 0.0)
 
     def reset_to_center(self) -> None:
@@ -1744,7 +1848,7 @@ class MprPanelWidget(QWidget):
         cx = cols // 2
         cy = rows // 2
         cz = n_z // 2
-        self.set_cursor(cx, cy, cz)
+        self.set_cursor(cx, cy, cz, float_cur=[float(cx), float(cy), float(cz)])
         self.cursor_changed.emit(cx, cy, cz)
 
     def auto_align_applicator(self) -> bool:
@@ -1755,8 +1859,8 @@ class MprPanelWidget(QWidget):
         if res is None:
             show_dark_message_box(
                 self,
-                "Авто-выравнивание",
-                "Металлический аппликатор (метрокольпостат) не обнаружен в КТ-объеме."
+                tr_ui("viewer_mpr_auto_align_title"),
+                tr_ui("viewer_mpr_not_detected")
             )
             return False
 
@@ -1766,13 +1870,22 @@ class MprPanelWidget(QWidget):
         self.cur_x = res["cur_x"]
         self.cur_y = res["cur_y"]
         self.cur_z = res["cur_z"]
+        float_cur = list(res.get("float_cur", [float(self.cur_x), float(self.cur_y), float(self.cur_z)]))
+        self._float_cur = float_cur
 
+        dy, dx, dz = float(self.spacing[0]), float(self.spacing[1]), float(self.spacing[2])
+        pivot_mm = np.array([float_cur[0] * dx, float_cur[1] * dy, float_cur[2] * dz], dtype=np.float64)
         R = self._compute_rotation_matrix()
+        self._rot_matrix = R
+        self._frame_origin_mm = pivot_mm - R @ pivot_mm
+
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
             a = self.rot_z if v.plane_type == PLANE_AXIAL else (self.rot_y if v.plane_type == PLANE_CORONAL else self.rot_x)
-            v._float_cur = [float(self.cur_x), float(self.cur_y), float(self.cur_z)]
-            v.set_rotation_matrix(R, a)
-            v.set_cursor(self.cur_x, self.cur_y, self.cur_z)
+            v.cur_x = self.cur_x
+            v.cur_y = self.cur_y
+            v.cur_z = self.cur_z
+            v._float_cur = list(float_cur)
+            v.set_rotation_matrix(R, a, frame_origin_mm=self._frame_origin_mm)
 
         self.rotation_changed.emit("all", 0.0)
         self.cursor_changed.emit(self.cur_x, self.cur_y, self.cur_z)
@@ -1782,8 +1895,8 @@ class MprPanelWidget(QWidget):
         if self.vol is None:
             show_dark_message_box(
                 self,
-                "Экспорт КТ в DICOM",
-                "КТ-объем не загружен."
+                tr_ui("viewer_mpr_save_title"),
+                tr_ui("viewer_mpr_no_volume")
             )
             return
 
@@ -1798,8 +1911,8 @@ class MprPanelWidget(QWidget):
         if not slice_paths:
             show_dark_message_box(
                 self,
-                "Экспорт КТ в DICOM",
-                "Не найдены исходные DICOM файлы для экспорта."
+                tr_ui("viewer_mpr_save_title"),
+                tr_ui("viewer_mpr_no_source_files")
             )
             return
 
@@ -1818,7 +1931,7 @@ class MprPanelWidget(QWidget):
         from ui.loading_dialog import LoadingProgressDialog
         progress_dialog = LoadingProgressDialog(
             self,
-            title="Экспорт КТ для Eclipse",
+            title=tr_ui("viewer_mpr_save_title"),
             show_cancel=True
         )
         progress_dialog.set_custom_progress(0, len(slice_paths), f"0 / {len(slice_paths)}")
@@ -1834,12 +1947,14 @@ class MprPanelWidget(QWidget):
             cur_y=self.cur_y,
             cur_z=self.cur_z,
             mode=action,
-            parent=self
+            parent=self,
+            origin_mm=self._frame_origin_mm,
+            float_cur=self._float_cur
         )
         progress_dialog.on_cancel_cb = worker.cancel
 
         def on_prog(cur: int, tot: int, text: str) -> None:
-            progress_dialog.set_custom_progress(cur, tot, f"Пересчёт и запись срезов: {text}")
+            progress_dialog.set_custom_progress(cur, tot, tr_ui("viewer_mpr_saving_progress", text))
 
         def on_fin(res: dict) -> None:
             progress_dialog.accept()
@@ -1852,18 +1967,16 @@ class MprPanelWidget(QWidget):
             if mode == "replace":
                 show_dark_message_box(
                     self,
-                    "Экспорт завершён",
-                    f"Исходная серия КТ успешно перезаписана ({cnt} срезов) с выравниванием осей для Eclipse.\n"
-                    f"Серия перезагружается в просмотрщик..."
+                    tr_ui("viewer_mpr_save_done_title"),
+                    tr_ui("viewer_mpr_save_done_replace", cnt)
                 )
                 if hasattr(parent_viewer, "load_series"):
                     parent_viewer.load_series(out_files)
             else:
                 ret = show_dark_message_box(
                     self,
-                    "Экспорт завершён",
-                    f"Выровненная серия КТ успешно сохранена ({cnt} срезов):\n{out_dir}\n\n"
-                    f"Загрузить созданную серию в просмотрщик сейчас?",
+                    tr_ui("viewer_mpr_save_done_title"),
+                    tr_ui("viewer_mpr_save_done_new", cnt, out_dir),
                     buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                 )
                 if ret == QMessageBox.StandardButton.Yes:
@@ -1874,8 +1987,8 @@ class MprPanelWidget(QWidget):
             progress_dialog.reject()
             show_dark_message_box(
                 self,
-                "Ошибка экспорта",
-                f"Не удалось выполнить экспорт серии:\n{err_msg}",
+                tr_ui("viewer_mpr_save_error_title"),
+                tr_ui("viewer_mpr_save_error_msg", err_msg),
                 icon=QMessageBox.Icon.Critical
             )
 
@@ -1893,19 +2006,17 @@ class MprPanelWidget(QWidget):
         self.cur_z = z
         sender_view = self.sender()
         float_cur = getattr(sender_view, "_float_cur", None)
+        self._float_cur = list(float_cur) if float_cur is not None else [float(x), float(y), float(z)]
         is_panning = getattr(sender_view, "_is_panning", False)
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
             if v != sender_view:
-                if float_cur is not None:
-                    v._float_cur = list(float_cur)
                 v._is_panning = is_panning
-                v.set_cursor(x, y, z)
+                v.set_cursor(x, y, z, float_cur=self._float_cur)
         self.cursor_changed.emit(x, y, z)
 
     def on_subview_pan_ended(self) -> None:
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
             v._is_panning = False
-            v._float_cur = [float(v.cur_x), float(v.cur_y), float(v.cur_z)]
             v.update()
 
     def _on_subview_zoom_changed(self, zoom: float) -> None:
@@ -1947,11 +2058,7 @@ class MprPanelWidget(QWidget):
         elif plane_type == PLANE_SAGITTAL:
             self.rot_x = angle
 
-        R = self._compute_rotation_matrix()
-        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
-            a = self.rot_z if v.plane_type == PLANE_AXIAL else (self.rot_y if v.plane_type == PLANE_CORONAL else self.rot_x)
-            v.set_rotation_matrix(R, a)
-
+        self._apply_rotation_around_cursor(self._compute_rotation_matrix())
         self.rotation_changed.emit(plane_type, angle)
 
     def _cycle_maximized_plane(self) -> None:
