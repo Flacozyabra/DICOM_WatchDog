@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import os
 import math
 import numpy as np
 import scipy.ndimage
+import pydicom
+from pydicom.uid import generate_uid
 
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QPointF, QRectF, QThread, QEvent
 from PyQt6.QtWidgets import (
-    QWidget, QGridLayout, QFrame, QSizePolicy, QMenu, QMessageBox
+    QWidget, QGridLayout, QFrame, QSizePolicy, QMenu, QMessageBox,
+    QDialog, QVBoxLayout, QLabel, QPushButton
 )
 from PyQt6.QtGui import (
     QPainter, QPen, QColor, QFont, QPixmap, QImage,
@@ -14,6 +18,7 @@ from PyQt6.QtGui import (
 )
 
 from core.locale_utils import tr_ui
+from ui.settings_tabs.settings_utils import apply_dark_title_bar
 from .parsers import safe_dcmread
 
 
@@ -174,6 +179,317 @@ class MprVolumeLoaderWorker(QThread):
 
             self.progress_signal.emit(100, 100, tr_ui("main_progress_launch") if tr_ui("main_progress_launch") else "Ready")
             self.finished_signal.emit(res_orig, res_derived)
+        except Exception as e:
+            self.error_signal.emit(str(e))
+
+
+def show_dark_message_box(
+    parent: QWidget | None,
+    title: str,
+    text: str,
+    icon: QMessageBox.Icon = QMessageBox.Icon.Information,
+    buttons: QMessageBox.StandardButton = QMessageBox.StandardButton.Ok
+) -> QMessageBox.StandardButton:
+    """
+    Shows a dark-themed modal message box with Windows DWM dark title bar.
+    """
+    dlg = QMessageBox(parent)
+    dlg.setIcon(icon)
+    dlg.setWindowTitle(title)
+    dlg.setText(text)
+    dlg.setStandardButtons(buttons)
+    apply_dark_title_bar(dlg)
+    dlg.setStyleSheet("""
+        QMessageBox {
+            background-color: #111827;
+            font-family: 'Segoe UI';
+        }
+        QLabel {
+            color: #F9FAFB;
+            font-size: 13px;
+        }
+        QPushButton {
+            background-color: #2563EB;
+            color: #FFFFFF;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 18px;
+            font-size: 12px;
+            font-weight: 500;
+            min-width: 65px;
+        }
+        QPushButton:hover {
+            background-color: #1D4ED8;
+        }
+    """)
+    return dlg.exec()
+
+
+class MprExportChoiceDialog(QDialog):
+    """
+    Dark-themed modal dialog prompting user whether to replace original CT
+    or save aligned series as a new DICOM series for Eclipse.
+    """
+    def __init__(
+        self,
+        parent: QWidget | None,
+        rot_x: float,
+        rot_y: float,
+        rot_z: float,
+        n_slices: int
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Экспорт выровненного КТ в DICOM")
+        self.setMinimumWidth(440)
+        self.selected_action = None  # "replace", "new", or None
+
+        apply_dark_title_bar(self)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #111827;
+                color: #F9FAFB;
+                font-family: 'Segoe UI';
+            }
+            QLabel {
+                color: #F9FAFB;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(14)
+
+        title_lbl = QLabel("Экспорт выровненного КТ (для Eclipse)")
+        title_lbl.setStyleSheet("font-size: 15px; font-weight: bold; color: #FFFFFF;")
+        layout.addWidget(title_lbl)
+
+        info_lbl = QLabel(
+            f"Текущие углы выравнивания осей:\n"
+            f"  • Аксиальная (XY): {rot_z:+.1f}°\n"
+            f"  • Коронарная (XZ): {rot_y:+.1f}°\n"
+            f"  • Сагиттальная (YZ): {rot_x:+.1f}°\n"
+            f"Срезов для пересчета: {n_slices}\n\n"
+            f"Выберите способ сохранения серии:"
+        )
+        info_lbl.setStyleSheet("font-size: 13px; color: #D1D5DB; line-height: 1.4;")
+        layout.addWidget(info_lbl)
+
+        btn_replace = QPushButton("Заменить исходное КТ")
+        btn_replace.setCursor(CURSOR_HAND)
+        btn_replace.setStyleSheet("""
+            QPushButton {
+                background-color: #DC2626;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 6px;
+                padding: 10px 16px;
+                font-size: 13px;
+                font-weight: bold;
+                text-align: left;
+            }
+            QPushButton:hover {
+                background-color: #B91C1C;
+            }
+        """)
+        btn_replace.setToolTip("Перезаписать исходные DICOM файлы в папке исследования")
+        btn_replace.clicked.connect(self._on_replace)
+        layout.addWidget(btn_replace)
+
+        btn_new = QPushButton("Сохранить как новое КТ (в папку CT_Aligned)")
+        btn_new.setCursor(CURSOR_HAND)
+        btn_new.setStyleSheet("""
+            QPushButton {
+                background-color: #2563EB;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 6px;
+                padding: 10px 16px;
+                font-size: 13px;
+                font-weight: bold;
+                text-align: left;
+            }
+            QPushButton:hover {
+                background-color: #1D4ED8;
+            }
+        """)
+        btn_new.setToolTip("Сохранить в подпапку CT_Aligned с новым SeriesInstanceUID")
+        btn_new.clicked.connect(self._on_new)
+        layout.addWidget(btn_new)
+
+        btn_cancel = QPushButton("Отмена")
+        btn_cancel.setCursor(CURSOR_HAND)
+        btn_cancel.setStyleSheet("""
+            QPushButton {
+                background-color: #374151;
+                color: #9CA3AF;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #4B5563;
+                color: #FFFFFF;
+            }
+        """)
+        btn_cancel.clicked.connect(self.reject)
+        layout.addWidget(btn_cancel)
+
+    def _on_replace(self) -> None:
+        self.selected_action = "replace"
+        self.accept()
+
+    def _on_new(self) -> None:
+        self.selected_action = "new"
+        self.accept()
+
+
+class MprExportAlignedWorker(QThread):
+    """
+    Background worker that resamples 3D CT volume along aligned MPR axes
+    and writes standard axial DICOM slices for Varian Eclipse TPS.
+    """
+    progress_signal = pyqtSignal(int, int, str)
+    finished_signal = pyqtSignal(dict)
+    error_signal = pyqtSignal(str)
+
+    def __init__(
+        self,
+        slice_paths: list[str],
+        vol: np.ndarray,
+        spacing: tuple[float, float, float],
+        rot_x: float,
+        rot_y: float,
+        rot_z: float,
+        cur_x: int,
+        cur_y: int,
+        cur_z: int,
+        mode: str,
+        parent=None
+    ) -> None:
+        super().__init__(parent)
+        self.slice_paths = list(slice_paths)
+        self.vol = vol
+        self.spacing = tuple(spacing)
+        self.rot_x = float(rot_x)
+        self.rot_y = float(rot_y)
+        self.rot_z = float(rot_z)
+        self.cur_x = int(cur_x)
+        self.cur_y = int(cur_y)
+        self.cur_z = int(cur_z)
+        self.mode = mode
+        self._is_cancelled = False
+
+    def cancel(self) -> None:
+        self._is_cancelled = True
+
+    def run(self) -> None:
+        try:
+            n_slices = len(self.slice_paths)
+            if n_slices == 0 or self.vol is None:
+                self.error_signal.emit("Нет данных для экспорта.")
+                return
+
+            study_dir = os.path.dirname(self.slice_paths[0])
+            if self.mode == "new":
+                output_dir = os.path.join(study_dir, "CT_Aligned")
+                os.makedirs(output_dir, exist_ok=True)
+                new_series_uid = generate_uid()
+            else:
+                output_dir = study_dir
+                new_series_uid = generate_uid()
+
+            dy, dx, dz = self.spacing
+            n_z, rows, cols = self.vol.shape
+
+            rx, ry, rz = np.radians([self.rot_x, self.rot_y, self.rot_z])
+            Rx = np.array([[1, 0, 0], [0, np.cos(rx), -np.sin(rx)], [0, np.sin(rx), np.cos(rx)]], dtype=np.float64)
+            Ry = np.array([[np.cos(ry), 0, np.sin(ry)], [0, 1, 0], [-np.sin(ry), 0, np.cos(ry)]], dtype=np.float64)
+            Rz = np.array([[np.cos(rz), np.sin(rz), 0], [-np.sin(rz), np.cos(rz), 0], [0, 0, 1]], dtype=np.float64)
+            R = Ry @ Rx @ Rz
+
+            cx_rot = self.cur_x * dx
+            cy_rot = self.cur_y * dy
+            cz_rot = self.cur_z * dz
+
+            u_ax = (np.arange(cols, dtype=np.float32) - self.cur_x) * dx
+            v_ax = (np.arange(rows, dtype=np.float32) - self.cur_y) * dy
+            uu, vv = np.meshgrid(u_ax, v_ax)
+
+            out_files = []
+
+            for k in range(n_slices):
+                if self._is_cancelled:
+                    return
+
+                in_fp = self.slice_paths[k]
+                self.progress_signal.emit(k + 1, n_slices, f"{k + 1} / {n_slices}")
+
+                w = (k - self.cur_z) * dz
+                px = cx_rot + uu * R[0, 0] + vv * R[0, 1] + w * R[0, 2]
+                py = cy_rot + uu * R[1, 0] + vv * R[1, 1] + w * R[1, 2]
+                pz = cz_rot + uu * R[2, 0] + vv * R[2, 1] + w * R[2, 2]
+
+                coords = np.array([pz / dz, py / dy, px / dx], dtype=np.float32)
+                slice_hu = scipy.ndimage.map_coordinates(
+                    self.vol, coords, order=1, mode="constant", cval=-1000.0
+                )
+
+                ds = safe_dcmread(in_fp)
+                slope = float(getattr(ds, "RescaleSlope", 1.0))
+                if slope == 0.0:
+                    slope = 1.0
+                intercept = float(getattr(ds, "RescaleIntercept", 0.0))
+
+                raw_pixels = np.round((slice_hu - intercept) / slope)
+                bit_depth = int(getattr(ds, "BitsAllocated", 16))
+                pixel_rep = int(getattr(ds, "PixelRepresentation", 0))
+
+                if pixel_rep == 0:
+                    raw_pixels = np.clip(raw_pixels, 0, (1 << bit_depth) - 1).astype(np.uint16)
+                else:
+                    min_val = -(1 << (bit_depth - 1))
+                    max_val = (1 << (bit_depth - 1)) - 1
+                    raw_pixels = np.clip(raw_pixels, min_val, max_val).astype(np.int16)
+
+                ds.PixelData = raw_pixels.tobytes()
+                ds.Rows = rows
+                ds.Columns = cols
+                ds.ImageOrientationPatient = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+                ds.InstanceNumber = k + 1
+
+                orig_desc = str(getattr(ds, "SeriesDescription", "CT"))
+                if "(Aligned)" not in orig_desc:
+                    ds.SeriesDescription = f"{orig_desc} (Aligned)"
+
+                ds.SeriesInstanceUID = new_series_uid
+                new_sop_uid = generate_uid()
+                ds.SOPInstanceUID = new_sop_uid
+                if hasattr(ds, "file_meta") and ds.file_meta is not None:
+                    ds.file_meta.MediaStorageSOPInstanceUID = new_sop_uid
+
+                if self.mode == "new":
+                    try:
+                        snum = int(getattr(ds, "SeriesNumber", 1))
+                        ds.SeriesNumber = snum + 100
+                    except Exception:
+                        ds.SeriesNumber = 101
+                    ds.ImageType = ["DERIVED", "SECONDARY", "AXIAL"]
+                    out_fp = os.path.join(output_dir, f"CT_ALIGNED_{k + 1:04d}.dcm")
+                else:
+                    out_fp = in_fp
+
+                ds.save_as(out_fp)
+                out_files.append(out_fp)
+
+            self.finished_signal.emit({
+                "mode": self.mode,
+                "output_dir": output_dir,
+                "files": out_files,
+                "count": len(out_files),
+                "series_uid": new_series_uid
+            })
+
         except Exception as e:
             self.error_signal.emit(str(e))
 
@@ -1294,13 +1610,15 @@ class MprPanelWidget(QWidget):
         spacing: tuple[float, float, float],
         window_width: float,
         window_center: float,
-        initial_z: int = None
+        initial_z: int = None,
+        slice_files: list = None
     ) -> None:
         self.vol = vol
         self.ipp0 = list(ipp0)
         self.spacing = tuple(spacing)
         self.window_width = window_width
         self.window_center = window_center
+        self.slice_files = [item[0] if isinstance(item, tuple) else item for item in (slice_files or [])]
         self.zoom_factor = 1.0
         self.pan_offset = QPointF(0, 0)
         self.pan_x = 0.0
@@ -1435,7 +1753,7 @@ class MprPanelWidget(QWidget):
 
         res = detect_applicator_orientation(self.vol, self.spacing)
         if res is None:
-            QMessageBox.information(
+            show_dark_message_box(
                 self,
                 "Авто-выравнивание",
                 "Металлический аппликатор (метрокольпостат) не обнаружен в КТ-объеме."
@@ -1461,12 +1779,113 @@ class MprPanelWidget(QWidget):
         return True
 
     def export_aligned_dicom_series(self) -> None:
-        """Placeholder for Step 2 export."""
-        QMessageBox.information(
-            self,
-            "Экспорт КТ в DICOM",
-            "Функция экспорта выровненной КТ-серии будет выполнена на Шаге 2."
+        if self.vol is None:
+            show_dark_message_box(
+                self,
+                "Экспорт КТ в DICOM",
+                "КТ-объем не загружен."
+            )
+            return
+
+        slice_paths = getattr(self, "slice_files", None)
+        if not slice_paths:
+            parent_viewer = self.parent()
+            if hasattr(parent_viewer, "sorted_files") and parent_viewer.sorted_files:
+                slice_paths = [item[0] if isinstance(item, tuple) else item for item in parent_viewer.sorted_files]
+            elif hasattr(parent_viewer, "derived_files") and parent_viewer.derived_files:
+                slice_paths = [item[0] if isinstance(item, tuple) else item for item in parent_viewer.derived_files]
+
+        if not slice_paths:
+            show_dark_message_box(
+                self,
+                "Экспорт КТ в DICOM",
+                "Не найдены исходные DICOM файлы для экспорта."
+            )
+            return
+
+        choice_dlg = MprExportChoiceDialog(
+            parent=self,
+            rot_x=self.rot_x,
+            rot_y=self.rot_y,
+            rot_z=self.rot_z,
+            n_slices=len(slice_paths)
         )
+        if choice_dlg.exec() != QDialog.DialogCode.Accepted or not choice_dlg.selected_action:
+            return
+
+        action = choice_dlg.selected_action
+
+        from ui.loading_dialog import LoadingProgressDialog
+        progress_dialog = LoadingProgressDialog(
+            self,
+            title="Экспорт КТ для Eclipse",
+            show_cancel=True
+        )
+        progress_dialog.set_custom_progress(0, len(slice_paths), f"0 / {len(slice_paths)}")
+
+        worker = MprExportAlignedWorker(
+            slice_paths=slice_paths,
+            vol=self.vol,
+            spacing=self.spacing,
+            rot_x=self.rot_x,
+            rot_y=self.rot_y,
+            rot_z=self.rot_z,
+            cur_x=self.cur_x,
+            cur_y=self.cur_y,
+            cur_z=self.cur_z,
+            mode=action,
+            parent=self
+        )
+        progress_dialog.on_cancel_cb = worker.cancel
+
+        def on_prog(cur: int, tot: int, text: str) -> None:
+            progress_dialog.set_custom_progress(cur, tot, f"Пересчёт и запись срезов: {text}")
+
+        def on_fin(res: dict) -> None:
+            progress_dialog.accept()
+            out_files = res.get("files", [])
+            out_dir = res.get("output_dir", "")
+            mode = res.get("mode", "new")
+            cnt = res.get("count", len(out_files))
+
+            parent_viewer = self.parent()
+            if mode == "replace":
+                show_dark_message_box(
+                    self,
+                    "Экспорт завершён",
+                    f"Исходная серия КТ успешно перезаписана ({cnt} срезов) с выравниванием осей для Eclipse.\n"
+                    f"Серия перезагружается в просмотрщик..."
+                )
+                if hasattr(parent_viewer, "load_series"):
+                    parent_viewer.load_series(out_files)
+            else:
+                ret = show_dark_message_box(
+                    self,
+                    "Экспорт завершён",
+                    f"Выровненная серия КТ успешно сохранена ({cnt} срезов):\n{out_dir}\n\n"
+                    f"Загрузить созданную серию в просмотрщик сейчас?",
+                    buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if ret == QMessageBox.StandardButton.Yes:
+                    if hasattr(parent_viewer, "load_series"):
+                        parent_viewer.load_series(out_files)
+
+        def on_err(err_msg: str) -> None:
+            progress_dialog.reject()
+            show_dark_message_box(
+                self,
+                "Ошибка экспорта",
+                f"Не удалось выполнить экспорт серии:\n{err_msg}",
+                icon=QMessageBox.Icon.Critical
+            )
+
+        worker.progress_signal.connect(on_prog)
+        worker.finished_signal.connect(on_fin)
+        worker.error_signal.connect(on_err)
+        worker.start()
+
+        progress_dialog.exec()
+        worker.wait()
 
     def _on_subview_cursor_moved(self, x: int, y: int, z: int) -> None:
         self.cur_x = x

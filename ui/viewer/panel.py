@@ -2305,7 +2305,8 @@ class DicomViewerPanel(QWidget):
                     self.mpr_spacing_orig,
                     self.window_width,
                     self.window_center,
-                    initial_z=max(0, self.current_index)
+                    initial_z=max(0, self.current_index),
+                    slice_files=self.sorted_files
                 )
             if res_der is not None:
                 self.mpr_vol_derived, self.mpr_ipp0_derived, self.mpr_spacing_derived = res_der
@@ -2315,7 +2316,8 @@ class DicomViewerPanel(QWidget):
                     self.mpr_spacing_derived,
                     self.window_width,
                     self.window_center,
-                    initial_z=max(0, self.current_index)
+                    initial_z=max(0, self.current_index),
+                    slice_files=self.derived_files
                 )
             progress_dialog.accept()
 
