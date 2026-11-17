@@ -302,6 +302,12 @@ def detect_applicator_orientation(
 
     if bend_mag > 0.5:
         rot_z = float(np.degrees(math.atan2(float(v_bend[0]), float(v_bend[1]))))
+        # Keep rot_z within [-90.0, 90.0] to maintain upright anatomical orientation
+        # (Sagittal cutting plane is invariant under 180-degree rotation)
+        while rot_z > 90.0:
+            rot_z -= 180.0
+        while rot_z < -90.0:
+            rot_z += 180.0
     else:
         rot_z = 0.0
 
@@ -852,13 +858,13 @@ class MprSliceWidget(QWidget):
                 self._dragging_axis = None
                 # Clicking free space does NOT move crosshairs
 
-        elif event.button() in (BTN_MIDDLE, BTN_RIGHT):
+        elif event.button() == BTN_MIDDLE:
             is_shift = bool(
                 (event.modifiers() & Qt.KeyboardModifier.ShiftModifier) if hasattr(Qt, "KeyboardModifier")
                 else (event.modifiers() & Qt.ShiftModifier)
             )
             if is_shift:
-                # Shift strictly locks to rotation mode (never panning)
+                # Shift + MMB: Interactive rotation around crosshair pivot (never panning)
                 self._is_rotating = True
                 self._is_panning = False
                 self._rot_start_angle = self.rotation_angle
@@ -869,6 +875,7 @@ class MprSliceWidget(QWidget):
                 self._mouse_start_rad = math.atan2(dy, dx)
                 self.setCursor(CURSOR_SIZEALL)
             else:
+                # MMB: Panning
                 self._is_panning = True
                 self._is_rotating = False
                 self._pan_start = event.pos()
@@ -876,7 +883,7 @@ class MprSliceWidget(QWidget):
     def mouseMoveEvent(self, event) -> None:
         pos_f = QPointF(event.pos())
 
-        # Handle Shift + MMB/RMB rotation around crosshair pivot (follows hand movement)
+        # Handle Shift + MMB rotation around crosshair pivot (follows hand movement)
         if getattr(self, "_is_rotating", False):
             cx = self._last_pivot.x()
             cy = self._last_pivot.y()
@@ -905,7 +912,7 @@ class MprSliceWidget(QWidget):
                 self._update_axis_pos(horizontal_y=pos_f.y(), vertical_x=pos_f.x())
             return
 
-        # Handle panning (Middle button or Right button without Shift)
+        # Handle panning (Middle button only)
         if getattr(self, "_is_panning", False) and self._pan_start is not None:
             modifiers = event.modifiers()
             is_shift = bool(
@@ -984,20 +991,12 @@ class MprSliceWidget(QWidget):
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == BTN_LEFT:
             self._dragging_axis = None
-        elif event.button() in (BTN_MIDDLE, BTN_RIGHT):
+        elif event.button() == BTN_MIDDLE:
             if getattr(self, "_is_rotating", False):
                 self._is_rotating = False
                 self.setCursor(CURSOR_CROSS)
             elif getattr(self, "_is_panning", False):
                 self._is_panning = False
-                if event.button() == BTN_RIGHT and not getattr(self, "_context_menu_shown", False):
-                    if self._pan_start is not None:
-                        curr_pos = event.pos()
-                        dist = math.hypot(float(curr_pos.x() - self._pan_start.x()), float(curr_pos.y() - self._pan_start.y()))
-                        if dist < 5.0:
-                            self._context_menu_shown = True
-                            g_pos = event.globalPosition().toPoint() if hasattr(event, "globalPosition") else event.globalPos()
-                            self._show_context_menu(g_pos)
                 self._pan_start = None
                 self._float_cur = [float(self.cur_x), float(self.cur_y), float(self.cur_z)]
                 parent_panel = self.parent()
@@ -1005,10 +1004,8 @@ class MprSliceWidget(QWidget):
                     parent_panel.on_subview_pan_ended()
 
     def contextMenuEvent(self, event) -> None:
-        if not getattr(self, "_context_menu_shown", False):
-            self._context_menu_shown = True
-            g_pos = event.globalPos()
-            self._show_context_menu(g_pos)
+        g_pos = event.globalPos()
+        self._show_context_menu(g_pos)
 
     def _show_context_menu(self, global_pos: QPoint) -> None:
         parent_panel = self.parent()
