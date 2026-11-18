@@ -1913,7 +1913,8 @@ class MprPanelWidget(QWidget):
         initial_z: int = None,
         slice_files: list = None,
         initial_zoom: float = 1.0,
-        spline_coeffs: np.ndarray | None = None
+        spline_coeffs: np.ndarray | None = None,
+        initial_cursor: list[float] | tuple[float, float, float] | None = None
     ) -> None:
         self.vol = vol
         self.spline_coeffs = spline_coeffs if (spline_coeffs is not None and spline_coeffs.shape == vol.shape) else None
@@ -1935,10 +1936,19 @@ class MprPanelWidget(QWidget):
         self._frame_origin_mm = np.zeros(3, dtype=np.float64)
 
         n_z, rows, cols = vol.shape
-        self.cur_x = cols // 2
-        self.cur_y = rows // 2
-        self.cur_z = (n_z // 2) if initial_z is None else max(0, min(n_z - 1, initial_z))
-        self._float_cur = [float(self.cur_x), float(self.cur_y), float(self.cur_z)]
+        if initial_cursor is not None and len(initial_cursor) >= 3:
+            fx = max(0.0, min(float(cols - 1), float(initial_cursor[0])))
+            fy = max(0.0, min(float(rows - 1), float(initial_cursor[1])))
+            fz = max(0.0, min(float(n_z - 1), float(initial_cursor[2])))
+            self.cur_x = int(round(fx))
+            self.cur_y = int(round(fy))
+            self.cur_z = int(round(fz))
+            self._float_cur = [fx, fy, fz]
+        else:
+            self.cur_x = cols // 2
+            self.cur_y = rows // 2
+            self.cur_z = (n_z // 2) if initial_z is None else max(0, min(n_z - 1, initial_z))
+            self._float_cur = [float(self.cur_x), float(self.cur_y), float(self.cur_z)]
 
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
             v.set_zoom(self.zoom_factor)
@@ -1955,6 +1965,7 @@ class MprPanelWidget(QWidget):
                 window_center=self.window_center,
                 spline_coeffs=self.spline_coeffs
             )
+            v.set_cursor(self.cur_x, self.cur_y, self.cur_z, float_cur=self._float_cur)
 
     def set_cursor(
         self,
@@ -2204,6 +2215,8 @@ class MprPanelWidget(QWidget):
         )
         progress_dialog.set_custom_progress(0, len(slice_paths), f"0 / {len(slice_paths)}")
 
+        export_float_cur = list(getattr(self, "_float_cur", [float(self.cur_x), float(self.cur_y), float(self.cur_z)]))
+
         worker = MprExportAlignedWorker(
             slice_paths=slice_paths,
             vol=self.vol,
@@ -2217,7 +2230,7 @@ class MprPanelWidget(QWidget):
             mode=action,
             parent=self,
             origin_mm=self._frame_origin_mm,
-            float_cur=self._float_cur,
+            float_cur=export_float_cur,
             spline_coeffs=self.spline_coeffs
         )
         progress_dialog.on_cancel_cb = worker.cancel
@@ -2254,7 +2267,9 @@ class MprPanelWidget(QWidget):
                         files=out_files,
                         series_uid=series_uid,
                         desc=series_desc,
-                        target_mode=target
+                        target_mode=target,
+                        initial_cursor=export_float_cur,
+                        reset_orig_rotation=(chosen_mode in ("original", "side_by_side"))
                     )
                 elif chosen_mode == "processed" and hasattr(parent_viewer, "load_series"):
                     parent_viewer.load_series(out_files)

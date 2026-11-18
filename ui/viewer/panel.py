@@ -32,7 +32,9 @@ from .workers import (
 )
 from .controls import HUVerticalSlider, DRRProgressDialog
 from .canvas import DicomViewerWidget
-from .mpr_widget import MprPanelWidget, build_ct_volume, MprVolumeLoaderWorker
+from .mpr_widget import (
+    MprPanelWidget, build_ct_volume, MprVolumeLoaderWorker, detect_applicator_orientation
+)
 from core.postprocessing import (
     PostprocessingRunner, ALGORITHM_MAR_V9, ALGORITHM_ST_HARD, ALGORITHM_ST_NORMAL,
     ALGORITHM_COMBO_NORMAL, ALGORITHM_COMBO_HARD, clean_series_desc
@@ -70,6 +72,9 @@ class DicomViewerPanel(QWidget):
         self.mpr_ipp0_derived = None
         self.mpr_spacing_derived = None
         self.mpr_spline_derived = None
+        self._derived_initial_cursor = None
+        self._last_mpr_orig_xy = None
+        self._last_mpr_der_xy = None
         self._syncing_mpr = False
         self.struct_files = []
         self.dose_files = []
@@ -1874,6 +1879,9 @@ class DicomViewerPanel(QWidget):
         self.mpr_ipp0_derived = None
         self.mpr_spacing_derived = None
         self.mpr_spline_derived = None
+        self._derived_initial_cursor = None
+        self._last_mpr_orig_xy = None
+        self._last_mpr_der_xy = None
         self.mpr_active = False
         self._apply_mpr_window_maximize(False)
         if hasattr(self, "btn_mpr"):
@@ -1968,6 +1976,9 @@ class DicomViewerPanel(QWidget):
         self.mpr_ipp0_derived = None
         self.mpr_spacing_derived = None
         self.mpr_spline_derived = None
+        self._derived_initial_cursor = None
+        self._last_mpr_orig_xy = None
+        self._last_mpr_der_xy = None
         self._need_initial_window = True
         self.pixmap_cache.clear()
         self.viewer.clear_viewer()
@@ -2297,6 +2308,25 @@ class DicomViewerPanel(QWidget):
             self.btn_mode_side.setChecked(mode == "side_by_side")
             self.btn_mode_proc.setChecked(mode == "processed")
 
+        if (
+            mode == "side_by_side"
+            and getattr(self, "mpr_active", False)
+            and hasattr(self, "mpr_container")
+            and self.mpr_container.vol is not None
+        ):
+            has_rot = (
+                abs(self.mpr_container.rot_x) > 0.05
+                or abs(self.mpr_container.rot_y) > 0.05
+                or abs(self.mpr_container.rot_z) > 0.05
+            )
+            if has_rot:
+                self._syncing_mpr = True
+                try:
+                    self.mpr_container.reset_rotation()
+                finally:
+                    self._syncing_mpr = False
+            self._last_mpr_orig_xy = (self.mpr_container.cur_x, self.mpr_container.cur_y)
+
         self._update_viewports_visibility()
 
         if self.current_index >= 0:
@@ -2307,7 +2337,9 @@ class DicomViewerPanel(QWidget):
         files: list[str],
         series_uid: str = "",
         desc: str = "Aligned CT",
-        target_mode: str = "original"
+        target_mode: str = "original",
+        initial_cursor: list[float] | tuple[float, float, float] | None = None,
+        reset_orig_rotation: bool = False
     ) -> None:
         """Register a newly generated derived series and switch view mode without altering MPR state."""
         if not files:
@@ -2330,10 +2362,26 @@ class DicomViewerPanel(QWidget):
         self.mpr_ipp0_derived = None
         self.mpr_spacing_derived = None
         self.mpr_spline_derived = None
+        self._derived_initial_cursor = list(initial_cursor) if initial_cursor is not None else None
+        self._last_mpr_der_xy = None
         self.pixmap_cache.clear()
 
         if target_mode not in ("original", "side_by_side", "processed"):
             target_mode = "original"
+
+        if (
+            reset_orig_rotation
+            and target_mode in ("original", "side_by_side")
+            and hasattr(self, "mpr_container")
+            and self.mpr_container.vol is not None
+        ):
+            self._syncing_mpr = True
+            try:
+                self.mpr_container.reset_rotation()
+            finally:
+                self._syncing_mpr = False
+            self._last_mpr_orig_xy = (self.mpr_container.cur_x, self.mpr_container.cur_y)
+
         self.set_view_mode(target_mode)
 
     def toggle_mpr(self) -> None:
@@ -2397,19 +2445,34 @@ class DicomViewerPanel(QWidget):
                     initial_zoom=default_zoom,
                     spline_coeffs=self.mpr_spline_orig
                 )
+                self._last_mpr_orig_xy = (self.mpr_container.cur_x, self.mpr_container.cur_y)
             if res_der is not None:
                 self.mpr_vol_derived, self.mpr_ipp0_derived, self.mpr_spacing_derived = res_der
                 self.mpr_spline_derived = getattr(worker, "spline_derived", None)
-                der_init_z = (
-                    self.mpr_container.cur_z
-                    if (self.mpr_vol_orig is not None and self.mpr_container.vol is not None)
-                    else max(0, self.current_index)
-                )
-                der_init_zoom = (
-                    self.mpr_container.zoom_factor
-                    if (self.mpr_vol_orig is not None and self.mpr_container.vol is not None)
-                    else default_zoom
-                )
+                has_orig_mpr = (self.mpr_vol_orig is not None and self.mpr_container.vol is not None)
+                der_init_z = self.mpr_container.cur_z if has_orig_mpr else max(0, self.current_index)
+                der_init_zoom = self.mpr_container.zoom_factor if has_orig_mpr else default_zoom
+
+                der_init_cursor = None
+                if self._derived_initial_cursor is not None and len(self._derived_initial_cursor) >= 3:
+                    der_init_cursor = list(self._derived_initial_cursor)
+                    if has_orig_mpr and int(round(der_init_cursor[2])) != der_init_z:
+                        der_init_cursor[2] = float(der_init_z)
+                else:
+                    is_aligned_series = (
+                        "aligned" in (self.derived_series_desc or "").lower()
+                        or (
+                            bool(self.derived_files)
+                            and "ALIGNED_" in os.path.basename(self.derived_files[0][0]).upper()
+                        )
+                    )
+                    if is_aligned_series:
+                        det = detect_applicator_orientation(self.mpr_vol_derived, self.mpr_spacing_derived)
+                        if det and "float_cur" in det:
+                            der_init_cursor = list(det["float_cur"])
+                            if has_orig_mpr:
+                                der_init_cursor[2] = float(der_init_z)
+
                 self.mpr_container_derived.set_volume_data(
                     self.mpr_vol_derived,
                     self.mpr_ipp0_derived,
@@ -2419,8 +2482,10 @@ class DicomViewerPanel(QWidget):
                     initial_z=der_init_z,
                     slice_files=self.derived_files,
                     initial_zoom=der_init_zoom,
-                    spline_coeffs=self.mpr_spline_derived
+                    spline_coeffs=self.mpr_spline_derived,
+                    initial_cursor=der_init_cursor
                 )
+                self._last_mpr_der_xy = (self.mpr_container_derived.cur_x, self.mpr_container_derived.cur_y)
             progress_dialog.accept()
 
         def on_err(err_msg: str) -> None:
@@ -2480,9 +2545,15 @@ class DicomViewerPanel(QWidget):
             return
         self._syncing_mpr = True
         try:
+            z_only_scroll = (self._last_mpr_orig_xy is not None and (x, y) == self._last_mpr_orig_xy)
+            self._last_mpr_orig_xy = (x, y)
             if hasattr(self, "mpr_container_derived") and (self.mpr_container_derived.isVisible() or not self.mpr_container_derived.isHidden()):
-                float_cur = getattr(self.mpr_container, "_float_cur", None)
-                self.mpr_container_derived.set_cursor(x, y, z, float_cur=float_cur)
+                if z_only_scroll:
+                    self.mpr_container_derived.scroll_axial_to(z)
+                else:
+                    float_cur = getattr(self.mpr_container, "_float_cur", None)
+                    self.mpr_container_derived.set_cursor(x, y, z, float_cur=float_cur)
+                    self._last_mpr_der_xy = (x, y)
             if self.current_index != z:
                 self.current_index = z
                 self.slider.blockSignals(True)
@@ -2496,9 +2567,15 @@ class DicomViewerPanel(QWidget):
             return
         self._syncing_mpr = True
         try:
+            z_only_scroll = (self._last_mpr_der_xy is not None and (x, y) == self._last_mpr_der_xy)
+            self._last_mpr_der_xy = (x, y)
             if hasattr(self, "mpr_container") and (self.mpr_container.isVisible() or not self.mpr_container.isHidden()):
-                float_cur = getattr(self.mpr_container_derived, "_float_cur", None)
-                self.mpr_container.set_cursor(x, y, z, float_cur=float_cur)
+                if z_only_scroll:
+                    self.mpr_container.scroll_axial_to(z)
+                else:
+                    float_cur = getattr(self.mpr_container_derived, "_float_cur", None)
+                    self.mpr_container.set_cursor(x, y, z, float_cur=float_cur)
+                    self._last_mpr_orig_xy = (x, y)
             if self.current_index != z:
                 self.current_index = z
                 self.slider.blockSignals(True)
