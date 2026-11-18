@@ -47,6 +47,22 @@ def build_postprocessing_tab(dialog):
     dialog.lbl_postprocessing_buttons = QLabel()
     postproc_form.addRow(dialog.lbl_postprocessing_buttons, dialog.postprocessing_buttons_cb)
 
+    # Smooth rendering (SmoothPixmapTransform) in 2D and MPR
+    dialog.viewer_smooth_rendering_cb = ToggleSwitch()
+    dialog.viewer_smooth_rendering_cb.setChecked(
+        str(dialog.config.get('viewer_smooth_rendering', 'True')).lower() == 'true'
+    )
+    dialog.lbl_viewer_smooth_rendering = QLabel()
+    postproc_form.addRow(dialog.lbl_viewer_smooth_rendering, dialog.viewer_smooth_rendering_cb)
+
+    # Isotropic Coronal/Sagittal MPR sampling along Z
+    dialog.mpr_isotropic_cb = ToggleSwitch()
+    dialog.mpr_isotropic_cb.setChecked(
+        str(dialog.config.get('mpr_isotropic_sampling', 'True')).lower() == 'true'
+    )
+    dialog.lbl_mpr_isotropic = QLabel()
+    postproc_form.addRow(dialog.lbl_mpr_isotropic, dialog.mpr_isotropic_cb)
+
     postproc_layout.addLayout(postproc_form)
     postproc_layout.addStretch()
 
@@ -65,3 +81,11 @@ def retranslate_postprocessing_tab(dialog):
     dialog.lbl_postprocessing_buttons.setText(tr_ui("settings_postprocessing_buttons"))
     dialog.lbl_postprocessing_buttons.setToolTip(tr_ui("tooltip_postprocessing_buttons"))
     dialog.postprocessing_buttons_cb.setToolTip(tr_ui("tooltip_postprocessing_buttons"))
+
+    dialog.lbl_viewer_smooth_rendering.setText(tr_ui("settings_viewer_smooth_rendering"))
+    dialog.lbl_viewer_smooth_rendering.setToolTip(tr_ui("tooltip_viewer_smooth_rendering"))
+    dialog.viewer_smooth_rendering_cb.setToolTip(tr_ui("tooltip_viewer_smooth_rendering"))
+
+    dialog.lbl_mpr_isotropic.setText(tr_ui("settings_mpr_isotropic"))
+    dialog.lbl_mpr_isotropic.setToolTip(tr_ui("tooltip_mpr_isotropic"))
+    dialog.mpr_isotropic_cb.setToolTip(tr_ui("tooltip_mpr_isotropic"))

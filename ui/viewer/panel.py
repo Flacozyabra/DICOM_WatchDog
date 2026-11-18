@@ -102,6 +102,10 @@ class DicomViewerPanel(QWidget):
         self.viewer.zoom_factor = default_zoom
         if hasattr(self, "viewer_derived"):
             self.viewer_derived.zoom_factor = default_zoom
+        cfg = getattr(self.parent_app, "config", {}) or {}
+        smooth_on = str(cfg.get("viewer_smooth_rendering", "True")).lower() == "true"
+        mpr_iso_on = str(cfg.get("mpr_isotropic_sampling", "True")).lower() == "true"
+        self.set_render_settings(smooth_on, mpr_iso_on)
 
     def _get_default_zoom(self) -> float:
         cfg = getattr(self.parent_app, "config", {}) or {}
@@ -2321,6 +2325,20 @@ class DicomViewerPanel(QWidget):
             self.mode_container.setVisible(self.postprocessing_enabled)
         if not self.postprocessing_enabled and getattr(self, "view_mode", "original") != "original":
             self.set_view_mode("original")
+
+    def set_render_settings(self, smooth_rendering: bool, mpr_isotropic: bool) -> None:
+        """Apply smooth pixmap scaling and isotropic MPR Z-resampling to all viewports."""
+        smooth_on = bool(smooth_rendering)
+        iso_on = bool(mpr_isotropic)
+        for widget in (getattr(self, "viewer", None), getattr(self, "viewer_derived", None)):
+            if widget is not None and hasattr(widget, "set_smooth_rendering"):
+                widget.set_smooth_rendering(smooth_on)
+        for mpr_panel in (getattr(self, "mpr_container", None), getattr(self, "mpr_container_derived", None)):
+            if mpr_panel is not None:
+                if hasattr(mpr_panel, "set_smooth_rendering"):
+                    mpr_panel.set_smooth_rendering(smooth_on)
+                if hasattr(mpr_panel, "set_isotropic_sampling"):
+                    mpr_panel.set_isotropic_sampling(iso_on)
 
     def set_view_mode(self, mode: str) -> None:
         if mode in ("side_by_side", "processed") and not self.has_derived:

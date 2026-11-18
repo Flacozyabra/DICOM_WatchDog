@@ -102,6 +102,8 @@ class SettingsDialog(QDialog):
             'image_postprocessing_enabled': 'False',
             'viewer_default_zoom': 150,
             'mpr_fullscreen_on_open': 'False',
+            'viewer_smooth_rendering': 'True',
+            'mpr_isotropic_sampling': 'True',
             'interface_lang': 'en',
             'log_lang': 'en'
         }
@@ -499,6 +501,10 @@ class SettingsDialog(QDialog):
             self.viewer_default_zoom_spin.valueChanged.connect(self.on_setting_changed)
         if hasattr(self, 'mpr_fullscreen_cb'):
             self.mpr_fullscreen_cb.toggled.connect(self.on_setting_changed)
+        if hasattr(self, 'viewer_smooth_rendering_cb'):
+            self.viewer_smooth_rendering_cb.toggled.connect(self.on_setting_changed)
+        if hasattr(self, 'mpr_isotropic_cb'):
+            self.mpr_isotropic_cb.toggled.connect(self.on_setting_changed)
 
     def on_highlighting_toggled(self, checked):
         self.highlight_new_cb.blockSignals(True)
@@ -575,6 +581,10 @@ class SettingsDialog(QDialog):
             self.config['viewer_default_zoom'] = self.viewer_default_zoom_spin.value()
         if hasattr(self, 'mpr_fullscreen_cb'):
             self.config['mpr_fullscreen_on_open'] = 'True' if self.mpr_fullscreen_cb.isChecked() else 'False'
+        if hasattr(self, 'viewer_smooth_rendering_cb'):
+            self.config['viewer_smooth_rendering'] = 'True' if self.viewer_smooth_rendering_cb.isChecked() else 'False'
+        if hasattr(self, 'mpr_isotropic_cb'):
+            self.config['mpr_isotropic_sampling'] = 'True' if self.mpr_isotropic_cb.isChecked() else 'False'
         self.config['archive_enabled'] = 'True' if self.archive_enabled_cb.isChecked() else 'False'
         self.config['archive_days'] = self.archive_days_spin.value()
         self.config['archive_cleanup_enabled'] = 'True' if self.archive_cleanup_enabled_cb.isChecked() else 'False'

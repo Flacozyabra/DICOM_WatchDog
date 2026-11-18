@@ -108,6 +108,11 @@ class DicomViewerWidget(QWidget):
         self.pan_offset = QPointF(pan)
         self.update()
 
+    def set_smooth_rendering(self, enabled: bool) -> None:
+        """Enable or disable smooth pixmap scaling when painting slices."""
+        self.smooth_rendering = bool(enabled)
+        self.update()
+
     def __init__(self, parent: QWidget = None) -> None:
         super().__init__(parent)
         self.current_pixmap = None
@@ -136,6 +141,7 @@ class DicomViewerWidget(QWidget):
         self.pan_active = False
 
         self.osd_visible = True
+        self.smooth_rendering = True
 
         # Структуры RTSTRUCT
         self.structures = {}
@@ -1206,7 +1212,9 @@ class DicomViewerWidget(QWidget):
             offset_y = (h - view_h) // 2 + int(self.pan_offset.y())
 
             self.image_rect = QRect(offset_x, offset_y, view_w, view_h)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, bool(getattr(self, "smooth_rendering", True)))
             painter.drawPixmap(self.image_rect, self.current_pixmap)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
 
             # Отрисовка цветового градиента дозы (Dose Colorwash)
             if self.show_dose_gradient and self.dose_data:

@@ -45,6 +45,11 @@ BTN_MIDDLE = Qt.MouseButton.MiddleButton if hasattr(Qt, "MouseButton") else Qt.M
 BTN_RIGHT = Qt.MouseButton.RightButton if hasattr(Qt, "MouseButton") else Qt.RightButton
 PEN_SOLID = Qt.PenStyle.SolidLine if hasattr(Qt, "PenStyle") else Qt.SolidLine
 PEN_DASH = Qt.PenStyle.DashLine if hasattr(Qt, "PenStyle") else Qt.DashLine
+RENDER_SMOOTH = (
+    QPainter.RenderHint.SmoothPixmapTransform
+    if hasattr(QPainter, "RenderHint")
+    else QPainter.SmoothPixmapTransform
+)
 
 # Projection Plane Constants
 PLANE_AXIAL = "axial"       # XY plane (indexed by Z)
@@ -584,6 +589,9 @@ class MprSliceWidget(QWidget):
         self._context_menu_shown = False
         self.osd_visible: bool = True
         self.ruler_active: bool = False
+        self.smooth_rendering: bool = True
+        self.isotropic_sampling: bool = True
+        self._iso_z_cache: dict = {}
         self._ruler_drawing: bool = False
         self._ruler_norm_pts: tuple[tuple[float, float], tuple[float, float]] | None = None
         self._ruler_close_rect: QRect | None = None
@@ -607,6 +615,20 @@ class MprSliceWidget(QWidget):
             self._dragging_axis = None
             self.setCursor(CURSOR_CROSS)
         self.update()
+
+    def set_smooth_rendering(self, enabled: bool) -> None:
+        """Enable or disable smooth pixmap scaling on slice paint."""
+        self.smooth_rendering = bool(enabled)
+        self.update()
+
+    def set_isotropic_sampling(self, enabled: bool) -> None:
+        """Enable or disable cubic B-spline Z-resampling for thick-slice MPR planes."""
+        enabled = bool(enabled)
+        if self.isotropic_sampling == enabled:
+            return
+        self.isotropic_sampling = enabled
+        if self.vol is not None and self.plane_type in (PLANE_CORONAL, PLANE_SAGITTAL):
+            self.refresh_slice(draft=False)
 
     def _screen_to_target_norm(self, pt: QPointF) -> tuple[float, float]:
         rect = self._target_rect
@@ -821,6 +843,42 @@ class MprSliceWidget(QWidget):
             self._idx_cache[length] = vec
         return vec
 
+    def _get_isotropic_z_count(self) -> int:
+        if self.vol is None:
+            return 1
+        n_z = int(self.vol.shape[0])
+        if n_z <= 1 or self.plane_type == PLANE_AXIAL:
+            return n_z
+        dy, dx, dz = float(self.spacing[0]), float(self.spacing[1]), float(self.spacing[2])
+        min_xy = max(1e-3, min(dy, dx))
+        if dz <= min_xy * 1.15:
+            return n_z
+        target_h = int(round((n_z - 1) * dz / min_xy)) + 1
+        return max(n_z, min(1024, target_h))
+
+    def _get_isotropic_z_vector(self, n_z: int, target_h: int) -> np.ndarray:
+        key = (int(n_z), int(target_h))
+        vec = self._iso_z_cache.get(key)
+        if vec is None:
+            vec = np.linspace(float(n_z - 1), 0.0, int(target_h), dtype=np.float32)
+            self._iso_z_cache[key] = vec
+        return vec
+
+    def _build_vertical_z_offsets(
+        self, n_z: int, cur_z_val: float, dz: float, draft: bool
+    ) -> tuple[int, np.ndarray]:
+        target_h = (
+            self._get_isotropic_z_count()
+            if (getattr(self, "isotropic_sampling", True) and not draft)
+            else n_z
+        )
+        if target_h > n_z:
+            z_vec = self._get_isotropic_z_vector(n_z, target_h)
+            v_1d = ((z_vec - np.float32(cur_z_val)) * np.float32(dz))[:, None]
+        else:
+            v_1d = ((np.float32(n_z - 1.0 - cur_z_val) - self._get_index_vector(n_z)) * np.float32(dz))[:, None]
+        return target_h, v_1d
+
     def _extract_oblique_slice(self, draft: bool = False) -> np.ndarray:
         n_z, rows, cols = self.vol.shape
         dy, dx, dz = float(self.spacing[0]), float(self.spacing[1]), float(self.spacing[2])
@@ -840,14 +898,14 @@ class MprSliceWidget(QWidget):
             v_1d = ((self._get_index_vector(rows) - np.float32(cur_y_val)) * np.float32(dy))[:, None]
             col_a, col_b = 0, 1
         elif self.plane_type == PLANE_CORONAL:
-            h, w = n_z, cols
+            h, v_1d = self._build_vertical_z_offsets(n_z, cur_z_val, dz, draft)
+            w = cols
             u_1d = ((self._get_index_vector(cols) - np.float32(cur_x_val)) * np.float32(dx))[None, :]
-            v_1d = ((np.float32(n_z - 1.0 - cur_z_val) - self._get_index_vector(n_z)) * np.float32(dz))[:, None]
             col_a, col_b = 0, 2
         else:  # PLANE_SAGITTAL (Eclipse convention: Posterior left, Anterior right)
-            h, w = n_z, rows
+            h, v_1d = self._build_vertical_z_offsets(n_z, cur_z_val, dz, draft)
+            w = rows
             u_1d = ((np.float32(rows - 1.0 - cur_y_val) - self._get_index_vector(rows)) * np.float32(dy))[None, :]
-            v_1d = ((np.float32(n_z - 1.0 - cur_z_val) - self._get_index_vector(n_z)) * np.float32(dz))[:, None]
             col_a, col_b = 1, 2
 
         if self._coord_buf is None or self._coord_buf.shape != (3, h, w):
@@ -904,7 +962,13 @@ class MprSliceWidget(QWidget):
         self.cur_x = max(0, min(cols - 1, self.cur_x))
 
         try:
-            if not self._is_rotated():
+            use_iso = (
+                not draft
+                and getattr(self, "isotropic_sampling", True)
+                and self.plane_type in (PLANE_CORONAL, PLANE_SAGITTAL)
+                and self._get_isotropic_z_count() > n_z
+            )
+            if not self._is_rotated() and not use_iso:
                 if self.plane_type == PLANE_AXIAL:
                     slice_hu = self.vol[self.cur_z, :, :]
                 elif self.plane_type == PLANE_CORONAL:
@@ -1024,7 +1088,12 @@ class MprSliceWidget(QWidget):
         self._last_pivot = QPointF(cx_px, cy_px)
 
         # Render CT slice (already reconstructed in 3D along rotated plane)
+        smooth = bool(getattr(self, "smooth_rendering", True))
+        if smooth:
+            painter.setRenderHint(RENDER_SMOOTH, True)
         painter.drawPixmap(self._target_rect.toRect(), self.current_pixmap)
+        if smooth:
+            painter.setRenderHint(RENDER_SMOOTH, False)
 
         # Draw cross lines across the FULL viewport continuously (no gap)
         painter.setPen(pen_horiz)
@@ -1551,6 +1620,8 @@ class MprPanelWidget(QWidget):
         self._maximized_plane = None
         self.osd_visible = True
         self.ruler_active = False
+        self.smooth_rendering = True
+        self.isotropic_sampling = True
         self._interactive_draft = False
         self._pending_rot: tuple[str, float] | None = None
         self._last_rot_render_ts = 0.0
@@ -1677,6 +1748,8 @@ class MprPanelWidget(QWidget):
             v._ruler_close_rect = None
             v.set_osd_visible(self.osd_visible)
             v.set_ruler_active(self.ruler_active)
+            v.smooth_rendering = self.smooth_rendering
+            v.isotropic_sampling = self.isotropic_sampling
             v.set_zoom(self.zoom_factor)
             v.set_pan(QPointF(0, 0))
             v.set_rotation_matrix(R, 0.0, frame_origin_mm=self._frame_origin_mm)
@@ -1737,6 +1810,18 @@ class MprPanelWidget(QWidget):
         self.ruler_active = bool(active)
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
             v.set_ruler_active(self.ruler_active)
+
+    def set_smooth_rendering(self, enabled: bool) -> None:
+        """Enable or disable smooth pixmap scaling across all MPR views."""
+        self.smooth_rendering = bool(enabled)
+        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+            v.set_smooth_rendering(self.smooth_rendering)
+
+    def set_isotropic_sampling(self, enabled: bool) -> None:
+        """Enable or disable isotropic Z resampling across MPR views."""
+        self.isotropic_sampling = bool(enabled)
+        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+            v.set_isotropic_sampling(self.isotropic_sampling)
 
     def set_zoom(self, zoom: float) -> None:
         self.zoom_factor = max(0.05, min(30.0, float(zoom)))

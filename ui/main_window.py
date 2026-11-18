@@ -457,10 +457,13 @@ class MainWindow(QMainWindow):
         # Обновляем локализацию интерфейса
         self.retranslate_ui()
         
-        # 4. Обновляем видимость кнопок постобработки во вьюере
+        # 4. Обновляем видимость кнопок постобработки и качество отрисовки во вьюере
         postproc_on = str(self.config.get('image_postprocessing_enabled', 'False')).lower() == 'true'
+        smooth_on = str(self.config.get('viewer_smooth_rendering', 'True')).lower() == 'true'
+        mpr_iso_on = str(self.config.get('mpr_isotropic_sampling', 'True')).lower() == 'true'
         if hasattr(self, 'viewer_panel') and self.viewer_panel:
             self.viewer_panel.set_postprocessing_enabled(postproc_on)
+            self.viewer_panel.set_render_settings(smooth_on, mpr_iso_on)
         
         # 5. Обновляем путь наблюдателя, если он изменился
         if old_dir != new_dir:
@@ -1788,7 +1791,10 @@ class MainWindow(QMainWindow):
                 return
 
             postproc_on = str(self.config.get('image_postprocessing_enabled', 'False')).lower() == 'true'
+            smooth_on = str(self.config.get('viewer_smooth_rendering', 'True')).lower() == 'true'
+            mpr_iso_on = str(self.config.get('mpr_isotropic_sampling', 'True')).lower() == 'true'
             self.viewer_panel.set_postprocessing_enabled(postproc_on)
+            self.viewer_panel.set_render_settings(smooth_on, mpr_iso_on)
             cache_item = cache.get(patient_id, {}) if cache else {}
             if postproc_on and (cache_item.get('is_derived') or "[DERIVED" in str(patient_id)):
                 self.viewer_panel._target_view_mode_after_load = "processed"
