@@ -396,5 +396,11 @@
   "viewer_mpr_save_done_new": "Aligned CT series saved successfully ({0} slices):\n{1}\n\nSelect display mode:",
   "viewer_mpr_mode_aligned": "Aligned",
   "viewer_mpr_save_error_title": "Save Error",
-  "viewer_mpr_save_error_msg": "Failed to save aligned series:\n{0}"
+  "viewer_mpr_save_error_msg": "Failed to save aligned series:\n{0}",
+  "viewer_mpr_err_unsupported_geometry": "Cannot save aligned CT: unsupported source series geometry.\n\nDetails: {0}",
+  "viewer_mpr_geom_slice_count": "Insufficient slices or volume mismatch ({0}).",
+  "viewer_mpr_geom_orientation": "Unsupported ImageOrientationPatient (only standard HFS [1, 0, 0, 0, 1, 0] is supported).",
+  "viewer_mpr_geom_tilt": "Non-zero gantry tilt detected ({0:.1f}°).",
+  "viewer_mpr_geom_spacing": "Inconsistent image size or pixel spacing across slices.",
+  "viewer_mpr_geom_z_step": "Non-uniform or non-increasing slice spacing along Z."
 }

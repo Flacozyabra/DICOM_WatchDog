@@ -553,6 +553,91 @@ class MprAfterSaveDialog(QDialog):
         self.accept()
 
 
+def validate_aligned_export_geometry(
+    slice_paths: list[str],
+    vol: np.ndarray | None = None
+) -> tuple[bool, str]:
+    """
+    Validate that source CT slices follow standard axial HFS geometry without gantry tilt
+    and have uniform Z spacing so aligned DICOM export preserves clinical 3D geometry.
+    """
+    if not slice_paths or len(slice_paths) < 2:
+        return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_slice_count", len(slice_paths) if slice_paths else 0))
+
+    if vol is not None and len(slice_paths) != vol.shape[0]:
+        return False, tr_ui(
+            "viewer_mpr_err_unsupported_geometry",
+            tr_ui("viewer_mpr_geom_slice_count", f"{len(slice_paths)} != {vol.shape[0]}")
+        )
+
+    expected_iop = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0)
+    ref_shape = None
+    ref_ps = None
+    z_positions = []
+
+    for fp in slice_paths:
+        try:
+            ds = safe_dcmread(fp, stop_before_pixels=True)
+        except Exception as e:
+            return False, tr_ui("viewer_mpr_err_unsupported_geometry", str(e))
+
+        iop = getattr(ds, "ImageOrientationPatient", None)
+        if iop is None or len(iop) != 6:
+            return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_orientation"))
+        try:
+            if max(abs(float(v) - e) for v, e in zip(iop, expected_iop)) > 1e-3:
+                return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_orientation"))
+        except (TypeError, ValueError):
+            return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_orientation"))
+
+        tilt = getattr(ds, "GantryDetectorTilt", None)
+        if tilt is not None and str(tilt).strip() != "":
+            try:
+                tilt_val = float(tilt)
+            except (TypeError, ValueError):
+                tilt_val = 0.0
+            if abs(tilt_val) > 0.5:
+                return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_tilt", tilt_val))
+
+        rows = getattr(ds, "Rows", None)
+        cols = getattr(ds, "Columns", None)
+        ps = getattr(ds, "PixelSpacing", None)
+        if rows is None or cols is None or ps is None or len(ps) < 2:
+            return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_spacing"))
+        try:
+            cur_shape = (int(rows), int(cols))
+            cur_ps = (float(ps[0]), float(ps[1]))
+        except (TypeError, ValueError):
+            return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_spacing"))
+        if cur_ps[0] <= 0.0 or cur_ps[1] <= 0.0:
+            return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_spacing"))
+        if vol is not None and cur_shape != vol.shape[1:]:
+            return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_spacing"))
+        if ref_shape is None:
+            ref_shape = cur_shape
+            ref_ps = cur_ps
+        elif cur_shape != ref_shape or abs(cur_ps[0] - ref_ps[0]) > 1e-3 or abs(cur_ps[1] - ref_ps[1]) > 1e-3:
+            return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_spacing"))
+
+        ipp = getattr(ds, "ImagePositionPatient", None)
+        if ipp is None or len(ipp) < 3:
+            return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_z_step"))
+        try:
+            z_positions.append(float(ipp[2]))
+        except (TypeError, ValueError):
+            return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_z_step"))
+
+    diffs = np.diff(np.array(z_positions, dtype=np.float64))
+    if np.any(diffs <= 1e-4):
+        return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_z_step"))
+    mean_dz = float(np.mean(diffs))
+    max_dev = float(np.max(np.abs(diffs - mean_dz)))
+    if max_dev > max(0.1, 0.05 * mean_dz):
+        return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_z_step"))
+
+    return True, ""
+
+
 class MprExportAlignedWorker(QThread):
     """
     Background worker that resamples 3D CT volume along aligned MPR axes
@@ -605,9 +690,15 @@ class MprExportAlignedWorker(QThread):
                 self.error_signal.emit(tr_ui("viewer_mpr_no_export_data"))
                 return
 
+            geom_ok, geom_err = validate_aligned_export_geometry(self.slice_paths, self.vol)
+            if not geom_ok:
+                self.error_signal.emit(geom_err)
+                return
+
             study_dir = os.path.dirname(self.slice_paths[0])
             output_dir = study_dir
             new_series_uid = generate_uid()
+            new_for_uid = generate_uid()
 
             dy, dx, dz = self.spacing
             n_z, rows, cols = self.vol.shape
@@ -677,6 +768,7 @@ class MprExportAlignedWorker(QThread):
                 series_desc = str(ds.SeriesDescription)
 
                 ds.SeriesInstanceUID = new_series_uid
+                ds.FrameOfReferenceUID = new_for_uid
                 new_sop_uid = generate_uid()
                 ds.SOPInstanceUID = new_sop_uid
                 if hasattr(ds, "file_meta") and ds.file_meta is not None:
@@ -707,6 +799,7 @@ class MprExportAlignedWorker(QThread):
                 "files": out_files,
                 "count": len(out_files),
                 "series_uid": new_series_uid,
+                "frame_of_reference_uid": new_for_uid,
                 "series_desc": series_desc
             })
 
@@ -2192,6 +2285,16 @@ class MprPanelWidget(QWidget):
                 self,
                 tr_ui("viewer_mpr_save_title"),
                 tr_ui("viewer_mpr_no_source_files")
+            )
+            return
+
+        geom_ok, geom_err = validate_aligned_export_geometry(slice_paths, self.vol)
+        if not geom_ok:
+            show_dark_message_box(
+                self,
+                tr_ui("viewer_mpr_save_title"),
+                geom_err,
+                icon=QMessageBox.Icon.Warning
             )
             return
 

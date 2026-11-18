@@ -396,5 +396,11 @@
   "viewer_mpr_save_done_new": "Выровненная серия КТ успешно сохранена ({0} срезов):\n{1}\n\nВыберите режим отображения:",
   "viewer_mpr_mode_aligned": "Выровненное",
   "viewer_mpr_save_error_title": "Ошибка сохранения",
-  "viewer_mpr_save_error_msg": "Не удалось сохранить выровненную серию:\n{0}"
+  "viewer_mpr_save_error_msg": "Не удалось сохранить выровненную серию:\n{0}",
+  "viewer_mpr_err_unsupported_geometry": "Нельзя сохранить выровненное КТ: неподдерживаемая геометрия исходной серии.\n\nПричина: {0}",
+  "viewer_mpr_geom_slice_count": "Недостаточно срезов или несовпадение числа срезов с объемом ({0}).",
+  "viewer_mpr_geom_orientation": "Неподдерживаемая ориентация ImageOrientationPatient (поддерживается только стандартная HFS [1, 0, 0, 0, 1, 0]).",
+  "viewer_mpr_geom_tilt": "Обнаружен наклон гентри (GantryDetectorTilt = {0:.1f}°).",
+  "viewer_mpr_geom_spacing": "Несовпадающий размер матрицы или PixelSpacing между срезами серии.",
+  "viewer_mpr_geom_z_step": "Неравномерный или немонотонный шаг между срезами по оси Z."
 }
