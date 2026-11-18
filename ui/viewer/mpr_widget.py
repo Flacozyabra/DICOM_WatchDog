@@ -680,27 +680,77 @@ def detect_applicator_orientation(
     cur_y = int(round(pivot_fy))
     cur_z = int(round(pivot_fz))
 
-    # Calculate rot_z (axial bend angle)
+    # Calculate rot_z: align lateral colpostats/ovoids along horizontal R-L axis when present,
+    # otherwise fall back to sagittal/bend plane alignment from the upper tip.
     rx = math.radians(rot_x)
     ry = math.radians(rot_y)
     Rx = np.array([[1, 0, 0], [0, math.cos(rx), -math.sin(rx)], [0, math.sin(rx), math.cos(rx)]])
     Ry = np.array([[math.cos(ry), 0, math.sin(ry)], [0, 1, 0], [-math.sin(ry), 0, math.cos(ry)]])
     A = Ry @ Rx
 
-    Q_tip = (tip_pts - pivot_pt_mm) @ A
-    v_bend = np.mean(Q_tip[:, 0:2], axis=0)
-    bend_mag = math.hypot(float(v_bend[0]), float(v_bend[1]))
+    ovoid_angles = []
+    max_ovoid_z = min(n_z - 1, cur_z + 2)
+    for z_idx in range(0, max_ovoid_z + 1):
+        sl_mask = metal_mask[z_idx]
+        if not np.any(sl_mask):
+            continue
+        lbl, num_comp = scipy.ndimage.label(sl_mask)
+        if num_comp < 2:
+            continue
+        local_uv = []
+        for comp_id in range(1, num_comp + 1):
+            comp_pts = np.argwhere(lbl == comp_id)
+            if len(comp_pts) < 3:
+                continue
+            cy_c, cx_c = comp_pts.mean(axis=0)
+            p_mm = np.array([float(cx_c) * dx, float(cy_c) * dy, float(z_idx) * dz], dtype=np.float64)
+            q_pt = (p_mm - pivot_pt_mm) @ A
+            u_c, v_c = float(q_pt[0]), float(q_pt[1])
+            if math.hypot(u_c, v_c) <= 50.0:
+                local_uv.append((u_c, v_c))
+        if len(local_uv) < 2:
+            continue
 
-    if bend_mag > 0.5:
-        rot_z = float(np.degrees(math.atan2(float(v_bend[0]), float(v_bend[1]))))
-        # Keep rot_z within [-90.0, 90.0] to maintain upright anatomical orientation
-        # (Sagittal cutting plane is invariant under 180-degree rotation)
-        while rot_z > 90.0:
-            rot_z -= 180.0
-        while rot_z < -90.0:
-            rot_z += 180.0
+        best_span = 0.0
+        best_pair = None
+        for i in range(len(local_uv)):
+            for j in range(i + 1, len(local_uv)):
+                ui, vi = local_uv[i]
+                uj, vj = local_uv[j]
+                if math.hypot(ui, vi) < 4.0 or math.hypot(uj, vj) < 4.0:
+                    continue
+                if ui * uj + vi * vj >= 0.0:
+                    continue
+                span = math.hypot(uj - ui, vj - vi)
+                if span > best_span:
+                    best_span = span
+                    best_pair = (local_uv[i], local_uv[j])
+
+        if best_pair is not None and best_span >= 10.0:
+            (u0, v0), (u1, v1) = best_pair
+            du, dv = u1 - u0, v1 - v0
+            if du < 0.0 or (abs(du) < 1e-4 and dv > 0.0):
+                du, dv = -du, -dv
+            ovoid_angles.append(math.atan2(-dv, du))
+
+    if len(ovoid_angles) >= 3:
+        rads = np.array(ovoid_angles, dtype=np.float64)
+        s2 = float(np.median(np.sin(2.0 * rads)))
+        c2 = float(np.median(np.cos(2.0 * rads)))
+        rot_z = float(np.degrees(0.5 * math.atan2(s2, c2)))
     else:
-        rot_z = 0.0
+        Q_tip = (tip_pts - pivot_pt_mm) @ A
+        v_bend = np.mean(Q_tip[:, 0:2], axis=0)
+        bend_mag = math.hypot(float(v_bend[0]), float(v_bend[1]))
+
+        if bend_mag > 0.5:
+            rot_z = float(np.degrees(math.atan2(float(v_bend[0]), float(v_bend[1]))))
+            while rot_z > 90.0:
+                rot_z -= 180.0
+            while rot_z < -90.0:
+                rot_z += 180.0
+        else:
+            rot_z = 0.0
 
     return {
         "cur_x": cur_x,
@@ -861,14 +911,14 @@ class MprSliceWidget(QWidget):
             return [float(self._float_cur[0]), float(self._float_cur[1]), float(self._float_cur[2])]
         return [float(self.cur_x), float(self.cur_y), float(self.cur_z)]
 
-    def _get_plane_axes_spec(self) -> tuple[int, int, int, int, bool, int, int]:
-        """Return (h_idx, h_dim, v_idx, v_dim, v_flip, n_idx, n_dim) for the active plane."""
+    def _get_plane_axes_spec(self) -> tuple[int, int, bool, int, int, bool, int, int]:
+        """Return (h_idx, h_dim, h_flip, v_idx, v_dim, v_flip, n_idx, n_dim) for the active plane."""
         n_z, rows, cols = self.vol.shape
         if self.plane_type == PLANE_AXIAL:
-            return 0, cols, 1, rows, False, 2, n_z
+            return 0, cols, False, 1, rows, False, 2, n_z
         if self.plane_type == PLANE_CORONAL:
-            return 0, cols, 2, n_z, True, 1, rows
-        return 1, rows, 2, n_z, True, 0, cols
+            return 0, cols, False, 2, n_z, True, 1, rows
+        return 1, rows, True, 2, n_z, True, 0, cols
 
     def _update_axis_pos(self, horizontal_y: float = None, vertical_x: float = None) -> None:
         if self.vol is None or self._target_rect.isEmpty():
@@ -880,11 +930,11 @@ class MprSliceWidget(QWidget):
         draw_h = self._target_rect.height()
 
         new_float = self._get_float_cursor()
-        h_idx, h_dim, v_idx, v_dim, v_flip, _, _ = self._get_plane_axes_spec()
+        h_idx, h_dim, h_flip, v_idx, v_dim, v_flip, _, _ = self._get_plane_axes_spec()
 
         if vertical_x is not None:
             fx = max(0.0, min(1.0, (vertical_x - draw_x) / max(1.0, draw_w)))
-            new_float[h_idx] = fx * float(h_dim - 1)
+            new_float[h_idx] = ((1.0 - fx) if h_flip else fx) * float(h_dim - 1)
         if horizontal_y is not None:
             fy = max(0.0, min(1.0, (horizontal_y - draw_y) / max(1.0, draw_h)))
             new_float[v_idx] = ((1.0 - fy) if v_flip else fy) * float(v_dim - 1)
@@ -939,7 +989,7 @@ class MprSliceWidget(QWidget):
 
         need_slice_refresh = False
         if self.vol is not None:
-            _, _, _, _, _, n_idx, _ = self._get_plane_axes_spec()
+            _, _, _, _, _, _, n_idx, _ = self._get_plane_axes_spec()
             if self._is_rotated():
                 # Only the slice orthogonal to n_idx changes when s[n_idx] changes; other two planes stay fixed
                 need_slice_refresh = abs(new_float[n_idx] - old_float[n_idx]) > 1e-5
@@ -1011,8 +1061,9 @@ class MprSliceWidget(QWidget):
             py = cy_rot + uu * R[1, 0] + vv * R[1, 2]
             pz = cz_rot + uu * R[2, 0] + vv * R[2, 2]
 
-        else:  # PLANE_SAGITTAL
-            u_sag = (np.arange(rows, dtype=np.float32) - cur_y_val) * float(dy)
+        else:  # PLANE_SAGITTAL (Eclipse convention: Posterior left, Anterior right)
+            cur_c_sag = (rows - 1.0) - cur_y_val
+            u_sag = (cur_c_sag - np.arange(rows, dtype=np.float32)) * float(dy)
             cur_r_sag = (n_z - 1.0) - cur_z_val
             v_sag = (cur_r_sag - np.arange(n_z, dtype=np.float32)) * float(dz)
             uu, vv = np.meshgrid(u_sag, v_sag)
@@ -1049,7 +1100,7 @@ class MprSliceWidget(QWidget):
                 elif self.plane_type == PLANE_CORONAL:
                     slice_hu = self.vol[::-1, self.cur_y, :]
                 elif self.plane_type == PLANE_SAGITTAL:
-                    slice_hu = self.vol[::-1, :, self.cur_x]
+                    slice_hu = self.vol[::-1, ::-1, self.cur_x]
                 else:
                     return
             else:
@@ -1155,7 +1206,7 @@ class MprSliceWidget(QWidget):
         else: # PLANE_SAGITTAL
             pen_horiz.setColor(COLOR_AXIAL)
             pen_vert.setColor(COLOR_CORONAL)
-            cx_img = fy_val / max(1.0, float(rows - 1))
+            cx_img = ((rows - 1.0) - fy_val) / max(1.0, float(rows - 1))
             cy_img = ((n_z - 1.0) - fz_val) / max(1.0, float(n_z - 1))
             cx_px = draw_x + cx_img * draw_w
             cy_px = draw_y + cy_img * draw_h
@@ -1321,7 +1372,7 @@ class MprSliceWidget(QWidget):
             delta_deg = math.degrees(curr_rad - self._mouse_start_rad)
             # Normalize delta to [-180, 180] to prevent sudden branch-cut jumps
             delta_deg = (delta_deg + 180.0) % 360.0 - 180.0
-            if self.plane_type == PLANE_CORONAL:
+            if self.plane_type in (PLANE_CORONAL, PLANE_SAGITTAL):
                 delta_deg = -delta_deg
             new_angle = round(self._rot_start_angle + delta_deg, 1)
             self.set_rotation(new_angle)
@@ -1381,7 +1432,7 @@ class MprSliceWidget(QWidget):
                     self._float_cur[0] -= dx_pan * (cols - 1) / max(1.0, draw_w)
                     self._float_cur[2] += dy_pan * (n_z - 1) / max(1.0, draw_h)
                 else:  # PLANE_SAGITTAL
-                    self._float_cur[1] -= dx_pan * (rows - 1) / max(1.0, draw_w)
+                    self._float_cur[1] += dx_pan * (rows - 1) / max(1.0, draw_w)
                     self._float_cur[2] += dy_pan * (n_z - 1) / max(1.0, draw_h)
 
                 self._float_cur[0] = max(0.0, min(float(cols - 1), self._float_cur[0]))
@@ -1520,7 +1571,7 @@ class MprSliceWidget(QWidget):
                 else (modifiers & Qt.AltModifier)
             )
             step = (1.0 if is_alt else 0.1) if delta > 0 else (-1.0 if is_alt else -0.1)
-            if self.plane_type == PLANE_CORONAL:
+            if self.plane_type in (PLANE_CORONAL, PLANE_SAGITTAL):
                 step = -step
             new_angle = round(self.rotation_angle + step, 1)
             self.set_rotation(new_angle)
@@ -1540,7 +1591,7 @@ class MprSliceWidget(QWidget):
         if self.vol is None:
             return
 
-        _, _, _, _, _, n_idx, n_dim = self._get_plane_axes_spec()
+        _, _, _, _, _, _, n_idx, n_dim = self._get_plane_axes_spec()
         new_float = self._get_float_cursor()
         curr_val = new_float[n_idx]
         if step > 0:
@@ -1595,7 +1646,7 @@ class MprSliceWidget(QWidget):
             new_x = int(round(fx * (cols - 1)))
             new_z = int(round((1.0 - fy) * (n_z - 1)))
         else: # PLANE_SAGITTAL
-            new_y = int(round(fx * (rows - 1)))
+            new_y = int(round((1.0 - fx) * (rows - 1)))
             new_z = int(round((1.0 - fy) * (n_z - 1)))
 
         self.set_cursor(new_x, new_y, new_z)
