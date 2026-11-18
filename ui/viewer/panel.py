@@ -364,6 +364,7 @@ class DicomViewerPanel(QWidget):
         self.mpr_container.plane_pan_changed.connect(self._on_mpr_orig_plane_pan_changed)
         self.mpr_container.rotation_changed.connect(self._on_mpr_orig_plane_rotated)
         self.mpr_container.plane_maximized.connect(self._on_mpr_orig_plane_maximized)
+        self.mpr_container.window_changed.connect(self.on_window_changed)
         self.mpr_container.hide()
         center_layout.addWidget(self.mpr_container, stretch=1)
 
@@ -374,6 +375,7 @@ class DicomViewerPanel(QWidget):
         self.mpr_container_derived.plane_pan_changed.connect(self._on_mpr_der_plane_pan_changed)
         self.mpr_container_derived.rotation_changed.connect(self._on_mpr_der_plane_rotated)
         self.mpr_container_derived.plane_maximized.connect(self._on_mpr_der_plane_maximized)
+        self.mpr_container_derived.window_changed.connect(self.on_window_changed)
         self.mpr_container_derived.hide()
         center_layout.addWidget(self.mpr_container_derived, stretch=1)
 
@@ -1803,11 +1805,14 @@ class DicomViewerPanel(QWidget):
     def _sync_mpr_tool_states(self) -> None:
         osd_vis = bool(getattr(self.viewer, "osd_visible", True))
         ruler_on = bool(getattr(self.viewer, "ruler_active", False))
+        hu_on = bool(getattr(self.viewer, "hu_active", False))
         for attr in ("mpr_container", "mpr_container_derived"):
             ctr = getattr(self, attr, None)
             if ctr is not None:
                 ctr.set_osd_visible(osd_vis)
                 ctr.set_ruler_active(ruler_on)
+                ctr.set_hu_active(hu_on)
+                ctr.set_window_params(self.window_width, self.window_center)
 
     def toggle_osd(self) -> None:
         new_visible = not self.viewer.osd_visible
@@ -3462,45 +3467,56 @@ class DicomViewerPanel(QWidget):
     def on_window_changed(self, width: float, center: float) -> None:
         self.window_width = width
         self.window_center = center
-        
-        if self.sender() == self.viewer or self.sender() == getattr(self, "viewer_derived", None):
+
+        if self.sender() in (
+            self.viewer,
+            getattr(self, "viewer_derived", None),
+            getattr(self, "mpr_container", None),
+            getattr(self, "mpr_container_derived", None),
+        ):
             self.cb_presets.blockSignals(True)
             self.cb_presets.setCurrentIndex(-1)
             self.cb_presets.blockSignals(False)
-            
+
         if hasattr(self, "hu_panel") and hasattr(self, "hu_slider"):
             lower = center - width / 2.0
             upper = center + width / 2.0
-            
+
             self.hu_slider.blockSignals(True)
             self.hu_slider.set_values(lower, upper)
             self.hu_slider.blockSignals(False)
-            
+
             self.lbl_upper_hu.setText(f"{int(upper)} HU")
             self.lbl_lower_hu.setText(f"{int(lower)} HU")
-            
+
         self.update_current_slice_pixels()
 
     def update_current_slice_pixels(self) -> None:
-        ds = self.viewer.current_dataset
-        if ds is not None:
-            pixmap = self.dicom_to_pixmap(ds, self.window_width, self.window_center)
-            if pixmap:
-                self.viewer.set_dicom_image(pixmap, ds)
-                self.viewer.set_window_params(self.window_width, self.window_center)
+        if getattr(self, "mpr_active", False):
+            self.viewer.set_window_params(self.window_width, self.window_center)
+            if hasattr(self, "viewer_derived"):
+                self.viewer_derived.set_window_params(self.window_width, self.window_center)
+        else:
+            ds = self.viewer.current_dataset
+            if ds is not None:
+                pixmap = self.dicom_to_pixmap(ds, self.window_width, self.window_center)
+                if pixmap:
+                    self.viewer.set_dicom_image(pixmap, ds)
+                    self.viewer.set_window_params(self.window_width, self.window_center)
 
-        if self.view_mode == "side_by_side" and hasattr(self, "viewer_derived"):
-            ds_der = self.viewer_derived.current_dataset
-            if ds_der is not None:
-                pixmap_der = self.dicom_to_pixmap(ds_der, self.window_width, self.window_center)
-                if pixmap_der:
-                    self.viewer_derived.set_dicom_image(pixmap_der, ds_der)
-                    self.viewer_derived.set_window_params(self.window_width, self.window_center)
+            if self.view_mode == "side_by_side" and hasattr(self, "viewer_derived"):
+                ds_der = self.viewer_derived.current_dataset
+                if ds_der is not None:
+                    pixmap_der = self.dicom_to_pixmap(ds_der, self.window_width, self.window_center)
+                    if pixmap_der:
+                        self.viewer_derived.set_dicom_image(pixmap_der, ds_der)
+                        self.viewer_derived.set_window_params(self.window_width, self.window_center)
 
-        if hasattr(self, "mpr_container") and self.mpr_container.isVisible():
-            self.mpr_container.set_window_params(self.window_width, self.window_center)
-        if hasattr(self, "mpr_container_derived") and self.mpr_container_derived.isVisible():
-            self.mpr_container_derived.set_window_params(self.window_width, self.window_center)
+        if getattr(self, "mpr_active", False):
+            for attr in ("mpr_container", "mpr_container_derived"):
+                ctr = getattr(self, attr, None)
+                if ctr is not None:
+                    ctr.set_window_params(self.window_width, self.window_center)
 
     def apply_preset(self, index: int) -> None:
         preset_type = self.cb_presets.itemData(index)

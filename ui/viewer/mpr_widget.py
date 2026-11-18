@@ -546,6 +546,7 @@ class MprSliceWidget(QWidget):
     rotation_finished = pyqtSignal(str) # (plane_type)
     double_clicked = pyqtSignal(str) # plane_type
     cycle_plane_requested = pyqtSignal()
+    window_changed = pyqtSignal(float, float) # (window_width, window_center)
 
     def __init__(self, plane_type: str, parent: QWidget = None) -> None:
         super().__init__(parent)
@@ -589,6 +590,10 @@ class MprSliceWidget(QWidget):
         self._context_menu_shown = False
         self.osd_visible: bool = True
         self.ruler_active: bool = False
+        self.hu_active: bool = False
+        self._windowing_active: bool = False
+        self._win_last_pos: QPointF | None = None
+        self._cached_slice_hu: np.ndarray | None = None
         self.smooth_rendering: bool = True
         self.isotropic_sampling: bool = True
         self._iso_z_cache: dict = {}
@@ -611,6 +616,17 @@ class MprSliceWidget(QWidget):
         if not self.ruler_active:
             self._ruler_drawing = False
             self._ruler_close_rect = None
+        else:
+            self._dragging_axis = None
+            self.setCursor(CURSOR_CROSS)
+        self.update()
+
+    def set_hu_active(self, active: bool) -> None:
+        """Enable or disable left-drag window/level (HU contrast) adjustment."""
+        self.hu_active = bool(active)
+        if not self.hu_active:
+            self._windowing_active = False
+            self._win_last_pos = None
         else:
             self._dragging_axis = None
             self.setCursor(CURSOR_CROSS)
@@ -773,6 +789,9 @@ class MprSliceWidget(QWidget):
         self.frame_origin_mm = np.zeros(3, dtype=np.float64)
         self.window_width = window_width
         self.window_center = window_center
+        self._cached_slice_hu = None
+        self._windowing_active = False
+        self._win_last_pos = None
         self.refresh_slice()
 
     def set_cursor(
@@ -811,11 +830,26 @@ class MprSliceWidget(QWidget):
         else:
             self.update()
 
+    def _update_pixmap_from_hu(self, slice_hu: np.ndarray) -> None:
+        ww = max(1.0, float(self.window_width))
+        wc = float(self.window_center)
+        v_min = wc - ww / 2.0
+        scaled = np.clip((slice_hu - v_min) / ww * 255.0, 0, 255).astype(np.uint8)
+        h, w = scaled.shape
+        fmt = getattr(QImage.Format, "Format_Grayscale8", getattr(QImage, "Format_Grayscale8", 24))
+        c_data = np.ascontiguousarray(scaled).data
+        qimg = QImage(c_data, w, h, w, fmt)
+        self.current_pixmap = QPixmap.fromImage(qimg)
+
     def set_window_params(self, width: float, center: float) -> None:
         if self.window_width != width or self.window_center != center:
             self.window_width = width
             self.window_center = center
-            self.refresh_slice()
+            if getattr(self, "_cached_slice_hu", None) is not None:
+                self._update_pixmap_from_hu(self._cached_slice_hu)
+                self.update()
+            else:
+                self.refresh_slice()
 
     def set_zoom(self, zoom: float) -> None:
         self.zoom_factor = max(0.05, min(30.0, float(zoom)))
@@ -952,6 +986,7 @@ class MprSliceWidget(QWidget):
 
     def refresh_slice(self, draft: bool = False) -> None:
         if self.vol is None:
+            self._cached_slice_hu = None
             self.current_pixmap = None
             self.update()
             return
@@ -980,18 +1015,10 @@ class MprSliceWidget(QWidget):
             else:
                 slice_hu = self._extract_oblique_slice(draft=draft)
 
-            ww = max(1.0, float(self.window_width))
-            wc = float(self.window_center)
-            v_min = wc - ww / 2.0
-
-            scaled = np.clip((slice_hu - v_min) / ww * 255.0, 0, 255).astype(np.uint8)
-            h, w = scaled.shape
-
-            fmt = getattr(QImage.Format, "Format_Grayscale8", getattr(QImage, "Format_Grayscale8", 24))
-            c_data = np.ascontiguousarray(scaled).data
-            qimg = QImage(c_data, w, h, w, fmt)
-            self.current_pixmap = QPixmap.fromImage(qimg)
+            self._cached_slice_hu = slice_hu
+            self._update_pixmap_from_hu(slice_hu)
         except Exception:
+            self._cached_slice_hu = None
             self.current_pixmap = None
 
         self.update()
@@ -1213,6 +1240,11 @@ class MprSliceWidget(QWidget):
                     self._dragging_axis = None
                     self.update()
                     return
+            elif self.hu_active:
+                self._windowing_active = True
+                self._win_last_pos = pos_f
+                self._dragging_axis = None
+                return
 
             cx = self._last_pivot.x()
             cy = self._last_pivot.y()
@@ -1292,6 +1324,16 @@ class MprSliceWidget(QWidget):
                 self.update()
             return
 
+        # Handle active HU window/level drag (left button)
+        if self.hu_active and getattr(self, "_windowing_active", False) and self._win_last_pos is not None:
+            delta = pos_f - self._win_last_pos
+            self._win_last_pos = pos_f
+            new_ww = max(1.0, float(self.window_width) + delta.x() * 2.0)
+            new_wc = float(self.window_center) + delta.y() * 2.0
+            self.set_window_params(new_ww, new_wc)
+            self.window_changed.emit(new_ww, new_wc)
+            return
+
         # Handle axis dragging
         if getattr(self, "_dragging_axis", None) is not None:
             if self._dragging_axis == "horizontal":
@@ -1365,7 +1407,7 @@ class MprSliceWidget(QWidget):
             return
 
         # Hover cursor update
-        if self.ruler_active:
+        if self.ruler_active or self.hu_active:
             self.setCursor(CURSOR_CROSS)
         elif hasattr(self, "_last_pivot"):
             cx = self._last_pivot.x()
@@ -1382,6 +1424,9 @@ class MprSliceWidget(QWidget):
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == BTN_LEFT:
+            if getattr(self, "_windowing_active", False):
+                self._windowing_active = False
+                self._win_last_pos = None
             if getattr(self, "_ruler_drawing", False):
                 if self._ruler_norm_pts is not None and not self._target_rect.isEmpty():
                     self._ruler_norm_pts = (self._ruler_norm_pts[0], self._screen_to_target_norm(QPointF(event.pos())))
@@ -1594,6 +1639,7 @@ class MprPanelWidget(QWidget):
     plane_pan_changed = pyqtSignal(str, QPointF) # (plane_type, pan)
     rotation_changed = pyqtSignal(str, float) # (plane_type, angle)
     plane_maximized = pyqtSignal(str) # plane_type or "" if restored
+    window_changed = pyqtSignal(float, float) # (window_width, window_center)
 
     def __init__(self, parent: QWidget = None) -> None:
         super().__init__(parent)
@@ -1620,6 +1666,7 @@ class MprPanelWidget(QWidget):
         self._maximized_plane = None
         self.osd_visible = True
         self.ruler_active = False
+        self.hu_active = False
         self.smooth_rendering = True
         self.isotropic_sampling = True
         self._interactive_draft = False
@@ -1665,6 +1712,7 @@ class MprPanelWidget(QWidget):
             v.rotation_finished.connect(self._on_subview_rotation_finished)
             v.double_clicked.connect(self._toggle_maximize_plane)
             v.cycle_plane_requested.connect(self._cycle_maximized_plane)
+            v.window_changed.connect(self._on_subview_window_changed)
 
         # Empty Frame in Top-Right (0, 1) as requested (pure black)
         self.view_empty = QFrame(self)
@@ -1748,6 +1796,7 @@ class MprPanelWidget(QWidget):
             v._ruler_close_rect = None
             v.set_osd_visible(self.osd_visible)
             v.set_ruler_active(self.ruler_active)
+            v.set_hu_active(self.hu_active)
             v.smooth_rendering = self.smooth_rendering
             v.isotropic_sampling = self.isotropic_sampling
             v.set_zoom(self.zoom_factor)
@@ -1795,6 +1844,10 @@ class MprPanelWidget(QWidget):
         new_float = [float(curr[0]), float(curr[1]), float(target_z)]
         self.set_cursor(int(round(new_float[0])), int(round(new_float[1])), target_z, float_cur=new_float)
 
+    def _on_subview_window_changed(self, width: float, center: float) -> None:
+        self.set_window_params(width, center)
+        self.window_changed.emit(float(width), float(center))
+
     def set_window_params(self, width: float, center: float) -> None:
         self.window_width = width
         self.window_center = center
@@ -1810,6 +1863,12 @@ class MprPanelWidget(QWidget):
         self.ruler_active = bool(active)
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
             v.set_ruler_active(self.ruler_active)
+
+    def set_hu_active(self, active: bool) -> None:
+        """Enable or disable left-drag HU window/level across all MPR views."""
+        self.hu_active = bool(active)
+        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+            v.set_hu_active(self.hu_active)
 
     def set_smooth_rendering(self, enabled: bool) -> None:
         """Enable or disable smooth pixmap scaling across all MPR views."""
