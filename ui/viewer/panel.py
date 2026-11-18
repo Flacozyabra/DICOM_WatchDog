@@ -229,6 +229,17 @@ class DicomViewerPanel(QWidget):
         self.btn_bev.clicked.connect(self.toggle_bev)
         top_layout.addWidget(self.btn_bev)
 
+        # Кнопка "Доза в точке" (в левом блоке инструментов плана/дозы)
+        self.img_dose_point = QIcon(get_resource_path("themes/target.png"))
+        self.btn_dose_point = QPushButton(self)
+        self.btn_dose_point.setIcon(self.img_dose_point)
+        self.btn_dose_point.setIconSize(QSize(20, 20))
+        self.btn_dose_point.setFixedSize(28, 28)
+        self.btn_dose_point.setToolTip(tr_ui("viewer_point_dose"))
+        self.btn_dose_point.setEnabled(False)
+        self.btn_dose_point.clicked.connect(self.toggle_dose_point)
+        top_layout.addWidget(self.btn_dose_point)
+
         top_layout.addStretch()
 
         # Метка и выпадающий список пресетов HU
@@ -258,22 +269,11 @@ class DicomViewerPanel(QWidget):
         """)
         top_layout.addWidget(self.cb_presets)
 
-        # Загружаем иконки
-        self.img_dose_point = QIcon(get_resource_path("themes/target.png"))
+        # Загружаем иконки правой панели инструментов
         self.img_ruler = QIcon(get_resource_path("themes/ruler.png"))
         self.img_hu = QIcon(get_resource_path("themes/hu.png"))
         self.img_osd = QIcon(get_resource_path("themes/eye.png"))
         self.img_close = QIcon(get_resource_path("themes/close.png"))
-
-        # Кнопка "Доза в точке"
-        self.btn_dose_point = QPushButton(self)
-        self.btn_dose_point.setIcon(self.img_dose_point)
-        self.btn_dose_point.setIconSize(QSize(20, 20))
-        self.btn_dose_point.setFixedSize(28, 28)
-        self.btn_dose_point.setToolTip(tr_ui("viewer_point_dose"))
-        self.btn_dose_point.setEnabled(False)
-        self.btn_dose_point.clicked.connect(self.toggle_dose_point)
-        top_layout.addWidget(self.btn_dose_point)
 
         # Кнопка линейки
         self.btn_ruler = QPushButton(self)
@@ -1700,6 +1700,7 @@ class DicomViewerPanel(QWidget):
                 self.lbl_presets.show()
             self.cb_presets.show()
 
+        self._sync_mpr_tool_states()
         self.update_buttons_style()
         self.viewer.update()
 
@@ -1779,11 +1780,21 @@ class DicomViewerPanel(QWidget):
             self.viewer.show_drr = False
         self.viewer.update()
 
+    def _sync_mpr_tool_states(self) -> None:
+        osd_vis = bool(getattr(self.viewer, "osd_visible", True))
+        ruler_on = bool(getattr(self.viewer, "ruler_active", False))
+        for attr in ("mpr_container", "mpr_container_derived"):
+            ctr = getattr(self, attr, None)
+            if ctr is not None:
+                ctr.set_osd_visible(osd_vis)
+                ctr.set_ruler_active(ruler_on)
+
     def toggle_osd(self) -> None:
         new_visible = not self.viewer.osd_visible
         self.viewer.set_osd_visible(new_visible)
         if hasattr(self, "viewer_derived"):
             self.viewer_derived.set_osd_visible(new_visible)
+        self._sync_mpr_tool_states()
         self.update_buttons_style()
 
     def toggle_dose_point(self) -> None:
@@ -1795,6 +1806,7 @@ class DicomViewerPanel(QWidget):
             self.viewer.ruler_active = False
             self.viewer.hu_active = False
             self.hu_panel.hide()
+        self._sync_mpr_tool_states()
         self.update_buttons_style()
         self.viewer.update()
 
@@ -1807,6 +1819,7 @@ class DicomViewerPanel(QWidget):
             self.viewer.dose_point_active = False
             self.viewer.hu_active = False
             self.hu_panel.hide()
+        self._sync_mpr_tool_states()
         self.update_buttons_style()
         self.viewer.update()
 
@@ -1821,6 +1834,7 @@ class DicomViewerPanel(QWidget):
             self.hu_panel.show()
         else:
             self.hu_panel.hide()
+        self._sync_mpr_tool_states()
         self.update_buttons_style()
         self.viewer.update()
 
@@ -2516,6 +2530,7 @@ class DicomViewerPanel(QWidget):
 
             self.viewer.hide()
             self.viewer_derived.hide()
+            self._sync_mpr_tool_states()
             if self.view_mode == "side_by_side":
                 self.mpr_container.show()
                 self.mpr_container_derived.show()

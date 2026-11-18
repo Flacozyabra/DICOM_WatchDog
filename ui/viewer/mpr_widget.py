@@ -5,7 +5,7 @@ import math
 import time
 import numpy as np
 
-from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QPointF, QRectF, QThread, QEvent, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QPointF, QRect, QRectF, QThread, QEvent, QTimer
 from PyQt6.QtWidgets import (
     QWidget, QGridLayout, QFrame, QSizePolicy, QMenu, QMessageBox,
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
@@ -27,6 +27,7 @@ from core.postprocessing.aligned import (
     validate_aligned_export_geometry,
 )
 from ui.settings_tabs.settings_utils import apply_dark_title_bar
+from .canvas import draw_ruler_overlay
 from .parsers import safe_dcmread
 
 
@@ -581,12 +582,41 @@ class MprSliceWidget(QWidget):
         self._last_pivot = QPointF(0, 0)
         self._rot_pill_rect = QRectF()
         self._context_menu_shown = False
+        self.osd_visible: bool = True
+        self.ruler_active: bool = False
+        self._ruler_drawing: bool = False
+        self._ruler_norm_pts: tuple[tuple[float, float], tuple[float, float]] | None = None
+        self._ruler_close_rect: QRect | None = None
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus if hasattr(Qt, "FocusPolicy") else Qt.StrongFocus)
         self.setMouseTracking(True)
         self.setCursor(CURSOR_CROSS)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setStyleSheet("MprSliceWidget { background-color: #000000; border: none; }")
+
+    def set_osd_visible(self, visible: bool) -> None:
+        self.osd_visible = bool(visible)
+        self.update()
+
+    def set_ruler_active(self, active: bool) -> None:
+        self.ruler_active = bool(active)
+        if not self.ruler_active:
+            self._ruler_drawing = False
+            self._ruler_close_rect = None
+        else:
+            self._dragging_axis = None
+            self.setCursor(CURSOR_CROSS)
+        self.update()
+
+    def _screen_to_target_norm(self, pt: QPointF) -> tuple[float, float]:
+        rect = self._target_rect
+        fx = (pt.x() - rect.left()) / max(1.0, rect.width())
+        fy = (pt.y() - rect.top()) / max(1.0, rect.height())
+        return float(fx), float(fy)
+
+    def _target_norm_to_screen(self, fx: float, fy: float) -> QPointF:
+        rect = self._target_rect
+        return QPointF(rect.left() + fx * rect.width(), rect.top() + fy * rect.height())
 
     def set_rotation_matrix(
         self,
@@ -1023,7 +1053,20 @@ class MprSliceWidget(QWidget):
         painter.drawRoundedRect(self._handle_v_bottom, 2, 2)
 
         # OSD Header Tag (Plane Name + Index + Rotation Angle)
-        self._paint_osd(painter, n_z, rows, cols)
+        if self.osd_visible:
+            self._paint_osd(painter, n_z, rows, cols)
+        else:
+            self._rot_pill_rect = QRectF()
+
+        # Distance ruler measurement overlay (anchored to slice normalized coordinates)
+        if self.ruler_active and self._ruler_norm_pts is not None:
+            (fx1, fy1), (fx2, fy2) = self._ruler_norm_pts
+            p1_px = self._target_norm_to_screen(fx1, fy1)
+            p2_px = self._target_norm_to_screen(fx2, fy2)
+            dist_mm = math.hypot((fx2 - fx1) * phys_w, (fy2 - fy1) * phys_h)
+            self._ruler_close_rect = draw_ruler_overlay(painter, p1_px, p2_px, dist_mm)
+        else:
+            self._ruler_close_rect = None
 
     def _paint_osd(self, painter: QPainter, n_z: int, rows: int, cols: int) -> None:
         font = QFont("Segoe UI", 9, QFont.Weight.Bold if hasattr(QFont, "Weight") else 75)
@@ -1087,6 +1130,21 @@ class MprSliceWidget(QWidget):
             return
 
         if event.button() == BTN_LEFT:
+            if self.ruler_active:
+                if self._ruler_close_rect is not None and self._ruler_close_rect.contains(event.pos()):
+                    self._ruler_norm_pts = None
+                    self._ruler_drawing = False
+                    self._ruler_close_rect = None
+                    self.update()
+                    return
+                if not self._target_rect.isEmpty():
+                    norm_pt = self._screen_to_target_norm(pos_f)
+                    self._ruler_norm_pts = (norm_pt, norm_pt)
+                    self._ruler_drawing = True
+                    self._dragging_axis = None
+                    self.update()
+                    return
+
             cx = self._last_pivot.x()
             cy = self._last_pivot.y()
 
@@ -1156,6 +1214,13 @@ class MprSliceWidget(QWidget):
                 delta_deg = -delta_deg
             new_angle = round(self._rot_start_angle + delta_deg, 1)
             self.set_rotation(new_angle)
+            return
+
+        # Handle active ruler drawing
+        if self.ruler_active and getattr(self, "_ruler_drawing", False) and self._ruler_norm_pts is not None:
+            if not self._target_rect.isEmpty():
+                self._ruler_norm_pts = (self._ruler_norm_pts[0], self._screen_to_target_norm(pos_f))
+                self.update()
             return
 
         # Handle axis dragging
@@ -1231,7 +1296,9 @@ class MprSliceWidget(QWidget):
             return
 
         # Hover cursor update
-        if hasattr(self, "_last_pivot"):
+        if self.ruler_active:
+            self.setCursor(CURSOR_CROSS)
+        elif hasattr(self, "_last_pivot"):
             cx = self._last_pivot.x()
             cy = self._last_pivot.y()
             dist_c = math.hypot(pos_f.x() - cx, pos_f.y() - cy)
@@ -1246,6 +1313,11 @@ class MprSliceWidget(QWidget):
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == BTN_LEFT:
+            if getattr(self, "_ruler_drawing", False):
+                if self._ruler_norm_pts is not None and not self._target_rect.isEmpty():
+                    self._ruler_norm_pts = (self._ruler_norm_pts[0], self._screen_to_target_norm(QPointF(event.pos())))
+                self._ruler_drawing = False
+                self.update()
             self._dragging_axis = None
         elif event.button() == BTN_MIDDLE:
             if getattr(self, "_is_rotating", False):
@@ -1477,6 +1549,8 @@ class MprPanelWidget(QWidget):
         self._rot_matrix = np.eye(3, dtype=np.float64)
         self._frame_origin_mm = np.zeros(3, dtype=np.float64)
         self._maximized_plane = None
+        self.osd_visible = True
+        self.ruler_active = False
         self._interactive_draft = False
         self._pending_rot: tuple[str, float] | None = None
         self._last_rot_render_ts = 0.0
@@ -1598,6 +1672,11 @@ class MprPanelWidget(QWidget):
             self._float_cur = [float(self.cur_x), float(self.cur_y), float(self.cur_z)]
 
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+            v._ruler_norm_pts = None
+            v._ruler_drawing = False
+            v._ruler_close_rect = None
+            v.set_osd_visible(self.osd_visible)
+            v.set_ruler_active(self.ruler_active)
             v.set_zoom(self.zoom_factor)
             v.set_pan(QPointF(0, 0))
             v.set_rotation_matrix(R, 0.0, frame_origin_mm=self._frame_origin_mm)
@@ -1648,6 +1727,16 @@ class MprPanelWidget(QWidget):
         self.window_center = center
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
             v.set_window_params(width, center)
+
+    def set_osd_visible(self, visible: bool) -> None:
+        self.osd_visible = bool(visible)
+        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+            v.set_osd_visible(self.osd_visible)
+
+    def set_ruler_active(self, active: bool) -> None:
+        self.ruler_active = bool(active)
+        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+            v.set_ruler_active(self.ruler_active)
 
     def set_zoom(self, zoom: float) -> None:
         self.zoom_factor = max(0.05, min(30.0, float(zoom)))

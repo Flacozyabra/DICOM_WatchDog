@@ -17,6 +17,83 @@ from .parsers import (
 )
 
 
+def draw_ruler_tick(painter: QPainter, pt1: QPointF, pt2: QPointF) -> None:
+    """Draw perpendicular end tick at pt1 oriented along segment pt1->pt2."""
+    dx = pt2.x() - pt1.x()
+    dy = pt2.y() - pt1.y()
+    length = math.hypot(dx, dy)
+    if length < 1.0:
+        return
+    px = -dy / length
+    py = dx / length
+    tick_len = 8
+    painter.drawLine(
+        QPoint(int(pt1.x() + px * tick_len), int(pt1.y() + py * tick_len)),
+        QPoint(int(pt1.x() - px * tick_len), int(pt1.y() - py * tick_len)),
+    )
+
+
+def draw_ruler_overlay(painter: QPainter, start_pt: QPointF, end_pt: QPointF, dist_mm: float) -> QRect:
+    """Draw green distance line, end ticks, mm plate, and red clear button; return close button QRect."""
+    pen = QPen(QColor("#10B981"), 2, Qt.PenStyle.SolidLine)
+    painter.setPen(pen)
+    painter.drawLine(start_pt.toPoint(), end_pt.toPoint())
+
+    draw_ruler_tick(painter, start_pt, end_pt)
+    draw_ruler_tick(painter, end_pt, start_pt)
+
+    text_dist = f"{dist_mm:.1f} " + tr_ui("hud_mm")
+    mid_x = (start_pt.x() + end_pt.x()) / 2.0
+    mid_y = (start_pt.y() + end_pt.y()) / 2.0
+
+    font = QFont("Consolas", 10, QFont.Weight.Bold)
+    painter.setFont(font)
+    metrics = painter.fontMetrics()
+    rect_dist = metrics.boundingRect(text_dist)
+
+    padding_x = 4
+    padding_y = 2
+    cross_width = 12
+    space = 6
+    total_w = rect_dist.width() + cross_width + space
+    total_h = max(rect_dist.height(), cross_width)
+
+    rect_plate = QRect(
+        int(mid_x - total_w / 2.0 - padding_x),
+        int(mid_y - 15.0 - total_h / 2.0 - padding_y),
+        int(total_w + padding_x * 2),
+        int(total_h + padding_y * 2),
+    )
+    painter.fillRect(rect_plate, QColor(0, 0, 0, 180))
+
+    painter.setPen(QColor("#FFFFFF"))
+    text_rect = QRect(
+        rect_plate.x() + padding_x,
+        rect_plate.y() + padding_y,
+        rect_dist.width(),
+        total_h,
+    )
+    painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text_dist)
+
+    cross_rect = QRect(
+        text_rect.x() + text_rect.width() + space,
+        rect_plate.y() + (rect_plate.height() - cross_width) // 2,
+        cross_width,
+        cross_width,
+    )
+    painter.setPen(QPen(QColor("#EF4444"), 2, Qt.PenStyle.SolidLine))
+    margin = 2
+    painter.drawLine(
+        cross_rect.x() + margin, cross_rect.y() + margin,
+        cross_rect.x() + cross_rect.width() - margin, cross_rect.y() + cross_rect.height() - margin,
+    )
+    painter.drawLine(
+        cross_rect.x() + cross_rect.width() - margin, cross_rect.y() + margin,
+        cross_rect.x() + margin, cross_rect.y() + cross_rect.height() - margin,
+    )
+    return cross_rect
+
+
 class DicomViewerWidget(QWidget):
     """Виджет для отрисовки DICOM-изображения, линейки и контуров структур RTSTRUCT."""
     slice_scrolled = pyqtSignal(int)
@@ -1695,13 +1772,6 @@ class DicomViewerWidget(QWidget):
 
             # Отрисовка измерительной линейки
             if self.ruler_active and self.start_pos and self.current_pos:
-                pen = QPen(QColor("#10B981"), 2, Qt.PenStyle.SolidLine)
-                painter.setPen(pen)
-                painter.drawLine(self.start_pos.toPoint(), self.current_pos.toPoint())
-
-                self.draw_tick(painter, self.start_pos, self.current_pos)
-                self.draw_tick(painter, self.current_pos, self.start_pos)
-
                 x1, y1 = self.to_image_coords(self.start_pos)
                 x2, y2 = self.to_image_coords(self.current_pos)
 
@@ -1721,61 +1791,7 @@ class DicomViewerWidget(QWidget):
                 dx = (x2 - x1) * col_spacing
                 dy = (y2 - y1) * row_spacing
                 dist_mm = math.sqrt(dx * dx + dy * dy)
-                
-                text_dist = f"{dist_mm:.1f} " + tr_ui("hud_mm")
-                mid_x = (self.start_pos.x() + self.current_pos.x()) / 2
-                mid_y = (self.start_pos.y() + self.current_pos.y()) / 2
-
-                font = QFont("Consolas", 10, QFont.Weight.Bold)
-                painter.setFont(font)
-                metrics = painter.fontMetrics()
-                rect_dist = metrics.boundingRect(text_dist)
-
-                padding_x = 4
-                padding_y = 2
-                cross_width = 12
-                space = 6
-
-                total_w = rect_dist.width() + cross_width + space
-                total_h = max(rect_dist.height(), cross_width)
-
-                rect_plate = QRect(
-                    int(mid_x - total_w / 2 - padding_x),
-                    int(mid_y - 15 - total_h / 2 - padding_y),
-                    int(total_w + padding_x * 2),
-                    int(total_h + padding_y * 2)
-                )
-
-                painter.fillRect(rect_plate, QColor(0, 0, 0, 180))
-
-                painter.setPen(QColor("#FFFFFF"))
-                text_rect = QRect(
-                    rect_plate.x() + padding_x,
-                    rect_plate.y() + padding_y,
-                    rect_dist.width(),
-                    total_h
-                )
-                painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text_dist)
-
-                cross_rect = QRect(
-                    text_rect.x() + text_rect.width() + space,
-                    rect_plate.y() + (rect_plate.height() - cross_width) // 2,
-                    cross_width,
-                    cross_width
-                )
-                self.ruler_close_rect = cross_rect
-
-                pen_cross = QPen(QColor("#EF4444"), 2, Qt.PenStyle.SolidLine)
-                painter.setPen(pen_cross)
-                margin = 2
-                painter.drawLine(
-                    cross_rect.x() + margin, cross_rect.y() + margin,
-                    cross_rect.x() + cross_rect.width() - margin, cross_rect.y() + cross_rect.height() - margin
-                )
-                painter.drawLine(
-                    cross_rect.x() + cross_rect.width() - margin, cross_rect.y() + margin,
-                    cross_rect.x() + margin, cross_rect.y() + cross_rect.height() - margin
-                )
+                self.ruler_close_rect = draw_ruler_overlay(painter, self.start_pos, self.current_pos, dist_mm)
             else:
                 self.ruler_close_rect = None
 
@@ -1938,15 +1954,4 @@ class DicomViewerWidget(QWidget):
                         y_offset_r -= rect_r.height() + 8
 
     def draw_tick(self, painter: QPainter, pt1: QPointF, pt2: QPointF) -> None:
-        dx = pt2.x() - pt1.x()
-        dy = pt2.y() - pt1.y()
-        length = math.sqrt(dx*dx + dy*dy)
-        if length < 1.0:
-            return
-        px = -dy / length
-        py = dx / length
-        
-        tick_len = 8
-        p1 = QPoint(int(pt1.x() + px * tick_len), int(pt1.y() + py * tick_len))
-        p2 = QPoint(int(pt1.x() - px * tick_len), int(pt1.y() - py * tick_len))
-        painter.drawLine(p1, p2)
+        draw_ruler_tick(painter, pt1, pt2)
