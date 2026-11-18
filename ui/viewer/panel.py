@@ -20,6 +20,7 @@ from PyQt6.QtGui import (
 )
 
 from ui.toggle_switch import ToggleSwitch
+from ui.table_widgets import CollapsibleDividerHandle
 from ui.settings_tabs.settings_utils import apply_dark_title_bar
 from core.config_utils import get_resource_path, get_temp_dir
 from core.locale_utils import tr_ui
@@ -128,11 +129,16 @@ class DicomViewerPanel(QWidget):
     def setup_ui(self) -> None:
         root_layout = QHBoxLayout(self)
         root_layout.setContentsMargins(10, 10, 10, 10)
-        root_layout.setSpacing(10)
+        root_layout.setSpacing(6)
 
-        # 1. Панель структур и изодоз слева (растянута на всю высоту)
+        # 1. Панель структур и изодоз слева (растянута на всю высоту) + сворачивающий разделитель
         self.setup_left_panel()
         root_layout.addWidget(self.structures_panel)
+
+        self.left_panel_collapsed = False
+        self.left_divider = CollapsibleDividerHandle(Qt.Orientation.Horizontal, self)
+        self.left_divider.clicked.connect(self.toggle_left_panel)
+        root_layout.addWidget(self.left_divider)
 
         # 2. Правая область (Верхняя панель + Холст со шкалой HU + Слайдер)
         right_layout = QVBoxLayout()
@@ -147,6 +153,35 @@ class DicomViewerPanel(QWidget):
         self.lbl_info.setStyleSheet("font-size: 13px; font-weight: bold; color: #FFFFFF;")
         self.lbl_info.hide()
         top_layout.addWidget(self.lbl_info)
+
+        # Метка и выпадающий список для выбора набора структур RTSTRUCT (самый левый блок)
+        self.lbl_structures = QLabel("STR", self)
+        self.lbl_structures.setStyleSheet("font-size: 11px; font-weight: bold; color: #9CA3AF;")
+        top_layout.addWidget(self.lbl_structures)
+
+        self.cb_structures = QComboBox(self)
+        self.cb_structures.setFixedWidth(160)
+        self.cb_structures.setStyleSheet("""
+            QComboBox {
+                background-color: #2A2A2A;
+                border: 1px solid #374151;
+                border-radius: 4px;
+                color: #FFFFFF;
+                padding: 0px 8px;
+                font-size: 12px;
+                min-height: 28px;
+                max-height: 28px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1A1A1A;
+                border: 1px solid #374151;
+                color: #FFFFFF;
+                selection-background-color: #3B82F6;
+            }
+        """)
+        self.cb_structures.addItem(tr_ui("viewer_no_structures_available"), None)
+        self.cb_structures.setEnabled(False)
+        top_layout.addWidget(self.cb_structures)
 
         # Метка и выпадающий список для выбора плана RTPLAN (и связанной дозы RTDOSE)
         self.lbl_plan = QLabel("PLAN", self)
@@ -183,35 +218,6 @@ class DicomViewerPanel(QWidget):
         self.lbl_rtd.setAlignment(Qt.AlignmentFlag.AlignCenter)
         top_layout.addWidget(self.lbl_rtd)
         self._update_rtd_badge(None)
-
-        # Метка и выпадающий список для выбора набора структур RTSTRUCT
-        self.lbl_structures = QLabel("STR", self)
-        self.lbl_structures.setStyleSheet("font-size: 11px; font-weight: bold; color: #9CA3AF;")
-        top_layout.addWidget(self.lbl_structures)
-
-        self.cb_structures = QComboBox(self)
-        self.cb_structures.setFixedWidth(160)
-        self.cb_structures.setStyleSheet("""
-            QComboBox {
-                background-color: #2A2A2A;
-                border: 1px solid #374151;
-                border-radius: 4px;
-                color: #FFFFFF;
-                padding: 0px 8px;
-                font-size: 12px;
-                min-height: 28px;
-                max-height: 28px;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #1A1A1A;
-                border: 1px solid #374151;
-                color: #FFFFFF;
-                selection-background-color: #3B82F6;
-            }
-        """)
-        self.cb_structures.addItem(tr_ui("viewer_no_structures_available"), None)
-        self.cb_structures.setEnabled(False)
-        top_layout.addWidget(self.cb_structures)
 
         # Кнопка отображения пучков на срезах КТ
         self.btn_beams = QPushButton(tr_ui("viewer_beams_btn"), self)
@@ -270,19 +276,10 @@ class DicomViewerPanel(QWidget):
         top_layout.addWidget(self.cb_presets)
 
         # Загружаем иконки правой панели инструментов
-        self.img_ruler = QIcon(get_resource_path("themes/ruler.png"))
         self.img_hu = QIcon(get_resource_path("themes/hu.png"))
+        self.img_ruler = QIcon(get_resource_path("themes/ruler.png"))
         self.img_osd = QIcon(get_resource_path("themes/eye.png"))
         self.img_close = QIcon(get_resource_path("themes/close.png"))
-
-        # Кнопка линейки
-        self.btn_ruler = QPushButton(self)
-        self.btn_ruler.setIcon(self.img_ruler)
-        self.btn_ruler.setIconSize(QSize(20, 20))
-        self.btn_ruler.setFixedSize(28, 28)
-        self.btn_ruler.setToolTip("Линейка")
-        self.btn_ruler.clicked.connect(self.toggle_ruler)
-        top_layout.addWidget(self.btn_ruler)
 
         # Кнопка настройки HU
         self.btn_hu = QPushButton(self)
@@ -292,6 +289,15 @@ class DicomViewerPanel(QWidget):
         self.btn_hu.setToolTip("Настройка окна HU")
         self.btn_hu.clicked.connect(self.toggle_hu)
         top_layout.addWidget(self.btn_hu)
+
+        # Кнопка линейки
+        self.btn_ruler = QPushButton(self)
+        self.btn_ruler.setIcon(self.img_ruler)
+        self.btn_ruler.setIconSize(QSize(20, 20))
+        self.btn_ruler.setFixedSize(28, 28)
+        self.btn_ruler.setToolTip("Линейка")
+        self.btn_ruler.clicked.connect(self.toggle_ruler)
+        top_layout.addWidget(self.btn_ruler)
 
         # Кнопка мультипланарной реконструкции (MPR)
         self.img_mpr = QIcon(get_resource_path("themes/mpr.png"))
@@ -447,6 +453,16 @@ class DicomViewerPanel(QWidget):
         self.cb_structures.currentIndexChanged.connect(self.on_structure_file_changed)
         self.cb_presets.currentIndexChanged.connect(self.apply_preset)
         self.update_buttons_style()
+
+    def set_left_panel_collapsed(self, collapsed: bool) -> None:
+        self.left_panel_collapsed = bool(collapsed)
+        if hasattr(self, "structures_panel"):
+            self.structures_panel.setVisible(not self.left_panel_collapsed)
+        if hasattr(self, "left_divider"):
+            self.left_divider.set_collapsed(self.left_panel_collapsed)
+
+    def toggle_left_panel(self) -> None:
+        self.set_left_panel_collapsed(not getattr(self, "left_panel_collapsed", False))
 
     def setup_left_panel(self) -> None:
         self.structures_panel = QFrame(self)
@@ -2172,6 +2188,9 @@ class DicomViewerPanel(QWidget):
         if hasattr(self, "btn_beams"):
             self.btn_beams.setEnabled(has_beams)
         self.update_buttons_style()
+
+        has_rt = bool(self.struct_files or self.dose_files or self.plan_files or self.plans_info)
+        self.set_left_panel_collapsed(not has_rt)
 
         if not self.sorted_files:
             if self.progress_dialog:

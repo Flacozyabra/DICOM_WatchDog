@@ -363,6 +363,92 @@ class TaskProgressDelegate(QStyledItemDelegate):
         super().paint(painter, option, index)
 
 
+def paint_collapse_divider(
+    widget: QWidget,
+    orientation: Qt.Orientation,
+    is_collapsed: bool,
+) -> None:
+    """Paint the 1px divider line and centered collapse/expand triangle arrow."""
+    painter = QPainter(widget)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    line_color = QColor("#3F3F46")
+    arrow_color = QColor("#1f538d") if widget.underMouse() else QColor("#71717A")
+
+    w = widget.width()
+    h = widget.height()
+    cx = w // 2
+    cy = h // 2
+
+    poly = QPolygon()
+    if orientation == Qt.Orientation.Horizontal:
+        painter.setPen(QPen(line_color, 1))
+        painter.drawLine(cx, 0, cx, h)
+
+        if not is_collapsed:
+            poly.append(QPoint(cx - 2, cy))
+            poly.append(QPoint(cx + 2, cy - 10))
+            poly.append(QPoint(cx + 2, cy + 10))
+        else:
+            poly.append(QPoint(cx + 2, cy))
+            poly.append(QPoint(cx - 2, cy - 10))
+            poly.append(QPoint(cx - 2, cy + 10))
+    else:
+        painter.setPen(QPen(line_color, 1))
+        painter.drawLine(15, cy, w - 15, cy)
+
+        if not is_collapsed:
+            poly.append(QPoint(cx, cy + 2))
+            poly.append(QPoint(cx - 10, cy - 2))
+            poly.append(QPoint(cx + 10, cy - 2))
+        else:
+            poly.append(QPoint(cx, cy - 2))
+            poly.append(QPoint(cx - 10, cy + 2))
+            poly.append(QPoint(cx + 10, cy + 2))
+
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QBrush(arrow_color))
+    painter.drawPolygon(poly)
+
+
+class CollapsibleDividerHandle(QWidget):
+    """Clickable thin divider bar with collapse/expand arrow matching CustomSplitterHandle."""
+    clicked = pyqtSignal()
+
+    def __init__(self, orientation: Qt.Orientation = Qt.Orientation.Horizontal, parent: QWidget = None) -> None:
+        super().__init__(parent)
+        self._orientation = orientation
+        self.is_collapsed = False
+        self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        if orientation == Qt.Orientation.Horizontal:
+            self.setFixedWidth(8)
+        else:
+            self.setFixedHeight(8)
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        self.is_collapsed = bool(collapsed)
+        self.update()
+
+    def enterEvent(self, event) -> None:
+        super().enterEvent(event)
+        self.update()
+
+    def leaveEvent(self, event) -> None:
+        super().leaveEvent(event)
+        self.update()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def paintEvent(self, event) -> None:
+        paint_collapse_divider(self, self._orientation, self.is_collapsed)
+
+
 class CustomSplitterHandle(QSplitterHandle):
     def __init__(self, orientation: Qt.Orientation, parent) -> None:
         super().__init__(orientation, parent)
@@ -416,51 +502,7 @@ class CustomSplitterHandle(QSplitterHandle):
         idx = self.get_handle_index()
         if idx == -1:
             return
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        line_color = QColor("#3F3F46")
-        if self.underMouse():
-            arrow_color = QColor("#1f538d")
-        else:
-            arrow_color = QColor("#71717A")
-
-        w = self.width()
-        h = self.height()
-        cx = w // 2
-        cy = h // 2
-
-        poly = QPolygon()
-
-        if self.orientation() == Qt.Orientation.Horizontal:
-            painter.setPen(QPen(line_color, 1))
-            painter.drawLine(cx, 0, cx, h)
-
-            if not self.is_collapsed:
-                poly.append(QPoint(cx - 2, cy))
-                poly.append(QPoint(cx + 2, cy - 10))
-                poly.append(QPoint(cx + 2, cy + 10))
-            else:
-                poly.append(QPoint(cx + 2, cy))
-                poly.append(QPoint(cx - 2, cy - 10))
-                poly.append(QPoint(cx - 2, cy + 10))
-        else:
-            painter.setPen(QPen(line_color, 1))
-            painter.drawLine(15, cy, w - 15, cy)
-
-            if not self.is_collapsed:
-                poly.append(QPoint(cx, cy + 2))
-                poly.append(QPoint(cx - 10, cy - 2))
-                poly.append(QPoint(cx + 10, cy - 2))
-            else:
-                poly.append(QPoint(cx, cy - 2))
-                poly.append(QPoint(cx - 10, cy + 2))
-                poly.append(QPoint(cx + 10, cy + 2))
-
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(arrow_color))
-        painter.drawPolygon(poly)
+        paint_collapse_divider(self, self.orientation(), self.is_collapsed)
 
     def toggle_collapse(self) -> None:
         splitter = self.splitter()
