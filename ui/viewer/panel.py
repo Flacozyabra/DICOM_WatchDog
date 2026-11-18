@@ -22,6 +22,7 @@ from PyQt6.QtGui import (
 from ui.toggle_switch import ToggleSwitch
 from ui.table_widgets import CollapsibleDividerHandle
 from ui.settings_tabs.settings_utils import apply_dark_title_bar
+from .mode_switcher import LiquidModeBar
 from core.config_utils import get_resource_path, get_temp_dir
 from core.locale_utils import tr_ui
 from core.logger import log_error
@@ -419,9 +420,13 @@ class DicomViewerPanel(QWidget):
         self.btn_mode_proc.customContextMenuRequested.connect(self.show_postprocess_menu)
 
         for b in (self.btn_mode_orig, self.btn_mode_side, self.btn_mode_proc):
-            b.setFixedHeight(26)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
-            mode_layout.addWidget(b)
+
+        self.mode_bar = LiquidModeBar(
+            [self.btn_mode_orig, self.btn_mode_side, self.btn_mode_proc],
+            self.mode_container,
+        )
+        mode_layout.addWidget(self.mode_bar)
 
         mode_layout.addStretch()
         self.mode_container.setVisible(self.postprocessing_enabled)
@@ -1505,29 +1510,12 @@ class DicomViewerPanel(QWidget):
         if hasattr(self, "btn_close"):
             self.btn_close.setStyleSheet(style_close)
 
-        btn_mode_style = f"""
-            QPushButton {{
-                background-color: {btn_bg};
-                border: 1px solid {btn_border};
-                border-radius: 13px;
-                color: {palette.get('TEXT_MUTED', '#9CA3AF')};
-                padding: 0px 12px;
-                font-size: 11px;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{
-                background-color: {btn_hover};
-                color: #FFFFFF;
-            }}
-            QPushButton:checked {{
-                background-color: {accent_color};
-                border: 1px solid {accent_dark};
-                color: #FFFFFF;
-            }}
-        """
-        for b in ("btn_mode_orig", "btn_mode_side", "btn_mode_proc"):
-            if hasattr(self, b):
-                getattr(self, b).setStyleSheet(btn_mode_style)
+        if hasattr(self, "mode_bar"):
+            self.mode_bar.set_theme_colors(
+                accent_color,
+                accent_dark,
+                palette.get("TEXT_MUTED", "#9CA3AF"),
+            )
 
     def toggle_beams(self) -> None:
         if not self.viewer.plan_data or not self.viewer.plan_data.get("beams"):
@@ -1944,6 +1932,8 @@ class DicomViewerPanel(QWidget):
             self.btn_mode_orig.setChecked(True)
             self.btn_mode_side.setChecked(False)
             self.btn_mode_proc.setChecked(False)
+        if hasattr(self, "mode_bar"):
+            self.mode_bar.snap_to_checked()
 
         if hasattr(self, "lbl_plan"):
             self.lbl_plan.show()
