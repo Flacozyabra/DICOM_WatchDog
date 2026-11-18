@@ -3,6 +3,7 @@ core.postprocessing — DICOM CT post-processing algorithms.
 """
 from .runner import (
     PostprocessingRunner,
+    ALGORITHM_ALIGNED,
     ALGORITHM_MAR_V9,
     ALGORITHM_ST_HARD,
     ALGORITHM_ST_NORMAL,
@@ -10,11 +11,23 @@ from .runner import (
     ALGORITHM_COMBO_HARD,
 )
 from .dicom_io import (
+    read_dicom_dataset,
     read_dicom_hu,
     save_derived_dicom_hu,
     is_derived_dataset,
     is_derived_file,
     clean_series_desc,
+)
+from .aligned import (
+    compute_cubic_spline_coeffs,
+    compute_rotation_matrix_deg,
+    compute_world_cursor_mm,
+    detect_applicator_orientation,
+    export_aligned_volume_slices,
+    load_ct_volume_data,
+    sample_oblique_slice,
+    sort_slice_paths_by_z,
+    validate_aligned_export_geometry,
 )
 def __getattr__(name: str):
     if name == "process_slice_mar":
@@ -27,16 +40,27 @@ def __getattr__(name: str):
 
 __all__ = [
     "PostprocessingRunner",
+    "ALGORITHM_ALIGNED",
     "ALGORITHM_MAR_V9",
     "ALGORITHM_ST_HARD",
     "ALGORITHM_ST_NORMAL",
     "ALGORITHM_COMBO_NORMAL",
     "ALGORITHM_COMBO_HARD",
+    "read_dicom_dataset",
     "read_dicom_hu",
     "save_derived_dicom_hu",
     "is_derived_dataset",
     "is_derived_file",
     "clean_series_desc",
+    "compute_cubic_spline_coeffs",
+    "compute_rotation_matrix_deg",
+    "compute_world_cursor_mm",
+    "detect_applicator_orientation",
+    "export_aligned_volume_slices",
+    "load_ct_volume_data",
+    "sample_oblique_slice",
+    "sort_slice_paths_by_z",
+    "validate_aligned_export_geometry",
     "process_slice_mar",
     "enhance_soft_tissue_slice_v2",
 ]

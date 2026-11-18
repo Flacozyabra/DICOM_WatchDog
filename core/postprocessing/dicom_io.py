@@ -51,24 +51,48 @@ def is_derived_file(file_path: str) -> bool:
         return False
 
 
+def read_dicom_dataset(file_path, *args, **kwargs) -> pydicom.Dataset:
+    """
+    Safely reads a DICOM dataset using pydicom with force=True and TransferSyntaxUID fallback.
+    Handles Elekta/non-Part-10 files and 'already uncompressed' pixel read errors without Qt imports.
+    """
+    kwargs.setdefault("force", True)
+    try:
+        ds = pydicom.dcmread(file_path, *args, **kwargs)
+        if not hasattr(ds, "file_meta") or ds.file_meta is None:
+            ds.file_meta = pydicom.dataset.FileMetaDataset()
+        if not hasattr(ds.file_meta, "TransferSyntaxUID") or not ds.file_meta.TransferSyntaxUID:
+            if getattr(ds, "is_implicit_VR", True):
+                ds.file_meta.TransferSyntaxUID = pydicom.uid.ImplicitVRLittleEndian
+            else:
+                ds.file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+        return ds
+    except ValueError as e:
+        if "already uncompressed" in str(e).lower():
+            ds_meta = pydicom.dcmread(file_path, stop_before_pixels=True, force=True)
+            if not hasattr(ds_meta, "file_meta") or ds_meta.file_meta is None:
+                ds_meta.file_meta = pydicom.dataset.FileMetaDataset()
+            ds_meta.file_meta.TransferSyntaxUID = pydicom.uid.ImplicitVRLittleEndian
+            if not isinstance(file_path, (str, os.PathLike)) and hasattr(file_path, "seek"):
+                file_path.seek(0)
+            ds = pydicom.dcmread(file_path, *args, **kwargs)
+            if not hasattr(ds, "file_meta") or ds.file_meta is None:
+                ds.file_meta = pydicom.dataset.FileMetaDataset()
+            ds.file_meta.TransferSyntaxUID = pydicom.uid.ImplicitVRLittleEndian
+            return ds
+        raise
+
+
 def read_dicom_hu(file_path: str) -> tuple[pydicom.Dataset, np.ndarray, float, float, list[float]]:
     """
     Reads a DICOM file and converts stored pixel values into Hounsfield Units (HU).
     Supports force=True and initializes TransferSyntaxUID if missing (e.g. non-part 10 files).
     Returns (ds, img_hu, slope, intercept, pixel_spacing).
     """
-    ds = pydicom.dcmread(file_path, force=True)
+    ds = read_dicom_dataset(file_path)
 
-    if not hasattr(ds, "file_meta") or ds.file_meta is None:
-        ds.file_meta = pydicom.dataset.FileMetaDataset()
-    if not hasattr(ds.file_meta, "TransferSyntaxUID") or not ds.file_meta.TransferSyntaxUID:
-        if getattr(ds, "is_implicit_VR", True):
-            ds.file_meta.TransferSyntaxUID = pydicom.uid.ImplicitVRLittleEndian
-        else:
-            ds.file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
-
-    slope = float(getattr(ds, "RescaleSlope", 1.0))
-    intercept = float(getattr(ds, "RescaleIntercept", 0.0))
+    slope = float(getattr(ds, "RescaleSlope", 1.0) or 1.0)
+    intercept = float(getattr(ds, "RescaleIntercept", 0.0) or 0.0)
     pixel_array = ds.pixel_array.astype(np.float32)
     img_hu = pixel_array * slope + intercept
     pixel_spacing = [float(x) for x in getattr(ds, "PixelSpacing", [1.0, 1.0])]
