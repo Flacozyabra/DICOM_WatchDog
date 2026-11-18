@@ -105,6 +105,29 @@ def load_ct_volume_data(
         return None
 
 
+def compute_cubic_spline_coeffs(vol: np.ndarray) -> np.ndarray:
+    """Precompute 3D float32 cubic B-spline coefficients for sharp order=3 resampling."""
+    return scipy.ndimage.spline_filter(vol, order=3, output=np.float32, mode="constant")
+
+
+def sample_oblique_slice(
+    vol: np.ndarray,
+    coords: np.ndarray,
+    spline_coeffs: np.ndarray | None = None
+) -> np.ndarray:
+    """Resample a 2D slice from 3D volume using cached cubic B-spline interpolation (order=3)."""
+    if spline_coeffs is None or spline_coeffs.shape != vol.shape:
+        spline_coeffs = compute_cubic_spline_coeffs(vol)
+    return scipy.ndimage.map_coordinates(
+        spline_coeffs,
+        coords,
+        order=3,
+        mode="constant",
+        cval=-1000.0,
+        prefilter=False
+    )
+
+
 class MprVolumeLoaderWorker(QThread):
     """
     Background worker that builds 3D CT volume(s) from DICOM slice files
@@ -128,6 +151,8 @@ class MprVolumeLoaderWorker(QThread):
         self.files_derived = list(files_derived) if files_derived else []
         self.need_orig = need_orig
         self.need_derived = need_derived
+        self.spline_orig = None
+        self.spline_derived = None
         self._is_cancelled = False
 
     def cancel(self) -> None:
@@ -146,9 +171,9 @@ class MprVolumeLoaderWorker(QThread):
             if self.need_orig:
                 def on_p_orig(cur: int, tot: int) -> None:
                     if total_stages == 2:
-                        pct = int((cur / tot) * 45)
+                        pct = int((cur / tot) * 42)
                     else:
-                        pct = int((cur / tot) * 90)
+                        pct = int((cur / tot) * 85)
                     msg = tr_ui("loading_dicom_files", cur, tot)
                     self.progress_signal.emit(pct, 100, msg)
 
@@ -159,13 +184,18 @@ class MprVolumeLoaderWorker(QThread):
                 )
                 if self._is_cancelled:
                     return
+                if res_orig is not None:
+                    self.progress_signal.emit(45 if total_stages == 2 else 90, 100, tr_ui("main_progress_launch") or "Preparing MPR...")
+                    self.spline_orig = compute_cubic_spline_coeffs(res_orig[0])
+                    if self._is_cancelled:
+                        return
 
             if self.need_derived:
                 def on_p_der(cur: int, tot: int) -> None:
                     if total_stages == 2:
-                        pct = 50 + int((cur / tot) * 45)
+                        pct = 50 + int((cur / tot) * 42)
                     else:
-                        pct = int((cur / tot) * 90)
+                        pct = int((cur / tot) * 85)
                     msg = tr_ui("loading_dicom_files", cur, tot)
                     self.progress_signal.emit(pct, 100, msg)
 
@@ -176,6 +206,11 @@ class MprVolumeLoaderWorker(QThread):
                 )
                 if self._is_cancelled:
                     return
+                if res_derived is not None:
+                    self.progress_signal.emit(95, 100, tr_ui("main_progress_launch") or "Preparing MPR...")
+                    self.spline_derived = compute_cubic_spline_coeffs(res_derived[0])
+                    if self._is_cancelled:
+                        return
 
             self.progress_signal.emit(100, 100, tr_ui("main_progress_launch") if tr_ui("main_progress_launch") else "Ready")
             self.finished_signal.emit(res_orig, res_derived)
@@ -395,7 +430,8 @@ class MprExportAlignedWorker(QThread):
         mode: str,
         parent=None,
         origin_mm: np.ndarray | list[float] | None = None,
-        float_cur: list[float] | tuple[float, float, float] | None = None
+        float_cur: list[float] | tuple[float, float, float] | None = None,
+        spline_coeffs: np.ndarray | None = None
     ) -> None:
         super().__init__(parent)
         self.slice_paths = list(slice_paths)
@@ -410,6 +446,7 @@ class MprExportAlignedWorker(QThread):
         self.mode = mode
         self.origin_mm = np.array(origin_mm, dtype=np.float64) if origin_mm is not None else np.zeros(3, dtype=np.float64)
         self.float_cur = list(float_cur) if float_cur is not None else [float(self.cur_x), float(self.cur_y), float(self.cur_z)]
+        self.spline_coeffs = spline_coeffs
         self._is_cancelled = False
 
     def cancel(self) -> None:
@@ -442,6 +479,11 @@ class MprExportAlignedWorker(QThread):
             v_ax = (np.arange(rows, dtype=np.float32) - float(self.float_cur[1])) * dy
             uu, vv = np.meshgrid(u_ax, v_ax)
 
+            spline_coeffs = self.spline_coeffs
+            if spline_coeffs is None or spline_coeffs.shape != self.vol.shape:
+                self.progress_signal.emit(0, n_slices, tr_ui("main_progress_launch") or "Preparing...")
+                spline_coeffs = compute_cubic_spline_coeffs(self.vol)
+
             out_files = []
 
             for k in range(n_slices):
@@ -457,9 +499,7 @@ class MprExportAlignedWorker(QThread):
                 pz = cz_rot + uu * R[2, 0] + vv * R[2, 1] + w * R[2, 2]
 
                 coords = np.array([pz / dz, py / dy, px / dx], dtype=np.float32)
-                slice_hu = scipy.ndimage.map_coordinates(
-                    self.vol, coords, order=1, mode="constant", cval=-1000.0
-                )
+                slice_hu = sample_oblique_slice(self.vol, coords, spline_coeffs=spline_coeffs)
 
                 ds = safe_dcmread(in_fp)
                 slope = float(getattr(ds, "RescaleSlope", 1.0))
@@ -708,6 +748,7 @@ class MprSliceWidget(QWidget):
         super().__init__(parent)
         self.plane_type = plane_type
         self.vol = None
+        self.spline_coeffs = None
         self.ipp0 = [0.0, 0.0, 0.0]
         self.spacing = (1.0, 1.0, 1.0) # (dy, dx, dz)
 
@@ -863,9 +904,11 @@ class MprSliceWidget(QWidget):
         cur_y: int,
         cur_z: int,
         window_width: float,
-        window_center: float
+        window_center: float,
+        spline_coeffs: np.ndarray | None = None
     ) -> None:
         self.vol = vol
+        self.spline_coeffs = spline_coeffs
         self.ipp0 = list(ipp0)
         self.spacing = tuple(spacing)
         self.cur_x = cur_x
@@ -978,10 +1021,15 @@ class MprSliceWidget(QWidget):
             pz = cz_rot + uu * R[2, 1] + vv * R[2, 2]
 
         coords = np.array([pz / dz, py / dy, px / dx], dtype=np.float32)
-        slice_hu = scipy.ndimage.map_coordinates(
-            self.vol, coords, order=1, mode="constant", cval=-1000.0
-        )
-        return slice_hu
+        coeffs = self.spline_coeffs
+        if coeffs is None or coeffs.shape != self.vol.shape:
+            parent_panel = self.parent()
+            if hasattr(parent_panel, "ensure_spline_coeffs"):
+                coeffs = parent_panel.ensure_spline_coeffs()
+            else:
+                coeffs = compute_cubic_spline_coeffs(self.vol)
+                self.spline_coeffs = coeffs
+        return sample_oblique_slice(self.vol, coords, spline_coeffs=coeffs)
 
     def refresh_slice(self) -> None:
         if self.vol is None:
@@ -1573,6 +1621,7 @@ class MprPanelWidget(QWidget):
     def __init__(self, parent: QWidget = None) -> None:
         super().__init__(parent)
         self.vol = None
+        self.spline_coeffs = None
         self.ipp0 = [0.0, 0.0, 0.0]
         self.spacing = (1.0, 1.0, 1.0)
         self.cur_x = 0
@@ -1642,6 +1691,16 @@ class MprPanelWidget(QWidget):
         self.grid_layout.addWidget(self.view_coronal, 1, 0)
         self.grid_layout.addWidget(self.view_sagittal, 1, 1)
 
+    def ensure_spline_coeffs(self) -> np.ndarray | None:
+        """Return cached float32 cubic B-spline coefficients for the loaded volume."""
+        if self.vol is None:
+            return None
+        if self.spline_coeffs is None or self.spline_coeffs.shape != self.vol.shape:
+            self.spline_coeffs = compute_cubic_spline_coeffs(self.vol)
+            for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+                v.spline_coeffs = self.spline_coeffs
+        return self.spline_coeffs
+
     def set_volume_data(
         self,
         vol: np.ndarray,
@@ -1651,9 +1710,11 @@ class MprPanelWidget(QWidget):
         window_center: float,
         initial_z: int = None,
         slice_files: list = None,
-        initial_zoom: float = 1.0
+        initial_zoom: float = 1.0,
+        spline_coeffs: np.ndarray | None = None
     ) -> None:
         self.vol = vol
+        self.spline_coeffs = spline_coeffs if (spline_coeffs is not None and spline_coeffs.shape == vol.shape) else None
         self.ipp0 = list(ipp0)
         self.spacing = tuple(spacing)
         self.window_width = window_width
@@ -1689,7 +1750,8 @@ class MprPanelWidget(QWidget):
                 cur_y=self.cur_y,
                 cur_z=self.cur_z,
                 window_width=self.window_width,
-                window_center=self.window_center
+                window_center=self.window_center,
+                spline_coeffs=self.spline_coeffs
             )
 
     def set_cursor(
@@ -1949,7 +2011,8 @@ class MprPanelWidget(QWidget):
             mode=action,
             parent=self,
             origin_mm=self._frame_origin_mm,
-            float_cur=self._float_cur
+            float_cur=self._float_cur,
+            spline_coeffs=self.spline_coeffs
         )
         progress_dialog.on_cancel_cb = worker.cancel
 

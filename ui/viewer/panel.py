@@ -65,9 +65,11 @@ class DicomViewerPanel(QWidget):
         self.mpr_vol_orig = None
         self.mpr_ipp0_orig = None
         self.mpr_spacing_orig = None
+        self.mpr_spline_orig = None
         self.mpr_vol_derived = None
         self.mpr_ipp0_derived = None
         self.mpr_spacing_derived = None
+        self.mpr_spline_derived = None
         self._syncing_mpr = False
         self.struct_files = []
         self.dose_files = []
@@ -1867,9 +1869,11 @@ class DicomViewerPanel(QWidget):
         self.mpr_vol_orig = None
         self.mpr_ipp0_orig = None
         self.mpr_spacing_orig = None
+        self.mpr_spline_orig = None
         self.mpr_vol_derived = None
         self.mpr_ipp0_derived = None
         self.mpr_spacing_derived = None
+        self.mpr_spline_derived = None
         self.mpr_active = False
         self._apply_mpr_window_maximize(False)
         if hasattr(self, "btn_mpr"):
@@ -1959,9 +1963,11 @@ class DicomViewerPanel(QWidget):
         self.mpr_vol_orig = None
         self.mpr_ipp0_orig = None
         self.mpr_spacing_orig = None
+        self.mpr_spline_orig = None
         self.mpr_vol_derived = None
         self.mpr_ipp0_derived = None
         self.mpr_spacing_derived = None
+        self.mpr_spline_derived = None
         self._need_initial_window = True
         self.pixmap_cache.clear()
         self.viewer.clear_viewer()
@@ -2333,6 +2339,7 @@ class DicomViewerPanel(QWidget):
             default_zoom = self._get_default_zoom()
             if res_orig is not None:
                 self.mpr_vol_orig, self.mpr_ipp0_orig, self.mpr_spacing_orig = res_orig
+                self.mpr_spline_orig = getattr(worker, "spline_orig", None)
                 self.mpr_container.set_volume_data(
                     self.mpr_vol_orig,
                     self.mpr_ipp0_orig,
@@ -2341,10 +2348,12 @@ class DicomViewerPanel(QWidget):
                     self.window_center,
                     initial_z=max(0, self.current_index),
                     slice_files=self.sorted_files,
-                    initial_zoom=default_zoom
+                    initial_zoom=default_zoom,
+                    spline_coeffs=self.mpr_spline_orig
                 )
             if res_der is not None:
                 self.mpr_vol_derived, self.mpr_ipp0_derived, self.mpr_spacing_derived = res_der
+                self.mpr_spline_derived = getattr(worker, "spline_derived", None)
                 self.mpr_container_derived.set_volume_data(
                     self.mpr_vol_derived,
                     self.mpr_ipp0_derived,
@@ -2353,7 +2362,8 @@ class DicomViewerPanel(QWidget):
                     self.window_center,
                     initial_z=max(0, self.current_index),
                     slice_files=self.derived_files,
-                    initial_zoom=default_zoom
+                    initial_zoom=default_zoom,
+                    spline_coeffs=self.mpr_spline_derived
                 )
             progress_dialog.accept()
 
