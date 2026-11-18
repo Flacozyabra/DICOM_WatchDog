@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import os
 import math
+import time
 import numpy as np
-import scipy.ndimage
-import pydicom
-from pydicom.uid import generate_uid
 
-from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QPointF, QRectF, QThread, QEvent
+from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QPointF, QRectF, QThread, QEvent, QTimer
 from PyQt6.QtWidgets import (
     QWidget, QGridLayout, QFrame, QSizePolicy, QMenu, QMessageBox,
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
@@ -18,6 +16,16 @@ from PyQt6.QtGui import (
 )
 
 from core.locale_utils import tr_ui
+from core.postprocessing.aligned import (
+    compute_cubic_spline_coeffs,
+    compute_rotation_matrix_deg,
+    compute_world_cursor_mm as _compute_world_cursor_mm,
+    detect_applicator_orientation,
+    export_aligned_volume_slices,
+    load_ct_volume_data,
+    sample_oblique_slice,
+    validate_aligned_export_geometry,
+)
 from ui.settings_tabs.settings_utils import apply_dark_title_bar
 from .parsers import safe_dcmread
 
@@ -46,135 +54,6 @@ PLANE_SAGITTAL = "sagittal" # YZ plane (indexed by X)
 COLOR_AXIAL = QColor("#38BDF8")     # Cyan/Blue (Z plane)
 COLOR_CORONAL = QColor("#4ADE80")   # Green (Y plane)
 COLOR_SAGITTAL = QColor("#FB923C")  # Orange/Coral (X plane)
-
-
-def load_ct_volume_data(
-    sorted_files: list,
-    on_progress=None,
-    is_cancelled=None
-) -> tuple[np.ndarray, list[float], tuple[float, float, float]] | None:
-    """
-    Extracts 3D CT HU volume and coordinate metadata from DICOM slice files.
-    Returns (vol, ipp0, (dy, dx, dz)) or None.
-    """
-    if not sorted_files:
-        return None
-    try:
-        total_files = len(sorted_files)
-        slices_ds = []
-
-        for idx, item in enumerate(sorted_files):
-            if is_cancelled and is_cancelled():
-                return None
-            fp = item[0] if isinstance(item, tuple) else item
-            try:
-                ds = safe_dcmread(fp)
-                if (hasattr(ds, "ImagePositionPatient") and hasattr(ds, "pixel_array") and 
-                        getattr(ds, "Modality", "CT") == "CT" and ds.pixel_array.ndim == 2):
-                    slices_ds.append(ds)
-            except Exception:
-                pass
-
-            if on_progress and (idx % 2 == 0 or idx == total_files - 1):
-                on_progress(idx + 1, total_files)
-
-        if not slices_ds:
-            return None
-
-        slices_ds.sort(key=lambda s: float(s.ImagePositionPatient[2]))
-        n_z = len(slices_ds)
-        rows = int(slices_ds[0].Rows)
-        cols = int(slices_ds[0].Columns)
-
-        vol = np.zeros((n_z, rows, cols), dtype=np.float32)
-        for i, s in enumerate(slices_ds):
-            slope = float(getattr(s, "RescaleSlope", 1.0) or 1.0)
-            intercept = float(getattr(s, "RescaleIntercept", 0.0) or 0.0)
-            vol[i] = s.pixel_array.astype(np.float32) * slope + intercept
-
-        ipp0 = [float(x) for x in slices_ds[0].ImagePositionPatient]
-        ipp_last = [float(x) for x in slices_ds[-1].ImagePositionPatient]
-        spacing = [float(x) for x in slices_ds[0].PixelSpacing]
-        dy, dx = float(spacing[0]), float(spacing[1])
-        dz = abs(float(ipp_last[2] - ipp0[2])) / (n_z - 1) if n_z > 1 else 3.0
-        if dz <= 0:
-            dz = 3.0
-
-        return vol, ipp0, (dy, dx, dz)
-    except Exception:
-        return None
-
-
-def compute_cubic_spline_coeffs(vol: np.ndarray) -> np.ndarray:
-    """Precompute 3D float32 cubic B-spline coefficients for sharp order=3 resampling."""
-    return scipy.ndimage.spline_filter(vol, order=3, output=np.float32, mode="constant")
-
-
-def sample_oblique_slice(
-    vol: np.ndarray,
-    coords: np.ndarray,
-    spline_coeffs: np.ndarray | None = None
-) -> np.ndarray:
-    """
-    Resample a 2D slice from 3D volume using cached cubic B-spline interpolation (order=3)
-    with 8-neighbor local bounds clamping to prevent Gibbs ringing near high-contrast metal.
-    """
-    if spline_coeffs is None or spline_coeffs.shape != vol.shape:
-        spline_coeffs = compute_cubic_spline_coeffs(vol)
-    slice_hu = scipy.ndimage.map_coordinates(
-        spline_coeffs,
-        coords,
-        order=3,
-        mode="constant",
-        cval=-1000.0,
-        prefilter=False
-    )
-    if vol.ndim != 3:
-        return slice_hu
-    nz, nr, nc = vol.shape
-    if nz < 2 or nr < 2 or nc < 2:
-        return slice_hu
-
-    fz, fy, fx = coords[0], coords[1], coords[2]
-    inside = (
-        (fz >= 0.0) & (fz <= float(nz - 1)) &
-        (fy >= 0.0) & (fy <= float(nr - 1)) &
-        (fx >= 0.0) & (fx <= float(nc - 1))
-    )
-    if not np.any(inside):
-        return slice_hu
-
-    z0 = np.clip(np.floor(fz[inside]).astype(np.intp), 0, nz - 2)
-    y0 = np.clip(np.floor(fy[inside]).astype(np.intp), 0, nr - 2)
-    x0 = np.clip(np.floor(fx[inside]).astype(np.intp), 0, nc - 2)
-
-    if vol.flags["C_CONTIGUOUS"]:
-        flat = vol.reshape(-1)
-        s_row = nc
-        s_sl = nr * nc
-        idx0 = (z0 * nr + y0) * nc + x0
-        corners = (
-            flat[idx0], flat[idx0 + 1],
-            flat[idx0 + s_row], flat[idx0 + s_row + 1],
-            flat[idx0 + s_sl], flat[idx0 + s_sl + 1],
-            flat[idx0 + s_sl + s_row], flat[idx0 + s_sl + s_row + 1],
-        )
-    else:
-        z1, y1, x1 = z0 + 1, y0 + 1, x0 + 1
-        corners = (
-            vol[z0, y0, x0], vol[z0, y0, x1],
-            vol[z0, y1, x0], vol[z0, y1, x1],
-            vol[z1, y0, x0], vol[z1, y0, x1],
-            vol[z1, y1, x0], vol[z1, y1, x1],
-        )
-
-    v_min = corners[0].copy()
-    v_max = corners[0].copy()
-    for c in corners[1:]:
-        np.minimum(v_min, c, out=v_min)
-        np.maximum(v_max, c, out=v_max)
-    slice_hu[inside] = np.clip(slice_hu[inside], v_min, v_max)
-    return slice_hu
 
 
 class MprVolumeLoaderWorker(QThread):
@@ -553,91 +432,6 @@ class MprAfterSaveDialog(QDialog):
         self.accept()
 
 
-def validate_aligned_export_geometry(
-    slice_paths: list[str],
-    vol: np.ndarray | None = None
-) -> tuple[bool, str]:
-    """
-    Validate that source CT slices follow standard axial HFS geometry without gantry tilt
-    and have uniform Z spacing so aligned DICOM export preserves clinical 3D geometry.
-    """
-    if not slice_paths or len(slice_paths) < 2:
-        return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_slice_count", len(slice_paths) if slice_paths else 0))
-
-    if vol is not None and len(slice_paths) != vol.shape[0]:
-        return False, tr_ui(
-            "viewer_mpr_err_unsupported_geometry",
-            tr_ui("viewer_mpr_geom_slice_count", f"{len(slice_paths)} != {vol.shape[0]}")
-        )
-
-    expected_iop = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0)
-    ref_shape = None
-    ref_ps = None
-    z_positions = []
-
-    for fp in slice_paths:
-        try:
-            ds = safe_dcmread(fp, stop_before_pixels=True)
-        except Exception as e:
-            return False, tr_ui("viewer_mpr_err_unsupported_geometry", str(e))
-
-        iop = getattr(ds, "ImageOrientationPatient", None)
-        if iop is None or len(iop) != 6:
-            return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_orientation"))
-        try:
-            if max(abs(float(v) - e) for v, e in zip(iop, expected_iop)) > 1e-3:
-                return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_orientation"))
-        except (TypeError, ValueError):
-            return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_orientation"))
-
-        tilt = getattr(ds, "GantryDetectorTilt", None)
-        if tilt is not None and str(tilt).strip() != "":
-            try:
-                tilt_val = float(tilt)
-            except (TypeError, ValueError):
-                tilt_val = 0.0
-            if abs(tilt_val) > 0.5:
-                return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_tilt", tilt_val))
-
-        rows = getattr(ds, "Rows", None)
-        cols = getattr(ds, "Columns", None)
-        ps = getattr(ds, "PixelSpacing", None)
-        if rows is None or cols is None or ps is None or len(ps) < 2:
-            return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_spacing"))
-        try:
-            cur_shape = (int(rows), int(cols))
-            cur_ps = (float(ps[0]), float(ps[1]))
-        except (TypeError, ValueError):
-            return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_spacing"))
-        if cur_ps[0] <= 0.0 or cur_ps[1] <= 0.0:
-            return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_spacing"))
-        if vol is not None and cur_shape != vol.shape[1:]:
-            return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_spacing"))
-        if ref_shape is None:
-            ref_shape = cur_shape
-            ref_ps = cur_ps
-        elif cur_shape != ref_shape or abs(cur_ps[0] - ref_ps[0]) > 1e-3 or abs(cur_ps[1] - ref_ps[1]) > 1e-3:
-            return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_spacing"))
-
-        ipp = getattr(ds, "ImagePositionPatient", None)
-        if ipp is None or len(ipp) < 3:
-            return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_z_step"))
-        try:
-            z_positions.append(float(ipp[2]))
-        except (TypeError, ValueError):
-            return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_z_step"))
-
-    diffs = np.diff(np.array(z_positions, dtype=np.float64))
-    if np.any(diffs <= 1e-4):
-        return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_z_step"))
-    mean_dz = float(np.mean(diffs))
-    max_dev = float(np.max(np.abs(diffs - mean_dz)))
-    if max_dev > max(0.1, 0.05 * mean_dz):
-        return False, tr_ui("viewer_mpr_err_unsupported_geometry", tr_ui("viewer_mpr_geom_z_step"))
-
-    return True, ""
-
-
 class MprExportAlignedWorker(QThread):
     """
     Background worker that resamples 3D CT volume along aligned MPR axes
@@ -695,113 +489,29 @@ class MprExportAlignedWorker(QThread):
                 self.error_signal.emit(geom_err)
                 return
 
-            study_dir = os.path.dirname(self.slice_paths[0])
-            output_dir = study_dir
-            new_series_uid = generate_uid()
-            new_for_uid = generate_uid()
-
-            dy, dx, dz = self.spacing
-            n_z, rows, cols = self.vol.shape
-
-            rx, ry, rz = np.radians([self.rot_x, self.rot_y, self.rot_z])
-            Rx = np.array([[1, 0, 0], [0, np.cos(rx), -np.sin(rx)], [0, np.sin(rx), np.cos(rx)]], dtype=np.float64)
-            Ry = np.array([[np.cos(ry), 0, np.sin(ry)], [0, 1, 0], [-np.sin(ry), 0, np.cos(ry)]], dtype=np.float64)
-            Rz = np.array([[np.cos(rz), np.sin(rz), 0], [-np.sin(rz), np.cos(rz), 0], [0, 0, 1]], dtype=np.float64)
-            R = Ry @ Rx @ Rz
-
-            c_world = _compute_world_cursor_mm(R, self.origin_mm, self.float_cur, self.spacing)
-            cx_rot, cy_rot, cz_rot = float(c_world[0]), float(c_world[1]), float(c_world[2])
-
-            u_ax = (np.arange(cols, dtype=np.float32) - float(self.float_cur[0])) * dx
-            v_ax = (np.arange(rows, dtype=np.float32) - float(self.float_cur[1])) * dy
-            uu, vv = np.meshgrid(u_ax, v_ax)
-
             spline_coeffs = self.spline_coeffs
             if spline_coeffs is None or spline_coeffs.shape != self.vol.shape:
                 self.progress_signal.emit(0, n_slices, tr_ui("main_progress_launch") or "Preparing...")
                 spline_coeffs = compute_cubic_spline_coeffs(self.vol)
 
-            out_files = []
-            series_desc = "CT (Aligned)"
-
-            for k in range(n_slices):
-                if self._is_cancelled:
-                    return
-
-                in_fp = self.slice_paths[k]
-                self.progress_signal.emit(k + 1, n_slices, f"{k + 1} / {n_slices}")
-
-                w = (k - float(self.float_cur[2])) * dz
-                px = cx_rot + uu * R[0, 0] + vv * R[0, 1] + w * R[0, 2]
-                py = cy_rot + uu * R[1, 0] + vv * R[1, 1] + w * R[1, 2]
-                pz = cz_rot + uu * R[2, 0] + vv * R[2, 1] + w * R[2, 2]
-
-                coords = np.array([pz / dz, py / dy, px / dx], dtype=np.float32)
-                slice_hu = sample_oblique_slice(self.vol, coords, spline_coeffs=spline_coeffs)
-
-                ds = safe_dcmread(in_fp)
-                slope = float(getattr(ds, "RescaleSlope", 1.0))
-                if slope == 0.0:
-                    slope = 1.0
-                intercept = float(getattr(ds, "RescaleIntercept", 0.0))
-
-                raw_pixels = np.round((slice_hu - intercept) / slope)
-                bit_depth = int(getattr(ds, "BitsAllocated", 16))
-                pixel_rep = int(getattr(ds, "PixelRepresentation", 0))
-
-                if pixel_rep == 0:
-                    raw_pixels = np.clip(raw_pixels, 0, (1 << bit_depth) - 1).astype(np.uint16)
-                else:
-                    min_val = -(1 << (bit_depth - 1))
-                    max_val = (1 << (bit_depth - 1)) - 1
-                    raw_pixels = np.clip(raw_pixels, min_val, max_val).astype(np.int16)
-
-                ds.PixelData = raw_pixels.tobytes()
-                ds.Rows = rows
-                ds.Columns = cols
-                ds.ImageOrientationPatient = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
-                ds.InstanceNumber = k + 1
-
-                orig_desc = str(getattr(ds, "SeriesDescription", "CT"))
-                if "(Aligned)" not in orig_desc:
-                    ds.SeriesDescription = f"{orig_desc} (Aligned)"
-                series_desc = str(ds.SeriesDescription)
-
-                ds.SeriesInstanceUID = new_series_uid
-                ds.FrameOfReferenceUID = new_for_uid
-                new_sop_uid = generate_uid()
-                ds.SOPInstanceUID = new_sop_uid
-                if hasattr(ds, "file_meta") and ds.file_meta is not None:
-                    ds.file_meta.MediaStorageSOPInstanceUID = new_sop_uid
-
-                if self.mode == "new":
-                    try:
-                        snum = int(getattr(ds, "SeriesNumber", 1))
-                        ds.SeriesNumber = snum + 100
-                    except Exception:
-                        ds.SeriesNumber = 101
-                    ds.ImageType = ["DERIVED", "SECONDARY", "AXIAL"]
-                    orig_fname = os.path.basename(in_fp)
-                    if orig_fname.upper().startswith("DERIVED_"):
-                        out_fname = f"DERIVED_ALIGNED_{orig_fname.split('_', 2)[-1]}"
-                    else:
-                        out_fname = f"DERIVED_ALIGNED_{orig_fname}"
-                    out_fp = os.path.join(output_dir, out_fname)
-                else:
-                    out_fp = in_fp
-
-                ds.save_as(out_fp)
-                out_files.append(out_fp)
-
-            self.finished_signal.emit({
-                "mode": self.mode,
-                "output_dir": output_dir,
-                "files": out_files,
-                "count": len(out_files),
-                "series_uid": new_series_uid,
-                "frame_of_reference_uid": new_for_uid,
-                "series_desc": series_desc
-            })
+            study_dir = os.path.dirname(self.slice_paths[0])
+            res = export_aligned_volume_slices(
+                slice_paths=self.slice_paths,
+                vol=self.vol,
+                spacing=self.spacing,
+                rot_x=self.rot_x,
+                rot_y=self.rot_y,
+                rot_z=self.rot_z,
+                float_cur=self.float_cur,
+                origin_mm=self.origin_mm,
+                output_dir=study_dir,
+                mode=self.mode,
+                spline_coeffs=spline_coeffs,
+                on_progress=lambda cur, tot: self.progress_signal.emit(cur, tot, f"{cur} / {tot}"),
+                is_cancelled=lambda: self._is_cancelled,
+            )
+            if res is not None:
+                self.finished_signal.emit(res)
 
         except Exception as e:
             self.error_signal.emit(str(e))
@@ -813,212 +523,6 @@ def build_ct_volume(sorted_files: list) -> tuple[np.ndarray, list[float], tuple[
     Returns (vol, ipp0, (dy, dx, dz)) or None.
     """
     return load_ct_volume_data(sorted_files)
-
-
-def detect_applicator_orientation(
-    vol: np.ndarray,
-    spacing: tuple[float, float, float]
-) -> dict | None:
-    """
-    Detects high-density metallic brachytherapy applicator (tandem/metrocolpostat) in 3D volume.
-    Calculates primary shaft tilt (rot_x, rot_y), bend plane angle (rot_z), and pivot voxel.
-    Returns:
-        dict: {
-            "cur_x": int,
-            "cur_y": int,
-            "cur_z": int,
-            "rot_x": float,
-            "rot_y": float,
-            "rot_z": float,
-        }
-        or None if no applicator detected.
-    """
-    if vol is None or vol.ndim != 3:
-        return None
-
-    dy, dx, dz = float(spacing[0]), float(spacing[1]), float(spacing[2])
-    n_z, rows, cols = vol.shape
-
-    # Metallic density threshold (> 2000 HU, fallback to 1500 HU)
-    thresh = 2000.0
-    metal_mask = vol > thresh
-    if np.sum(metal_mask) < 50:
-        thresh = 1500.0
-        metal_mask = vol > thresh
-        if np.sum(metal_mask) < 50:
-            return None
-
-    z_metal = np.argwhere(np.any(metal_mask, axis=(1, 2))).flatten()
-    if len(z_metal) < 10:
-        return None
-
-    z_top = int(z_metal.max())
-    top_coords = np.argwhere(metal_mask[z_top])
-    if len(top_coords) == 0:
-        return None
-    prev_c = np.mean(top_coords, axis=0)  # [y, x]
-
-    track = []
-    for z in range(z_top, -1, -1):
-        sl = metal_mask[z]
-        if not np.any(sl):
-            continue
-        labeled, num = scipy.ndimage.label(sl)
-        if num == 0:
-            continue
-        best_dist = 1e9
-        best_c = None
-        for i in range(1, num + 1):
-            comp_pts = np.argwhere(labeled == i)
-            c = np.mean(comp_pts, axis=0)
-            d = math.hypot(float(c[0] - prev_c[0]), float(c[1] - prev_c[1]))
-            if d < best_dist:
-                best_dist = d
-                best_c = c
-        if best_dist < 15.0:  # max jump threshold between adjacent slices
-            track.append((z, float(best_c[0]), float(best_c[1])))
-            prev_c = best_c
-
-    if len(track) < 10:
-        return None
-
-    track_arr = np.array(track)  # [z, y, x]
-    pts_mm = np.column_stack([track_arr[:, 2] * dx, track_arr[:, 1] * dy, track_arr[:, 0] * dz])
-
-    n_pts = len(track_arr)
-    # The upper ~35-40% is the curved tip, lower ~60-65% is the straight shaft
-    split_idx = max(5, int(n_pts * 0.4))
-    tip_pts = pts_mm[:split_idx]
-    shaft_pts = pts_mm[split_idx:]
-
-    if len(shaft_pts) < 5:
-        shaft_pts = pts_mm
-
-    # PCA on shaft to get longitudinal direction V_shaft
-    mean_shaft = np.mean(shaft_pts, axis=0)
-    cov = np.cov(shaft_pts - mean_shaft, rowvar=False)
-    eigvals, eigvecs = np.linalg.eigh(cov)
-    v_shaft = eigvecs[:, -1]
-    if v_shaft[2] < 0:
-        v_shaft = -v_shaft
-
-    # Calculate rot_x and rot_y
-    rot_x = float(np.degrees(-np.arcsin(np.clip(v_shaft[1], -1.0, 1.0))))
-    cos_rx = math.cos(math.radians(rot_x))
-    if abs(cos_rx) > 1e-4:
-        rot_y = float(np.degrees(np.arcsin(np.clip(v_shaft[0] / cos_rx, -1.0, 1.0))))
-    else:
-        rot_y = 0.0
-
-    # Pivot point at the transition/cervical junction projected onto the fitted shaft axis
-    pivot_z_idx = min(len(track_arr) - 1, split_idx)
-    raw_pivot_mm = pts_mm[pivot_z_idx]
-    proj_t = float(np.dot(raw_pivot_mm - mean_shaft, v_shaft))
-    pivot_pt_mm = mean_shaft + proj_t * v_shaft
-    pivot_fx = float(np.clip(pivot_pt_mm[0] / dx, 0.0, float(cols - 1)))
-    pivot_fy = float(np.clip(pivot_pt_mm[1] / dy, 0.0, float(rows - 1)))
-    pivot_fz = float(np.clip(pivot_pt_mm[2] / dz, 0.0, float(n_z - 1)))
-    cur_x = int(round(pivot_fx))
-    cur_y = int(round(pivot_fy))
-    cur_z = int(round(pivot_fz))
-
-    # Calculate rot_z: align lateral colpostats/ovoids along horizontal R-L axis when present,
-    # otherwise fall back to sagittal/bend plane alignment from the upper tip.
-    rx = math.radians(rot_x)
-    ry = math.radians(rot_y)
-    Rx = np.array([[1, 0, 0], [0, math.cos(rx), -math.sin(rx)], [0, math.sin(rx), math.cos(rx)]])
-    Ry = np.array([[math.cos(ry), 0, math.sin(ry)], [0, 1, 0], [-math.sin(ry), 0, math.cos(ry)]])
-    A = Ry @ Rx
-
-    ovoid_angles = []
-    max_ovoid_z = min(n_z - 1, cur_z + 2)
-    for z_idx in range(0, max_ovoid_z + 1):
-        sl_mask = metal_mask[z_idx]
-        if not np.any(sl_mask):
-            continue
-        lbl, num_comp = scipy.ndimage.label(sl_mask)
-        if num_comp < 2:
-            continue
-        local_uv = []
-        for comp_id in range(1, num_comp + 1):
-            comp_pts = np.argwhere(lbl == comp_id)
-            if len(comp_pts) < 3:
-                continue
-            cy_c, cx_c = comp_pts.mean(axis=0)
-            p_mm = np.array([float(cx_c) * dx, float(cy_c) * dy, float(z_idx) * dz], dtype=np.float64)
-            q_pt = (p_mm - pivot_pt_mm) @ A
-            u_c, v_c = float(q_pt[0]), float(q_pt[1])
-            if math.hypot(u_c, v_c) <= 50.0:
-                local_uv.append((u_c, v_c))
-        if len(local_uv) < 2:
-            continue
-
-        best_span = 0.0
-        best_pair = None
-        for i in range(len(local_uv)):
-            for j in range(i + 1, len(local_uv)):
-                ui, vi = local_uv[i]
-                uj, vj = local_uv[j]
-                if math.hypot(ui, vi) < 4.0 or math.hypot(uj, vj) < 4.0:
-                    continue
-                if ui * uj + vi * vj >= 0.0:
-                    continue
-                span = math.hypot(uj - ui, vj - vi)
-                if span > best_span:
-                    best_span = span
-                    best_pair = (local_uv[i], local_uv[j])
-
-        if best_pair is not None and best_span >= 10.0:
-            (u0, v0), (u1, v1) = best_pair
-            du, dv = u1 - u0, v1 - v0
-            if du < 0.0 or (abs(du) < 1e-4 and dv > 0.0):
-                du, dv = -du, -dv
-            ovoid_angles.append(math.atan2(-dv, du))
-
-    if len(ovoid_angles) >= 3:
-        rads = np.array(ovoid_angles, dtype=np.float64)
-        s2 = float(np.median(np.sin(2.0 * rads)))
-        c2 = float(np.median(np.cos(2.0 * rads)))
-        rot_z = float(np.degrees(0.5 * math.atan2(s2, c2)))
-    else:
-        Q_tip = (tip_pts - pivot_pt_mm) @ A
-        v_bend = np.mean(Q_tip[:, 0:2], axis=0)
-        bend_mag = math.hypot(float(v_bend[0]), float(v_bend[1]))
-
-        if bend_mag > 0.5:
-            rot_z = float(np.degrees(math.atan2(float(v_bend[0]), float(v_bend[1]))))
-            while rot_z > 90.0:
-                rot_z -= 180.0
-            while rot_z < -90.0:
-                rot_z += 180.0
-        else:
-            rot_z = 0.0
-
-    return {
-        "cur_x": cur_x,
-        "cur_y": cur_y,
-        "cur_z": cur_z,
-        "float_cur": [pivot_fx, pivot_fy, pivot_fz],
-        "rot_x": round(rot_x, 1),
-        "rot_y": round(rot_y, 1),
-        "rot_z": round(rot_z, 1)
-    }
-
-
-def _compute_world_cursor_mm(
-    rot_matrix: np.ndarray,
-    origin_mm: np.ndarray,
-    float_cur: list[float] | tuple[float, float, float],
-    spacing: tuple[float, float, float]
-) -> np.ndarray:
-    """Map rotated-frame voxel cursor (sx, sy, sz) to 3D volume coordinates in mm."""
-    dy, dx, dz = float(spacing[0]), float(spacing[1]), float(spacing[2])
-    s_mm = np.array([
-        float(float_cur[0]) * dx,
-        float(float_cur[1]) * dy,
-        float(float_cur[2]) * dz,
-    ], dtype=np.float64)
-    return origin_mm + rot_matrix @ s_mm
 
 
 class MprSliceWidget(QWidget):
@@ -1033,6 +537,7 @@ class MprSliceWidget(QWidget):
     pan_changed = pyqtSignal(QPointF)
     pan_delta_requested = pyqtSignal(str, float, float) # (plane_type, dx, dy)
     rotation_changed = pyqtSignal(str, float) # (plane_type, angle)
+    rotation_finished = pyqtSignal(str) # (plane_type)
     double_clicked = pyqtSignal(str) # plane_type
     cycle_plane_requested = pyqtSignal()
 
@@ -1063,8 +568,11 @@ class MprSliceWidget(QWidget):
         self._is_panning = False
         self._pan_start = None
         self._is_rotating = False
+        self._is_wheel_rotating = False
         self._rot_start_angle = 0.0
         self._mouse_start_rad = 0.0
+        self._coord_buf: np.ndarray | None = None
+        self._idx_cache: dict = {}
         self._dragging_axis = None  # None, "horizontal", "vertical", "both"
         self._handle_h_left = QRectF()
         self._handle_h_right = QRectF()
@@ -1084,7 +592,8 @@ class MprSliceWidget(QWidget):
         self,
         rot_matrix: np.ndarray,
         angle: float,
-        frame_origin_mm: np.ndarray | None = None
+        frame_origin_mm: np.ndarray | None = None,
+        draft: bool = False
     ) -> None:
         self.rot_matrix = rot_matrix
         if frame_origin_mm is not None:
@@ -1099,7 +608,7 @@ class MprSliceWidget(QWidget):
         else:
             norm_angle = round(norm_angle, 1)
         self.rotation_angle = norm_angle
-        self.refresh_slice()
+        self.refresh_slice(draft=draft)
 
     def set_rotation(self, angle: float) -> None:
         norm_angle = angle % 360.0
@@ -1275,45 +784,74 @@ class MprSliceWidget(QWidget):
         max_w, max_h = self._get_volume_max_dims()
         return min(w_width / max_w, w_height / max_h) * self.zoom_factor
 
-    def _extract_oblique_slice(self) -> np.ndarray:
+    def _get_index_vector(self, length: int) -> np.ndarray:
+        vec = self._idx_cache.get(length)
+        if vec is None:
+            vec = np.arange(length, dtype=np.float32)
+            self._idx_cache[length] = vec
+        return vec
+
+    def _extract_oblique_slice(self, draft: bool = False) -> np.ndarray:
         n_z, rows, cols = self.vol.shape
-        dy, dx, dz = self.spacing
+        dy, dx, dz = float(self.spacing[0]), float(self.spacing[1]), float(self.spacing[2])
 
         cur_x_val, cur_y_val, cur_z_val = self._get_float_cursor()
 
         R = getattr(self, "rot_matrix", np.eye(3, dtype=np.float64))
         origin_mm = getattr(self, "frame_origin_mm", np.zeros(3, dtype=np.float64))
         c_world = _compute_world_cursor_mm(R, origin_mm, (cur_x_val, cur_y_val, cur_z_val), self.spacing)
-        cx_rot, cy_rot, cz_rot = float(c_world[0]), float(c_world[1]), float(c_world[2])
+        cx_rot = np.float32(c_world[0])
+        cy_rot = np.float32(c_world[1])
+        cz_rot = np.float32(c_world[2])
 
         if self.plane_type == PLANE_AXIAL:
-            u_ax = (np.arange(cols, dtype=np.float32) - cur_x_val) * float(dx)
-            v_ax = (np.arange(rows, dtype=np.float32) - cur_y_val) * float(dy)
-            uu, vv = np.meshgrid(u_ax, v_ax)
-            px = cx_rot + uu * R[0, 0] + vv * R[0, 1]
-            py = cy_rot + uu * R[1, 0] + vv * R[1, 1]
-            pz = cz_rot + uu * R[2, 0] + vv * R[2, 1]
-
+            h, w = rows, cols
+            u_1d = ((self._get_index_vector(cols) - np.float32(cur_x_val)) * np.float32(dx))[None, :]
+            v_1d = ((self._get_index_vector(rows) - np.float32(cur_y_val)) * np.float32(dy))[:, None]
+            col_a, col_b = 0, 1
         elif self.plane_type == PLANE_CORONAL:
-            u_cor = (np.arange(cols, dtype=np.float32) - cur_x_val) * float(dx)
-            cur_r_cor = (n_z - 1.0) - cur_z_val
-            v_cor = (cur_r_cor - np.arange(n_z, dtype=np.float32)) * float(dz)
-            uu, vv = np.meshgrid(u_cor, v_cor)
-            px = cx_rot + uu * R[0, 0] + vv * R[0, 2]
-            py = cy_rot + uu * R[1, 0] + vv * R[1, 2]
-            pz = cz_rot + uu * R[2, 0] + vv * R[2, 2]
-
+            h, w = n_z, cols
+            u_1d = ((self._get_index_vector(cols) - np.float32(cur_x_val)) * np.float32(dx))[None, :]
+            v_1d = ((np.float32(n_z - 1.0 - cur_z_val) - self._get_index_vector(n_z)) * np.float32(dz))[:, None]
+            col_a, col_b = 0, 2
         else:  # PLANE_SAGITTAL (Eclipse convention: Posterior left, Anterior right)
-            cur_c_sag = (rows - 1.0) - cur_y_val
-            u_sag = (cur_c_sag - np.arange(rows, dtype=np.float32)) * float(dy)
-            cur_r_sag = (n_z - 1.0) - cur_z_val
-            v_sag = (cur_r_sag - np.arange(n_z, dtype=np.float32)) * float(dz)
-            uu, vv = np.meshgrid(u_sag, v_sag)
-            px = cx_rot + uu * R[0, 1] + vv * R[0, 2]
-            py = cy_rot + uu * R[1, 1] + vv * R[1, 2]
-            pz = cz_rot + uu * R[2, 1] + vv * R[2, 2]
+            h, w = n_z, rows
+            u_1d = ((np.float32(rows - 1.0 - cur_y_val) - self._get_index_vector(rows)) * np.float32(dy))[None, :]
+            v_1d = ((np.float32(n_z - 1.0 - cur_z_val) - self._get_index_vector(n_z)) * np.float32(dz))[:, None]
+            col_a, col_b = 1, 2
 
-        coords = np.array([pz / dz, py / dy, px / dx], dtype=np.float32)
+        if self._coord_buf is None or self._coord_buf.shape != (3, h, w):
+            self._coord_buf = np.empty((3, h, w), dtype=np.float32)
+        coords = self._coord_buf
+
+        inv_dz = np.float32(1.0 / dz)
+        inv_dy = np.float32(1.0 / dy)
+        inv_dx = np.float32(1.0 / dx)
+
+        np.add(
+            cz_rot + u_1d * np.float32(R[2, col_a]),
+            v_1d * np.float32(R[2, col_b]),
+            out=coords[0],
+        )
+        coords[0] *= inv_dz
+
+        np.add(
+            cy_rot + u_1d * np.float32(R[1, col_a]),
+            v_1d * np.float32(R[1, col_b]),
+            out=coords[1],
+        )
+        coords[1] *= inv_dy
+
+        np.add(
+            cx_rot + u_1d * np.float32(R[0, col_a]),
+            v_1d * np.float32(R[0, col_b]),
+            out=coords[2],
+        )
+        coords[2] *= inv_dx
+
+        if draft:
+            return sample_oblique_slice(self.vol, coords, order=1, clamp_neighbors=False)
+
         coeffs = self.spline_coeffs
         if coeffs is None or coeffs.shape != self.vol.shape:
             parent_panel = self.parent()
@@ -1322,9 +860,9 @@ class MprSliceWidget(QWidget):
             else:
                 coeffs = compute_cubic_spline_coeffs(self.vol)
                 self.spline_coeffs = coeffs
-        return sample_oblique_slice(self.vol, coords, spline_coeffs=coeffs)
+        return sample_oblique_slice(self.vol, coords, spline_coeffs=coeffs, order=3, clamp_neighbors=True)
 
-    def refresh_slice(self) -> None:
+    def refresh_slice(self, draft: bool = False) -> None:
         if self.vol is None:
             self.current_pixmap = None
             self.update()
@@ -1346,7 +884,7 @@ class MprSliceWidget(QWidget):
                 else:
                     return
             else:
-                slice_hu = self._extract_oblique_slice()
+                slice_hu = self._extract_oblique_slice(draft=draft)
 
             ww = max(1.0, float(self.window_width))
             wc = float(self.window_center)
@@ -1618,7 +1156,6 @@ class MprSliceWidget(QWidget):
                 delta_deg = -delta_deg
             new_angle = round(self._rot_start_angle + delta_deg, 1)
             self.set_rotation(new_angle)
-            self.rotation_changed.emit(self.plane_type, self.rotation_angle)
             return
 
         # Handle axis dragging
@@ -1714,6 +1251,7 @@ class MprSliceWidget(QWidget):
             if getattr(self, "_is_rotating", False):
                 self._is_rotating = False
                 self.setCursor(CURSOR_CROSS)
+                self.rotation_finished.emit(self.plane_type)
             elif getattr(self, "_is_panning", False):
                 self._is_panning = False
                 self._pan_start = None
@@ -1818,8 +1356,11 @@ class MprSliceWidget(QWidget):
             if self.plane_type in (PLANE_CORONAL, PLANE_SAGITTAL):
                 step = -step
             new_angle = round(self.rotation_angle + step, 1)
-            self.set_rotation(new_angle)
-            self.rotation_changed.emit(self.plane_type, self.rotation_angle)
+            self._is_wheel_rotating = True
+            try:
+                self.set_rotation(new_angle)
+            finally:
+                self._is_wheel_rotating = False
             return
 
         # Ctrl + Wheel: Zoom all planes synchronously (inverted to match 2D viewer)
@@ -1936,16 +1477,24 @@ class MprPanelWidget(QWidget):
         self._rot_matrix = np.eye(3, dtype=np.float64)
         self._frame_origin_mm = np.zeros(3, dtype=np.float64)
         self._maximized_plane = None
+        self._interactive_draft = False
+        self._pending_rot: tuple[str, float] | None = None
+        self._last_rot_render_ts = 0.0
+
+        self._rot_coalesce_timer = QTimer(self)
+        self._rot_coalesce_timer.setSingleShot(True)
+        self._rot_coalesce_timer.setInterval(16)
+        self._rot_coalesce_timer.timeout.connect(self._flush_coalesced_rotation)
+
+        self._rot_refine_timer = QTimer(self)
+        self._rot_refine_timer.setSingleShot(True)
+        self._rot_refine_timer.setInterval(120)
+        self._rot_refine_timer.timeout.connect(self._refine_rotation)
 
         self._setup_ui()
 
     def _compute_rotation_matrix(self) -> np.ndarray:
-        rx, ry, rz = np.radians([self.rot_x, self.rot_y, self.rot_z])
-        Rx = np.array([[1, 0, 0], [0, np.cos(rx), -np.sin(rx)], [0, np.sin(rx), np.cos(rx)]], dtype=np.float64)
-        Ry = np.array([[np.cos(ry), 0, np.sin(ry)], [0, 1, 0], [-np.sin(ry), 0, np.cos(ry)]], dtype=np.float64)
-        Rz = np.array([[np.cos(rz), np.sin(rz), 0], [-np.sin(rz), np.cos(rz), 0], [0, 0, 1]], dtype=np.float64)
-        # Intrinsic rotation: axial rotation (Rz) acts directly around the tilted long axis (Ry @ Rx)
-        return Ry @ Rx @ Rz
+        return compute_rotation_matrix_deg(self.rot_x, self.rot_y, self.rot_z)
 
     def _setup_ui(self) -> None:
         self.setStyleSheet("MprPanelWidget { background-color: #000000; }")
@@ -1968,6 +1517,7 @@ class MprPanelWidget(QWidget):
             v.pan_changed.connect(self._on_subview_pan_changed)
             v.pan_delta_requested.connect(self._on_subview_pan_delta)
             v.rotation_changed.connect(self._on_subview_rotation_changed)
+            v.rotation_finished.connect(self._on_subview_rotation_finished)
             v.double_clicked.connect(self._toggle_maximize_plane)
             v.cycle_plane_requested.connect(self._cycle_maximized_plane)
 
@@ -2021,6 +1571,10 @@ class MprPanelWidget(QWidget):
         self.pan_x = 0.0
         self.pan_y = 0.0
         self.pan_z = 0.0
+        self._rot_coalesce_timer.stop()
+        self._rot_refine_timer.stop()
+        self._pending_rot = None
+        self._interactive_draft = False
         self.rot_x = 0.0
         self.rot_y = 0.0
         self.rot_z = 0.0
@@ -2136,7 +1690,7 @@ class MprPanelWidget(QWidget):
         self.view_coronal.set_pan(QPointF(self.pan_x, self.pan_z))
         self.view_sagittal.set_pan(QPointF(self.pan_y, self.pan_z))
 
-    def _apply_rotation_around_cursor(self, R_new: np.ndarray, is_reset: bool = False) -> None:
+    def _apply_rotation_around_cursor(self, R_new: np.ndarray, is_reset: bool = False, draft: bool = False) -> None:
         """Update rotation matrix while keeping the 3D world point under the crosshair stationary."""
         R_old = self._rot_matrix
         O_old = self._frame_origin_mm
@@ -2176,15 +1730,18 @@ class MprPanelWidget(QWidget):
                 0.0 if is_reset else
                 (self.rot_z if v.plane_type == PLANE_AXIAL else (self.rot_y if v.plane_type == PLANE_CORONAL else self.rot_x))
             )
-            v.set_rotation_matrix(self._rot_matrix, a, frame_origin_mm=self._frame_origin_mm)
+            v.set_rotation_matrix(self._rot_matrix, a, frame_origin_mm=self._frame_origin_mm, draft=draft)
 
         if cursor_changed:
             self.cursor_changed.emit(self.cur_x, self.cur_y, self.cur_z)
 
-    def set_plane_rotation(self, plane_type: str, angle: float) -> None:
+    def set_plane_rotation(self, plane_type: str, angle: float, draft: bool = False) -> None:
         if plane_type == "all":
             self.reset_rotation()
             return
+        self._rot_coalesce_timer.stop()
+        self._rot_refine_timer.stop()
+        self._pending_rot = None
         if plane_type == PLANE_AXIAL:
             self.rot_z = angle
         elif plane_type == PLANE_CORONAL:
@@ -2192,13 +1749,20 @@ class MprPanelWidget(QWidget):
         elif plane_type == PLANE_SAGITTAL:
             self.rot_x = angle
 
-        self._apply_rotation_around_cursor(self._compute_rotation_matrix())
+        self._apply_rotation_around_cursor(self._compute_rotation_matrix(), draft=draft)
 
     def reset_rotation(self) -> None:
+        self._rot_coalesce_timer.stop()
+        self._rot_refine_timer.stop()
+        self._pending_rot = None
+        self._interactive_draft = False
+        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+            v._is_rotating = False
+            v._is_wheel_rotating = False
         self.rot_x = 0.0
         self.rot_y = 0.0
         self.rot_z = 0.0
-        self._apply_rotation_around_cursor(np.eye(3, dtype=np.float64), is_reset=True)
+        self._apply_rotation_around_cursor(np.eye(3, dtype=np.float64), is_reset=True, draft=False)
         self.rotation_changed.emit("all", 0.0)
 
     def reset_to_center(self) -> None:
@@ -2222,6 +1786,11 @@ class MprPanelWidget(QWidget):
     def auto_align_applicator(self) -> bool:
         if self.vol is None:
             return False
+
+        self._rot_coalesce_timer.stop()
+        self._rot_refine_timer.stop()
+        self._pending_rot = None
+        self._interactive_draft = False
 
         res = detect_applicator_orientation(self.vol, self.spacing)
         if res is None:
@@ -2444,7 +2013,45 @@ class MprPanelWidget(QWidget):
             self.plane_pan_changed.emit(plane_type, pan)
         self.pan_changed.emit(pan)
 
+    def _flush_coalesced_rotation(self) -> None:
+        pending = self._pending_rot
+        self._pending_rot = None
+        if pending is None:
+            return
+        plane_type, angle = pending
+        self._interactive_draft = True
+        try:
+            self._apply_rotation_around_cursor(self._compute_rotation_matrix(), draft=True)
+            self._last_rot_render_ts = time.perf_counter()
+            self.rotation_changed.emit(plane_type, angle)
+        finally:
+            self._interactive_draft = False
+
+    def _refine_rotation(self, plane_type: str | None = None) -> None:
+        self._rot_coalesce_timer.stop()
+        self._rot_refine_timer.stop()
+        pending = self._pending_rot
+        self._pending_rot = None
+        if plane_type is None and pending is not None:
+            plane_type = pending[0]
+        plane_type = plane_type or PLANE_AXIAL
+        angle = (
+            self.rot_z if plane_type == PLANE_AXIAL
+            else (self.rot_y if plane_type == PLANE_CORONAL else self.rot_x)
+        )
+        self._interactive_draft = False
+        self._apply_rotation_around_cursor(self._compute_rotation_matrix(), draft=False)
+        self._last_rot_render_ts = time.perf_counter()
+        self.rotation_changed.emit(plane_type, angle)
+
+    def _on_subview_rotation_finished(self, plane_type: str) -> None:
+        self._refine_rotation(plane_type)
+
     def _on_subview_rotation_changed(self, plane_type: str, angle: float) -> None:
+        sender_view = self.sender()
+        is_drag = bool(getattr(sender_view, "_is_rotating", False))
+        is_wheel = bool(getattr(sender_view, "_is_wheel_rotating", False))
+
         if plane_type == PLANE_AXIAL:
             self.rot_z = angle
         elif plane_type == PLANE_CORONAL:
@@ -2452,7 +2059,22 @@ class MprPanelWidget(QWidget):
         elif plane_type == PLANE_SAGITTAL:
             self.rot_x = angle
 
-        self._apply_rotation_around_cursor(self._compute_rotation_matrix())
+        if is_drag or is_wheel:
+            self._pending_rot = (plane_type, angle)
+            if is_drag:
+                self._rot_refine_timer.stop()
+            else:
+                self._rot_refine_timer.start()
+
+            now = time.perf_counter()
+            if (now - self._last_rot_render_ts) >= 0.016 and not self._rot_coalesce_timer.isActive():
+                self._flush_coalesced_rotation()
+            elif not self._rot_coalesce_timer.isActive():
+                self._rot_coalesce_timer.start()
+            return
+
+        self._interactive_draft = False
+        self._apply_rotation_around_cursor(self._compute_rotation_matrix(), draft=False)
         self.rotation_changed.emit(plane_type, angle)
 
     def _cycle_maximized_plane(self) -> None:

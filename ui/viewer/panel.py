@@ -36,8 +36,8 @@ from .mpr_widget import (
     MprPanelWidget, build_ct_volume, MprVolumeLoaderWorker, detect_applicator_orientation
 )
 from core.postprocessing import (
-    PostprocessingRunner, ALGORITHM_MAR_V9, ALGORITHM_ST_HARD, ALGORITHM_ST_NORMAL,
-    ALGORITHM_COMBO_NORMAL, ALGORITHM_COMBO_HARD, clean_series_desc
+    PostprocessingRunner, ALGORITHM_ALIGNED, ALGORITHM_MAR_V9, ALGORITHM_ST_HARD,
+    ALGORITHM_ST_NORMAL, ALGORITHM_COMBO_NORMAL, ALGORITHM_COMBO_HARD, clean_series_desc
 )
 
 
@@ -2630,7 +2630,8 @@ class DicomViewerPanel(QWidget):
         self._syncing_mpr_rot = True
         try:
             if hasattr(self, "mpr_container_derived") and (self.mpr_container_derived.isVisible() or not self.mpr_container_derived.isHidden()):
-                self.mpr_container_derived.set_plane_rotation(plane_type, angle)
+                is_draft = bool(getattr(self.mpr_container, "_interactive_draft", False))
+                self.mpr_container_derived.set_plane_rotation(plane_type, angle, draft=is_draft)
         finally:
             self._syncing_mpr_rot = False
 
@@ -2640,7 +2641,8 @@ class DicomViewerPanel(QWidget):
         self._syncing_mpr_rot = True
         try:
             if hasattr(self, "mpr_container") and (self.mpr_container.isVisible() or not self.mpr_container.isHidden()):
-                self.mpr_container.set_plane_rotation(plane_type, angle)
+                is_draft = bool(getattr(self.mpr_container_derived, "_interactive_draft", False))
+                self.mpr_container.set_plane_rotation(plane_type, angle, draft=is_draft)
         finally:
             self._syncing_mpr_rot = False
 
@@ -2753,7 +2755,15 @@ class DicomViewerPanel(QWidget):
         self.derived_files = self.all_derived_series[uid]["files"]
         self.derived_series_desc = clean_series_desc(self.all_derived_series[uid]["desc"])
         self.has_derived = bool(self.derived_files)
+        self.mpr_vol_derived = None
+        self.mpr_ipp0_derived = None
+        self.mpr_spacing_derived = None
+        self.mpr_spline_derived = None
+        self._derived_initial_cursor = None
+        self._last_mpr_der_xy = None
         self.pixmap_cache.clear()
+        if getattr(self, "mpr_active", False):
+            self._update_viewports_visibility()
         if self.view_mode in ("side_by_side", "processed") and self.current_index >= 0:
             self.set_current_slice(self.current_index)
 
@@ -2764,14 +2774,14 @@ class DicomViewerPanel(QWidget):
             mode = self.view_mode if self.view_mode in ("side_by_side", "processed") else "processed"
             self.start_postprocessing(chosen_algo, target_view_mode=mode, params=params)
 
-    def prompt_postprocess_dialog(self) -> tuple[str, dict] | None:
+    def _build_postprocess_dialog(self) -> tuple[QDialog, dict]:
         dlg = QDialog(self)
         dlg.setWindowTitle(tr_ui("viewer_postprocessing_title"))
-        dlg.setFixedWidth(520)
+        dlg.setFixedWidth(495)
         apply_dark_title_bar(dlg)
         dlg.setStyleSheet("""
             QDialog {
-                background-color: #141416;
+                background-color: #121215;
                 color: #FFFFFF;
                 border: 1px solid #27272A;
                 border-radius: 8px;
@@ -2779,204 +2789,295 @@ class DicomViewerPanel(QWidget):
             QLabel {
                 color: #F4F4F5;
             }
-            QFrame#card_mar, QFrame#card_st {
-                background-color: #1E1E22;
-                border: 1px solid #323236;
+            QFrame.ppCard {
+                background-color: #1A1A1F;
+                border: 1px solid #2E2E36;
                 border-radius: 8px;
             }
-            QFrame#card_mar:hover, QFrame#card_st:hover {
-                border-color: #48484E;
+            QFrame.ppCard:hover {
+                border-color: #464652;
+            }
+            QFrame.ppCard[active="true"] {
+                background-color: #172338;
+                border: 1px solid #2563EB;
             }
             QCheckBox {
-                color: #FFFFFF;
+                color: #F4F4F5;
                 font-size: 13px;
                 font-weight: 600;
                 spacing: 8px;
+                background: transparent;
             }
             QCheckBox:disabled {
                 color: #52525B;
             }
             QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
+                width: 17px;
+                height: 17px;
                 border-radius: 4px;
-                border: 1px solid #4B5563;
-                background-color: #141416;
+                border: 1px solid #6B7280;
+                background-color: #121215;
             }
             QCheckBox::indicator:checked {
                 background-color: #1D64F2;
-                border-color: #2563EB;
+                border-color: #3B82F6;
             }
             QCheckBox::indicator:disabled {
                 border-color: #333338;
-                background-color: #1A1A1E;
+                background-color: #18181B;
             }
-            QCheckBox::indicator:checked:disabled {
-                background-color: #3F3F46;
-                border-color: #52525B;
+            QPushButton#btn_pp_st_normal, QPushButton#btn_pp_st_hard {
+                background-color: #24242B;
+                color: #D4D4D8;
+                border: 1px solid #3F3F46;
+                padding: 3px 11px;
+                font-size: 11px;
+                font-weight: 600;
             }
-            QRadioButton {
-                color: #D1D5DB;
-                font-size: 12px;
-                spacing: 6px;
+            QPushButton#btn_pp_st_normal {
+                border-top-left-radius: 5px;
+                border-bottom-left-radius: 5px;
             }
-            QRadioButton:disabled {
-                color: #52525B;
+            QPushButton#btn_pp_st_hard {
+                border-top-right-radius: 5px;
+                border-bottom-right-radius: 5px;
+                border-left: none;
             }
-            QRadioButton::indicator {
-                width: 14px;
-                height: 14px;
-                border-radius: 7px;
-                border: 1px solid #4B5563;
-                background-color: #141416;
-            }
-            QRadioButton::indicator:checked {
+            QPushButton#btn_pp_st_normal:checked, QPushButton#btn_pp_st_hard:checked {
                 background-color: #1D64F2;
+                color: #FFFFFF;
                 border-color: #2563EB;
             }
-            QRadioButton::indicator:disabled {
-                border-color: #333338;
-                background-color: #1A1A1E;
+            QPushButton#btn_pp_st_normal:disabled, QPushButton#btn_pp_st_hard:disabled {
+                background-color: #1A1A20;
+                color: #52525B;
+                border-color: #2E2E36;
             }
-            QRadioButton::indicator:checked:disabled {
-                background-color: #3F3F46;
-                border-color: #52525B;
+            QPushButton#btn_pp_mar_adv {
+                background: transparent;
+                border: none;
+                color: #8E8E98;
+                font-size: 11px;
+                font-weight: 500;
+                text-align: left;
+                padding: 2px 0px;
+            }
+            QPushButton#btn_pp_mar_adv:hover:enabled {
+                color: #93C5FD;
+            }
+            QPushButton#btn_pp_mar_adv:disabled {
+                color: #52525B;
+            }
+            QWidget#st_pill_container, QWidget#mar_opts_container {
+                border: none;
+                background: transparent;
+            }
+            QCheckBox#cb_pp_save_disk {
+                font-size: 12px;
+                font-weight: 500;
+                color: #D4D4D8;
             }
         """)
 
         layout = QVBoxLayout(dlg)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(14)
+        layout.setContentsMargins(18, 16, 18, 18)
+        layout.setSpacing(10)
 
         header_lbl = QLabel(tr_ui("viewer_postprocess_prompt"), dlg)
-        header_lbl.setStyleSheet("font-size: 13px; color: #9CA3AF; margin-bottom: 2px;")
+        header_lbl.setStyleSheet("font-size: 12px; color: #9CA3AF; margin-bottom: 2px;")
         header_lbl.setWordWrap(True)
         layout.addWidget(header_lbl)
 
-        # Card 1: MAR v9
-        card_mar = QFrame(dlg)
-        card_mar.setObjectName("card_mar")
-        card_mar_layout = QVBoxLayout(card_mar)
-        card_mar_layout.setContentsMargins(14, 14, 14, 14)
-        card_mar_layout.setSpacing(6)
+        def _make_card(obj_name: str, title: str, hint: str, right_widget: QWidget | None = None):
+            card = QFrame(dlg)
+            card.setObjectName(obj_name)
+            card.setProperty("class", "ppCard")
+            card.setProperty("active", False)
+            c_layout = QVBoxLayout(card)
+            c_layout.setContentsMargins(12, 10, 12, 10)
+            c_layout.setSpacing(3)
 
-        cb_mar = QCheckBox(tr_ui("viewer_algo_mar_v9"), card_mar)
-        cb_mar.setChecked(False)
-        hint_mar = QLabel(tr_ui("viewer_algo_mar_hint"), card_mar)
-        hint_mar.setStyleSheet("color: #8E8E93; font-size: 11px; margin-left: 26px; border: none; background: transparent;")
-        hint_mar.setWordWrap(True)
-        card_mar_layout.addWidget(cb_mar)
-        card_mar_layout.addWidget(hint_mar)
+            top_row = QHBoxLayout()
+            top_row.setContentsMargins(0, 0, 0, 0)
+            top_row.setSpacing(8)
+            cb = QCheckBox(title, card)
+            cb.setChecked(False)
+            top_row.addWidget(cb, stretch=1)
+            if right_widget is not None:
+                top_row.addWidget(right_widget)
+            c_layout.addLayout(top_row)
 
-        # Fine-tuning options container for MAR
+            hint_lbl = QLabel(hint, card)
+            hint_lbl.setStyleSheet("color: #8E8E93; font-size: 11px; margin-left: 25px; border: none; background: transparent;")
+            hint_lbl.setWordWrap(True)
+            c_layout.addWidget(hint_lbl)
+
+            def _sync_active(checked: bool) -> None:
+                card.setProperty("active", bool(checked))
+                card.style().unpolish(card)
+                card.style().polish(card)
+
+            cb.toggled.connect(_sync_active)
+
+            def _on_card_press(ev) -> None:
+                if ev.button() == Qt.MouseButton.LeftButton:
+                    cb.toggle()
+                    ev.accept()
+                    return
+                QFrame.mousePressEvent(card, ev)
+
+            card.mousePressEvent = _on_card_press
+            card.setCursor(Qt.CursorShape.PointingHandCursor)
+            return card, c_layout, cb
+
+        # Card 1: Applicator Alignment (Aligned)
+        card_align, _, cb_align = _make_card(
+            "card_align",
+            tr_ui("viewer_algo_align_title"),
+            tr_ui("viewer_algo_align_hint"),
+        )
+        cb_align.setObjectName("cb_pp_align")
+        layout.addWidget(card_align)
+
+        # Card 2: MAR v9 + collapsible advanced options
+        card_mar, card_mar_layout, cb_mar = _make_card(
+            "card_mar",
+            tr_ui("viewer_algo_mar_title"),
+            tr_ui("viewer_algo_mar_hint"),
+        )
+        cb_mar.setObjectName("cb_pp_mar")
+
+        adv_row = QHBoxLayout()
+        adv_row.setContentsMargins(25, 2, 0, 0)
+        btn_adv_mar = QPushButton(f"▸ {tr_ui('viewer_algo_mar_adv_toggle')}", card_mar)
+        btn_adv_mar.setObjectName("btn_pp_mar_adv")
+        btn_adv_mar.setCheckable(True)
+        btn_adv_mar.setChecked(False)
+        btn_adv_mar.setCursor(Qt.CursorShape.PointingHandCursor)
+        adv_row.addWidget(btn_adv_mar)
+        adv_row.addStretch()
+        card_mar_layout.addLayout(adv_row)
+
         mar_opts_container = QWidget(card_mar)
-        mar_opts_container.setStyleSheet("border: none; background: transparent;")
+        mar_opts_container.setObjectName("mar_opts_container")
         mar_opts_layout = QVBoxLayout(mar_opts_container)
-        mar_opts_layout.setContentsMargins(26, 4, 0, 0)
-        mar_opts_layout.setSpacing(6)
+        mar_opts_layout.setContentsMargins(25, 2, 0, 0)
+        mar_opts_layout.setSpacing(4)
 
+        sub_cb_style = "font-size: 11px; font-weight: normal; color: #D1D5DB;"
         cb_mar_polar = QCheckBox(tr_ui("viewer_algo_mar_polar"), mar_opts_container)
         cb_mar_polar.setChecked(True)
-        cb_mar_polar.setStyleSheet("font-size: 12px; font-weight: normal; color: #D1D5DB;")
+        cb_mar_polar.setStyleSheet(sub_cb_style)
 
         cb_mar_limit_r = QCheckBox(tr_ui("viewer_algo_mar_limit_r"), mar_opts_container)
         cb_mar_limit_r.setChecked(True)
-        cb_mar_limit_r.setStyleSheet("font-size: 11px; font-weight: normal; color: #9CA3AF; margin-left: 18px;")
+        cb_mar_limit_r.setStyleSheet("font-size: 11px; font-weight: normal; color: #9CA3AF; margin-left: 16px;")
 
         cb_mar_protect_fat = QCheckBox(tr_ui("viewer_algo_mar_protect_fat"), mar_opts_container)
         cb_mar_protect_fat.setChecked(True)
-        cb_mar_protect_fat.setStyleSheet("font-size: 11px; font-weight: normal; color: #9CA3AF; margin-left: 18px;")
+        cb_mar_protect_fat.setStyleSheet("font-size: 11px; font-weight: normal; color: #9CA3AF; margin-left: 16px;")
 
         cb_mar_starv = QCheckBox(tr_ui("viewer_algo_mar_starvation"), mar_opts_container)
         cb_mar_starv.setChecked(True)
-        cb_mar_starv.setStyleSheet("font-size: 12px; font-weight: normal; color: #D1D5DB;")
+        cb_mar_starv.setStyleSheet(sub_cb_style)
 
         cb_mar_edge = QCheckBox(tr_ui("viewer_algo_mar_edge"), mar_opts_container)
         cb_mar_edge.setChecked(True)
-        cb_mar_edge.setStyleSheet("font-size: 12px; font-weight: normal; color: #D1D5DB;")
+        cb_mar_edge.setStyleSheet(sub_cb_style)
 
-        mar_opts_layout.addWidget(cb_mar_polar)
-        mar_opts_layout.addWidget(cb_mar_limit_r)
-        mar_opts_layout.addWidget(cb_mar_protect_fat)
-        mar_opts_layout.addWidget(cb_mar_starv)
-        mar_opts_layout.addWidget(cb_mar_edge)
+        for w_sub in (cb_mar_polar, cb_mar_limit_r, cb_mar_protect_fat, cb_mar_starv, cb_mar_edge):
+            mar_opts_layout.addWidget(w_sub)
 
-        # Control enable states
-        mar_opts_container.setEnabled(cb_mar.isChecked())
-        cb_mar.toggled.connect(mar_opts_container.setEnabled)
-        cb_mar_limit_r.setEnabled(cb_mar_polar.isChecked())
-        cb_mar_protect_fat.setEnabled(cb_mar_polar.isChecked())
+        mar_opts_container.setVisible(False)
+        mar_opts_container.setEnabled(False)
+        btn_adv_mar.setEnabled(False)
+
+        def _toggle_mar_adv(expanded: bool) -> None:
+            arrow = "▾" if expanded else "▸"
+            btn_adv_mar.setText(f"{arrow} {tr_ui('viewer_algo_mar_adv_toggle')}")
+            mar_opts_container.setVisible(expanded)
+            dlg.adjustSize()
+
+        def _on_mar_toggled(on: bool) -> None:
+            btn_adv_mar.setEnabled(on)
+            mar_opts_container.setEnabled(on)
+            if not on and btn_adv_mar.isChecked():
+                btn_adv_mar.setChecked(False)
+
+        btn_adv_mar.toggled.connect(_toggle_mar_adv)
+        cb_mar.toggled.connect(_on_mar_toggled)
         cb_mar_polar.toggled.connect(lambda on: (cb_mar_limit_r.setEnabled(on), cb_mar_protect_fat.setEnabled(on)))
 
         card_mar_layout.addWidget(mar_opts_container)
         layout.addWidget(card_mar)
 
-        # Card 2: Soft Tissue Enhancement
-        card_st = QFrame(dlg)
-        card_st.setObjectName("card_st")
-        card_st_layout = QVBoxLayout(card_st)
-        card_st_layout.setContentsMargins(14, 14, 14, 14)
-        card_st_layout.setSpacing(6)
+        # Card 3: Soft Tissue Contrast + inline segmented Normal | Hard pill
+        st_pill_container = QWidget(dlg)
+        st_pill_container.setObjectName("st_pill_container")
+        st_pill_layout = QHBoxLayout(st_pill_container)
+        st_pill_layout.setContentsMargins(0, 0, 0, 0)
+        st_pill_layout.setSpacing(0)
 
-        cb_st = QCheckBox(tr_ui("viewer_algo_st_title"), card_st)
-        cb_st.setChecked(False)
-        hint_st = QLabel(tr_ui("viewer_algo_st_hint"), card_st)
-        hint_st.setStyleSheet("color: #8E8E93; font-size: 11px; margin-left: 26px; border: none; background: transparent;")
-        hint_st.setWordWrap(True)
+        btn_stn = QPushButton(tr_ui("viewer_algo_st_normal"), st_pill_container)
+        btn_stn.setObjectName("btn_pp_st_normal")
+        btn_stn.setCheckable(True)
 
-        rb_container = QWidget(card_st)
-        rb_container.setStyleSheet("border: none; background: transparent;")
-        rb_layout = QVBoxLayout(rb_container)
-        rb_layout.setContentsMargins(26, 4, 0, 0)
-        rb_layout.setSpacing(6)
+        btn_sth = QPushButton(tr_ui("viewer_algo_st_hard"), st_pill_container)
+        btn_sth.setObjectName("btn_pp_st_hard")
+        btn_sth.setCheckable(True)
+        btn_sth.setChecked(True)
 
-        rb_stn = QRadioButton(tr_ui("viewer_algo_st_normal"), rb_container)
-        rb_sth = QRadioButton(tr_ui("viewer_algo_st_hard"), rb_container)
-        rb_sth.setChecked(True)
-        rb_layout.addWidget(rb_stn)
-        rb_layout.addWidget(rb_sth)
+        st_mode_group = QButtonGroup(st_pill_container)
+        st_mode_group.setExclusive(True)
+        st_mode_group.addButton(btn_stn)
+        st_mode_group.addButton(btn_sth)
+        st_pill_layout.addWidget(btn_stn)
+        st_pill_layout.addWidget(btn_sth)
+        st_pill_container.setEnabled(False)
 
-        rb_container.setEnabled(False)
-        cb_st.toggled.connect(rb_container.setEnabled)
-
-        card_st_layout.addWidget(cb_st)
-        card_st_layout.addWidget(hint_st)
-        card_st_layout.addWidget(rb_container)
+        card_st, _, cb_st = _make_card(
+            "card_st",
+            tr_ui("viewer_algo_st_title"),
+            tr_ui("viewer_algo_st_hint"),
+            right_widget=st_pill_container,
+        )
+        cb_st.setObjectName("cb_pp_st")
+        cb_st.toggled.connect(st_pill_container.setEnabled)
         layout.addWidget(card_st)
 
-        # Option: Save series to disk
-        save_disk_container = QWidget(dlg)
-        save_disk_container.setStyleSheet("border: none; background: transparent;")
-        save_disk_layout = QVBoxLayout(save_disk_container)
-        save_disk_layout.setContentsMargins(4, 6, 4, 0)
+        # Compact Save-to-disk toggle
+        save_disk_layout = QVBoxLayout()
+        save_disk_layout.setContentsMargins(2, 4, 2, 0)
         save_disk_layout.setSpacing(2)
 
-        cb_save_disk = QCheckBox(tr_ui("viewer_algo_save_disk"), save_disk_container)
+        cb_save_disk = QCheckBox(tr_ui("viewer_algo_save_disk"), dlg)
+        cb_save_disk.setObjectName("cb_pp_save_disk")
         cb_save_disk.setChecked(False)
-        cb_save_disk.setStyleSheet("font-size: 12px; font-weight: 500; color: #E4E4E7;")
+        cb_save_disk.setToolTip(tr_ui("viewer_algo_save_disk_hint"))
 
-        hint_save_disk = QLabel(tr_ui("viewer_algo_save_disk_hint"), save_disk_container)
-        hint_save_disk.setStyleSheet("color: #8E8E93; font-size: 11px; margin-left: 24px; border: none; background: transparent;")
+        hint_save_disk = QLabel(tr_ui("viewer_algo_save_disk_hint"), dlg)
+        hint_save_disk.setStyleSheet("color: #71717A; font-size: 11px; margin-left: 25px;")
         hint_save_disk.setWordWrap(True)
 
         save_disk_layout.addWidget(cb_save_disk)
         save_disk_layout.addWidget(hint_save_disk)
-        layout.addWidget(save_disk_container)
+        layout.addLayout(save_disk_layout)
 
-        # Bottom buttons
+        # Bottom action buttons
         btn_layout = QHBoxLayout()
-        btn_layout.setContentsMargins(0, 8, 0, 0)
-        btn_layout.setSpacing(10)
+        btn_layout.setContentsMargins(0, 6, 0, 0)
+        btn_layout.setSpacing(8)
         btn_layout.addStretch()
 
         btn_cancel = QPushButton(tr_ui("btn_cancel"), dlg)
+        btn_cancel.setObjectName("btn_pp_cancel")
         btn_cancel.setStyleSheet("""
             QPushButton {
                 background-color: #27272A;
                 color: #E4E4E7;
                 border: 1px solid #3F3F46;
                 border-radius: 6px;
-                padding: 7px 18px;
+                padding: 7px 16px;
                 font-size: 12px;
                 font-weight: 600;
             }
@@ -2989,9 +3090,10 @@ class DicomViewerPanel(QWidget):
         btn_cancel.clicked.connect(dlg.reject)
 
         btn_run = QPushButton(tr_ui("viewer_postprocess_run_btn"), dlg)
+        btn_run.setObjectName("btn_pp_run")
 
-        def update_run_btn_state():
-            is_valid = cb_mar.isChecked() or cb_st.isChecked()
+        def update_run_btn_state() -> None:
+            is_valid = cb_align.isChecked() or cb_mar.isChecked() or cb_st.isChecked()
             btn_run.setEnabled(is_valid)
             btn_run.setStyleSheet(
                 """
@@ -3000,7 +3102,7 @@ class DicomViewerPanel(QWidget):
                     color: #FFFFFF;
                     border: 1px solid #2563EB;
                     border-radius: 6px;
-                    padding: 7px 18px;
+                    padding: 7px 16px;
                     font-size: 12px;
                     font-weight: 600;
                 }
@@ -3015,7 +3117,7 @@ class DicomViewerPanel(QWidget):
                     color: #52525B;
                     border: 1px solid #333338;
                     border-radius: 6px;
-                    padding: 7px 18px;
+                    padding: 7px 16px;
                     font-size: 12px;
                     font-weight: 600;
                 }
@@ -3023,6 +3125,7 @@ class DicomViewerPanel(QWidget):
             )
 
         btn_run.clicked.connect(dlg.accept)
+        cb_align.toggled.connect(lambda: update_run_btn_state())
         cb_mar.toggled.connect(lambda: update_run_btn_state())
         cb_st.toggled.connect(lambda: update_run_btn_state())
         update_run_btn_state()
@@ -3031,26 +3134,56 @@ class DicomViewerPanel(QWidget):
         btn_layout.addWidget(btn_run)
         layout.addLayout(btn_layout)
 
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            mar_selected = cb_mar.isChecked()
-            st_selected = cb_st.isChecked()
-            mar_params = {
-                "mar_enable_polar": cb_mar_polar.isChecked(),
-                "mar_polar_limit_radius": cb_mar_limit_r.isChecked(),
-                "mar_protect_fat": cb_mar_protect_fat.isChecked(),
-                "mar_enable_starvation_fill": cb_mar_starv.isChecked(),
-                "mar_enable_micro_edge": cb_mar_edge.isChecked(),
-                "save_to_disk": cb_save_disk.isChecked(),
-            }
-            if mar_selected and st_selected:
-                algo = ALGORITHM_COMBO_NORMAL if rb_stn.isChecked() else ALGORITHM_COMBO_HARD
-                return algo, mar_params
-            elif mar_selected:
-                return ALGORITHM_MAR_V9, mar_params
-            elif st_selected:
-                algo = ALGORITHM_ST_NORMAL if rb_stn.isChecked() else ALGORITHM_ST_HARD
-                return algo, mar_params
+        controls = {
+            "cb_align": cb_align,
+            "cb_mar": cb_mar,
+            "cb_st": cb_st,
+            "btn_adv_mar": btn_adv_mar,
+            "mar_opts_container": mar_opts_container,
+            "cb_mar_polar": cb_mar_polar,
+            "cb_mar_limit_r": cb_mar_limit_r,
+            "cb_mar_protect_fat": cb_mar_protect_fat,
+            "cb_mar_starv": cb_mar_starv,
+            "cb_mar_edge": cb_mar_edge,
+            "btn_stn": btn_stn,
+            "btn_sth": btn_sth,
+            "cb_save_disk": cb_save_disk,
+            "btn_run": btn_run,
+            "btn_cancel": btn_cancel,
+        }
+        return dlg, controls
 
+    def _extract_postprocess_choice(self, controls: dict) -> tuple[str, dict] | None:
+        align_selected = controls["cb_align"].isChecked()
+        mar_selected = controls["cb_mar"].isChecked()
+        st_selected = controls["cb_st"].isChecked()
+        if not (align_selected or mar_selected or st_selected):
+            return None
+
+        is_st_normal = controls["btn_stn"].isChecked()
+        params = {
+            "align_to_applicator": align_selected,
+            "mar_enable_polar": controls["cb_mar_polar"].isChecked(),
+            "mar_polar_limit_radius": controls["cb_mar_limit_r"].isChecked(),
+            "mar_protect_fat": controls["cb_mar_protect_fat"].isChecked(),
+            "mar_enable_starvation_fill": controls["cb_mar_starv"].isChecked(),
+            "mar_enable_micro_edge": controls["cb_mar_edge"].isChecked(),
+            "save_to_disk": controls["cb_save_disk"].isChecked(),
+        }
+        if mar_selected and st_selected:
+            algo = ALGORITHM_COMBO_NORMAL if is_st_normal else ALGORITHM_COMBO_HARD
+        elif mar_selected:
+            algo = ALGORITHM_MAR_V9
+        elif st_selected:
+            algo = ALGORITHM_ST_NORMAL if is_st_normal else ALGORITHM_ST_HARD
+        else:
+            algo = ALGORITHM_ALIGNED
+        return algo, params
+
+    def prompt_postprocess_dialog(self) -> tuple[str, dict] | None:
+        dlg, controls = self._build_postprocess_dialog()
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            return self._extract_postprocess_choice(controls)
         return None
 
     def start_postprocessing(self, algo_type: str, target_view_mode: str = "processed", params: dict | None = None) -> None:
@@ -3120,8 +3253,22 @@ class DicomViewerPanel(QWidget):
             dlg.exec()
             return
 
+        out_files = result.get("files")
+        new_uid = result.get("series_uid") or ""
+        series_desc = result.get("series_desc") or "Derived CT"
+        if out_files and self.sorted_files and hasattr(self, "register_derived_series"):
+            is_aligned = bool(result.get("aligned", False))
+            self.register_derived_series(
+                files=out_files,
+                series_uid=new_uid,
+                desc=series_desc,
+                target_mode=target_view_mode,
+                initial_cursor=result.get("initial_cursor"),
+                reset_orig_rotation=(is_aligned and target_view_mode in ("original", "side_by_side")),
+            )
+            return
+
         output_dir = result.get("output_dir")
-        new_uid = result.get("series_uid")
         if output_dir and os.path.exists(output_dir):
             study_dir = os.path.dirname(self.sorted_files[0][0]) if self.sorted_files else ""
             if output_dir == study_dir:
