@@ -1189,9 +1189,9 @@ class MprSliceWidget(QWidget):
 
         # Plane title at top-left (transparent background)
         painter.setPen(badge_color)
-        painter.drawText(QRectF(10, 8, 140, 22), ALIGN_LEFT | Qt.AlignmentFlag.AlignVCenter, title)
+        painter.drawText(QRectF(10, 8, 140, 20), ALIGN_LEFT | Qt.AlignmentFlag.AlignVCenter, title)
 
-        # Rotation angle indicator in top-right (transparent background, keep click hit-box)
+        # Rotation angle indicator right below plane title (transparent background, keep click hit-box)
         rot_val = self.rotation_angle
         parent_panel = self.parent()
         has_any_rot = False
@@ -1200,10 +1200,10 @@ class MprSliceWidget(QWidget):
         is_rotated = abs(rot_val) > 0.05
         pill_color = QColor("#F59E0B") if (is_rotated or has_any_rot) else QColor("#9CA3AF")
 
-        self._rot_pill_rect = QRectF(self.width() - 85, 8, 75, 22)
+        self._rot_pill_rect = QRectF(10, 28, 80, 20)
         painter.setPen(pill_color)
         rot_str = f"∠ {rot_val:+.1f}°" if is_rotated else "∠ 0.0°"
-        painter.drawText(self._rot_pill_rect, ALIGN_RIGHT | Qt.AlignmentFlag.AlignVCenter, rot_str)
+        painter.drawText(self._rot_pill_rect, ALIGN_LEFT | Qt.AlignmentFlag.AlignVCenter, rot_str)
 
         # Slice info at bottom-left: only show slice count for Axial
         if slice_text:

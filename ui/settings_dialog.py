@@ -101,7 +101,7 @@ class SettingsDialog(QDialog):
             'plan_warn_modulation_factor': 8.0,
             'image_postprocessing_enabled': 'False',
             'viewer_default_zoom': 150,
-            'mpr_fullscreen_on_open': 'False',
+            'mpr_fullscreen_on_open': 'True',
             'viewer_smooth_rendering': 'True',
             'mpr_isotropic_sampling': 'True',
             'interface_lang': 'en',

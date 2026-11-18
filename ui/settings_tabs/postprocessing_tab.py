@@ -34,7 +34,7 @@ def build_postprocessing_tab(dialog):
     # Auto-maximize window in MPR mode
     dialog.mpr_fullscreen_cb = ToggleSwitch()
     dialog.mpr_fullscreen_cb.setChecked(
-        str(dialog.config.get('mpr_fullscreen_on_open', 'False')).lower() == 'true'
+        str(dialog.config.get('mpr_fullscreen_on_open', 'True')).lower() == 'true'
     )
     dialog.lbl_mpr_fullscreen = QLabel()
     postproc_form.addRow(dialog.lbl_mpr_fullscreen, dialog.mpr_fullscreen_cb)

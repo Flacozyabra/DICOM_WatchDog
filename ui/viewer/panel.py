@@ -121,7 +121,7 @@ class DicomViewerPanel(QWidget):
             return
         if enter:
             cfg = getattr(app_win, "config", {}) or {}
-            enabled = str(cfg.get("mpr_fullscreen_on_open", "False")).lower() == "true"
+            enabled = str(cfg.get("mpr_fullscreen_on_open", "True")).lower() == "true"
             if enabled and not app_win.isMaximized():
                 self._mpr_did_maximize_window = True
                 app_win.showMaximized()
