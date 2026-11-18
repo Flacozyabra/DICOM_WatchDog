@@ -2172,6 +2172,16 @@ class DicomViewerPanel(QWidget):
         mid_idx = max(0, min(len(self.sorted_files) - 1, len(self.sorted_files) // 2))
         self.set_current_slice(mid_idx)
 
+        if getattr(self, "mpr_active", False):
+            ok = self._ensure_mpr_volumes()
+            if not ok:
+                self.mpr_active = False
+                if hasattr(self, "btn_mpr"):
+                    self.btn_mpr.setChecked(False)
+                self._apply_mpr_window_maximize(False)
+            self._update_viewports_visibility()
+            self.update_buttons_style()
+
         if self.progress_dialog:
             self.progress_dialog.accept()
             self.progress_dialog = None
@@ -2292,6 +2302,40 @@ class DicomViewerPanel(QWidget):
         if self.current_index >= 0:
             self.set_current_slice(self.current_index)
 
+    def register_derived_series(
+        self,
+        files: list[str],
+        series_uid: str = "",
+        desc: str = "Aligned CT",
+        target_mode: str = "original"
+    ) -> None:
+        """Register a newly generated derived series and switch view mode without altering MPR state."""
+        if not files:
+            return
+        der_tuples = [(fp[0] if isinstance(fp, tuple) else fp, 0) for fp in files]
+        cleaned_desc = clean_series_desc(desc or "Aligned CT")
+        if not hasattr(self, "all_derived_series") or self.all_derived_series is None:
+            self.all_derived_series = {}
+        uid_key = series_uid or f"aligned_{len(self.all_derived_series) + 1}"
+        self.all_derived_series[uid_key] = {
+            "files": der_tuples,
+            "desc": cleaned_desc
+        }
+        self.current_derived_uid = uid_key
+        self.derived_files = der_tuples
+        self.derived_series_desc = cleaned_desc
+        self.has_derived = True
+
+        self.mpr_vol_derived = None
+        self.mpr_ipp0_derived = None
+        self.mpr_spacing_derived = None
+        self.mpr_spline_derived = None
+        self.pixmap_cache.clear()
+
+        if target_mode not in ("original", "side_by_side", "processed"):
+            target_mode = "original"
+        self.set_view_mode(target_mode)
+
     def toggle_mpr(self) -> None:
         self.mpr_active = self.btn_mpr.isChecked()
         if self.mpr_active:
@@ -2300,6 +2344,8 @@ class DicomViewerPanel(QWidget):
                 self.mpr_active = False
                 self.btn_mpr.setChecked(False)
         self._update_viewports_visibility()
+        if not self.mpr_active and self.current_index >= 0:
+            self.set_current_slice(self.current_index)
         self._apply_mpr_window_maximize(self.mpr_active)
         self.update_buttons_style()
 
@@ -2354,15 +2400,25 @@ class DicomViewerPanel(QWidget):
             if res_der is not None:
                 self.mpr_vol_derived, self.mpr_ipp0_derived, self.mpr_spacing_derived = res_der
                 self.mpr_spline_derived = getattr(worker, "spline_derived", None)
+                der_init_z = (
+                    self.mpr_container.cur_z
+                    if (self.mpr_vol_orig is not None and self.mpr_container.vol is not None)
+                    else max(0, self.current_index)
+                )
+                der_init_zoom = (
+                    self.mpr_container.zoom_factor
+                    if (self.mpr_vol_orig is not None and self.mpr_container.vol is not None)
+                    else default_zoom
+                )
                 self.mpr_container_derived.set_volume_data(
                     self.mpr_vol_derived,
                     self.mpr_ipp0_derived,
                     self.mpr_spacing_derived,
                     self.window_width,
                     self.window_center,
-                    initial_z=max(0, self.current_index),
+                    initial_z=der_init_z,
                     slice_files=self.derived_files,
-                    initial_zoom=default_zoom,
+                    initial_zoom=der_init_zoom,
                     spline_coeffs=self.mpr_spline_derived
                 )
             progress_dialog.accept()

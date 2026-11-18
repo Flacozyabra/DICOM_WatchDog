@@ -366,8 +366,8 @@
   "dlg_confirm_delete_all_derived_title": "Delete All Processed Series",
   "dlg_confirm_delete_all_derived_msg": "Delete ALL processed series ({0} slices) from study folder '{1}'?\n\nOriginal CT and structure files will not be affected.",
   "settings_tab_postprocessing": "DICOM Viewer",
-  "settings_postprocessing_buttons": "Viewer postprocessing buttons:",
-  "tooltip_postprocessing_buttons": "Show mode switch buttons (Original / Split / Processed) in the CT viewer",
+  "settings_postprocessing_buttons": "Enable postprocessing capability:",
+  "tooltip_postprocessing_buttons": "Enable CT postprocessing modes (Original / Split / Processed) and saving aligned CT in the viewer",
   "settings_viewer_default_zoom": "Default viewer zoom:",
   "tooltip_viewer_default_zoom": "Initial zoom percentage when opening CT studies (2D and MPR)",
   "settings_mpr_fullscreen": "Maximize window in MPR mode:",
@@ -391,8 +391,10 @@
   "viewer_mpr_no_source_files": "Source DICOM files were not found.",
   "viewer_mpr_saving_progress": "Resampling and writing slices: {0}",
   "viewer_mpr_save_done_title": "Save Complete",
+  "viewer_mpr_save_done_header": "Aligned CT Saved",
   "viewer_mpr_save_done_replace": "Original CT series was successfully overwritten ({0} slices) with aligned axes.\nReloading series in viewer...",
-  "viewer_mpr_save_done_new": "Aligned CT series saved successfully ({0} slices):\n{1}\n\nLoad the new series into the viewer now?",
+  "viewer_mpr_save_done_new": "Aligned CT series saved successfully ({0} slices):\n{1}\n\nSelect display mode:",
+  "viewer_mpr_mode_aligned": "Aligned",
   "viewer_mpr_save_error_title": "Save Error",
   "viewer_mpr_save_error_msg": "Failed to save aligned series:\n{0}"
 }

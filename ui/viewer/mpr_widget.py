@@ -313,6 +313,61 @@ def show_dark_message_box(
     return dlg.exec()
 
 
+_DARK_MPR_DIALOG_QSS = """
+    QDialog {
+        background-color: #202020;
+        color: #ffffff;
+        font-family: 'Segoe UI', -apple-system, Roboto, sans-serif;
+    }
+    QLabel {
+        background-color: transparent;
+        border: none;
+        color: #ffffff;
+    }
+    QFrame#mprSaveInfoCard {
+        background-color: #161616;
+        border: 1px solid #2d2d2d;
+        border-radius: 8px;
+    }
+"""
+
+_BTN_PRIMARY_QSS = """
+    QPushButton {
+        background-color: #1f538d;
+        color: #ffffff;
+        border: none;
+        border-radius: 6px;
+        padding: 10px 14px;
+        font-size: 13px;
+        font-weight: 600;
+    }
+    QPushButton:hover {
+        background-color: #2a69a5;
+    }
+    QPushButton:pressed {
+        background-color: #1a4675;
+    }
+"""
+
+_BTN_SECONDARY_QSS = """
+    QPushButton {
+        background-color: #2d2d2d;
+        color: #ffffff;
+        border: 1px solid #454545;
+        border-radius: 6px;
+        padding: 10px 14px;
+        font-size: 13px;
+        font-weight: 600;
+    }
+    QPushButton:hover {
+        background-color: #3a3a3a;
+    }
+    QPushButton:pressed {
+        background-color: #242424;
+    }
+"""
+
+
 class MprExportChoiceDialog(QDialog):
     """
     Dark-themed modal dialog prompting user whether to replace original CT
@@ -332,23 +387,7 @@ class MprExportChoiceDialog(QDialog):
         self.selected_action = None  # "replace", "new", or None
 
         apply_dark_title_bar(self)
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #202020;
-                color: #ffffff;
-                font-family: 'Segoe UI', -apple-system, Roboto, sans-serif;
-            }
-            QLabel {
-                background-color: transparent;
-                border: none;
-                color: #ffffff;
-            }
-            QFrame#mprSaveInfoCard {
-                background-color: #161616;
-                border: 1px solid #2d2d2d;
-                border-radius: 8px;
-            }
-        """)
+        self.setStyleSheet(_DARK_MPR_DIALOG_QSS)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 18)
@@ -456,6 +495,64 @@ class MprExportChoiceDialog(QDialog):
         self.accept()
 
 
+class MprAfterSaveDialog(QDialog):
+    """
+    Dark-themed modal dialog allowing the user to pick how to display the study
+    after saving a new aligned CT series: Original, Split, or Aligned.
+    """
+    def __init__(
+        self,
+        parent: QWidget | None,
+        n_slices: int,
+        out_dir: str
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(tr_ui("viewer_mpr_save_done_title"))
+        self.setMinimumWidth(460)
+        self.selected_mode = None
+
+        apply_dark_title_bar(self)
+        self.setStyleSheet(_DARK_MPR_DIALOG_QSS)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(12)
+
+        title_lbl = QLabel(tr_ui("viewer_mpr_save_done_header"), self)
+        title_lbl.setStyleSheet("font-size: 15px; font-weight: bold; color: #ffffff;")
+        layout.addWidget(title_lbl)
+
+        info_card = QFrame(self)
+        info_card.setObjectName("mprSaveInfoCard")
+        info_layout = QVBoxLayout(info_card)
+        info_layout.setContentsMargins(14, 12, 14, 12)
+        info_lbl = QLabel(tr_ui("viewer_mpr_save_done_new", n_slices, out_dir), info_card)
+        info_lbl.setStyleSheet("font-size: 13px; color: #d4d4d8;")
+        info_lbl.setWordWrap(True)
+        info_layout.addWidget(info_lbl)
+        layout.addWidget(info_card)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        choices = (
+            (tr_ui("viewer_mode_orig") or "Original", "original", _BTN_SECONDARY_QSS),
+            (tr_ui("viewer_mode_side") or "Split", "side_by_side", _BTN_PRIMARY_QSS),
+            (tr_ui("viewer_mpr_mode_aligned") or "Aligned", "processed", _BTN_PRIMARY_QSS),
+        )
+        for label, mode_val, qss in choices:
+            btn = QPushButton(label, self)
+            btn.setCursor(CURSOR_HAND)
+            btn.setMinimumHeight(36)
+            btn.setStyleSheet(qss)
+            btn.clicked.connect(lambda _checked=False, m=mode_val: self._choose(m))
+            btn_row.addWidget(btn, 1)
+        layout.addLayout(btn_row)
+
+    def _choose(self, mode_val: str) -> None:
+        self.selected_mode = mode_val
+        self.accept()
+
+
 class MprExportAlignedWorker(QThread):
     """
     Background worker that resamples 3D CT volume along aligned MPR axes
@@ -534,6 +631,7 @@ class MprExportAlignedWorker(QThread):
                 spline_coeffs = compute_cubic_spline_coeffs(self.vol)
 
             out_files = []
+            series_desc = "CT (Aligned)"
 
             for k in range(n_slices):
                 if self._is_cancelled:
@@ -576,6 +674,7 @@ class MprExportAlignedWorker(QThread):
                 orig_desc = str(getattr(ds, "SeriesDescription", "CT"))
                 if "(Aligned)" not in orig_desc:
                     ds.SeriesDescription = f"{orig_desc} (Aligned)"
+                series_desc = str(ds.SeriesDescription)
 
                 ds.SeriesInstanceUID = new_series_uid
                 new_sop_uid = generate_uid()
@@ -607,7 +706,8 @@ class MprExportAlignedWorker(QThread):
                 "output_dir": output_dir,
                 "files": out_files,
                 "count": len(out_files),
-                "series_uid": new_series_uid
+                "series_uid": new_series_uid,
+                "series_desc": series_desc
             })
 
         except Exception as e:
@@ -1576,7 +1676,9 @@ class MprSliceWidget(QWidget):
         else:
             action_align.setEnabled(False)
 
-        if hasattr(parent_panel, "export_aligned_dicom_series"):
+        parent_viewer = parent_panel.parent() if parent_panel is not None else None
+        postproc_enabled = getattr(parent_viewer, "postprocessing_enabled", True) if parent_viewer is not None else True
+        if hasattr(parent_panel, "export_aligned_dicom_series") and postproc_enabled:
             action_export.triggered.connect(parent_panel.export_aligned_dicom_series)
         else:
             action_export.setEnabled(False)
@@ -2054,6 +2156,10 @@ class MprPanelWidget(QWidget):
         return True
 
     def export_aligned_dicom_series(self) -> None:
+        parent_viewer = self.parent()
+        if parent_viewer is not None and not getattr(parent_viewer, "postprocessing_enabled", True):
+            return
+
         if self.vol is None:
             show_dark_message_box(
                 self,
@@ -2125,6 +2231,8 @@ class MprPanelWidget(QWidget):
             out_dir = res.get("output_dir", "")
             mode = res.get("mode", "new")
             cnt = res.get("count", len(out_files))
+            series_uid = res.get("series_uid", "")
+            series_desc = res.get("series_desc", "CT (Aligned)")
 
             parent_viewer = self.parent()
             if mode == "replace":
@@ -2136,15 +2244,20 @@ class MprPanelWidget(QWidget):
                 if hasattr(parent_viewer, "load_series"):
                     parent_viewer.load_series(out_files)
             else:
-                ret = show_dark_message_box(
-                    self,
-                    tr_ui("viewer_mpr_save_done_title"),
-                    tr_ui("viewer_mpr_save_done_new", cnt, out_dir),
-                    buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-                if ret == QMessageBox.StandardButton.Yes:
-                    if hasattr(parent_viewer, "load_series"):
-                        parent_viewer.load_series(out_files)
+                after_dlg = MprAfterSaveDialog(self, n_slices=cnt, out_dir=out_dir)
+                accepted = (after_dlg.exec() == QDialog.DialogCode.Accepted)
+                chosen_mode = after_dlg.selected_mode if (accepted and after_dlg.selected_mode) else None
+
+                if hasattr(parent_viewer, "register_derived_series"):
+                    target = chosen_mode or getattr(parent_viewer, "view_mode", "original")
+                    parent_viewer.register_derived_series(
+                        files=out_files,
+                        series_uid=series_uid,
+                        desc=series_desc,
+                        target_mode=target
+                    )
+                elif chosen_mode == "processed" and hasattr(parent_viewer, "load_series"):
+                    parent_viewer.load_series(out_files)
 
         def on_err(err_msg: str) -> None:
             progress_dialog.reject()

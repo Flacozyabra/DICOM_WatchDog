@@ -366,8 +366,8 @@
   "dlg_confirm_delete_all_derived_title": "Удаление всех обработанных серий",
   "dlg_confirm_delete_all_derived_msg": "Удалить ВСЕ обработанные серии ({0} срезов) из папки исследования «{1}»?\n\nИсходные файлы КТ и структуры не будут затронуты.",
   "settings_tab_postprocessing": "DICOM Viewer",
-  "settings_postprocessing_buttons": "Кнопки постобработки во вьюере:",
-  "tooltip_postprocessing_buttons": "Отображать кнопки переключения режима (Исходное / Сплит / Обработанное) внизу экрана вьюера КТ",
+  "settings_postprocessing_buttons": "Включить функции постобработки:",
+  "tooltip_postprocessing_buttons": "Включить режимы постобработки КТ (Оригинал / Сплит / Обработанное) и сохранение выровненного КТ во вьюере",
   "settings_viewer_default_zoom": "Зум по умолчанию во вьюере:",
   "tooltip_viewer_default_zoom": "Начальный масштаб (%) при открытии КТ-исследования в 2D и MPR",
   "settings_mpr_fullscreen": "Разворачивать окно в режиме MPR:",
@@ -391,8 +391,10 @@
   "viewer_mpr_no_source_files": "Не найдены исходные DICOM файлы для сохранения.",
   "viewer_mpr_saving_progress": "Пересчёт и запись срезов: {0}",
   "viewer_mpr_save_done_title": "Сохранение завершено",
+  "viewer_mpr_save_done_header": "Выровненное КТ сохранено",
   "viewer_mpr_save_done_replace": "Исходная серия КТ успешно перезаписана ({0} срезов) с выравниванием осей.\nСерия перезагружается в просмотрщик...",
-  "viewer_mpr_save_done_new": "Выровненная серия КТ успешно сохранена ({0} срезов):\n{1}\n\nЗагрузить созданную серию в просмотрщик сейчас?",
+  "viewer_mpr_save_done_new": "Выровненная серия КТ успешно сохранена ({0} срезов):\n{1}\n\nВыберите режим отображения:",
+  "viewer_mpr_mode_aligned": "Выровненное",
   "viewer_mpr_save_error_title": "Ошибка сохранения",
   "viewer_mpr_save_error_msg": "Не удалось сохранить выровненную серию:\n{0}"
 }
