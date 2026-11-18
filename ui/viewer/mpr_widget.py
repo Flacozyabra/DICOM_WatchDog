@@ -115,10 +115,13 @@ def sample_oblique_slice(
     coords: np.ndarray,
     spline_coeffs: np.ndarray | None = None
 ) -> np.ndarray:
-    """Resample a 2D slice from 3D volume using cached cubic B-spline interpolation (order=3)."""
+    """
+    Resample a 2D slice from 3D volume using cached cubic B-spline interpolation (order=3)
+    with 8-neighbor local bounds clamping to prevent Gibbs ringing near high-contrast metal.
+    """
     if spline_coeffs is None or spline_coeffs.shape != vol.shape:
         spline_coeffs = compute_cubic_spline_coeffs(vol)
-    return scipy.ndimage.map_coordinates(
+    slice_hu = scipy.ndimage.map_coordinates(
         spline_coeffs,
         coords,
         order=3,
@@ -126,6 +129,52 @@ def sample_oblique_slice(
         cval=-1000.0,
         prefilter=False
     )
+    if vol.ndim != 3:
+        return slice_hu
+    nz, nr, nc = vol.shape
+    if nz < 2 or nr < 2 or nc < 2:
+        return slice_hu
+
+    fz, fy, fx = coords[0], coords[1], coords[2]
+    inside = (
+        (fz >= 0.0) & (fz <= float(nz - 1)) &
+        (fy >= 0.0) & (fy <= float(nr - 1)) &
+        (fx >= 0.0) & (fx <= float(nc - 1))
+    )
+    if not np.any(inside):
+        return slice_hu
+
+    z0 = np.clip(np.floor(fz[inside]).astype(np.intp), 0, nz - 2)
+    y0 = np.clip(np.floor(fy[inside]).astype(np.intp), 0, nr - 2)
+    x0 = np.clip(np.floor(fx[inside]).astype(np.intp), 0, nc - 2)
+
+    if vol.flags["C_CONTIGUOUS"]:
+        flat = vol.reshape(-1)
+        s_row = nc
+        s_sl = nr * nc
+        idx0 = (z0 * nr + y0) * nc + x0
+        corners = (
+            flat[idx0], flat[idx0 + 1],
+            flat[idx0 + s_row], flat[idx0 + s_row + 1],
+            flat[idx0 + s_sl], flat[idx0 + s_sl + 1],
+            flat[idx0 + s_sl + s_row], flat[idx0 + s_sl + s_row + 1],
+        )
+    else:
+        z1, y1, x1 = z0 + 1, y0 + 1, x0 + 1
+        corners = (
+            vol[z0, y0, x0], vol[z0, y0, x1],
+            vol[z0, y1, x0], vol[z0, y1, x1],
+            vol[z1, y0, x0], vol[z1, y0, x1],
+            vol[z1, y1, x0], vol[z1, y1, x1],
+        )
+
+    v_min = corners[0].copy()
+    v_max = corners[0].copy()
+    for c in corners[1:]:
+        np.minimum(v_min, c, out=v_min)
+        np.maximum(v_max, c, out=v_max)
+    slice_hu[inside] = np.clip(slice_hu[inside], v_min, v_max)
+    return slice_hu
 
 
 class MprVolumeLoaderWorker(QThread):
