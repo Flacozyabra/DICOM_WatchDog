@@ -3167,7 +3167,7 @@ class DicomViewerPanel(QWidget):
             "bone": (1500.0, 300.0),
             "lung": (1500.0, -600.0),
             "brain": (80.0, 40.0),
-            "iron": (16000.0, 8000.0),
+            "iron": (500.0, 2750.0),
         }
         if preset_type == "dicom":
             self.window_width = self.default_ww
