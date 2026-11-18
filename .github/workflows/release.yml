@@ -87,6 +87,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download modern build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -102,9 +107,16 @@ jobs:
       - name: List artifacts
         run: ls -lh dist/
 
+      - name: Extract release notes from tag
+        shell: bash
+        run: |
+          git for-each-ref --format="%(contents)" "refs/tags/${GITHUB_REF_NAME}" > release_notes.txt
+          cat release_notes.txt
+
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.exe
+          body_path: release_notes.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
