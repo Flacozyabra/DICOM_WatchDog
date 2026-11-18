@@ -174,6 +174,48 @@ def sample_oblique_slice(
     return slice_hu
 
 
+_Z_BSPLINE_CACHE: dict[tuple[int, int], tuple[np.ndarray, ...]] = {}
+
+
+def resample_slice_z_isotropic(slice_2d: np.ndarray, target_h: int) -> np.ndarray:
+    """
+    Upsample a 2D orthogonal Coronal/Sagittal slice (n_z, width) along Z using
+    clamped 1D cubic B-spline interpolation without ringing artifacts.
+    """
+    n_z = int(slice_2d.shape[0])
+    target_h = int(target_h)
+    if n_z < 2 or target_h <= n_z:
+        return slice_2d
+
+    key = (n_z, target_h)
+    cached = _Z_BSPLINE_CACHE.get(key)
+    if cached is None:
+        z_coords = np.linspace(0.0, float(n_z - 1), target_h, dtype=np.float32)
+        k = np.clip(np.floor(z_coords).astype(np.intp), 0, n_z - 2)
+        f = (z_coords - k)[:, None]
+        omf = np.float32(1.0) - f
+        w_m1 = (omf * omf * omf) * np.float32(1.0 / 6.0)
+        w_0 = (np.float32(3.0) * f * f * f - np.float32(6.0) * f * f + np.float32(4.0)) * np.float32(1.0 / 6.0)
+        w_1 = (np.float32(-3.0) * f * f * f + np.float32(3.0) * f * f + np.float32(3.0) * f + np.float32(1.0)) * np.float32(1.0 / 6.0)
+        w_2 = (f * f * f) * np.float32(1.0 / 6.0)
+        im1 = np.clip(k - 1, 0, n_z - 1)
+        i0 = k
+        i1 = k + 1
+        i2 = np.clip(k + 2, 0, n_z - 1)
+        if len(_Z_BSPLINE_CACHE) >= 16:
+            _Z_BSPLINE_CACHE.clear()
+        cached = (im1, i0, i1, i2, w_m1, w_0, w_1, w_2)
+        _Z_BSPLINE_CACHE[key] = cached
+
+    im1, i0, i1, i2, w_m1, w_0, w_1, w_2 = cached
+    src = np.ascontiguousarray(slice_2d, dtype=np.float32)
+    c1d = scipy.ndimage.spline_filter1d(src, order=3, axis=0, mode="mirror")
+    out = w_m1 * c1d[im1] + w_0 * c1d[i0] + w_1 * c1d[i1] + w_2 * c1d[i2]
+    v_min = np.minimum(src[i0], src[i1])
+    v_max = np.maximum(src[i0], src[i1])
+    return np.clip(out, v_min, v_max)
+
+
 def compute_rotation_matrix_deg(rot_x: float, rot_y: float, rot_z: float) -> np.ndarray:
     """Compute intrinsic MPR alignment rotation matrix Ry @ Rx @ Rz from degree angles."""
     rx, ry, rz = np.radians([rot_x, rot_y, rot_z])

@@ -365,6 +365,7 @@ class DicomViewerPanel(QWidget):
         self.mpr_container.rotation_changed.connect(self._on_mpr_orig_plane_rotated)
         self.mpr_container.plane_maximized.connect(self._on_mpr_orig_plane_maximized)
         self.mpr_container.window_changed.connect(self.on_window_changed)
+        self.mpr_container.navigation_refined.connect(lambda: self._on_mpr_nav_refined(True))
         self.mpr_container.hide()
         center_layout.addWidget(self.mpr_container, stretch=1)
 
@@ -376,6 +377,7 @@ class DicomViewerPanel(QWidget):
         self.mpr_container_derived.rotation_changed.connect(self._on_mpr_der_plane_rotated)
         self.mpr_container_derived.plane_maximized.connect(self._on_mpr_der_plane_maximized)
         self.mpr_container_derived.window_changed.connect(self.on_window_changed)
+        self.mpr_container_derived.navigation_refined.connect(lambda: self._on_mpr_nav_refined(False))
         self.mpr_container_derived.hide()
         center_layout.addWidget(self.mpr_container_derived, stretch=1)
 
@@ -2605,11 +2607,12 @@ class DicomViewerPanel(QWidget):
             z_only_scroll = (self._last_mpr_orig_xy is not None and (x, y) == self._last_mpr_orig_xy)
             self._last_mpr_orig_xy = (x, y)
             if hasattr(self, "mpr_container_derived") and (self.mpr_container_derived.isVisible() or not self.mpr_container_derived.isHidden()):
+                is_draft = bool(getattr(self.mpr_container, "_interactive_draft", False))
                 if z_only_scroll:
-                    self.mpr_container_derived.scroll_axial_to(z)
+                    self.mpr_container_derived.scroll_axial_to(z, draft=is_draft)
                 else:
                     float_cur = getattr(self.mpr_container, "_float_cur", None)
-                    self.mpr_container_derived.set_cursor(x, y, z, float_cur=float_cur)
+                    self.mpr_container_derived.set_cursor(x, y, z, float_cur=float_cur, draft=is_draft)
                     self._last_mpr_der_xy = (x, y)
             if self.current_index != z:
                 self.current_index = z
@@ -2627,11 +2630,12 @@ class DicomViewerPanel(QWidget):
             z_only_scroll = (self._last_mpr_der_xy is not None and (x, y) == self._last_mpr_der_xy)
             self._last_mpr_der_xy = (x, y)
             if hasattr(self, "mpr_container") and (self.mpr_container.isVisible() or not self.mpr_container.isHidden()):
+                is_draft = bool(getattr(self.mpr_container_derived, "_interactive_draft", False))
                 if z_only_scroll:
-                    self.mpr_container.scroll_axial_to(z)
+                    self.mpr_container.scroll_axial_to(z, draft=is_draft)
                 else:
                     float_cur = getattr(self.mpr_container_derived, "_float_cur", None)
-                    self.mpr_container.set_cursor(x, y, z, float_cur=float_cur)
+                    self.mpr_container.set_cursor(x, y, z, float_cur=float_cur, draft=is_draft)
                     self._last_mpr_orig_xy = (x, y)
             if self.current_index != z:
                 self.current_index = z
@@ -2640,6 +2644,13 @@ class DicomViewerPanel(QWidget):
                 self.slider.blockSignals(False)
         finally:
             self._syncing_mpr = False
+
+    def _on_mpr_nav_refined(self, from_orig: bool) -> None:
+        if getattr(self, "_syncing_mpr", False):
+            return
+        target = getattr(self, "mpr_container_derived" if from_orig else "mpr_container", None)
+        if target is not None and (target.isVisible() or not target.isHidden()) and hasattr(target, "refine_draft_views"):
+            target.refine_draft_views()
 
     def _on_mpr_orig_zoom_changed(self, zoom: float) -> None:
         if getattr(self, "_syncing_mpr_zoom", False):

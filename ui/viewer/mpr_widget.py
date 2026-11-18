@@ -23,6 +23,7 @@ from core.postprocessing.aligned import (
     detect_applicator_orientation,
     export_aligned_volume_slices,
     load_ct_volume_data,
+    resample_slice_z_isotropic,
     sample_oblique_slice,
     validate_aligned_export_geometry,
 )
@@ -576,6 +577,10 @@ class MprSliceWidget(QWidget):
         self._pan_start = None
         self._is_rotating = False
         self._is_wheel_rotating = False
+        self._is_wheel_scrolling = False
+        self._slice_is_draft = False
+        self._rendered_axis_float: float | None = None
+        self._rendered_axis_int: int | None = None
         self._rot_start_angle = 0.0
         self._mouse_start_rad = 0.0
         self._coord_buf: np.ndarray | None = None
@@ -792,6 +797,9 @@ class MprSliceWidget(QWidget):
         self._cached_slice_hu = None
         self._windowing_active = False
         self._win_last_pos = None
+        self._slice_is_draft = False
+        self._rendered_axis_float = None
+        self._rendered_axis_int = None
         self.refresh_slice()
 
     def set_cursor(
@@ -799,9 +807,9 @@ class MprSliceWidget(QWidget):
         cur_x: int,
         cur_y: int,
         cur_z: int,
-        float_cur: list[float] | tuple[float, float, float] | None = None
+        float_cur: list[float] | tuple[float, float, float] | None = None,
+        draft: bool = False
     ) -> None:
-        old_float = self._get_float_cursor()
         if float_cur is not None:
             new_float = [float(float_cur[0]), float(float_cur[1]), float(float_cur[2])]
         elif getattr(self, "_is_panning", False) and getattr(self, "_float_cur", None) is not None:
@@ -812,13 +820,19 @@ class MprSliceWidget(QWidget):
         need_slice_refresh = False
         if self.vol is not None:
             _, _, _, _, _, _, n_idx, _ = self._get_plane_axes_spec()
+            new_int_val = int((cur_x, cur_y, cur_z)[n_idx])
             if self._is_rotated():
-                # Only the slice orthogonal to n_idx changes when s[n_idx] changes; other two planes stay fixed
-                need_slice_refresh = abs(new_float[n_idx] - old_float[n_idx]) > 1e-5
+                need_slice_refresh = (
+                    self._rendered_axis_float is None
+                    or abs(new_float[n_idx] - self._rendered_axis_float) > 1e-5
+                )
             else:
-                old_int = (self.cur_x, self.cur_y, self.cur_z)
-                new_int = (cur_x, cur_y, cur_z)
-                need_slice_refresh = new_int[n_idx] != old_int[n_idx]
+                need_slice_refresh = (
+                    self._rendered_axis_int is None
+                    or new_int_val != self._rendered_axis_int
+                )
+            if not draft and getattr(self, "_slice_is_draft", False):
+                need_slice_refresh = True
 
         self.cur_x = cur_x
         self.cur_y = cur_y
@@ -826,7 +840,7 @@ class MprSliceWidget(QWidget):
         self._float_cur = new_float
 
         if need_slice_refresh:
-            self.refresh_slice()
+            self.refresh_slice(draft=draft)
         else:
             self.update()
 
@@ -987,6 +1001,9 @@ class MprSliceWidget(QWidget):
     def refresh_slice(self, draft: bool = False) -> None:
         if self.vol is None:
             self._cached_slice_hu = None
+            self._slice_is_draft = False
+            self._rendered_axis_float = None
+            self._rendered_axis_int = None
             self.current_pixmap = None
             self.update()
             return
@@ -997,28 +1014,41 @@ class MprSliceWidget(QWidget):
         self.cur_x = max(0, min(cols - 1, self.cur_x))
 
         try:
-            use_iso = (
-                not draft
-                and getattr(self, "isotropic_sampling", True)
+            is_rot = self._is_rotated()
+            iso_h = self._get_isotropic_z_count() if (
+                getattr(self, "isotropic_sampling", True)
                 and self.plane_type in (PLANE_CORONAL, PLANE_SAGITTAL)
-                and self._get_isotropic_z_count() > n_z
-            )
-            if not self._is_rotated() and not use_iso:
+            ) else n_z
+            use_iso = not draft and iso_h > n_z
+
+            if not is_rot:
                 if self.plane_type == PLANE_AXIAL:
                     slice_hu = self.vol[self.cur_z, :, :]
                 elif self.plane_type == PLANE_CORONAL:
                     slice_hu = self.vol[::-1, self.cur_y, :]
+                    if use_iso:
+                        slice_hu = resample_slice_z_isotropic(slice_hu, iso_h)
                 elif self.plane_type == PLANE_SAGITTAL:
                     slice_hu = self.vol[::-1, ::-1, self.cur_x]
+                    if use_iso:
+                        slice_hu = resample_slice_z_isotropic(slice_hu, iso_h)
                 else:
                     return
             else:
                 slice_hu = self._extract_oblique_slice(draft=draft)
 
+            self._slice_is_draft = bool(draft and (is_rot or iso_h > n_z))
             self._cached_slice_hu = slice_hu
+            _, _, _, _, _, _, n_idx, _ = self._get_plane_axes_spec()
+            fc = self._get_float_cursor()
+            self._rendered_axis_float = float(fc[n_idx])
+            self._rendered_axis_int = int((self.cur_x, self.cur_y, self.cur_z)[n_idx])
             self._update_pixmap_from_hu(slice_hu)
         except Exception:
             self._cached_slice_hu = None
+            self._slice_is_draft = False
+            self._rendered_axis_float = None
+            self._rendered_axis_int = None
             self.current_pixmap = None
 
         self.update()
@@ -1398,8 +1428,12 @@ class MprSliceWidget(QWidget):
                 new_y = int(round(self._float_cur[1]))
                 new_z = int(round(self._float_cur[2]))
 
-                self.set_cursor(new_x, new_y, new_z, float_cur=self._float_cur)
-                self.cursor_moved.emit(new_x, new_y, new_z)
+                self.set_cursor(new_x, new_y, new_z, float_cur=self._float_cur, draft=True)
+                parent_panel = self.parent()
+                if hasattr(parent_panel, "_schedule_nav_update"):
+                    parent_panel._schedule_nav_update("pan", self, new_x, new_y, new_z, self._float_cur)
+                else:
+                    self.cursor_moved.emit(new_x, new_y, new_z)
 
             self.pan_changed.emit(self.pan_offset)
             self.pan_delta_requested.emit(self.plane_type, dx_pan, dy_pan)
@@ -1574,9 +1608,19 @@ class MprSliceWidget(QWidget):
         new_y = int(round(new_float[1]))
         new_z = int(round(new_float[2]))
 
-        self.set_cursor(new_x, new_y, new_z, float_cur=new_float)
-        self.cursor_moved.emit(new_x, new_y, new_z)
-        self.slice_scrolled.emit(new_x, new_y, new_z)
+        parent_panel = self.parent()
+        if hasattr(parent_panel, "_schedule_nav_update"):
+            self.cur_x = new_x
+            self.cur_y = new_y
+            self.cur_z = new_z
+            self._float_cur = list(new_float)
+            self.update()
+            parent_panel._schedule_nav_update("wheel", self, new_x, new_y, new_z, new_float)
+            self.slice_scrolled.emit(new_x, new_y, new_z)
+        else:
+            self.set_cursor(new_x, new_y, new_z, float_cur=new_float)
+            self.cursor_moved.emit(new_x, new_y, new_z)
+            self.slice_scrolled.emit(new_x, new_y, new_z)
 
     def keyPressEvent(self, event) -> None:
         key = event.key()
@@ -1640,6 +1684,7 @@ class MprPanelWidget(QWidget):
     rotation_changed = pyqtSignal(str, float) # (plane_type, angle)
     plane_maximized = pyqtSignal(str) # plane_type or "" if restored
     window_changed = pyqtSignal(float, float) # (window_width, window_center)
+    navigation_refined = pyqtSignal()
 
     def __init__(self, parent: QWidget = None) -> None:
         super().__init__(parent)
@@ -1683,7 +1728,25 @@ class MprPanelWidget(QWidget):
         self._rot_refine_timer.setInterval(120)
         self._rot_refine_timer.timeout.connect(self._refine_rotation)
 
+        self._pending_nav: tuple | None = None
+        self._last_nav_render_ts = 0.0
+
+        self._nav_coalesce_timer = QTimer(self)
+        self._nav_coalesce_timer.setSingleShot(True)
+        self._nav_coalesce_timer.setInterval(16)
+        self._nav_coalesce_timer.timeout.connect(self._flush_coalesced_nav)
+
+        self._nav_refine_timer = QTimer(self)
+        self._nav_refine_timer.setSingleShot(True)
+        self._nav_refine_timer.setInterval(120)
+        self._nav_refine_timer.timeout.connect(self._refine_navigation)
+
         self._setup_ui()
+
+    def _stop_nav_timers(self) -> None:
+        self._nav_coalesce_timer.stop()
+        self._nav_refine_timer.stop()
+        self._pending_nav = None
 
     def _compute_rotation_matrix(self) -> np.ndarray:
         return compute_rotation_matrix_deg(self.rot_x, self.rot_y, self.rot_z)
@@ -1767,6 +1830,7 @@ class MprPanelWidget(QWidget):
         self._rot_coalesce_timer.stop()
         self._rot_refine_timer.stop()
         self._pending_rot = None
+        self._stop_nav_timers()
         self._interactive_draft = False
         self.rot_x = 0.0
         self.rot_y = 0.0
@@ -1820,7 +1884,8 @@ class MprPanelWidget(QWidget):
         cur_x: int,
         cur_y: int,
         cur_z: int,
-        float_cur: list[float] | tuple[float, float, float] | None = None
+        float_cur: list[float] | tuple[float, float, float] | None = None,
+        draft: bool = False
     ) -> None:
         self.cur_x = cur_x
         self.cur_y = cur_y
@@ -1832,9 +1897,9 @@ class MprPanelWidget(QWidget):
         )
 
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
-            v.set_cursor(cur_x, cur_y, cur_z, float_cur=self._float_cur)
+            v.set_cursor(cur_x, cur_y, cur_z, float_cur=self._float_cur, draft=draft)
 
-    def scroll_axial_to(self, target_z: int) -> None:
+    def scroll_axial_to(self, target_z: int, draft: bool = False) -> None:
         """Scroll axial plane along rotated axis R[:, 2] while keeping Coronal and Sagittal fixed."""
         if self.vol is None:
             return
@@ -1842,7 +1907,13 @@ class MprPanelWidget(QWidget):
         target_z = max(0, min(n_z - 1, int(target_z)))
         curr = list(getattr(self, "_float_cur", [float(self.cur_x), float(self.cur_y), float(self.cur_z)]))
         new_float = [float(curr[0]), float(curr[1]), float(target_z)]
-        self.set_cursor(int(round(new_float[0])), int(round(new_float[1])), target_z, float_cur=new_float)
+        self.set_cursor(int(round(new_float[0])), int(round(new_float[1])), target_z, float_cur=new_float, draft=draft)
+
+    def refine_draft_views(self) -> None:
+        """Re-render only slices currently showing draft preview at full quality."""
+        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+            if getattr(v, "_slice_is_draft", False):
+                v.refresh_slice(draft=False)
 
     def _on_subview_window_changed(self, width: float, center: float) -> None:
         self.set_window_params(width, center)
@@ -1975,6 +2046,7 @@ class MprPanelWidget(QWidget):
         self._rot_coalesce_timer.stop()
         self._rot_refine_timer.stop()
         self._pending_rot = None
+        self._stop_nav_timers()
         if plane_type == PLANE_AXIAL:
             self.rot_z = angle
         elif plane_type == PLANE_CORONAL:
@@ -1988,6 +2060,7 @@ class MprPanelWidget(QWidget):
         self._rot_coalesce_timer.stop()
         self._rot_refine_timer.stop()
         self._pending_rot = None
+        self._stop_nav_timers()
         self._interactive_draft = False
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
             v._is_rotating = False
@@ -2023,6 +2096,7 @@ class MprPanelWidget(QWidget):
         self._rot_coalesce_timer.stop()
         self._rot_refine_timer.stop()
         self._pending_rot = None
+        self._stop_nav_timers()
         self._interactive_draft = False
 
         res = detect_applicator_orientation(self.vol, self.spacing)
@@ -2210,10 +2284,79 @@ class MprPanelWidget(QWidget):
                 v.set_cursor(x, y, z, float_cur=self._float_cur)
         self.cursor_changed.emit(x, y, z)
 
+    def _schedule_nav_update(
+        self,
+        kind: str,
+        source_view: MprSliceWidget,
+        x: int,
+        y: int,
+        z: int,
+        float_cur: list[float]
+    ) -> None:
+        fc = [float(float_cur[0]), float(float_cur[1]), float(float_cur[2])]
+        self.cur_x = int(x)
+        self.cur_y = int(y)
+        self.cur_z = int(z)
+        self._float_cur = fc
+        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+            if v != source_view:
+                v.cur_x = self.cur_x
+                v.cur_y = self.cur_y
+                v.cur_z = self.cur_z
+                v._float_cur = list(fc)
+                v.update()
+
+        self._pending_nav = (kind, source_view, self.cur_x, self.cur_y, self.cur_z, fc)
+        if kind == "pan":
+            self._nav_refine_timer.stop()
+        else:
+            self._nav_refine_timer.start()
+
+        now = time.perf_counter()
+        if (now - self._last_nav_render_ts) >= 0.016 and not self._nav_coalesce_timer.isActive():
+            self._flush_coalesced_nav()
+        elif not self._nav_coalesce_timer.isActive():
+            self._nav_coalesce_timer.start()
+
+    def _apply_nav_payload(self, payload: tuple, draft: bool) -> None:
+        kind, source_view, x, y, z, fc = payload
+        if kind == "wheel":
+            source_view.set_cursor(x, y, z, float_cur=fc, draft=draft)
+        else:
+            for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+                if v != source_view:
+                    if draft:
+                        v._is_panning = True
+                    v.set_cursor(x, y, z, float_cur=fc, draft=draft)
+        self.cursor_changed.emit(x, y, z)
+
+    def _flush_coalesced_nav(self) -> None:
+        pending = self._pending_nav
+        self._pending_nav = None
+        if pending is None:
+            return
+        self._interactive_draft = True
+        try:
+            self._apply_nav_payload(pending, draft=True)
+            self._last_nav_render_ts = time.perf_counter()
+        finally:
+            self._interactive_draft = False
+
+    def _refine_navigation(self) -> None:
+        pending = self._pending_nav
+        self._stop_nav_timers()
+        self._interactive_draft = False
+        if pending is not None:
+            self._apply_nav_payload(pending, draft=False)
+        self.refine_draft_views()
+        self._last_nav_render_ts = time.perf_counter()
+        self.navigation_refined.emit()
+
     def on_subview_pan_ended(self) -> None:
         for v in (self.view_axial, self.view_coronal, self.view_sagittal):
             v._is_panning = False
             v.update()
+        self._refine_navigation()
 
     def _on_subview_zoom_changed(self, zoom: float) -> None:
         self.zoom_factor = max(0.05, min(30.0, float(zoom)))
