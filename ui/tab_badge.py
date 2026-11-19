@@ -135,13 +135,13 @@ class TabBadge(QWidget):
         radius = (self.BADGE_HEIGHT - 1.0) * 0.5
 
         if self._count > 0:
-            bg_inactive = QColor("#1b3552")
-            border_inactive = QColor("#2c5482")
-            text_inactive = QColor("#cde2f8")
+            bg_inactive = QColor("#1f538d")
+            border_inactive = QColor("#3a76b8")
+            text_inactive = QColor("#ffffff")
         else:
-            bg_inactive = QColor("#232731")
-            border_inactive = QColor("#303643")
-            text_inactive = QColor("#7d8590")
+            bg_inactive = QColor("#303236")
+            border_inactive = QColor("#565960")
+            text_inactive = QColor("#cfd5dd")
 
         bg_active = QColor(11, 20, 34, 155)
         border_active = QColor(147, 197, 253, 95)

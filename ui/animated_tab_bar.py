@@ -291,12 +291,12 @@ class AnimatedSegmentedTabBar(QTabBar):
         p.setRenderHint(_RENDER_AA, True)
         p.setRenderHint(_RENDER_TEXT_AA, True)
 
-        # 1. Precision dark graphite container track matching #141414 / #202020 palette
+        # 1. Neutral mid-grey container track matching original #464646 theme cue
         track_rect = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
         track_grad = QLinearGradient(0.0, 0.0, 0.0, h)
-        track_grad.setColorAt(0.0, QColor("#1b1e25"))
-        track_grad.setColorAt(1.0, QColor("#15171c"))
-        p.setPen(QPen(QColor("#2c313c"), 1.0))
+        track_grad.setColorAt(0.0, QColor("#4a4a4a"))
+        track_grad.setColorAt(1.0, QColor("#414141"))
+        p.setPen(QPen(QColor("#5a5a5a"), 1.0))
         p.setBrush(QBrush(track_grad))
         p.drawRoundedRect(track_rect, 7.0, 7.0)
 
@@ -311,7 +311,7 @@ class AnimatedSegmentedTabBar(QTabBar):
             r = self.tabRect(i)
             hr = QRectF(r).adjusted(2.0, 3.0, -2.0, -3.0)
             p.setPen(Qt.PenStyle.NoPen if hasattr(Qt, "PenStyle") else Qt.NoPen)
-            p.setBrush(QBrush(QColor(255, 255, 255, int(round(16.0 * hv)))))
+            p.setBrush(QBrush(QColor(255, 255, 255, int(round(34.0 * hv)))))
             p.drawRoundedRect(hr, 5.0, 5.0)
 
         # 3. Subtle vertical dividers between inactive neighbors away from active pill
@@ -324,7 +324,7 @@ class AnimatedSegmentedTabBar(QTabBar):
             hv_r = self._hover_levels[i + 1] if (i + 1) < len(self._hover_levels) else 0.0
             fade = max(0.0, 1.0 - max(hv_l, hv_r))
             if not near_slider and fade > 0.05:
-                p.setPen(QPen(QColor(255, 255, 255, int(round(20.0 * fade))), 1.0))
+                p.setPen(QPen(QColor(255, 255, 255, int(round(32.0 * fade))), 1.0))
                 p.drawLine(QPointF(sep_x, 8.0), QPointF(sep_x, h - 8.0))
 
         # 4. Crisp sliding active indicator pill
@@ -352,8 +352,8 @@ class AnimatedSegmentedTabBar(QTabBar):
 
         # 5. Tab labels smoothly cross-faded as the active slider sweeps across tabs
         p.setFont(self._font)
-        col_muted = QColor("#8b949e")
-        col_hover = QColor("#d0d7de")
+        col_muted = QColor("#e2e5ea")
+        col_hover = QColor("#ffffff")
         col_active = QColor("#ffffff")
 
         for i in range(self.count()):
