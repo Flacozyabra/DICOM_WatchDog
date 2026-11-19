@@ -386,15 +386,6 @@ class DRRPrecomputeWorker(QThread):
                 n_z = len(slices_ds)
                 rows = int(slices_ds[0].Rows)
                 cols = int(slices_ds[0].Columns)
-                vol = np.zeros((n_z, rows, cols), dtype=np.float32)
-                for i, s in enumerate(slices_ds):
-                    if self._is_cancelled:
-                        self.finished_signal.emit(True)
-                        return
-                    slope = float(getattr(s, "RescaleSlope", 1.0) or 1.0)
-                    intercept = float(getattr(s, "RescaleIntercept", 0.0) or 0.0)
-                    vol[i] = s.pixel_array.astype(np.float32) * slope + intercept
-
                 ipp0 = [float(x) for x in slices_ds[0].ImagePositionPatient]
                 ipp_last = [float(x) for x in slices_ds[-1].ImagePositionPatient]
                 sp = [float(x) for x in slices_ds[0].PixelSpacing]
@@ -402,11 +393,27 @@ class DRRPrecomputeWorker(QThread):
                 dz = (ipp_last[2] - ipp0[2]) / (n_z - 1) if n_z > 1 else 5.0
                 spacing = (dy, dx, dz)
 
+                vol = np.zeros((n_z, rows, cols), dtype=np.float32)
+                for i in range(n_z):
+                    if self._is_cancelled:
+                        slices_ds.clear()
+                        self.finished_signal.emit(True)
+                        return
+                    s = slices_ds[i]
+                    slices_ds[i] = None  # Free raw DICOM dataset immediately after extracting HU slice
+                    slope = float(getattr(s, "RescaleSlope", 1.0) or 1.0)
+                    intercept = float(getattr(s, "RescaleIntercept", 0.0) or 0.0)
+                    vol[i] = s.pixel_array.astype(np.float32) * slope + intercept
+                slices_ds.clear()
+
             dy, dx, dz = spacing
             n_z, rows, cols = vol.shape
 
             # Предварительно срезаем воздух (< -500 HU)
             vol_pre = np.maximum(0.0, vol + 500.0)
+            vol = None
+            self.ct_volume = None
+            self.sorted_files = []
 
             # 2. Формируем список уникальных проекций для расчета
             items = []

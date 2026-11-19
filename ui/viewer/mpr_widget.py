@@ -802,6 +802,25 @@ class MprSliceWidget(QWidget):
         self._rendered_axis_int = None
         self.refresh_slice()
 
+    def clear_volume(self) -> None:
+        """Release references to large 3D/2D NumPy buffers, caches, and active slice pixmap."""
+        self.vol = None
+        self.spline_coeffs = None
+        self.current_pixmap = None
+        self._cached_slice_hu = None
+        self._coord_buf = None
+        self._idx_cache.clear()
+        self._iso_z_cache.clear()
+        self._rendered_axis_float = None
+        self._rendered_axis_int = None
+        self._slice_is_draft = False
+        self._windowing_active = False
+        self._win_last_pos = None
+        self._ruler_drawing = False
+        self._ruler_norm_pts = None
+        self._ruler_close_rect = None
+        self.update()
+
     def set_cursor(
         self,
         cur_x: int,
@@ -1878,6 +1897,19 @@ class MprPanelWidget(QWidget):
                 spline_coeffs=self.spline_coeffs
             )
             v.set_cursor(self.cur_x, self.cur_y, self.cur_z, float_cur=self._float_cur)
+
+    def clear_volume(self) -> None:
+        """Stop pending MPR timers and release 3D volumes across container and all 3 viewports."""
+        self._rot_coalesce_timer.stop()
+        self._rot_refine_timer.stop()
+        self._pending_rot = None
+        self._stop_nav_timers()
+        self._interactive_draft = False
+        self.vol = None
+        self.spline_coeffs = None
+        self.slice_files = []
+        for v in (self.view_axial, self.view_coronal, self.view_sagittal):
+            v.clear_volume()
 
     def set_cursor(
         self,

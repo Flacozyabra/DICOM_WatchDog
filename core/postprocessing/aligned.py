@@ -70,13 +70,6 @@ def load_ct_volume_data(
         n_z = len(slices_ds)
         rows = int(slices_ds[0].Rows)
         cols = int(slices_ds[0].Columns)
-
-        vol = np.zeros((n_z, rows, cols), dtype=np.float32)
-        for i, s in enumerate(slices_ds):
-            slope = float(getattr(s, "RescaleSlope", 1.0) or 1.0)
-            intercept = float(getattr(s, "RescaleIntercept", 0.0) or 0.0)
-            vol[i] = s.pixel_array.astype(np.float32) * slope + intercept
-
         ipp0 = [float(x) for x in slices_ds[0].ImagePositionPatient]
         ipp_last = [float(x) for x in slices_ds[-1].ImagePositionPatient]
         spacing = [float(x) for x in slices_ds[0].PixelSpacing]
@@ -84,6 +77,15 @@ def load_ct_volume_data(
         dz = abs(float(ipp_last[2] - ipp0[2])) / (n_z - 1) if n_z > 1 else 3.0
         if dz <= 0:
             dz = 3.0
+
+        vol = np.zeros((n_z, rows, cols), dtype=np.float32)
+        for i in range(n_z):
+            s = slices_ds[i]
+            slices_ds[i] = None  # Free raw DICOM dataset immediately after copying pixel array
+            slope = float(getattr(s, "RescaleSlope", 1.0) or 1.0)
+            intercept = float(getattr(s, "RescaleIntercept", 0.0) or 0.0)
+            vol[i] = s.pixel_array.astype(np.float32) * slope + intercept
+        slices_ds.clear()
 
         return vol, ipp0, (dy, dx, dz)
     except Exception:
