@@ -87,6 +87,9 @@ def button_qss(
     font_weight: str | None = None,
     extra_rules: str = "",
     hover_variant: str | None = None,
+    disabled_bg: str | None = None,
+    disabled_fg: str | None = None,
+    disabled_border: str | None = None,
 ) -> str:
     """Build consistent QSS matching the segmented tab bar button palette."""
     v = BUTTON_VARIANT_STYLES[variant]
@@ -133,9 +136,9 @@ def button_qss(
         f"    border: 1px solid {pressed_border};\n"
         f"}}\n"
         f"{disabled_sel} {{\n"
-        f"    background-color: {v['disabled_bg']};\n"
-        f"    color: {v['disabled_fg']};\n"
-        f"    border: 1px solid {v['disabled_border']};\n"
+        f"    background-color: {disabled_bg or v['disabled_bg']};\n"
+        f"    color: {disabled_fg or v['disabled_fg']};\n"
+        f"    border: 1px solid {disabled_border or v['disabled_border']};\n"
         f"}}"
     )
 

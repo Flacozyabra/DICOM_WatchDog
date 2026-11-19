@@ -305,7 +305,7 @@ QComboBox QAbstractItemView {
 
 
 
-/* Акцентный стиль для ключевых кнопок действия (Move to Archive, Move to CT, Send to CT, Save) */
+/* Акцентный стиль для ключевых кнопок действия и панелей вкладок (Search, Move to Archive/CT, Send to CT, Settings, Save) */
 #moveToArchiveBtn,
 QPushButton[variant="primary"] {
     background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2562a6, stop:1 #1c4c82);
@@ -329,9 +329,9 @@ QPushButton[variant="primary"]:pressed {
 
 #moveToArchiveBtn:disabled,
 QPushButton[variant="primary"]:disabled {
-    background-color: #303134;
-    color: #70747c;
-    border: 1px solid #3c3e42;
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1b3b61, stop:1 #16304f);
+    color: #789bc2;
+    border: 1px solid #274f7d;
 }
 
 /* Боковое меню настроек */

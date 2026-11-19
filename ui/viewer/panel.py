@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QMessageBox
 )
 from PyQt6.QtGui import (
-    QIcon, QFont, QPixmap, QPixmapCache, QBrush, QColor, QImage
+    QIcon, QFont, QPixmap, QPixmapCache, QBrush, QColor, QImage, QPainter
 )
 
 from ui.toggle_switch import ToggleSwitch
@@ -243,6 +243,18 @@ class DicomViewerPanel(QWidget):
 
         # Кнопка "Доза в точке" (в левом блоке инструментов плана/дозы)
         self.img_dose_point = QIcon(get_resource_path("themes/target.png"))
+        mode_disabled = QIcon.Mode.Disabled if hasattr(QIcon, "Mode") else QIcon.Disabled
+        for _sz in (20, 40):
+            _pm = self.img_dose_point.pixmap(QSize(_sz, _sz))
+            if not _pm.isNull():
+                _dim = QPixmap(_pm.size())
+                _dim.setDevicePixelRatio(_pm.devicePixelRatio())
+                _dim.fill(QColor(0, 0, 0, 0))
+                _painter = QPainter(_dim)
+                _painter.setOpacity(0.25)
+                _painter.drawPixmap(0, 0, _pm)
+                _painter.end()
+                self.img_dose_point.addPixmap(_dim, mode_disabled)
         self.btn_dose_point = QPushButton(self)
         self.btn_dose_point.setIcon(self.img_dose_point)
         self.btn_dose_point.setIconSize(QSize(20, 20))
@@ -1309,16 +1321,17 @@ class DicomViewerPanel(QWidget):
         icon_box_css = "min-width: 26px; max-width: 26px; min-height: 26px; max-height: 26px;"
         bev_box_css = "min-width: 34px; max-width: 34px; min-height: 26px; max-height: 26px;"
         beams_box_css = "min-width: 46px; max-width: 53px; min-height: 26px; max-height: 26px;"
+        tb_disabled = dict(disabled_bg="#18191c", disabled_fg="#4c5058", disabled_border="#26282c")
 
-        style_icon_active = button_qss("primary", padding="0px", font_size=None, extra_rules=icon_box_css)
-        style_icon_inactive = button_qss("neutral", padding="0px", font_size=None, extra_rules=icon_box_css)
+        style_icon_active = button_qss("primary", padding="0px", font_size=None, extra_rules=icon_box_css, **tb_disabled)
+        style_icon_inactive = button_qss("neutral", padding="0px", font_size=None, extra_rules=icon_box_css, **tb_disabled)
         style_close = button_qss("danger", padding="0px", font_size=None, extra_rules=icon_box_css)
 
-        style_bev_active = button_qss("primary", padding="0px", font_size=None, font_weight="bold", extra_rules=bev_box_css)
-        style_bev_inactive = button_qss("neutral", padding="0px", font_size=None, font_weight="bold", extra_rules=bev_box_css)
+        style_bev_active = button_qss("primary", padding="0px", font_size=None, font_weight="bold", extra_rules=bev_box_css, **tb_disabled)
+        style_bev_inactive = button_qss("neutral", padding="0px", font_size=None, font_weight="bold", extra_rules=bev_box_css, **tb_disabled)
 
-        style_beams_active = button_qss("primary", padding="0px 4px", font_size=11, font_weight="bold", extra_rules=beams_box_css)
-        style_beams_inactive = button_qss("neutral", padding="0px 4px", font_size=11, font_weight="bold", extra_rules=beams_box_css)
+        style_beams_active = button_qss("primary", padding="0px 4px", font_size=11, font_weight="bold", extra_rules=beams_box_css, **tb_disabled)
+        style_beams_inactive = button_qss("neutral", padding="0px 4px", font_size=11, font_weight="bold", extra_rules=beams_box_css, **tb_disabled)
 
         has_beams = bool(getattr(self.viewer, "plan_data", None) and self.viewer.plan_data.get("beams"))
         has_dose = bool(getattr(self.viewer, "dose_data", None) or getattr(self, "dose_files", None))
