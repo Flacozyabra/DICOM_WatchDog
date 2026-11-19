@@ -25,6 +25,7 @@ except ImportError:
     )
 
 from core.locale_utils import tr_ui
+from themes.theme_manager import button_qss
 
 
 def tr(ru_text, en_text):
@@ -64,22 +65,9 @@ class ToggleTableWidget(QTableWidget):
             
             self.placeholder_btn = QPushButton(tr_ui("btn_browse"), self.placeholder_widget)
             self.placeholder_btn.setFixedSize(120, 30)
-            self.placeholder_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #2b2b2b;
-                    color: #ffffff;
-                    border: 1px solid #3d3d3d;
-                    border-radius: 4px;
-                    font-family: 'Segoe UI';
-                    font-size: 13px;
-                }
-                QPushButton:hover {
-                    background-color: #3d3d3d;
-                }
-                QPushButton:pressed {
-                    background-color: #1a1a1a;
-                }
-            """)
+            self.placeholder_btn.setStyleSheet(
+                button_qss("neutral", padding="0px", font_size=13, extra_rules="font-family: 'Segoe UI';")
+            )
             layout.addWidget(self.placeholder_btn, alignment=Qt.AlignmentFlag.AlignCenter)
             self.placeholder_widget.hide()
             

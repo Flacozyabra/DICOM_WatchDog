@@ -15,6 +15,7 @@ from core.dicom_utils import delete_redundant_str
 from core.rename_utils import safe_update_patient_ids, get_folder_study_info, sanitize_folder_name
 from ui.workers import BackgroundFileWorker
 from ui.settings_tabs.settings_utils import apply_dark_title_bar
+from themes.theme_manager import button_qss
 
 
 class ChangePatientIdDialog(QDialog):
@@ -22,7 +23,8 @@ class ChangePatientIdDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(tr_ui("dlg_change_id_title"))
         self.setMinimumWidth(380)
-        self.setStyleSheet("""
+        self.setStyleSheet(
+            """
             QDialog {
                 background-color: #1e1e1e;
                 color: #ffffff;
@@ -46,30 +48,24 @@ class ChangePatientIdDialog(QDialog):
             QLineEdit:focus {
                 border: 1px solid #1f538d;
             }
-            QPushButton {
-                background-color: #2b2b2b;
-                color: #ffffff;
-                border: 1px solid #3d3d3d;
-                border-radius: 4px;
-                padding: 6px 18px;
-                font-family: 'Segoe UI';
-                font-size: 13px;
-                min-width: 90px;
-            }
-            QPushButton:hover {
-                background-color: #383838;
-                border-color: #555555;
-            }
-            QPushButton#btn_apply {
-                background-color: #1f538d;
-                border-color: #2a6ab2;
-                font-weight: bold;
-            }
-            QPushButton#btn_apply:hover {
-                background-color: #2868ad;
-                border-color: #3d7dc2;
-            }
-        """)
+            """
+            + "\n"
+            + button_qss(
+                "neutral",
+                padding="6px 18px",
+                font_size=13,
+                extra_rules="font-family: 'Segoe UI'; min-width: 90px;",
+            )
+            + "\n"
+            + button_qss(
+                "primary",
+                selector="QPushButton#btn_apply",
+                padding="6px 18px",
+                font_size=13,
+                font_weight="bold",
+                extra_rules="font-family: 'Segoe UI'; min-width: 90px;",
+            )
+        )
         apply_dark_title_bar(self)
 
         layout = QVBoxLayout(self)

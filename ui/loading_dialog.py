@@ -2,6 +2,7 @@ import sys
 from PyQt6.QtCore import Qt, QCoreApplication
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QProgressBar
 from core.locale_utils import tr_ui
+from themes.theme_manager import button_qss
 
 class LoadingProgressDialog(QDialog):
     def __init__(self, parent=None, title=None, show_cancel=False, on_cancel=None):
@@ -76,21 +77,9 @@ class LoadingProgressDialog(QDialog):
                 cancel_text = "Отмена"
             self.cancel_btn = QPushButton(cancel_text)
             self.cancel_btn.setFixedSize(100, 32)
-            self.cancel_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #3a3a3a;
-                    color: #ffffff;
-                    border: 1px solid #555555;
-                    border-radius: 4px;
-                    font-size: 13px;
-                }
-                QPushButton:hover {
-                    background-color: #4a4a4a;
-                }
-                QPushButton:pressed {
-                    background-color: #2a2a2a;
-                }
-            """)
+            self.cancel_btn.setStyleSheet(
+                button_qss("neutral", padding="0px", font_size=13)
+            )
             self.cancel_btn.clicked.connect(self._handle_cancel)
             btn_layout.addWidget(self.cancel_btn)
             btn_layout.addStretch()
