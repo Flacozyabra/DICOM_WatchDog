@@ -28,6 +28,7 @@ from core.postprocessing.aligned import (
     validate_aligned_export_geometry,
 )
 from ui.settings_tabs.settings_utils import apply_dark_title_bar
+from themes.theme_manager import button_qss
 from .canvas import draw_ruler_overlay
 from .parsers import safe_dcmread
 
@@ -169,7 +170,8 @@ def show_dark_message_box(
     dlg.setText(text)
     dlg.setStandardButtons(buttons)
     apply_dark_title_bar(dlg)
-    dlg.setStyleSheet("""
+    dlg.setStyleSheet(
+        """
         QMessageBox {
             background-color: #202020;
             font-family: 'Segoe UI', -apple-system, Roboto, sans-serif;
@@ -180,22 +182,9 @@ def show_dark_message_box(
             color: #ffffff;
             font-size: 13px;
         }
-        QPushButton {
-            background-color: #1f538d;
-            color: #ffffff;
-            border: none;
-            border-radius: 6px;
-            padding: 6px 18px;
-            font-size: 13px;
-            min-width: 72px;
-        }
-        QPushButton:hover {
-            background-color: #2a69a5;
-        }
-        QPushButton:pressed {
-            background-color: #1a4675;
-        }
-    """)
+        """
+        + button_qss("primary", padding="6px 18px", font_size=13, extra_rules="min-width: 72px;")
+    )
     return dlg.exec()
 
 
@@ -217,41 +206,9 @@ _DARK_MPR_DIALOG_QSS = """
     }
 """
 
-_BTN_PRIMARY_QSS = """
-    QPushButton {
-        background-color: #1f538d;
-        color: #ffffff;
-        border: none;
-        border-radius: 6px;
-        padding: 10px 14px;
-        font-size: 13px;
-        font-weight: 600;
-    }
-    QPushButton:hover {
-        background-color: #2a69a5;
-    }
-    QPushButton:pressed {
-        background-color: #1a4675;
-    }
-"""
+_BTN_PRIMARY_QSS = button_qss("primary", padding="10px 14px", font_size=13, font_weight="600")
 
-_BTN_SECONDARY_QSS = """
-    QPushButton {
-        background-color: #2d2d2d;
-        color: #ffffff;
-        border: 1px solid #454545;
-        border-radius: 6px;
-        padding: 10px 14px;
-        font-size: 13px;
-        font-weight: 600;
-    }
-    QPushButton:hover {
-        background-color: #3a3a3a;
-    }
-    QPushButton:pressed {
-        background-color: #242424;
-    }
-"""
+_BTN_SECONDARY_QSS = button_qss("neutral", padding="10px 14px", font_size=13, font_weight="600")
 
 
 class MprExportChoiceDialog(QDialog):
@@ -298,50 +255,18 @@ class MprExportChoiceDialog(QDialog):
 
         btn_new = QPushButton(tr_ui("viewer_mpr_save_new"), self)
         btn_new.setCursor(CURSOR_HAND)
-        btn_new.setStyleSheet("""
-            QPushButton {
-                background-color: #1f538d;
-                color: #ffffff;
-                border: none;
-                border-radius: 6px;
-                padding: 10px 14px;
-                font-size: 13px;
-                font-weight: 600;
-                text-align: left;
-            }
-            QPushButton:hover {
-                background-color: #2a69a5;
-            }
-            QPushButton:pressed {
-                background-color: #1a4675;
-            }
-        """)
+        btn_new.setStyleSheet(
+            button_qss("primary", padding="10px 14px", font_size=13, font_weight="600", extra_rules="text-align: left;")
+        )
         btn_new.setToolTip(tr_ui("viewer_mpr_save_new_tip"))
         btn_new.clicked.connect(self._on_new)
         layout.addWidget(btn_new)
 
         btn_replace = QPushButton(tr_ui("viewer_mpr_save_replace"), self)
         btn_replace.setCursor(CURSOR_HAND)
-        btn_replace.setStyleSheet("""
-            QPushButton {
-                background-color: #2a1818;
-                color: #fca5a5;
-                border: 1px solid #7f2929;
-                border-radius: 6px;
-                padding: 10px 14px;
-                font-size: 13px;
-                font-weight: 600;
-                text-align: left;
-            }
-            QPushButton:hover {
-                background-color: #3a1f1f;
-                border-color: #a63434;
-                color: #ffffff;
-            }
-            QPushButton:pressed {
-                background-color: #221212;
-            }
-        """)
+        btn_replace.setStyleSheet(
+            button_qss("danger_subtle", padding="10px 14px", font_size=13, font_weight="600", extra_rules="text-align: left;")
+        )
         btn_replace.setToolTip(tr_ui("viewer_mpr_save_replace_tip"))
         btn_replace.clicked.connect(self._on_replace)
         layout.addWidget(btn_replace)
@@ -352,22 +277,9 @@ class MprExportChoiceDialog(QDialog):
         btn_cancel.setCursor(CURSOR_HAND)
         btn_cancel.setFixedHeight(32)
         btn_cancel.setMinimumWidth(96)
-        btn_cancel.setStyleSheet("""
-            QPushButton {
-                background-color: #3a3a3a;
-                color: #ffffff;
-                border: 1px solid #555555;
-                border-radius: 6px;
-                padding: 4px 16px;
-                font-size: 13px;
-            }
-            QPushButton:hover {
-                background-color: #4a4a4a;
-            }
-            QPushButton:pressed {
-                background-color: #2a2a2a;
-            }
-        """)
+        btn_cancel.setStyleSheet(
+            button_qss("neutral", padding="4px 16px", font_size=13)
+        )
         btn_cancel.clicked.connect(self.reject)
         bottom_row.addWidget(btn_cancel)
         layout.addLayout(bottom_row)

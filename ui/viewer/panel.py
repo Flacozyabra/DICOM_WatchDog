@@ -23,6 +23,7 @@ from ui.toggle_switch import ToggleSwitch
 from ui.table_widgets import CollapsibleDividerHandle
 from ui.settings_tabs.settings_utils import apply_dark_title_bar
 from .mode_switcher import LiquidModeBar
+from themes.theme_manager import button_qss
 from core.config_utils import get_resource_path, get_temp_dir
 from core.locale_utils import tr_ui
 from core.logger import log_error
@@ -497,29 +498,23 @@ class DicomViewerPanel(QWidget):
 
         # 1. Сегментированный переключатель вкладок
         self.segmented_frame = QFrame(self.structures_panel)
-        self.segmented_frame.setStyleSheet("""
-            QFrame {
-                background-color: #1A1A1A;
-                border: 1px solid #282828;
-                border-radius: 6px;
-            }
-        """)
+        self.segmented_frame.setStyleSheet("QFrame { background: transparent; border: none; }")
         seg_layout = QHBoxLayout(self.segmented_frame)
-        seg_layout.setContentsMargins(2, 2, 2, 2)
-        seg_layout.setSpacing(2)
+        seg_layout.setContentsMargins(0, 0, 0, 0)
+        seg_layout.setSpacing(0)
 
         self.btn_tab_structs = QPushButton(tr_ui("viewer_tab_structures"), self.segmented_frame)
         self.btn_tab_structs.setCheckable(True)
         self.btn_tab_structs.setChecked(True)
         self.btn_tab_structs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.btn_tab_structs.setFixedHeight(26)
+        self.btn_tab_structs.setFixedHeight(28)
         seg_layout.addWidget(self.btn_tab_structs)
 
         self.btn_tab_isodoses = QPushButton(tr_ui("viewer_tab_isodoses"), self.segmented_frame)
         self.btn_tab_isodoses.setCheckable(True)
         self.btn_tab_isodoses.setChecked(False)
         self.btn_tab_isodoses.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.btn_tab_isodoses.setFixedHeight(26)
+        self.btn_tab_isodoses.setFixedHeight(28)
         seg_layout.addWidget(self.btn_tab_isodoses)
 
         self.tab_btn_group = QButtonGroup(self.structures_panel)
@@ -682,44 +677,30 @@ class DicomViewerPanel(QWidget):
         self.viewer.update()
 
     def update_tab_buttons_style(self) -> None:
-        palette = self.parent_app.THEMES[self.parent_app.current_theme] if hasattr(self.parent_app, "current_theme") and hasattr(self.parent_app, "THEMES") else {
-            "ACCENT_COLOR": "#3B82F6",
-            "ACCENT_COLOR_DARK": "#2563EB",
-            "TEXT_COLOR": "#FFFFFF",
-            "TEXT_MUTED": "#9CA3AF",
-            "BUTTON_BG": "#374151"
-        }
-        accent = palette.get("ACCENT_COLOR", "#3B82F6")
-        accent_dark = palette.get("ACCENT_COLOR_DARK", "#2563EB")
-        
-        style_active = f"""
-            QPushButton {{
-                background-color: {accent_dark};
-                color: #FFFFFF;
-                border: none;
-                border-radius: 4px;
-                font-size: 11px;
-                font-weight: bold;
-                padding: 4px 0px;
-            }}
-        """
-        style_inactive = f"""
-            QPushButton {{
-                background-color: transparent;
-                color: {palette.get('TEXT_MUTED', '#9CA3AF')};
-                border: none;
-                border-radius: 4px;
-                font-size: 11px;
-                font-weight: bold;
-                padding: 4px 0px;
-            }}
-            QPushButton:hover {{
-                background-color: {palette.get('BUTTON_BG', '#374151')};
-                color: #FFFFFF;
-            }}
-        """
-        self.btn_tab_structs.setStyleSheet(style_active if self.btn_tab_structs.isChecked() else style_inactive)
-        self.btn_tab_isodoses.setStyleSheet(style_active if self.btn_tab_isodoses.isChecked() else style_inactive)
+        structs_on = self.btn_tab_structs.isChecked()
+        left_corners = "border-radius: 0px; border-top-left-radius: 6px; border-bottom-left-radius: 6px;"
+        right_corners = "border-radius: 0px; border-top-right-radius: 6px; border-bottom-right-radius: 6px;"
+
+        self.btn_tab_structs.setStyleSheet(
+            button_qss(
+                "primary" if structs_on else "neutral",
+                radius=6,
+                padding="4px 0px",
+                font_size=11,
+                font_weight="bold",
+                extra_rules=left_corners + ("" if structs_on else " border-right: none;"),
+            )
+        )
+        self.btn_tab_isodoses.setStyleSheet(
+            button_qss(
+                "neutral" if structs_on else "primary",
+                radius=6,
+                padding="4px 0px",
+                font_size=11,
+                font_weight="bold",
+                extra_rules=right_corners + (" border-left: none;" if structs_on else ""),
+            )
+        )
 
     def on_global_structures_changed(self, state: int) -> None:
         is_on = (state == 2)
@@ -1246,13 +1227,7 @@ class DicomViewerPanel(QWidget):
         """)
 
         if hasattr(self, "segmented_frame"):
-            self.segmented_frame.setStyleSheet(f"""
-                QFrame {{
-                    background-color: {palette.get('WINDOW_BG', '#111827')};
-                    border: 1px solid {palette['BORDER_COLOR']};
-                    border-radius: 6px;
-                }}
-            """)
+            self.segmented_frame.setStyleSheet("QFrame { background: transparent; border: none; }")
 
         eye_path = get_resource_path("themes/eye.png").replace(os.sep, "/")
         list_style = f"""
@@ -1329,167 +1304,21 @@ class DicomViewerPanel(QWidget):
         palette = self.parent_app.THEMES[self.parent_app.current_theme] if hasattr(self.parent_app, "current_theme") and hasattr(self.parent_app, "THEMES") else {
             "ACCENT_COLOR": "#3B82F6",
             "ACCENT_COLOR_DARK": "#2563EB",
-            "BUTTON_BG": "#374151",
-            "BORDER_COLOR_ALT": "#4B5563",
-            "BUTTON_HOVER_BG": "#4B5563"
         }
-        
-        accent_color = palette.get("ACCENT_COLOR", "#3B82F6")
-        accent_dark = palette.get("ACCENT_COLOR_DARK", "#2563EB")
-        
-        btn_bg = palette.get("BUTTON_BG", "#374151")
-        btn_border = palette.get("BORDER_COLOR_ALT", "#4B5563")
-        btn_hover = palette.get("BUTTON_HOVER_BG", "#4B5563")
 
-        style_ruler_active = f"""
-            QPushButton {{
-                background-color: {accent_color};
-                border: 1px solid {accent_dark};
-                border-radius: 4px;
-                padding: 0px;
-                min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px;
-            }}
-        """
-        style_ruler_inactive = f"""
-            QPushButton {{
-                background-color: {btn_bg};
-                border: 1px solid {btn_border};
-                border-radius: 4px;
-                padding: 0px;
-                min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px;
-            }}
-            QPushButton:hover {{ background-color: {btn_hover}; }}
-        """
-        style_hu_active = f"""
-            QPushButton {{
-                background-color: {accent_color};
-                border: 1px solid {accent_dark};
-                border-radius: 4px;
-                padding: 0px;
-                min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px;
-            }}
-        """
-        style_hu_inactive = f"""
-            QPushButton {{
-                background-color: {btn_bg};
-                border: 1px solid {btn_border};
-                border-radius: 4px;
-                padding: 0px;
-                min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px;
-            }}
-            QPushButton:hover {{ background-color: {btn_hover}; }}
-        """
-        style_osd_active = f"""
-            QPushButton {{
-                background-color: {accent_color};
-                border: 1px solid {accent_dark};
-                border-radius: 4px;
-                padding: 0px;
-                min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px;
-            }}
-        """
-        style_osd_inactive = f"""
-            QPushButton {{
-                background-color: {btn_bg};
-                border: 1px solid {btn_border};
-                border-radius: 4px;
-                padding: 0px;
-                min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px;
-            }}
-            QPushButton:hover {{ background-color: {btn_hover}; }}
-        """
-        style_close = """
-            QPushButton {
-                background-color: #BE123C;
-                border: 1px solid #E11D48;
-                border-radius: 4px;
-                padding: 0px;
-                min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px;
-            }
-            QPushButton:hover {
-                background-color: #E11D48;
-                border-color: #F43F5E;
-            }
-            QPushButton:pressed {
-                background-color: #9F1239;
-            }
-        """
+        icon_box_css = "min-width: 26px; max-width: 26px; min-height: 26px; max-height: 26px;"
+        bev_box_css = "min-width: 34px; max-width: 34px; min-height: 26px; max-height: 26px;"
+        beams_box_css = "min-width: 46px; max-width: 53px; min-height: 26px; max-height: 26px;"
 
-        style_dose_point_active = f"""
-            QPushButton {{
-                background-color: {accent_color};
-                border: 1px solid {accent_dark};
-                border-radius: 4px;
-                padding: 0px;
-                min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px;
-            }}
-            QPushButton:disabled {{ background-color: #1a1a1a; border: 1px solid #333333; }}
-        """
-        style_dose_point_inactive = f"""
-            QPushButton {{
-                background-color: {btn_bg};
-                border: 1px solid {btn_border};
-                border-radius: 4px;
-                padding: 0px;
-                min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px;
-            }}
-            QPushButton:hover {{ background-color: {btn_hover}; }}
-            QPushButton:disabled {{ background-color: #1a1a1a; border: 1px solid #333333; }}
-        """
+        style_icon_active = button_qss("primary", padding="0px", font_size=None, extra_rules=icon_box_css)
+        style_icon_inactive = button_qss("neutral", padding="0px", font_size=None, extra_rules=icon_box_css)
+        style_close = button_qss("danger", padding="0px", font_size=None, extra_rules=icon_box_css)
 
-        style_bev_active = f"""
-            QPushButton {{
-                background-color: {accent_color};
-                border: 1px solid {accent_dark};
-                color: #FFFFFF;
-                font-weight: bold;
-                border-radius: 4px;
-                padding: 0px;
-                min-width: 36px; max-width: 36px; min-height: 28px; max-height: 28px;
-            }}
-            QPushButton:disabled {{ background-color: #1a1a1a; border: 1px solid #333333; color: #555555; }}
-        """
-        style_bev_inactive = f"""
-            QPushButton {{
-                background-color: {btn_bg};
-                border: 1px solid {btn_border};
-                color: #FFFFFF;
-                font-weight: bold;
-                border-radius: 4px;
-                padding: 0px;
-                min-width: 36px; max-width: 36px; min-height: 28px; max-height: 28px;
-            }}
-            QPushButton:hover {{ background-color: {btn_hover}; }}
-            QPushButton:disabled {{ background-color: #1a1a1a; border: 1px solid #333333; color: #555555; }}
-        """
+        style_bev_active = button_qss("primary", padding="0px", font_size=None, font_weight="bold", extra_rules=bev_box_css)
+        style_bev_inactive = button_qss("neutral", padding="0px", font_size=None, font_weight="bold", extra_rules=bev_box_css)
 
-        style_beams_active = f"""
-            QPushButton {{
-                background-color: {accent_color};
-                border: 1px solid {accent_dark};
-                color: #FFFFFF;
-                font-weight: bold;
-                border-radius: 4px;
-                padding: 0px 4px;
-                min-width: 48px; max-width: 55px; min-height: 28px; max-height: 28px;
-                font-size: 11px;
-            }}
-            QPushButton:disabled {{ background-color: #1a1a1a; border: 1px solid #333333; color: #555555; }}
-        """
-        style_beams_inactive = f"""
-            QPushButton {{
-                background-color: {btn_bg};
-                border: 1px solid {btn_border};
-                color: #FFFFFF;
-                font-weight: bold;
-                border-radius: 4px;
-                padding: 0px 4px;
-                min-width: 48px; max-width: 55px; min-height: 28px; max-height: 28px;
-                font-size: 11px;
-            }}
-            QPushButton:hover {{ background-color: {btn_hover}; }}
-            QPushButton:disabled {{ background-color: #1a1a1a; border: 1px solid #333333; color: #555555; }}
-        """
+        style_beams_active = button_qss("primary", padding="0px 4px", font_size=11, font_weight="bold", extra_rules=beams_box_css)
+        style_beams_inactive = button_qss("neutral", padding="0px 4px", font_size=11, font_weight="bold", extra_rules=beams_box_css)
 
         has_beams = bool(getattr(self.viewer, "plan_data", None) and self.viewer.plan_data.get("beams"))
         has_dose = bool(getattr(self.viewer, "dose_data", None) or getattr(self, "dose_files", None))
@@ -1502,22 +1331,22 @@ class DicomViewerPanel(QWidget):
             self.btn_bev.setStyleSheet(style_bev_active if (getattr(self.viewer, "bev_active", False) and has_beams) else style_bev_inactive)
         if hasattr(self, "btn_dose_point"):
             self.btn_dose_point.setEnabled(has_dose)
-            self.btn_dose_point.setStyleSheet(style_dose_point_active if (getattr(self.viewer, "dose_point_active", False) and has_dose) else style_dose_point_inactive)
+            self.btn_dose_point.setStyleSheet(style_icon_active if (getattr(self.viewer, "dose_point_active", False) and has_dose) else style_icon_inactive)
         if hasattr(self, "btn_ruler"):
-            self.btn_ruler.setStyleSheet(style_ruler_active if getattr(self.viewer, "ruler_active", False) else style_ruler_inactive)
+            self.btn_ruler.setStyleSheet(style_icon_active if getattr(self.viewer, "ruler_active", False) else style_icon_inactive)
         if hasattr(self, "btn_hu"):
-            self.btn_hu.setStyleSheet(style_hu_active if getattr(self.viewer, "hu_active", False) else style_hu_inactive)
+            self.btn_hu.setStyleSheet(style_icon_active if getattr(self.viewer, "hu_active", False) else style_icon_inactive)
         if hasattr(self, "btn_mpr"):
-            self.btn_mpr.setStyleSheet(style_ruler_active if getattr(self, "mpr_active", False) else style_ruler_inactive)
+            self.btn_mpr.setStyleSheet(style_icon_active if getattr(self, "mpr_active", False) else style_icon_inactive)
         if hasattr(self, "btn_osd"):
-            self.btn_osd.setStyleSheet(style_osd_active if getattr(self.viewer, "osd_visible", False) else style_osd_inactive)
+            self.btn_osd.setStyleSheet(style_icon_active if getattr(self.viewer, "osd_visible", False) else style_icon_inactive)
         if hasattr(self, "btn_close"):
             self.btn_close.setStyleSheet(style_close)
 
         if hasattr(self, "mode_bar"):
             self.mode_bar.set_theme_colors(
-                accent_color,
-                accent_dark,
+                palette.get("ACCENT_COLOR", "#3B82F6"),
+                palette.get("ACCENT_COLOR_DARK", "#2563EB"),
                 palette.get("TEXT_MUTED", "#9CA3AF"),
             )
 
@@ -3000,31 +2829,42 @@ class DicomViewerPanel(QWidget):
                 background-color: #18181B;
             }
             QPushButton#btn_pp_st_normal, QPushButton#btn_pp_st_hard {
-                background-color: #24242B;
-                color: #D4D4D8;
-                border: 1px solid #3F3F46;
+                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4a4a4a, stop:1 #414141);
+                color: #e2e5ea;
+                border: 1px solid #575757;
                 padding: 3px 11px;
                 font-size: 11px;
                 font-weight: 600;
             }
+            QPushButton#btn_pp_st_normal:hover, QPushButton#btn_pp_st_hard:hover {
+                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #595959, stop:1 #4f4f4f);
+                color: #ffffff;
+                border-color: #6b6b6b;
+            }
             QPushButton#btn_pp_st_normal {
-                border-top-left-radius: 5px;
-                border-bottom-left-radius: 5px;
+                border-radius: 0px;
+                border-top-left-radius: 6px;
+                border-bottom-left-radius: 6px;
             }
             QPushButton#btn_pp_st_hard {
-                border-top-right-radius: 5px;
-                border-bottom-right-radius: 5px;
+                border-radius: 0px;
+                border-top-right-radius: 6px;
+                border-bottom-right-radius: 6px;
                 border-left: none;
             }
             QPushButton#btn_pp_st_normal:checked, QPushButton#btn_pp_st_hard:checked {
-                background-color: #1D64F2;
-                color: #FFFFFF;
-                border-color: #2563EB;
+                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2562a6, stop:1 #1c4c82);
+                color: #ffffff;
+                border: 1px solid #3878c0;
+            }
+            QPushButton#btn_pp_st_normal:checked:hover, QPushButton#btn_pp_st_hard:checked:hover {
+                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2d70ba, stop:1 #225895);
+                border: 1px solid #4b8bd3;
             }
             QPushButton#btn_pp_st_normal:disabled, QPushButton#btn_pp_st_hard:disabled {
-                background-color: #1A1A20;
-                color: #52525B;
-                border-color: #2E2E36;
+                background-color: #303134;
+                color: #70747c;
+                border-color: #3c3e42;
             }
             QPushButton#btn_pp_mar_adv {
                 background: transparent;
@@ -3244,58 +3084,20 @@ class DicomViewerPanel(QWidget):
 
         btn_cancel = QPushButton(tr_ui("btn_cancel"), dlg)
         btn_cancel.setObjectName("btn_pp_cancel")
-        btn_cancel.setStyleSheet("""
-            QPushButton {
-                background-color: #27272A;
-                color: #E4E4E7;
-                border: 1px solid #3F3F46;
-                border-radius: 6px;
-                padding: 7px 16px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-            QPushButton:hover {
-                background-color: #323236;
-                color: #FFFFFF;
-                border-color: #52525B;
-            }
-        """)
+        btn_cancel.setStyleSheet(
+            button_qss("neutral", padding="7px 16px", font_size=12, font_weight="600")
+        )
         btn_cancel.clicked.connect(dlg.reject)
 
         btn_run = QPushButton(tr_ui("viewer_postprocess_run_btn"), dlg)
         btn_run.setObjectName("btn_pp_run")
+        btn_run.setStyleSheet(
+            button_qss("primary", padding="7px 16px", font_size=12, font_weight="600")
+        )
 
         def update_run_btn_state() -> None:
             is_valid = cb_align.isChecked() or cb_mar.isChecked() or cb_st.isChecked()
             btn_run.setEnabled(is_valid)
-            btn_run.setStyleSheet(
-                """
-                QPushButton {
-                    background-color: #1D64F2;
-                    color: #FFFFFF;
-                    border: 1px solid #2563EB;
-                    border-radius: 6px;
-                    padding: 7px 16px;
-                    font-size: 12px;
-                    font-weight: 600;
-                }
-                QPushButton:hover {
-                    background-color: #1852C4;
-                }
-                """
-                if is_valid else
-                """
-                QPushButton {
-                    background-color: #27272A;
-                    color: #52525B;
-                    border: 1px solid #333338;
-                    border-radius: 6px;
-                    padding: 7px 16px;
-                    font-size: 12px;
-                    font-weight: 600;
-                }
-                """
-            )
 
         btn_run.clicked.connect(dlg.accept)
         cb_align.toggled.connect(lambda: update_run_btn_state())

@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import (
     QBrush, QColor, QPainter, QPen, QLinearGradient, QPolygon
 )
+from themes.theme_manager import button_qss
 from core.locale_utils import tr_ui
 
 
@@ -75,21 +76,9 @@ class DRRProgressDialog(QDialog):
         btn_layout.addStretch()
         self.btn_cancel = QPushButton(tr_ui("drr_cancel"), card)
         self.btn_cancel.setFixedSize(90, 28)
-        self.btn_cancel.setStyleSheet("""
-            QPushButton {
-                background-color: #334155;
-                color: #F8FAFC;
-                border: 1px solid #475569;
-                border-radius: 4px;
-                font-size: 11px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #EF4444;
-                border-color: #DC2626;
-                color: #FFFFFF;
-            }
-        """)
+        self.btn_cancel.setStyleSheet(
+            button_qss("neutral", hover_variant="danger", padding="0px", font_size=11, font_weight="bold")
+        )
         self.btn_cancel.clicked.connect(self.on_cancel)
         btn_layout.addWidget(self.btn_cancel)
         btn_layout.addStretch()
