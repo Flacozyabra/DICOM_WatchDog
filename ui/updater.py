@@ -16,6 +16,8 @@ except ImportError:
         QMessageBox, QApplication
     )
 
+from themes.theme_manager import button_qss
+
 DEFAULT_REPO = "Flacozyabra/DICOM_WatchDog"
 _active_workers = set()
 
@@ -209,23 +211,14 @@ class DownloadProgressDialog(QDialog):
         btn_layout.addStretch()
 
         self.cancel_btn = QPushButton(tr("Отмена", "Cancel"))
-        self.cancel_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2d2d2d;
-                color: #ffffff;
-                border: 1px solid #3d3d3d;
-                border-radius: 4px;
-                padding: 6px 18px;
-                font-family: 'Segoe UI';
-                min-width: 80px;
-            }
-            QPushButton:hover {
-                background-color: #3d3d3d;
-            }
-            QPushButton:pressed {
-                background-color: #1f538d;
-            }
-        """)
+        self.cancel_btn.setStyleSheet(
+            button_qss(
+                "neutral",
+                padding="6px 18px",
+                font_size=13,
+                extra_rules="font-family: 'Segoe UI'; min-width: 80px;",
+            )
+        )
         self.cancel_btn.clicked.connect(self.on_cancel_clicked)
         btn_layout.addWidget(self.cancel_btn)
         btn_layout.addStretch()

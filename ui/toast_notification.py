@@ -153,7 +153,7 @@ class ToastNotification(QWidget):
             }
             QPushButton:hover {
                 color: #ffffff;
-                background-color: #383838;
+                background-color: #4a4a4a;
             }
         """)
         close_btn.clicked.connect(self.close_toast)

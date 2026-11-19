@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFrame, QTextBrowser
 )
+from themes.theme_manager import button_qss
 
 
 def apply_dark_title_bar(widget: QWidget):
@@ -88,12 +89,7 @@ class PlanAnalysisHelpDialog(QDialog):
         btn_close = QPushButton("Закрыть" if is_ru else "Close", self)
         btn_close.setFixedWidth(110)
         btn_close.setStyleSheet(
-            "QPushButton { "
-            "  background-color: #27272a; color: #ffffff; border: 1px solid #3f3f46; "
-            "  border-radius: 6px; padding: 6px 14px; font-weight: 600; font-size: 12px; "
-            "} "
-            "QPushButton:hover { background-color: #3f3f46; border-color: #52525b; } "
-            "QPushButton:pressed { background-color: #18181b; }"
+            button_qss("neutral", padding="6px 14px", font_size=12, font_weight="600")
         )
         btn_close.clicked.connect(self.accept)
         btn_row.addWidget(btn_close)

@@ -25,6 +25,7 @@ from ui.plan_analysis.polar_arc_widget import PolarArcWidget
 from ui.plan_analysis.timeline_widget import ModulationTimelineWidget
 from ui.plan_analysis.help_dialog import show_plan_analysis_help
 from ui.plan_analysis.utils import apply_dark_title_bar
+from themes.theme_manager import button_qss
 
 
 class MonacoPlanAnalyzerDialog(QDialog):
@@ -144,18 +145,10 @@ class MonacoPlanAnalyzerDialog(QDialog):
                 border-right: 1px solid #2c2c2e;
                 font-weight: 600;
             }
-            QPushButton {
-                background-color: #2c2c2e;
-                color: #ffffff;
-                border: 1px solid #3a3a3c;
-                border-radius: 4px;
-                padding: 6px 16px;
-                font-size: 13px;
-            }
-            QPushButton:hover {
-                background-color: #3a3a3c;
-            }
-        """)
+            """
+            + "\n"
+            + button_qss("neutral", padding="6px 16px", font_size=13)
+        )
 
         apply_dark_title_bar(self)
         self._init_ui()
@@ -315,17 +308,13 @@ class MonacoPlanAnalyzerDialog(QDialog):
             else "Kinematics Analysis Methodology & Physical Limits"
         )
         self.btn_methodology_help.setStyleSheet(
-            "QPushButton { "
-            "  background-color: #1a1a1c; color: #38bdf8; border: 1px solid #38bdf8; "
-            "  border-radius: 4px; font-size: 22px; font-weight: bold; font-family: 'Segoe UI', sans-serif; "
-            "  padding: 0px; margin: 0px; "
-            "} "
-            "QPushButton:hover { "
-            "  background-color: #27272a; color: #7dd3fc; border: 1px solid #38bdf8; "
-            "} "
-            "QPushButton:pressed { "
-            "  background-color: #0f172a; color: #38bdf8; border: 1px solid #0284c7; "
-            "}"
+            button_qss(
+                "help",
+                padding="0px",
+                font_size=22,
+                font_weight="bold",
+                extra_rules="font-family: 'Segoe UI', sans-serif; margin: 0px;",
+            )
         )
         self.btn_methodology_help.clicked.connect(self._open_methodology_help)
         leg_outer_l.addWidget(self.btn_methodology_help, 0, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
