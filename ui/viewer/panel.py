@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QMessageBox
 )
 from PyQt6.QtGui import (
-    QIcon, QFont, QPixmap, QBrush, QColor, QImage
+    QIcon, QFont, QPixmap, QPixmapCache, QBrush, QColor, QImage
 )
 
 from ui.toggle_switch import ToggleSwitch
@@ -821,6 +821,7 @@ class DicomViewerPanel(QWidget):
         current_sf = self.cb_structures.currentData()
         if current_sf == sf_path:
             self.apply_structures(parsed)
+        self._release_worker("struct_worker")
 
     def on_global_isodoses_changed(self, state: int) -> None:
         self.viewer.show_isodoses_globally = (state == 2)
@@ -1001,6 +1002,7 @@ class DicomViewerPanel(QWidget):
         current_plan_item = self.cb_plan.currentData()
         if isinstance(current_plan_item, dict) and current_plan_item.get("dose_path") == dose_path:
             self.apply_dose_data(parsed)
+        self._release_worker("dose_worker")
 
     def _update_rtd_badge(self, plan_item: dict | None = None) -> None:
         """Обновляет визуальный стиль и всплывающую подсказку для индикатора RTD."""
@@ -1611,6 +1613,7 @@ class DicomViewerPanel(QWidget):
         self.viewer.bev_struct_cache[ck] = (path, pois)
 
     def _on_bev_struct_finished(self) -> None:
+        self._release_worker("bev_struct_worker")
         self.viewer.bev_precomputing_status = ""
         if self.viewer.bev_active:
             self.viewer.update()
@@ -1784,8 +1787,12 @@ class DicomViewerPanel(QWidget):
         self.viewer.drr_cache[ck] = q_img
 
     def _on_drr_worker_finished(self, is_cancelled: bool) -> None:
-        if hasattr(self, "drr_dialog") and self.drr_dialog and self.drr_dialog.isVisible():
-            self.drr_dialog.close()
+        if hasattr(self, "drr_dialog") and self.drr_dialog:
+            if self.drr_dialog.isVisible():
+                self.drr_dialog.close()
+            self._dispose_qt_child(self.drr_dialog)
+            self.drr_dialog = None
+        self._release_worker("drr_worker")
         if not is_cancelled:
             self.viewer.show_drr = True
         else:
@@ -1868,26 +1875,85 @@ class DicomViewerPanel(QWidget):
                 except Exception:
                     pass
 
+    @staticmethod
+    def _dispose_qt_child(obj) -> None:
+        if obj is None:
+            return
+        for sig_name in ("progress_signal", "finished_signal", "error_signal", "item_computed_signal", "cancelled"):
+            sig = getattr(obj, sig_name, None)
+            if sig is not None:
+                try:
+                    sig.disconnect()
+                except Exception:
+                    pass
+        for buf_attr in ("spline_orig", "spline_derived", "ct_volume", "sorted_files", "structures", "files", "slice_paths", "beams"):
+            if hasattr(obj, buf_attr):
+                try:
+                    setattr(obj, buf_attr, None)
+                except Exception:
+                    pass
+        try:
+            obj.setParent(None)
+        except Exception:
+            pass
+        try:
+            obj.deleteLater()
+        except Exception:
+            pass
+
+    def _release_worker(self, attr_name: str, cancel: bool = False) -> None:
+        worker = getattr(self, attr_name, None)
+        if worker is None:
+            return
+        setattr(self, attr_name, None)
+        try:
+            if cancel and hasattr(worker, "cancel"):
+                worker.cancel()
+            if hasattr(worker, "isRunning") and worker.isRunning():
+                if hasattr(worker, "quit"):
+                    worker.quit()
+                if hasattr(worker, "wait"):
+                    worker.wait(1000)
+        except Exception:
+            pass
+        self._dispose_qt_child(worker)
+
+    def _release_progress_dialog(self, accept: bool | None = None) -> None:
+        dlg = getattr(self, "progress_dialog", None)
+        if dlg is None:
+            return
+        self.progress_dialog = None
+        try:
+            if accept is True:
+                dlg.accept()
+            elif accept is False:
+                dlg.reject()
+        except Exception:
+            pass
+        self._dispose_qt_child(dlg)
+
     def clear_panel(self) -> None:
         self._cleanup_temp_derived()
-        if self.loader_worker is not None and self.loader_worker.isRunning():
-            self.loader_worker.cancel() if hasattr(self.loader_worker, "cancel") else None
-            self.loader_worker.quit()
-            self.loader_worker.wait(1000)
-        if self.struct_worker is not None and self.struct_worker.isRunning():
-            self.struct_worker.quit()
-            self.struct_worker.wait(1000)
-        if self.dose_worker is not None and self.dose_worker.isRunning():
-            self.dose_worker.quit()
-            self.dose_worker.wait(1000)
-        if hasattr(self, "bev_struct_worker") and self.bev_struct_worker is not None and self.bev_struct_worker.isRunning():
-            self.bev_struct_worker.cancel()
-            self.bev_struct_worker.quit()
-            self.bev_struct_worker.wait(1000)
+        self._release_worker("loader_worker", cancel=True)
+        self._release_worker("struct_worker")
+        self._release_worker("dose_worker")
+        self._release_worker("drr_worker", cancel=True)
+        self._release_worker("bev_struct_worker", cancel=True)
+        self._release_worker("postprocess_runner", cancel=True)
+        self._release_progress_dialog()
+        if hasattr(self, "drr_dialog") and self.drr_dialog is not None:
+            dlg = self.drr_dialog
+            self.drr_dialog = None
+            try:
+                dlg.close()
+            except Exception:
+                pass
+            self._dispose_qt_child(dlg)
 
-        if hasattr(self, "postprocess_runner") and self.postprocess_runner is not None and self.postprocess_runner.isRunning():
-            self.postprocess_runner.cancel()
-            self.postprocess_runner.wait(1000)
+        # Free any orphaned worker/progress children left from synchronous modal loaders
+        for ch in list(self.children()):
+            if "Worker" in type(ch).__name__ or "Dialog" in type(ch).__name__ or "Runner" in type(ch).__name__:
+                self._dispose_qt_child(ch)
 
         self.viewer.clear_viewer()
         if hasattr(self, "viewer_derived"):
@@ -1916,8 +1982,10 @@ class DicomViewerPanel(QWidget):
         if hasattr(self, "btn_mpr"):
             self.btn_mpr.setChecked(False)
         if hasattr(self, "mpr_container"):
+            self.mpr_container.clear_volume()
             self.mpr_container.hide()
         if hasattr(self, "mpr_container_derived"):
+            self.mpr_container_derived.clear_volume()
             self.mpr_container_derived.hide()
 
         self.derived_files = []
@@ -1956,6 +2024,8 @@ class DicomViewerPanel(QWidget):
         self.dose_files.clear()
         self.plan_files.clear()
         self.plans_info = []
+        self.current_dose_data = {}
+        self._pre_bev_enabled_structures = set()
 
         self.cb_plan.blockSignals(True)
         self.cb_plan.clear()
@@ -1993,6 +2063,7 @@ class DicomViewerPanel(QWidget):
         self.current_index = -1
         self.is_loading = False
         self.update_buttons_style()
+        QPixmapCache.clear()
         gc.collect()
 
     def load_series(self, files: list[str]) -> None:
@@ -2007,6 +2078,10 @@ class DicomViewerPanel(QWidget):
         self.mpr_ipp0_derived = None
         self.mpr_spacing_derived = None
         self.mpr_spline_derived = None
+        if hasattr(self, "mpr_container"):
+            self.mpr_container.clear_volume()
+        if hasattr(self, "mpr_container_derived"):
+            self.mpr_container_derived.clear_volume()
         self._derived_initial_cursor = None
         self._last_mpr_orig_xy = None
         self._last_mpr_der_xy = None
@@ -2194,9 +2269,8 @@ class DicomViewerPanel(QWidget):
         self.set_left_panel_collapsed(not has_rt)
 
         if not self.sorted_files:
-            if self.progress_dialog:
-                self.progress_dialog.accept()
-                self.progress_dialog = None
+            self._release_progress_dialog(accept=True)
+            self._release_worker("loader_worker")
             self.lbl_info.setText(tr_ui("viewer_err_no_valid_dicom"))
             self.viewer.set_slice_info(0, 0)
             self.is_loading = False
@@ -2228,16 +2302,16 @@ class DicomViewerPanel(QWidget):
             self.update_buttons_style()
 
         if self.progress_dialog:
-            self.progress_dialog.accept()
-            self.progress_dialog = None
+            self._release_progress_dialog(accept=True)
+        self._release_worker("loader_worker")
 
     def _on_series_load_error(self, error_msg: str) -> None:
         if self.loader_worker and getattr(self.loader_worker, '_is_cancelled', False):
+            self._release_worker("loader_worker")
             return
 
-        if self.progress_dialog:
-            self.progress_dialog.reject()
-            self.progress_dialog = None
+        self._release_progress_dialog(accept=False)
+        self._release_worker("loader_worker")
         self.lbl_info.setText(error_msg)
         self.viewer.set_slice_info(0, 0)
         self.is_loading = False
@@ -2410,6 +2484,8 @@ class DicomViewerPanel(QWidget):
         self.mpr_ipp0_derived = None
         self.mpr_spacing_derived = None
         self.mpr_spline_derived = None
+        if hasattr(self, "mpr_container_derived"):
+            self.mpr_container_derived.clear_volume()
         self._derived_initial_cursor = list(initial_cursor) if initial_cursor is not None else None
         self._last_mpr_der_xy = None
         self.pixmap_cache.clear()
@@ -2547,6 +2623,8 @@ class DicomViewerPanel(QWidget):
 
         progress_dialog.exec()
         worker.wait()
+        self._dispose_qt_child(worker)
+        self._dispose_qt_child(progress_dialog)
 
         if need_orig and self.mpr_vol_orig is None:
             return False
@@ -3283,20 +3361,16 @@ class DicomViewerPanel(QWidget):
         self.progress_dialog.exec()
 
     def _on_cancel_postprocess(self) -> None:
-        if hasattr(self, "postprocess_runner") and self.postprocess_runner is not None:
-            self.postprocess_runner.cancel()
-        if self.progress_dialog:
-            self.progress_dialog.reject()
-            self.progress_dialog = None
+        self._release_worker("postprocess_runner", cancel=True)
+        self._release_progress_dialog(accept=False)
 
     def _on_postprocess_progress(self, current: int, total: int, text: str) -> None:
         if self.progress_dialog:
             self.progress_dialog.set_custom_progress(current, total, f"{tr_ui('viewer_postprocessing_running')} {text}")
 
     def _on_postprocess_finished(self, result: dict, target_view_mode: str) -> None:
-        if self.progress_dialog:
-            self.progress_dialog.accept()
-            self.progress_dialog = None
+        self._release_progress_dialog(accept=True)
+        self._release_worker("postprocess_runner")
 
         success_count = result.get("success", 0)
         errors = result.get("errors", [])
@@ -3340,9 +3414,8 @@ class DicomViewerPanel(QWidget):
             self.load_series(all_files)
 
     def _on_postprocess_error(self, err_msg: str) -> None:
-        if self.progress_dialog:
-            self.progress_dialog.reject()
-            self.progress_dialog = None
+        self._release_progress_dialog(accept=False)
+        self._release_worker("postprocess_runner")
         log_error(f"[Postprocessing] Error: {err_msg}")
         dlg = QMessageBox(self)
         dlg.setIcon(QMessageBox.Icon.Warning)
@@ -3596,8 +3669,8 @@ class DicomViewerPanel(QWidget):
             height, width = arr.shape
             bytes_per_line = width
 
-            self._temp_arr = np.ascontiguousarray(arr)
-            qimg = QImage(self._temp_arr.data, width, height, bytes_per_line, QImage.Format.Format_Grayscale8)
+            c_arr = np.ascontiguousarray(arr)
+            qimg = QImage(c_arr.data, width, height, bytes_per_line, QImage.Format.Format_Grayscale8)
             return QPixmap.fromImage(qimg)
         except Exception:
             return None
