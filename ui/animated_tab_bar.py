@@ -139,7 +139,7 @@ class AnimatedSegmentedTabBar(QTabBar):
                 badge.update()
 
     def active_ratio_for_index(self, index: int) -> float:
-        """Return how much of tab[index]'s inner pill span is covered by the sliding indicator [0..1]."""
+        """Return how much of tab[index] is covered by the sliding indicator [0..1]."""
         if index < 0 or index >= self.count():
             return 0.0
         if not self._slider_initialized or self._slider_w <= 0.0:
@@ -147,10 +147,10 @@ class AnimatedSegmentedTabBar(QTabBar):
         r = self.tabRect(index)
         if r.width() <= 0:
             return 0.0
-        slider_l = self._slider_x + 2.0
-        slider_r = slider_l + max(12.0, self._slider_w - 4.0)
-        pill_span = max(1.0, float(r.width()) - 4.0)
-        tab_l = float(r.left()) + 2.0
+        slider_l = self._slider_x
+        slider_r = slider_l + max(12.0, self._slider_w)
+        pill_span = max(1.0, float(r.width()))
+        tab_l = float(r.left())
         tab_r = tab_l + pill_span
         overlap = max(0.0, min(tab_r, slider_r) - max(tab_l, slider_l))
         return max(0.0, min(1.0, overlap / pill_span))
@@ -291,64 +291,79 @@ class AnimatedSegmentedTabBar(QTabBar):
         p.setRenderHint(_RENDER_AA, True)
         p.setRenderHint(_RENDER_TEXT_AA, True)
 
-        # 1. Neutral mid-grey container track matching original #464646 theme cue
-        track_rect = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
+        # 1. Neutral mid-grey container track clipped cleanly to 7px pill silhouette
+        clip_path = QPainterPath()
+        clip_path.addRoundedRect(QRectF(0.0, 0.0, w, h), 7.0, 7.0)
+        p.save()
+        p.setClipPath(clip_path)
+
         track_grad = QLinearGradient(0.0, 0.0, 0.0, h)
         track_grad.setColorAt(0.0, QColor("#4a4a4a"))
         track_grad.setColorAt(1.0, QColor("#414141"))
-        p.setPen(QPen(QColor("#5a5a5a"), 1.0))
+        p.setPen(Qt.PenStyle.NoPen if hasattr(Qt, "PenStyle") else Qt.NoPen)
         p.setBrush(QBrush(track_grad))
-        p.drawRoundedRect(track_rect, 7.0, 7.0)
+        p.drawRect(QRectF(0.0, 0.0, w, h))
 
-        slider_l = self._slider_x + 2.0
-        slider_r = slider_l + max(12.0, self._slider_w - 4.0)
+        # Subtle outer border drawn underneath active pill so active tab fills edge-to-edge
+        p.setPen(QPen(QColor("#575757"), 1.0))
+        p.setBrush(Qt.BrushStyle.NoBrush if hasattr(Qt, "BrushStyle") else Qt.NoBrush)
+        p.drawRoundedRect(QRectF(0.5, 0.5, w - 1.0, h - 1.0), 6.5, 6.5)
 
-        # 2. Hover pills for inactive tabs
+        slider_l = self._slider_x
+        slider_r = slider_l + max(12.0, self._slider_w)
+
+        # 2. Full-height hover highlight on inactive tabs
         for i in range(self.count()):
             hv = self._hover_levels[i] if i < len(self._hover_levels) else 0.0
             if hv <= 0.01 or i == self.currentIndex():
                 continue
             r = self.tabRect(i)
-            hr = QRectF(r).adjusted(2.0, 3.0, -2.0, -3.0)
+            hr = QRectF(float(r.left()), 0.0, float(r.width()), h)
             p.setPen(Qt.PenStyle.NoPen if hasattr(Qt, "PenStyle") else Qt.NoPen)
-            p.setBrush(QBrush(QColor(255, 255, 255, int(round(34.0 * hv)))))
-            p.drawRoundedRect(hr, 5.0, 5.0)
+            p.setBrush(QBrush(QColor(255, 255, 255, int(round(32.0 * hv)))))
+            p.drawRect(hr)
 
         # 3. Subtle vertical dividers between inactive neighbors away from active pill
         for i in range(self.count() - 1):
             r_cur = self.tabRect(i)
             sep_x = float(r_cur.right()) + 0.5
-            # Hide divider if slider or strong hover touches either adjacent tab
-            near_slider = (slider_l - 6.0) <= sep_x <= (slider_r + 6.0)
+            near_slider = (slider_l - 4.0) <= sep_x <= (slider_r + 4.0)
             hv_l = self._hover_levels[i] if i < len(self._hover_levels) else 0.0
             hv_r = self._hover_levels[i + 1] if (i + 1) < len(self._hover_levels) else 0.0
             fade = max(0.0, 1.0 - max(hv_l, hv_r))
             if not near_slider and fade > 0.05:
                 p.setPen(QPen(QColor(255, 255, 255, int(round(32.0 * fade))), 1.0))
-                p.drawLine(QPointF(sep_x, 8.0), QPointF(sep_x, h - 8.0))
+                p.drawLine(QPointF(sep_x, 7.0), QPointF(sep_x, h - 7.0))
 
-        # 4. Crisp sliding active indicator pill
+        # 4. Full-bleed sliding active blue button with zero grey border around it
         if self._slider_w > 4.0:
-            press_inset = 0.5 if self._pressed_index == self.currentIndex() else 0.0
+            press_inset = 0.4 if self._pressed_index == self.currentIndex() else 0.0
+            pill_w = max(12.0, self._slider_w)
             pill_rect = QRectF(
                 slider_l + press_inset,
-                3.0 + press_inset,
-                max(10.0, self._slider_w - 4.0 - press_inset * 2.0),
-                max(8.0, h - 6.0 - press_inset * 2.0),
+                press_inset,
+                max(10.0, pill_w - press_inset * 2.0),
+                max(8.0, h - press_inset * 2.0),
             )
             pill_grad = QLinearGradient(0.0, pill_rect.top(), 0.0, pill_rect.bottom())
             pill_grad.setColorAt(0.0, QColor("#2562a6"))
             pill_grad.setColorAt(1.0, QColor("#1c4c82"))
-            p.setPen(QPen(QColor("#397cc4"), 1.0))
+            p.setPen(Qt.PenStyle.NoPen if hasattr(Qt, "PenStyle") else Qt.NoPen)
             p.setBrush(QBrush(pill_grad))
-            p.drawRoundedRect(pill_rect, 5.0, 5.0)
+            p.drawRoundedRect(pill_rect, 7.0, 7.0)
 
-            # Fine top highlight hair-line inside active pill for crisp tactile depth
-            p.setPen(QPen(QColor(175, 215, 255, 72), 1.0))
+            # Fine crisp edge contour inside active pill + subtle top light edge
+            p.setPen(QPen(QColor("#3878c0"), 1.0))
+            p.setBrush(Qt.BrushStyle.NoBrush if hasattr(Qt, "BrushStyle") else Qt.NoBrush)
+            p.drawRoundedRect(pill_rect.adjusted(0.5, 0.5, -0.5, -0.5), 6.5, 6.5)
+
+            p.setPen(QPen(QColor(175, 215, 255, 65), 1.0))
             p.drawLine(
-                QPointF(pill_rect.left() + 5.0, pill_rect.top() + 1.0),
-                QPointF(pill_rect.right() - 5.0, pill_rect.top() + 1.0),
+                QPointF(pill_rect.left() + 6.0, pill_rect.top() + 1.0),
+                QPointF(pill_rect.right() - 6.0, pill_rect.top() + 1.0),
             )
+
+        p.restore()
 
         # 5. Tab labels smoothly cross-faded as the active slider sweeps across tabs
         p.setFont(self._font)
