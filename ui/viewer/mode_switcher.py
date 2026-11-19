@@ -107,6 +107,13 @@ def _sd_capsule_vec(
     return np.sqrt(dx * dx + dy * dy) - np.float32(r)
 
 
+def _smin_poly(a: np.ndarray, b: np.ndarray, k: float) -> np.ndarray:
+    """Polynomial smooth-minimum (Inigo Quilez) for viscous metaball droplet blending."""
+    kf = np.float32(max(0.5, k))
+    h = np.clip(np.float32(0.5) + np.float32(0.5) * (b - a) / kf, np.float32(0.0), np.float32(1.0))
+    return b * (np.float32(1.0) - h) + a * h - kf * h * (np.float32(1.0) - h)
+
+
 def _qimage_to_rgba_float(img: QImage) -> np.ndarray:
     """Convert QImage into float32 (H, W, 4) in [0..1] RGBA order."""
     rgba_img = img.convertToFormat(_FMT_RGBA8888)
@@ -154,13 +161,14 @@ def _sample_bilinear_rgb_dispersed(
 
 class LiquidModeBar(QWidget):
     """
-    Real-time Shallow-Water Wave & Liquid Glass mode switcher:
-    - 1D damped wave equation (eta, vel) running at ~60 FPS only when active
-      so clicks, hovers, and target collisions send real reflecting surface
-      waves and visible meniscus ripples across the droplet.
-    - Stretched waist SDF with asymmetric surge + squash-and-stretch settle.
+    Real-time 2D Shallow-Water Wave & Liquid Glass mode switcher:
+    - Isotropic 2D damped wave equation eta(y, x) running at ~60 FPS only while active
+      so pointer clicks, drags, and collisions send concentric ripples across the lens
+      and asymmetrically deflect top/bottom meniscus edges.
+    - Viscous metaball break-up & coalescence (smin satellite droplet on long jumps),
+      inertial top-ridge slosh, and interactive drag-to-slide gesture.
     - Native DPR rendering (1x crisp glyph clarity on 1080p, 2x on HiDPI)
-      for ultra-fast ~2-4ms frames with noticeable 1.12x optical lens refraction.
+      with capped optical magnification, R/G/B dispersion, Fresnel & Blinn-Phong speculars.
     """
 
     def __init__(self, buttons: list[QPushButton], parent: QWidget | None = None) -> None:
@@ -214,8 +222,20 @@ class LiquidModeBar(QWidget):
         self._anim_progress = 1.0
         self._geom_initialized = False
         self._impact_injected = True
+        self._satellite_merged = True
 
-        # 1D shallow-water height & velocity fields along horizontal droplet span
+        # Interactive drag-to-slide and volume slosh inertia state
+        self._press_btn: QPushButton | None = None
+        self._press_start_pos: QPointF | None = None
+        self._press_in_droplet = False
+        self._dragging = False
+        self._drag_offset_x = 0.0
+        self._drag_width = 0.0
+        self._last_drag_x = 0.0
+        self._slosh_inertia = 0.0
+        self._prev_mid_x = 0.0
+
+        # 2D shallow-water height & velocity fields (sh, sw) across droplet surface
         self._wave_eta: np.ndarray | None = None
         self._wave_vel: np.ndarray | None = None
 
@@ -269,56 +289,107 @@ class LiquidModeBar(QWidget):
         for btn in self._buttons:
             btn.setStyleSheet(btn_style)
 
-    def _inject_wave_impulse(self, center_x_px: float, amplitude: float, sigma_px: float = 10.0) -> None:
-        """Inject a localized vertical wave impulse into the 1D water surface solver."""
-        sw = max(16, self.width() * self._ss)
-        if self._wave_eta is None or self._wave_eta.shape[0] != sw:
-            self._wave_eta = np.zeros(sw, dtype=np.float32)
-            self._wave_vel = np.zeros(sw, dtype=np.float32)
+    def _ensure_wave_buffers(self, sw: int, sh: int) -> None:
+        if (
+            self._wave_eta is None
+            or self._wave_vel is None
+            or self._wave_eta.shape != (sh, sw)
+        ):
+            self._wave_eta = np.zeros((sh, sw), dtype=np.float32)
+            self._wave_vel = np.zeros((sh, sw), dtype=np.float32)
+
+    def _inject_wave_impulse(
+        self,
+        center_x_px: float,
+        amplitude: float,
+        sigma_px: float = 10.0,
+        center_y_px: float | None = None,
+    ) -> None:
+        """Inject a localized 2D radial wave impulse into the water surface solver."""
+        ss = self._ss
+        sw = max(16, self.width() * ss)
+        sh = max(8, self.height() * ss)
+        self._ensure_wave_buffers(sw, sh)
+
         xs = np.arange(sw, dtype=np.float32) + np.float32(0.5)
-        cx = np.float32(center_x_px * self._ss)
-        sig = np.float32(max(2.0, sigma_px * self._ss))
-        pulse = np.float32(amplitude) * np.exp(-((xs - cx) ** 2) / (np.float32(2.0) * sig * sig))
+        ys = np.arange(sh, dtype=np.float32) + np.float32(0.5)
+        cx = np.float32(center_x_px * ss)
+        cy = np.float32((center_y_px if center_y_px is not None else self.height() * 0.5) * ss)
+        sig = np.float32(max(2.5, sigma_px * ss))
+        inv_2sig2 = np.float32(-1.0) / (np.float32(2.0) * sig * sig)
+
+        dx2 = (xs - cx) ** 2
+        dy2 = (ys - cy) ** 2
+        pulse = np.float32(amplitude) * np.exp((dy2[:, None] + dx2[None, :]) * inv_2sig2)
         self._wave_vel += pulse
         if not self._wave_timer.isActive() and self.isVisible():
             self._wave_timer.start()
 
     def _step_shallow_water_wave(self) -> None:
-        """Advance damped 1D shallow-water wave PDE with reflecting walls around droplet span."""
+        """Advance damped 2D isotropic shallow-water wave PDE inside current droplet."""
         if self._wave_eta is None or self._wave_vel is None or not self.isVisible():
             self._wave_timer.stop()
             return
 
         eta = self._wave_eta
         vel = self._wave_vel
-        sw = eta.shape[0]
-        l_idx = max(1, min(sw - 3, int(self._cur_left * self._ss)))
-        r_idx = max(l_idx + 2, min(sw - 1, int(self._cur_right * self._ss)))
+        sh, sw = eta.shape
+        ss = self._ss
+        l_idx = max(1, min(sw - 4, int(self._cur_left * ss)))
+        r_idx = max(l_idx + 3, min(sw - 1, int(self._cur_right * ss)))
+        t_idx = max(1, min(sh // 2 - 2, int(max(1.0, self._pad * 0.5) * ss)))
+        b_idx = max(t_idx + 3, min(sh - 1, sh - int(max(1.0, self._pad * 0.5) * ss)))
 
-        # Zero wave outside current droplet boundaries (reflective meniscus wall condition)
+        # Decay ripples cleanly outside moving droplet domain
         if l_idx > 0:
-            eta[:l_idx] *= np.float32(0.5)
-            vel[:l_idx] *= np.float32(0.5)
+            eta[:, :l_idx] *= np.float32(0.45)
+            vel[:, :l_idx] *= np.float32(0.45)
         if r_idx < sw:
-            eta[r_idx:] *= np.float32(0.5)
-            vel[r_idx:] *= np.float32(0.5)
+            eta[:, r_idx:] *= np.float32(0.45)
+            vel[:, r_idx:] *= np.float32(0.45)
+        if t_idx > 0:
+            eta[:t_idx, :] *= np.float32(0.55)
+            vel[:t_idx, :] *= np.float32(0.55)
+        if b_idx < sh:
+            eta[b_idx:, :] *= np.float32(0.55)
+            vel[b_idx:, :] *= np.float32(0.55)
 
-        c2 = np.float32(0.16)
-        damp = np.float32(0.955)
-        for _ in range(3):
-            lap = eta[l_idx + 1:r_idx + 1] - np.float32(2.0) * eta[l_idx:r_idx] + eta[l_idx - 1:r_idx - 1]
-            vel[l_idx:r_idx] = vel[l_idx:r_idx] * damp + c2 * lap
-            eta[l_idx:r_idx] += vel[l_idx:r_idx]
-            # Reflective boundary values at meniscus walls
-            eta[l_idx - 1] = eta[l_idx]
+        c2 = np.float32(0.14)
+        damp = np.float32(0.962)
+        ym = slice(t_idx, b_idx)
+        yp = slice(t_idx + 1, b_idx + 1)
+        yn = slice(t_idx - 1, b_idx - 1)
+        xm = slice(l_idx, r_idx)
+        xp = slice(l_idx + 1, r_idx + 1)
+        xn = slice(l_idx - 1, r_idx - 1)
+
+        for _ in range(2):
+            # 9-point isotropic Laplacian gives circular ripples rather than diamond waves
+            lap = (
+                np.float32(0.20) * (eta[yn, xm] + eta[yp, xm] + eta[ym, xn] + eta[ym, xp])
+                + np.float32(0.05) * (eta[yn, xn] + eta[yn, xp] + eta[yp, xn] + eta[yp, xp])
+                - eta[ym, xm]
+            ) * np.float32(4.0)
+            vel[ym, xm] = vel[ym, xm] * damp + c2 * lap
+            eta[ym, xm] += vel[ym, xm]
+            # Reflective boundary conditions at top/bottom, left/right meniscus walls & corners
+            eta[ym, l_idx - 1] = eta[ym, l_idx]
             if r_idx < sw:
-                eta[r_idx] = eta[r_idx - 1]
+                eta[ym, r_idx] = eta[ym, r_idx - 1]
+            hi_x = min(sw, r_idx + 1)
+            eta[t_idx - 1, l_idx - 1:hi_x] = eta[t_idx, l_idx - 1:hi_x]
+            if b_idx < sh:
+                eta[b_idx, l_idx - 1:hi_x] = eta[b_idx - 1, l_idx - 1:hi_x]
 
-        np.clip(eta, np.float32(-1.2), np.float32(1.2), out=eta)
+        np.clip(eta, np.float32(-1.1), np.float32(1.1), out=eta)
+        # Decay slosh inertia gently toward zero when settling
+        if not self._dragging and not self._is_animating():
+            self._slosh_inertia *= 0.80
         energy = float(np.max(np.abs(eta)) + np.max(np.abs(vel)))
-        if energy < 2e-3 and not self._is_animating():
+        if energy < 2.2e-3 and abs(self._slosh_inertia) < 0.02 and not self._is_animating() and not self._dragging:
             eta.fill(0.0)
             vel.fill(0.0)
+            self._slosh_inertia = 0.0
             self._wave_timer.stop()
         self.update()
 
@@ -344,11 +415,24 @@ class LiquidModeBar(QWidget):
         self._cur_left = max(min_l, min(max_r - 12.0, raw_l))
         self._cur_right = min(max_r, max(self._cur_left + 12.0, raw_r))
 
-        # Trigger physical landing splash wave as leading front strikes target edge
+        cur_mid = (self._cur_left + self._cur_right) * 0.5
+        if self._prev_mid_x > 0.0:
+            delta_mid = cur_mid - self._prev_mid_x
+            self._slosh_inertia = max(-1.0, min(1.0, self._slosh_inertia * 0.72 + delta_mid * 0.14))
+        self._prev_mid_x = cur_mid
+
+        # Trigger 2D landing splash wave as leading front strikes target edge
         if not self._impact_injected and self._anim_progress >= 0.52:
             self._impact_injected = True
             hit_x = (self._target_right - 10.0) if self._moving_right else (self._target_left + 10.0)
-            self._inject_wave_impulse(hit_x, amplitude=0.26, sigma_px=15.0)
+            self._inject_wave_impulse(hit_x, amplitude=0.28, sigma_px=14.0)
+
+        # Trigger secondary coalesce ripple when trailing metaball satellite catches up
+        if not self._satellite_merged and self._anim_progress >= 0.68:
+            self._satellite_merged = True
+            if abs(self._target_left - self._start_left) > max(48.0, float(self.width()) * 0.28):
+                merge_x = (self._cur_left + 10.0) if self._moving_right else (self._cur_right - 10.0)
+                self._inject_wave_impulse(merge_x, amplitude=0.22, sigma_px=9.5)
 
         self.update()
 
@@ -367,6 +451,101 @@ class LiquidModeBar(QWidget):
         self._press_anim.setEndValue(1.0 if pressed else 0.0)
         self._press_anim.start()
 
+    def _event_pos_in_self(self, src_obj, event) -> QPointF:
+        if hasattr(event, "position"):
+            local_pt = event.position()
+        elif hasattr(event, "pos"):
+            local_pt = QPointF(event.pos())
+        else:
+            local_pt = QPointF(src_obj.width() * 0.5, src_obj.height() * 0.5)
+        if src_obj is self:
+            return QPointF(local_pt)
+        return QPointF(src_obj.mapTo(self, local_pt.toPoint()))
+
+    def _nearest_button_for_x(self, cx: float) -> QPushButton | None:
+        best_btn = None
+        best_dist = float("inf")
+        for btn in self._buttons:
+            if btn.width() <= 0:
+                continue
+            d = abs(float(btn.geometry().center().x()) - cx)
+            if d < best_dist:
+                best_dist = d
+                best_btn = btn
+        return best_btn
+
+    def _update_drag(self, pt: QPointF) -> None:
+        dx = float(pt.x() - self._last_drag_x)
+        self._last_drag_x = float(pt.x())
+        self._hover_pos = QPointF(pt)
+        self._slosh_inertia = max(-1.0, min(1.0, self._slosh_inertia * 0.72 + dx * 0.18))
+
+        desired_cx = float(pt.x()) + self._drag_offset_x
+        nearest = self._nearest_button_for_x(desired_cx)
+        target_w = float(nearest.width()) if nearest is not None else self._drag_width
+        # Smoothly adapt lens width as the user drags across narrow/wide mode labels
+        self._drag_width = self._drag_width * 0.80 + target_w * 0.20
+
+        min_l = float(self._pad)
+        max_r = max(min_l + 24.0, float(self.width() - self._pad))
+        half_w = self._drag_width * 0.5
+        clamped_cx = max(min_l + half_w, min(max_r - half_w, desired_cx))
+
+        self._cur_left = clamped_cx - half_w
+        self._cur_right = clamped_cx + half_w
+        self._prev_mid_x = clamped_cx
+        if abs(dx) > 1.0:
+            self._inject_wave_impulse(
+                pt.x(),
+                amplitude=max(-0.20, min(0.20, -abs(dx) * 0.03)),
+                sigma_px=8.0,
+                center_y_px=pt.y(),
+            )
+        self.update()
+
+    def _finish_drag(self) -> None:
+        if self._dragging:
+            try:
+                self.releaseMouse()
+            except Exception:
+                pass
+        self._dragging = False
+        self._press_in_droplet = False
+        self._press_btn = None
+        self._press_start_pos = None
+        self._animate_press(False)
+
+        cx = (self._cur_left + self._cur_right) * 0.5
+        target_btn = self._nearest_button_for_x(cx)
+        if target_btn is not None:
+            if target_btn.isChecked():
+                self.animate_to_button(target_btn)
+            else:
+                target_btn.setChecked(True)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._dragging:
+            self._update_drag(self._event_pos_in_self(self, event))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if self._dragging:
+            self._finish_drag()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def hideEvent(self, event) -> None:
+        if self._dragging:
+            self._dragging = False
+            try:
+                self.releaseMouse()
+            except Exception:
+                pass
+        super().hideEvent(event)
+
     def eventFilter(self, obj, event) -> bool:
         if obj in self._buttons:
             et = event.type()
@@ -376,40 +555,71 @@ class LiquidModeBar(QWidget):
             leave_t = getattr(QEvent.Type, "Leave", getattr(QEvent, "Leave", None))
             press_t = getattr(QEvent.Type, "MouseButtonPress", getattr(QEvent, "MouseButtonPress", None))
             release_t = getattr(QEvent.Type, "MouseButtonRelease", getattr(QEvent, "MouseButtonRelease", None))
+            l_btn = Qt.MouseButton.LeftButton if hasattr(Qt, "MouseButton") else Qt.LeftButton
 
             idx = self._buttons.index(obj)
             if et in (enter_t, hover_t, mouse_move_t):
                 self._hover_btn_idx = idx
-                if hasattr(event, "position"):
-                    local_pt = event.position()
-                elif hasattr(event, "pos"):
-                    local_pt = QPointF(event.pos())
-                else:
-                    local_pt = QPointF(obj.width() * 0.5, obj.height() * 0.5)
-                pt = QPointF(obj.mapTo(self, local_pt.toPoint()))
+                pt = self._event_pos_in_self(obj, event)
+                if self._press_in_droplet and hasattr(event, "buttons") and (event.buttons() & l_btn):
+                    if (
+                        not self._dragging
+                        and self._press_start_pos is not None
+                        and abs(pt.x() - self._press_start_pos.x()) > 4.0
+                    ):
+                        self._dragging = True
+                        self._anim.stop()
+                        self._anim_progress = 1.0
+                        self._impact_injected = True
+                        self._satellite_merged = True
+                        if self._press_btn is not None:
+                            self._press_btn.setDown(False)
+                        self._drag_offset_x = (self._cur_left + self._cur_right) * 0.5 - float(self._press_start_pos.x())
+                        self._drag_width = max(36.0, self._cur_right - self._cur_left)
+                        self._last_drag_x = float(self._press_start_pos.x())
+                        if self.isVisible():
+                            self.grabMouse()
+                    if self._dragging:
+                        self._update_drag(pt)
+                        return True
+
                 prev_pt = self._hover_pos
                 self._hover_pos = pt
-                # Subtle micro-ripple if pointer sweeps directly across active droplet surface
+                # Subtle radial 2D ripple when cursor sweeps across the active droplet surface
                 if (
                     prev_pt is not None
-                    and abs(pt.x() - prev_pt.x()) > 3.5
+                    and math.hypot(pt.x() - prev_pt.x(), pt.y() - prev_pt.y()) > 3.5
                     and self._cur_left <= pt.x() <= self._cur_right
                 ):
-                    self._inject_wave_impulse(pt.x(), amplitude=-0.055, sigma_px=6.5)
+                    self._inject_wave_impulse(pt.x(), amplitude=-0.065, sigma_px=7.0, center_y_px=pt.y())
                 self.update()
             elif et == leave_t:
+                if self._dragging:
+                    return True
                 if self._hover_btn_idx == idx:
                     self._hover_btn_idx = -1
                 if not self.rect().contains(self.mapFromGlobal(self.cursor().pos())):
                     self._hover_pos = None
                 self.update()
             elif et == press_t:
-                l_btn = Qt.MouseButton.LeftButton if hasattr(Qt, "MouseButton") else Qt.LeftButton
                 if event.button() == l_btn:
+                    pt = self._event_pos_in_self(obj, event)
                     self._animate_press(True)
-                    cx = float(obj.geometry().center().x())
-                    self._inject_wave_impulse(cx, amplitude=-0.22, sigma_px=11.0)
+                    self._inject_wave_impulse(pt.x(), amplitude=-0.26, sigma_px=10.5, center_y_px=pt.y())
+                    if self._cur_left - 2.0 <= pt.x() <= self._cur_right + 2.0:
+                        self._press_in_droplet = True
+                        self._press_btn = obj
+                        self._press_start_pos = pt
+                        self._last_drag_x = float(pt.x())
+                    else:
+                        self._press_in_droplet = False
+                        self._press_btn = None
             elif et == release_t:
+                self._press_in_droplet = False
+                self._press_btn = None
+                if self._dragging:
+                    self._finish_drag()
+                    return True
                 self._animate_press(False)
         return super().eventFilter(obj, event)
 
@@ -439,8 +649,18 @@ class LiquidModeBar(QWidget):
         """Immediately snap the droplet to the active button and settle wave state."""
         self._anim.stop()
         self._wave_timer.stop()
+        if self._dragging:
+            self._dragging = False
+            try:
+                self.releaseMouse()
+            except Exception:
+                pass
+        self._press_in_droplet = False
+        self._press_btn = None
         self._anim_progress = 1.0
         self._impact_injected = True
+        self._satellite_merged = True
+        self._slosh_inertia = 0.0
         if self._wave_eta is not None:
             self._wave_eta.fill(0.0)
         if self._wave_vel is not None:
@@ -450,6 +670,7 @@ class LiquidModeBar(QWidget):
             self._cur_left, self._cur_right = span
             self._start_left, self._start_right = span
             self._target_left, self._target_right = span
+            self._prev_mid_x = (span[0] + span[1]) * 0.5
             self._geom_initialized = True
         self.update()
 
@@ -461,12 +682,14 @@ class LiquidModeBar(QWidget):
             self._cur_left, self._cur_right = span
             self._start_left, self._start_right = span
             self._target_left, self._target_right = span
+            self._prev_mid_x = (span[0] + span[1]) * 0.5
             self._geom_initialized = True
             self.update()
             return
 
         new_l, new_r = span
-        if abs(new_l - self._target_left) < 0.5 and abs(new_r - self._target_right) < 0.5 and self._anim_progress >= 1.0:
+        if abs(new_l - self._cur_left) < 0.5 and abs(new_r - self._cur_right) < 0.5 and not self._is_animating():
+            self._target_left, self._target_right = span
             return
 
         self._anim.stop()
@@ -476,12 +699,14 @@ class LiquidModeBar(QWidget):
         self._target_right = new_r
         cur_cx = (self._cur_left + self._cur_right) * 0.5
         tgt_cx = (new_l + new_r) * 0.5
+        self._prev_mid_x = cur_cx
         self._moving_right = tgt_cx >= cur_cx
         self._impact_injected = False
+        self._satellite_merged = False
 
-        # Launch surge wave impulse from the leaving edge of the droplet
+        # Launch surge 2D wave impulse from the leaving edge of the droplet
         launch_x = (self._cur_right - 10.0) if self._moving_right else (self._cur_left + 10.0)
-        self._inject_wave_impulse(launch_x, amplitude=0.22, sigma_px=14.0)
+        self._inject_wave_impulse(launch_x, amplitude=0.24, sigma_px=13.5)
 
         self._anim.setStartValue(0.0)
         self._anim.setEndValue(1.0)
@@ -607,15 +832,33 @@ class LiquidModeBar(QWidget):
             np.float32(1.0),
         )
         self._bg_bright = self._render_backdrop_layer(bright=True, ss=ss)
-        if self._wave_eta is None or self._wave_eta.shape[0] != sw:
-            self._wave_eta = np.zeros(sw, dtype=np.float32)
-            self._wave_vel = np.zeros(sw, dtype=np.float32)
+        self._ensure_wave_buffers(sw, sh)
         self._cache_key = key
 
+    def _satellite_state(self) -> tuple[float, float] | None:
+        """Compute detached trailing metaball satellite position and radius during long jumps."""
+        if self._dragging:
+            return None
+        t = float(self._anim_progress)
+        span_dist = abs(self._target_left - self._start_left)
+        if not (0.16 < t < 0.72) or span_dist <= max(48.0, float(self.width()) * 0.28):
+            return None
+        t_u = (t - 0.16) / 0.56
+        r_sat = 4.6 * (math.sin(math.pi * t_u) ** 0.42)
+        if r_sat < 1.5:
+            return None
+        lag_px = (20.0 if span_dist > 95.0 else 13.0) * (math.sin(math.pi * t_u) ** 1.1)
+        if self._moving_right:
+            sat_cx = max(float(self._pad) + r_sat + 2.0, (self._cur_left + 9.0) - lag_px)
+        else:
+            sat_cx = min(float(self.width() - self._pad) - r_sat - 2.0, (self._cur_right - 9.0) + lag_px)
+        return sat_cx, r_sat
+
     def _evaluate_liquid_sdf(self) -> tuple[np.ndarray, float, np.ndarray]:
-        """Compute waist-modulated droplet SDF and wave displacement field."""
+        """Compute waist-modulated metaball droplet SDF, inertial slosh, and 2D wave surface."""
         ss = self._ss
         gx, gy = self._gx, self._gy
+        sh, sw = gx.shape
         h = float(self.height())
         cy = np.float32(h * 0.5 * ss)
         t = float(self._anim_progress)
@@ -624,7 +867,7 @@ class LiquidModeBar(QWidget):
         press_y = -1.2 * self._press_depth
 
         # Visible elastic squash-and-stretch on landing (0.56..1.0)
-        if 0.56 <= t < 1.0:
+        if 0.56 <= t < 1.0 and not self._dragging:
             p = (t - 0.56) / 0.44
             wobble = math.sin(p * math.pi * 2.4) * math.exp(-2.8 * p)
         else:
@@ -640,7 +883,7 @@ class LiquidModeBar(QWidget):
         extra_stretch = max(0.0, cur_w - max(rest_w, self._start_right - self._start_left))
 
         r_local = np.full(gx.shape, np.float32(r_base), dtype=np.float32)
-        if 0.01 < t < 0.78 and span_dist > 8.0:
+        if not self._dragging and 0.01 < t < 0.78 and span_dist > 8.0:
             env = math.sin(math.pi * _clamp01(t / 0.78))
             pinch_amp = min(5.4 * ss, (extra_stretch / max(20.0, span_dist)) * 5.2 * ss * env + 1.6 * ss * env)
             mid_x = np.float32((l_main + r_main) * 0.5)
@@ -649,22 +892,55 @@ class LiquidModeBar(QWidget):
             norm_x = np.clip((gx - np.float32(l_main)) / np.float32(max(1.0, r_main - l_main)), np.float32(0.0), np.float32(1.0))
             head_bias = (norm_x - np.float32(0.5)) * (np.float32(1.25 * ss * env) * (np.float32(1.0) if self._moving_right else np.float32(-1.0)))
             r_local = np.maximum(np.float32(3.5 * ss), r_local - np.float32(pinch_amp) * neck + head_bias)
+        elif self._dragging and abs(self._slosh_inertia) > 0.05:
+            # Dynamic waist tension while the user pulls the droplet rapidly by mouse
+            mid_x = np.float32((l_main + r_main) * 0.5)
+            half_span = np.float32(max(12.0 * ss, (r_main - l_main) * 0.35))
+            neck = np.exp(-((gx - mid_x) / half_span) ** 2)
+            pinch = np.float32(min(2.6 * ss, abs(self._slosh_inertia) * 2.2 * ss))
+            r_local = np.maximum(np.float32(4.0 * ss), r_local - pinch * neck)
 
-        # Couple real 1D shallow-water height eta(x) directly into meniscus edge height!
-        if self._wave_eta is not None and self._wave_eta.shape[0] == gx.shape[1]:
-            eta_1d = self._wave_eta[None, :]
-            r_local = r_local + eta_1d * np.float32(1.6 * ss)
-            wave_2d = np.broadcast_to(eta_1d, gx.shape) * np.float32(0.30)
+        # Couple real 2D shallow-water field independently into top & bottom meniscus contours!
+        if self._wave_eta is not None and self._wave_eta.shape == gx.shape:
+            top_row = max(1, min(sh - 3, int((self._pad + 1.5) * ss)))
+            bot_row = max(top_row + 1, min(sh - 2, sh - 1 - int((self._pad + 1.5) * ss)))
+            eta_top = self._wave_eta[max(0, top_row - 1):min(sh, top_row + 2), :].mean(axis=0)
+            eta_bot = self._wave_eta[max(0, bot_row - 1):min(sh, bot_row + 2), :].mean(axis=0)
+            frac_bot = np.clip(
+                (gy - np.float32(top_row + 0.5)) / np.float32(max(1, bot_row - top_row)),
+                np.float32(0.0),
+                np.float32(1.0),
+            )
+            edge_eta = eta_top[None, :] * (np.float32(1.0) - frac_bot) + eta_bot[None, :] * frac_bot
+            r_local = np.clip(
+                r_local + edge_eta * np.float32(1.65 * ss),
+                np.float32(3.5 * ss),
+                np.float32((h * 0.5 - 1.25) * ss),
+            )
+            wave_2d = self._wave_eta * np.float32(0.28)
         else:
             wave_2d = np.zeros_like(gx)
 
+        # Inertial mass slosh tilts upper fluid ridge smoothly forward in motion direction
+        gx_eff = gx
+        if abs(self._slosh_inertia) > 0.015:
+            tilt = (cy - gy) * np.float32(0.11 * self._slosh_inertia)
+            gx_eff = gx - tilt
+
         ax = min((l_main + r_main) * 0.5, l_main + r_base)
         bx = max((l_main + r_main) * 0.5, r_main - r_base)
-        dx = np.maximum(np.float32(0.0), np.maximum(np.float32(ax) - gx, gx - np.float32(bx)))
+        dx = np.maximum(np.float32(0.0), np.maximum(np.float32(ax) - gx_eff, gx_eff - np.float32(bx)))
         dy = gy - cy
         sd = np.sqrt(dx * dx + dy * dy) - r_local
 
-        if self._hover_pos is not None and not self._is_animating():
+        # Viscous metaball satellite droplet break-up and coalescence on long jumps
+        sat = self._satellite_state()
+        if sat is not None:
+            sat_cx, sat_r = sat
+            sd_sat = np.sqrt((gx - np.float32(sat_cx * ss)) ** 2 + dy * dy) - np.float32(sat_r * ss)
+            sd = _smin_poly(sd, sd_sat, k=5.5 * ss)
+
+        if self._hover_pos is not None and not self._is_animating() and not self._dragging:
             hx = np.float32(self._hover_pos.x() * ss)
             hy = np.float32(self._hover_pos.y() * ss)
             dist_sq = (gx - hx) ** 2 + (gy - hy) ** 2
@@ -705,8 +981,15 @@ class LiquidModeBar(QWidget):
             out_rgb[..., 1] += hover_glow * np.float32(0.85)
             out_rgb[..., 2] += hover_glow * np.float32(1.00)
 
-        bx0 = max(0, int((self._cur_left - 12.0) * ss))
-        bx1 = min(sw, int((self._cur_right + 12.0) * ss))
+        left_bound = self._cur_left
+        right_bound = self._cur_right
+        sat = self._satellite_state()
+        if sat is not None:
+            left_bound = min(left_bound, sat[0] - sat[1] - 4.0)
+            right_bound = max(right_bound, sat[0] + sat[1] + 4.0)
+
+        bx0 = max(0, int((left_bound - 12.0) * ss))
+        bx1 = min(sw, int((right_bound + 12.0) * ss))
         if bx1 - bx0 >= 4:
             sd_s = sd[:, bx0:bx1]
             gx_s = gx[:, bx0:bx1]
@@ -755,13 +1038,13 @@ class LiquidModeBar(QWidget):
             droplet_cx = np.float32((self._cur_left + self._cur_right) * 0.5 * ss)
             droplet_cy = np.float32(sh * 0.5)
             half_span = np.float32(max(24.0 * ss, (self._cur_right - self._cur_left) * 0.5 * ss))
-            mag_taper = np.clip((u - np.float32(0.15)) / np.float32(0.85), np.float32(0.0), np.float32(1.0))
+            mag_taper = np.clip((u - np.float32(0.20)) / np.float32(0.80), np.float32(0.0), np.float32(1.0))
             width_damping = np.float32(min(1.0, (42.0 * ss) / float(half_span)))
-            mag_scale = np.float32(0.075 - 0.018 * self._press_depth) * mag_taper * h_field * width_damping
+            mag_scale = np.float32(0.072 - 0.018 * self._press_depth) * mag_taper * h_field * width_damping
             mag_dx = (gx_s - droplet_cx) * mag_scale
             mag_dy = (gy_s - droplet_cy) * mag_scale
-            shift_x = nx * np.float32(4.5 * ss)
-            shift_y = ny * np.float32(4.8 * ss)
+            shift_x = nx * np.float32(3.4 * ss)
+            shift_y = ny * np.float32(3.8 * ss)
 
             refracted = _sample_bilinear_rgb_dispersed(
                 self._bg_bright, gx_s, gy_s, shift_x, shift_y, mag_dx, mag_dy
