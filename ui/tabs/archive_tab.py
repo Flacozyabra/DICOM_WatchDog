@@ -85,6 +85,7 @@ class ArchiveTab(QWidget):
 
         # Кнопка поиска
         self.search_btn = QPushButton("Search", self)
+        self.search_btn.setProperty("variant", "primary")
         self.search_btn.setFixedHeight(30)
         if self.main_window:
             self.search_btn.clicked.connect(self.main_window.search_patient_archive)
@@ -101,6 +102,7 @@ class ArchiveTab(QWidget):
 
         # Кнопка настроек (шестеренка)
         self.settings_btn = QPushButton(self)
+        self.settings_btn.setProperty("variant", "primary")
         self.settings_btn.setIcon(QIcon(get_resource_path("themes/settings.svg")))
         self.settings_btn.setIconSize(QSize(20, 20))
         self.settings_btn.setFixedSize(35, 30)

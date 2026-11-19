@@ -67,12 +67,14 @@ class PacsTab(QWidget):
 
         # Кнопки быстрых интервалов
         self.today_btn = QPushButton("Today", self)
+        self.today_btn.setProperty("variant", "primary")
         self.today_btn.setFixedHeight(30)
         if self.main_window:
             self.today_btn.clicked.connect(self.main_window.pacs_set_today)
         control_layout.addWidget(self.today_btn)
 
         self.last_3days_btn = QPushButton("Last 3 days", self)
+        self.last_3days_btn.setProperty("variant", "primary")
         self.last_3days_btn.setFixedHeight(30)
         if self.main_window:
             self.last_3days_btn.clicked.connect(self.main_window.pacs_set_3days)
@@ -172,6 +174,7 @@ class PacsTab(QWidget):
 
         # Кнопка настроек (шестеренка)
         self.settings_btn = QPushButton(self)
+        self.settings_btn.setProperty("variant", "primary")
         self.settings_btn.setIcon(QIcon(get_resource_path("themes/settings.svg")))
         self.settings_btn.setIconSize(QSize(20, 20))
         self.settings_btn.setFixedSize(35, 30)
