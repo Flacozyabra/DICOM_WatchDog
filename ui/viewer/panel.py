@@ -367,6 +367,7 @@ class DicomViewerPanel(QWidget):
         self.mpr_container.plane_maximized.connect(self._on_mpr_orig_plane_maximized)
         self.mpr_container.window_changed.connect(self.on_window_changed)
         self.mpr_container.navigation_refined.connect(lambda: self._on_mpr_nav_refined(True))
+        self.mpr_container.alignment_applied.connect(lambda res: self._on_mpr_alignment_applied(True, res))
         self.mpr_container.hide()
         center_layout.addWidget(self.mpr_container, stretch=1)
 
@@ -379,6 +380,7 @@ class DicomViewerPanel(QWidget):
         self.mpr_container_derived.plane_maximized.connect(self._on_mpr_der_plane_maximized)
         self.mpr_container_derived.window_changed.connect(self.on_window_changed)
         self.mpr_container_derived.navigation_refined.connect(lambda: self._on_mpr_nav_refined(False))
+        self.mpr_container_derived.alignment_applied.connect(lambda res: self._on_mpr_alignment_applied(False, res))
         self.mpr_container_derived.hide()
         center_layout.addWidget(self.mpr_container_derived, stretch=1)
 
@@ -2583,14 +2585,7 @@ class DicomViewerPanel(QWidget):
                     if has_orig_mpr and int(round(der_init_cursor[2])) != der_init_z:
                         der_init_cursor[2] = float(der_init_z)
                 else:
-                    is_aligned_series = (
-                        "aligned" in (self.derived_series_desc or "").lower()
-                        or (
-                            bool(self.derived_files)
-                            and "ALIGNED_" in os.path.basename(self.derived_files[0][0]).upper()
-                        )
-                    )
-                    if is_aligned_series:
+                    if self._is_derived_aligned_series():
                         det = detect_applicator_orientation(self.mpr_vol_derived, self.mpr_spacing_derived)
                         if det and "float_cur" in det:
                             der_init_cursor = list(det["float_cur"])
@@ -2759,6 +2754,48 @@ class DicomViewerPanel(QWidget):
                 self.mpr_container.set_pan(pan)
         finally:
             self._syncing_mpr_pan = False
+
+    def _is_derived_aligned_series(self) -> bool:
+        return (
+            "aligned" in (self.derived_series_desc or "").lower()
+            or (
+                bool(self.derived_files)
+                and "ALIGNED_" in os.path.basename(self.derived_files[0][0]).upper()
+            )
+        )
+
+    def _on_mpr_alignment_applied(self, from_orig: bool, res: dict) -> None:
+        if getattr(self, "_syncing_mpr", False) or getattr(self, "_syncing_mpr_rot", False):
+            return
+        src = self.mpr_container if from_orig else self.mpr_container_derived
+        other = self.mpr_container_derived if from_orig else self.mpr_container
+        self._syncing_mpr = True
+        self._syncing_mpr_rot = True
+        try:
+            if from_orig:
+                self._last_mpr_orig_xy = (src.cur_x, src.cur_y)
+            else:
+                self._last_mpr_der_xy = (src.cur_x, src.cur_y)
+
+            if other is not None and (other.isVisible() or not other.isHidden()) and other.vol is not None:
+                if self._is_derived_aligned_series():
+                    other.auto_align_applicator(emit_signal=False, silent=True)
+                else:
+                    other.apply_alignment(res, emit_signal=False)
+                if from_orig:
+                    self._last_mpr_der_xy = (other.cur_x, other.cur_y)
+                else:
+                    self._last_mpr_orig_xy = (other.cur_x, other.cur_y)
+
+            z = int(src.cur_z)
+            if self.current_index != z:
+                self.current_index = z
+                self.slider.blockSignals(True)
+                self.slider.setValue(z)
+                self.slider.blockSignals(False)
+        finally:
+            self._syncing_mpr = False
+            self._syncing_mpr_rot = False
 
     def _on_mpr_orig_plane_rotated(self, plane_type: str, angle: float) -> None:
         if getattr(self, "_syncing_mpr_rot", False):

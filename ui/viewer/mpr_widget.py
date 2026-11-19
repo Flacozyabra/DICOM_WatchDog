@@ -1704,6 +1704,7 @@ class MprPanelWidget(QWidget):
     plane_maximized = pyqtSignal(str) # plane_type or "" if restored
     window_changed = pyqtSignal(float, float) # (window_width, window_center)
     navigation_refined = pyqtSignal()
+    alignment_applied = pyqtSignal(object) # alignment result dict
 
     def __init__(self, parent: QWidget = None) -> None:
         super().__init__(parent)
@@ -2121,8 +2122,9 @@ class MprPanelWidget(QWidget):
         self.set_cursor(cx, cy, cz, float_cur=[float(cx), float(cy), float(cz)])
         self.cursor_changed.emit(cx, cy, cz)
 
-    def auto_align_applicator(self) -> bool:
-        if self.vol is None:
+    def apply_alignment(self, res: dict, *, emit_signal: bool = False) -> bool:
+        """Apply applicator alignment (angles, world pivot, cursor) to all 3 viewports."""
+        if self.vol is None or not res:
             return False
 
         self._rot_coalesce_timer.stop()
@@ -2131,23 +2133,27 @@ class MprPanelWidget(QWidget):
         self._stop_nav_timers()
         self._interactive_draft = False
 
-        res = detect_applicator_orientation(self.vol, self.spacing)
-        if res is None:
-            show_dark_message_box(
-                self,
-                tr_ui("viewer_mpr_auto_align_title"),
-                tr_ui("viewer_mpr_not_detected")
-            )
-            return False
-
-        self.rot_x = res["rot_x"]
-        self.rot_y = res["rot_y"]
-        self.rot_z = res["rot_z"]
-        self.cur_x = res["cur_x"]
-        self.cur_y = res["cur_y"]
-        self.cur_z = res["cur_z"]
-        float_cur = list(res.get("float_cur", [float(self.cur_x), float(self.cur_y), float(self.cur_z)]))
+        self.rot_x = float(res["rot_x"])
+        self.rot_y = float(res["rot_y"])
+        self.rot_z = float(res["rot_z"])
+        n_z, rows, cols = self.vol.shape
+        raw_fc = res.get("float_cur")
+        if raw_fc is not None and len(raw_fc) >= 3:
+            float_cur = [
+                max(0.0, min(float(cols - 1), float(raw_fc[0]))),
+                max(0.0, min(float(rows - 1), float(raw_fc[1]))),
+                max(0.0, min(float(n_z - 1), float(raw_fc[2]))),
+            ]
+        else:
+            float_cur = [
+                max(0.0, min(float(cols - 1), float(res["cur_x"]))),
+                max(0.0, min(float(rows - 1), float(res["cur_y"]))),
+                max(0.0, min(float(n_z - 1), float(res["cur_z"]))),
+            ]
         self._float_cur = float_cur
+        self.cur_x = int(round(float_cur[0]))
+        self.cur_y = int(round(float_cur[1]))
+        self.cur_z = int(round(float_cur[2]))
 
         dy, dx, dz = float(self.spacing[0]), float(self.spacing[1]), float(self.spacing[2])
         pivot_mm = np.array([float_cur[0] * dx, float_cur[1] * dy, float_cur[2] * dz], dtype=np.float64)
@@ -2163,9 +2169,32 @@ class MprPanelWidget(QWidget):
             v._float_cur = list(float_cur)
             v.set_rotation_matrix(R, a, frame_origin_mm=self._frame_origin_mm)
 
-        self.rotation_changed.emit("all", 0.0)
-        self.cursor_changed.emit(self.cur_x, self.cur_y, self.cur_z)
+        if emit_signal:
+            self.alignment_applied.emit(dict(res))
+            self.cursor_changed.emit(self.cur_x, self.cur_y, self.cur_z)
         return True
+
+    def auto_align_applicator(self, _checked: bool = False, *, emit_signal: bool = True, silent: bool = False) -> bool:
+        if self.vol is None:
+            return False
+
+        self._rot_coalesce_timer.stop()
+        self._rot_refine_timer.stop()
+        self._pending_rot = None
+        self._stop_nav_timers()
+        self._interactive_draft = False
+
+        res = detect_applicator_orientation(self.vol, self.spacing)
+        if res is None:
+            if not silent:
+                show_dark_message_box(
+                    self,
+                    tr_ui("viewer_mpr_auto_align_title"),
+                    tr_ui("viewer_mpr_not_detected")
+                )
+            return False
+
+        return self.apply_alignment(res, emit_signal=emit_signal)
 
     def export_aligned_dicom_series(self) -> None:
         parent_viewer = self.parent()
