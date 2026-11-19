@@ -49,6 +49,31 @@ QTabBar::tab:selected {
     color: #ffffff;
 }
 
+/* Сегментированные вкладки главного окна (отрисовка в AnimatedSegmentedTabBar) */
+QTabBar#mainTabBar {
+    qproperty-drawBase: 0;
+    background-color: transparent;
+    border: none;
+    border-radius: 0px;
+    padding: 0px;
+    margin: 0px;
+}
+
+QTabBar#mainTabBar::tab {
+    background-color: transparent;
+    color: transparent;
+    border: none;
+    padding: 0px;
+    margin: 0px;
+    border-radius: 0px;
+}
+
+QTabBar#mainTabBar::tab:hover,
+QTabBar#mainTabBar::tab:selected {
+    background-color: transparent;
+    color: transparent;
+}
+
 /* Стили таблиц (QTableWidget) */
 QTableView, QTableWidget {
     background-color: #1a1a1a;

@@ -24,6 +24,7 @@ from ui.settings_dialog import SettingsDialog, apply_dark_title_bar
 from ui.toggle_switch import ToggleSwitch
 from ui.centered_date_edit import CenteredDateEdit
 from ui.tab_badge import TabBadge
+from ui.animated_tab_bar import AnimatedSegmentedTabBar
 from themes.theme_manager import load_theme
 from ui.viewer import DicomViewerPanel
 from ui.table_widgets import (
@@ -579,6 +580,7 @@ class MainWindow(QMainWindow):
         
         # Вкладки
         self.tab_widget = QTabWidget()
+        self.tab_widget.setTabBar(AnimatedSegmentedTabBar(self.tab_widget))
         self.tab_widget.tabBar().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tab_widget.tabBar().customContextMenuRequested.connect(self.show_tab_context_menu)
         self.log_splitter.addWidget(self.tab_widget)
