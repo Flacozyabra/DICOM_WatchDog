@@ -92,6 +92,7 @@ class ArchiveTab(QWidget):
 
         # Кнопка восстановления
         self.move_from_archive_btn = QPushButton("Move to CT images", self)
+        self.move_from_archive_btn.setProperty("variant", "primary")
         self.move_from_archive_btn.setFixedHeight(30)
         self.move_from_archive_btn.setEnabled(False)
         if self.main_window:

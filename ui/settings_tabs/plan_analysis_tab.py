@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 
 from ui.toggle_switch import ToggleSwitch
 from ui.plan_analysis_help_dialog import show_plan_analysis_help
+from themes.theme_manager import button_qss
 from core.locale_utils import tr_ui
 
 
@@ -135,17 +136,13 @@ def build_plan_analysis_tab(dialog):
     dialog.btn_plan_methodology_help.setFixedSize(48, 48)
     dialog.btn_plan_methodology_help.setCursor(Qt.CursorShape.PointingHandCursor)
     dialog.btn_plan_methodology_help.setStyleSheet(
-        "QPushButton { "
-        "  background-color: #1a1a1c; color: #38bdf8; border: 1px solid #38bdf8; "
-        "  border-radius: 4px; font-size: 22px; font-weight: bold; font-family: 'Segoe UI', sans-serif; "
-        "  padding: 0px; margin: 0px; "
-        "} "
-        "QPushButton:hover { "
-        "  background-color: #27272a; color: #7dd3fc; border: 1px solid #38bdf8; "
-        "} "
-        "QPushButton:pressed { "
-        "  background-color: #0f172a; color: #38bdf8; border: 1px solid #0284c7; "
-        "}"
+        button_qss(
+            "help",
+            padding="0px",
+            font_size=22,
+            font_weight="bold",
+            extra_rules="font-family: 'Segoe UI', sans-serif; margin: 0px;",
+        )
     )
     dialog.btn_plan_methodology_help.clicked.connect(
         lambda: show_plan_analysis_help(

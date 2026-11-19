@@ -163,6 +163,7 @@ class PacsTab(QWidget):
 
         # Кнопка скачивания
         self.send_to_ct_btn = QPushButton(tr_ui("btn_send_to_ct"), self)
+        self.send_to_ct_btn.setProperty("variant", "primary")
         self.send_to_ct_btn.setFixedHeight(30)
         self.send_to_ct_btn.setEnabled(False)
         if self.main_window:
