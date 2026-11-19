@@ -181,7 +181,27 @@ class AnimatedSegmentedTabBar(QTabBar):
         self._slide_anim.start()
         self._notify_badges()
 
+    def _is_sliding(self) -> bool:
+        state_cls = getattr(QVariantAnimation, "State", QVariantAnimation)
+        return hasattr(self, "_slide_anim") and self._slide_anim.state() == getattr(state_cls, "Running", 2)
+
+    def _sync_target_to_current(self) -> None:
+        idx = self.currentIndex()
+        if 0 <= idx < self.count():
+            r = self.tabRect(idx)
+            if r.width() > 0:
+                if self._is_sliding():
+                    self._target_x = float(r.left())
+                    self._target_w = float(r.width())
+                elif (
+                    not self._slider_initialized
+                    or abs(self._slider_x - float(r.left())) > 0.5
+                    or abs(self._slider_w - float(r.width())) > 0.5
+                ):
+                    self._sync_slider_immediate()
+
     def _on_slide_step(self, progress) -> None:
+        self._sync_target_to_current()
         p = float(progress)
         self._slider_x = self._start_x + (self._target_x - self._start_x) * p
         self._slider_w = self._start_w + (self._target_w - self._start_w) * p
@@ -215,26 +235,13 @@ class AnimatedSegmentedTabBar(QTabBar):
         if not hasattr(self, "_slide_anim"):
             return
         self._ensure_hover_len()
-        # Keep slider aligned when labels change width or tabs appear/disappear
-        state_cls = getattr(QVariantAnimation, "State", QVariantAnimation)
-        is_running = self._slide_anim.state() == getattr(state_cls, "Running", 2)
-        idx = self.currentIndex()
-        if 0 <= idx < self.count():
-            r = self.tabRect(idx)
-            if r.width() > 0:
-                if is_running:
-                    self._target_x = float(r.left())
-                    self._target_w = float(r.width())
-                else:
-                    self._sync_slider_immediate()
+        self._sync_target_to_current()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if not hasattr(self, "_slide_anim"):
             return
-        state_cls = getattr(QVariantAnimation, "State", QVariantAnimation)
-        if self._slide_anim.state() != getattr(state_cls, "Running", 2):
-            self._sync_slider_immediate()
+        self._sync_target_to_current()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -277,8 +284,7 @@ class AnimatedSegmentedTabBar(QTabBar):
         if w <= 4.0 or h <= 4.0 or self.count() == 0:
             return
 
-        if not self._slider_initialized:
-            self._sync_slider_immediate()
+        self._sync_target_to_current()
         self._ensure_hover_len()
 
         p = QPainter(self)

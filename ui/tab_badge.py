@@ -113,6 +113,11 @@ class TabBadge(QWidget):
         total_w = self.LEFT_MARGIN + self._pill_width() + self.RIGHT_MARGIN
         self.setFixedSize(total_w, self.WIDGET_HEIGHT)
 
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self.tab_bar and hasattr(self.tab_bar, "refresh_tab_sizes"):
+            self.tab_bar.refresh_tab_sizes()
+
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(_RENDER_AA, True)
