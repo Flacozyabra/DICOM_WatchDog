@@ -276,6 +276,7 @@ class SettingsDialog(QDialog):
         self.button_box.rejected.connect(self.reject)
         save_btn = self.button_box.button(QDialogButtonBox.StandardButton.Save)
         if save_btn:
+            save_btn.setProperty("variant", "primary")
             save_btn.clicked.connect(self.accept_settings)
         cancel_btn = self.button_box.button(QDialogButtonBox.StandardButton.Cancel)
         if cancel_btn:

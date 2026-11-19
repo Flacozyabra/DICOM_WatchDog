@@ -129,27 +129,32 @@ QPlainTextEdit {
 
 /* Стили кнопок */
 QPushButton {
-    background-color: #1f538d;
-    color: #ffffff;
-    border: none;
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4a4a4a, stop:1 #414141);
+    color: #e2e5ea;
+    border: 1px solid #575757;
     border-radius: 6px;
-    padding: 6px 14px;
+    padding: 4px 12px;
     font-weight: normal;
     min-height: 20px;
     font-size: 13px;
 }
 
 QPushButton:hover {
-    background-color: #2a69a5;
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #595959, stop:1 #4f4f4f);
+    color: #ffffff;
+    border: 1px solid #6b6b6b;
 }
 
 QPushButton:pressed {
-    background-color: #1a4675;
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #3b3b3b, stop:1 #333333);
+    color: #dce1e8;
+    border: 1px solid #4a4a4a;
 }
 
 QPushButton:disabled {
-    background-color: #1f538d;
-    color: #709bc1;
+    background-color: #303134;
+    color: #70747c;
+    border: 1px solid #3c3e42;
 }
 
 /* Стили полей ввода */
@@ -300,25 +305,33 @@ QComboBox QAbstractItemView {
 
 
 
-/* Кастомный стиль для кнопки Move to Archive (всегда синий фон) */
-#moveToArchiveBtn {
-    background-color: #1f538d;
+/* Акцентный стиль для ключевых кнопок действия (Move to Archive, Move to CT, Send to CT, Save) */
+#moveToArchiveBtn,
+QPushButton[variant="primary"] {
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2562a6, stop:1 #1c4c82);
     color: #ffffff;
+    border: 1px solid #3878c0;
 }
 
-#moveToArchiveBtn:hover {
-    background-color: #2a69a5;
+#moveToArchiveBtn:hover,
+QPushButton[variant="primary"]:hover {
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2d70ba, stop:1 #225895);
     color: #ffffff;
+    border: 1px solid #4b8bd3;
 }
 
-#moveToArchiveBtn:pressed {
-    background-color: #1a4675;
-    color: #ffffff;
+#moveToArchiveBtn:pressed,
+QPushButton[variant="primary"]:pressed {
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1d518a, stop:1 #163f6d);
+    color: #e8eef5;
+    border: 1px solid #2e67a7;
 }
 
-#moveToArchiveBtn:disabled {
-    background-color: #1f538d;
-    color: #709bc1;
+#moveToArchiveBtn:disabled,
+QPushButton[variant="primary"]:disabled {
+    background-color: #303134;
+    color: #70747c;
+    border: 1px solid #3c3e42;
 }
 
 /* Боковое меню настроек */
