@@ -1764,8 +1764,11 @@ class MainWindow(QMainWindow):
         self.download_progress_dialog.label.setText("Подключение к PACS и запуск скачивания...")
         self.download_progress_dialog.show()
 
+        pacs_local_port = int(self.config.get('pacs_local_port', 11112))
         self.pacs_download_worker = PacsDownloadWorker(
-            patient_id, ct_images_dir, pacs_ip, pacs_port, called_aet, calling_aet, study_instance_uid=study_instance_uid
+            patient_id, ct_images_dir, pacs_ip, pacs_port, called_aet, calling_aet,
+            study_instance_uid=study_instance_uid,
+            local_port=pacs_local_port,
         )
         self.pacs_download_worker.finished.connect(self.on_pacs_download_finished)
         self.pacs_download_worker.progress.connect(self.on_pacs_download_progress)

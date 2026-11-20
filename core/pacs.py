@@ -2,6 +2,9 @@ from pydicom.dataset import Dataset
 from pynetdicom import AE, debug_logger
 from pynetdicom.sop_class import PatientRootQueryRetrieveInformationModelFind
 
+import os
+import threading
+import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pprint import pprint
@@ -10,6 +13,106 @@ from core.logger import log_message
 from core.config_utils import get_log_path
 from core.locale_utils import tr_log, tr_ui
 
+MAX_REQUESTED_CONTEXTS = 128
+
+
+def _save_received_dicom(event, dest_dir):
+    """Save an incoming C-STORE dataset into dest_dir/<safe_pid>/<prefix><sop_uid>.dcm."""
+    d_set = event.dataset
+    d_set.file_meta = event.file_meta
+
+    pid = str(d_set.get('PatientID', 'UNKNOWN')).strip()
+    safe_pid = "".join(c for c in pid if c.isalnum() or c in (' ', '_', '-')).strip() or "UNKNOWN"
+
+    p_dir = os.path.join(dest_dir, safe_pid)
+    os.makedirs(p_dir, exist_ok=True)
+
+    mod = str(getattr(d_set, 'Modality', '')).upper().strip()
+    sop_class = str(
+        getattr(d_set, 'SOPClassUID', '') or getattr(event.file_meta, 'MediaStorageSOPClassUID', '')
+    ).strip()
+    if mod == 'RTSTRUCT' or sop_class == '1.2.840.10008.5.1.4.1.1.481.3':
+        prefix = 'STR_'
+    elif mod == 'RTDOSE' or sop_class == '1.2.840.10008.5.1.4.1.1.481.2':
+        prefix = 'RD_'
+    elif mod == 'RTPLAN' or sop_class in (
+        '1.2.840.10008.5.1.4.1.1.481.5',
+        '1.2.840.10008.5.1.4.1.1.481.8',
+        '1.2.246.352.70.1.70',
+        '1.2.246.352.70.1.71',
+        '1.2.246.352.70.1.72',
+    ):
+        prefix = 'RP_'
+    elif mod:
+        prefix = f"{mod}_"
+    else:
+        prefix = "CT_"
+
+    sop_uid = str(
+        getattr(d_set, 'SOPInstanceUID', '') or getattr(event.file_meta, 'MediaStorageSOPInstanceUID', '')
+    ).strip() or str(uuid.uuid4())
+
+    file_path = os.path.join(p_dir, f"{prefix}{sop_uid}.dcm")
+    d_set.save_as(file_path, write_like_original=False)
+    return safe_pid, p_dir
+
+
+def _populate_cget_contexts(ae_get, max_contexts=MAX_REQUESTED_CONTEXTS):
+    """Populate C-GET query and storage contexts within DICOM's 128-context association limit."""
+    from pynetdicom import build_role, ALL_TRANSFER_SYNTAXES, AllStoragePresentationContexts
+    from pynetdicom.sop_class import (
+        PatientRootQueryRetrieveInformationModelGet,
+        StudyRootQueryRetrieveInformationModelGet,
+        CTImageStorage,
+        EnhancedCTImageStorage,
+        MRImageStorage,
+        PositronEmissionTomographyImageStorage,
+        RTStructureSetStorage,
+        RTDoseStorage,
+        RTPlanStorage,
+        RTIonPlanStorage,
+        RTIonBeamsTreatmentRecordStorage,
+        RTBeamsTreatmentRecordStorage,
+        SpatialRegistrationStorage,
+        DeformableSpatialRegistrationStorage,
+        SecondaryCaptureImageStorage,
+    )
+
+    ae_get.add_requested_context(PatientRootQueryRetrieveInformationModelGet)
+    ae_get.add_requested_context(StudyRootQueryRetrieveInformationModelGet)
+
+    priority_sops = [
+        str(CTImageStorage),
+        str(EnhancedCTImageStorage),
+        str(RTStructureSetStorage),
+        str(RTDoseStorage),
+        str(RTPlanStorage),
+        str(RTIonPlanStorage),
+        str(RTIonBeamsTreatmentRecordStorage),
+        str(RTBeamsTreatmentRecordStorage),
+        str(MRImageStorage),
+        str(PositronEmissionTomographyImageStorage),
+        str(SpatialRegistrationStorage),
+        str(DeformableSpatialRegistrationStorage),
+        str(SecondaryCaptureImageStorage),
+        '1.2.246.352.70.1.70',
+        '1.2.246.352.70.1.71',
+        '1.2.246.352.70.1.72',
+    ]
+
+    roles = []
+    seen = set()
+    all_storage_uids = priority_sops + [str(cx.abstract_syntax) for cx in AllStoragePresentationContexts]
+    for sop_uid in all_storage_uids:
+        if sop_uid in seen:
+            continue
+        if len(ae_get.requested_contexts) >= max_contexts:
+            break
+        seen.add(sop_uid)
+        ae_get.add_requested_context(sop_uid, ALL_TRANSFER_SYNTAXES)
+        roles.append(build_role(sop_uid, scp_role=True))
+    return roles
+
 
 class BackgroundDicomServer:
     """Фоновый DICOM SCP сервер для ответа на опрос (C-ECHO) сервера PACS и приема снимков (C-STORE)."""
@@ -17,6 +120,12 @@ class BackgroundDicomServer:
         self.server = None
         self.port = None
         self.ae_title = None
+        self._store_lock = threading.Lock()
+        self._store_counts = {}
+
+    def get_store_count(self, safe_pid):
+        with self._store_lock:
+            return int(self._store_counts.get(safe_pid, 0))
 
     def start(self, port=11112, ae_title="DW_GAMMA", target_dir=None):
         if self.server:
@@ -24,7 +133,6 @@ class BackgroundDicomServer:
 
         from pynetdicom import AE, evt, ALL_TRANSFER_SYNTAXES, AllStoragePresentationContexts
         VerificationSOPClass = '1.2.840.10008.1.1'
-        import os
 
         self.port = port
         self.ae_title = ae_title
@@ -36,37 +144,9 @@ class BackgroundDicomServer:
             try:
                 if not target_dir or not os.path.exists(target_dir):
                     return 0xC000
-                d_set = event.dataset
-                d_set.file_meta = event.file_meta
-                
-                pid = str(d_set.get('PatientID', 'UNKNOWN')).strip()
-                safe_pid = "".join([c for c in pid if c.isalnum() or c in (' ', '_', '-')]).strip()
-                if not safe_pid:
-                    safe_pid = "UNKNOWN"
-                    
-                p_dir = os.path.join(target_dir, safe_pid)
-                os.makedirs(p_dir, exist_ok=True)
-                
-                mod = str(getattr(d_set, 'Modality', '')).upper().strip()
-                sop_class = str(getattr(d_set, 'SOPClassUID', '') or getattr(event.file_meta, 'MediaStorageSOPClassUID', '')).strip()
-                if mod == 'RTSTRUCT' or sop_class == '1.2.840.10008.5.1.4.1.1.481.3':
-                    prefix = 'STR_'
-                elif mod == 'RTDOSE' or sop_class == '1.2.840.10008.5.1.4.1.1.481.2':
-                    prefix = 'RD_'
-                elif mod == 'RTPLAN' or sop_class in ('1.2.840.10008.5.1.4.1.1.481.5', '1.2.840.10008.5.1.4.1.1.481.8', '1.2.246.352.70.1.70', '1.2.246.352.70.1.71', '1.2.246.352.70.1.72'):
-                    prefix = 'RP_'
-                elif mod:
-                    prefix = f"{mod}_"
-                else:
-                    prefix = "CT_"
-
-                sop_uid = str(getattr(d_set, 'SOPInstanceUID', '') or getattr(event.file_meta, 'MediaStorageSOPInstanceUID', '')).strip()
-                if not sop_uid:
-                    import uuid
-                    sop_uid = str(uuid.uuid4())
-
-                file_path = os.path.join(p_dir, f"{prefix}{sop_uid}.dcm")
-                d_set.save_as(file_path, write_like_original=False)
+                safe_pid, _ = _save_received_dicom(event, target_dir)
+                with self._store_lock:
+                    self._store_counts[safe_pid] = int(self._store_counts.get(safe_pid, 0)) + 1
                 return 0x0000
             except Exception as e:
                 try:
@@ -316,46 +396,17 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
 
     saved_files_count = [0]
     created_patient_dir = [None]
+    move_completed_subops = [0]
 
     def handle_store(event, dest_dir):
         if is_cancelled_callback and is_cancelled_callback():
             return 0xFE00
         try:
-            d_set = event.dataset
-            d_set.file_meta = event.file_meta
-            
-            pid = str(d_set.get('PatientID', 'UNKNOWN')).strip()
-            safe_pid = "".join([c for c in pid if c.isalnum() or c in (' ', '_', '-')]).strip()
-            if not safe_pid:
-                safe_pid = "UNKNOWN"
-                
-            p_dir = os.path.join(dest_dir, safe_pid)
-            os.makedirs(p_dir, exist_ok=True)
-            created_patient_dir[0] = p_dir
-            
-            mod = str(getattr(d_set, 'Modality', '')).upper().strip()
-            sop_class = str(getattr(d_set, 'SOPClassUID', '') or getattr(event.file_meta, 'MediaStorageSOPClassUID', '')).strip()
-            if mod == 'RTSTRUCT' or sop_class == '1.2.840.10008.5.1.4.1.1.481.3':
-                prefix = 'STR_'
-            elif mod == 'RTDOSE' or sop_class == '1.2.840.10008.5.1.4.1.1.481.2':
-                prefix = 'RD_'
-            elif mod == 'RTPLAN' or sop_class in ('1.2.840.10008.5.1.4.1.1.481.5', '1.2.840.10008.5.1.4.1.1.481.8', '1.2.246.352.70.1.70', '1.2.246.352.70.1.71', '1.2.246.352.70.1.72'):
-                prefix = 'RP_'
-            elif mod:
-                prefix = f"{mod}_"
-            else:
-                prefix = "CT_"
-
-            sop_uid = str(getattr(d_set, 'SOPInstanceUID', '') or getattr(event.file_meta, 'MediaStorageSOPInstanceUID', '')).strip()
-            if not sop_uid:
-                import uuid
-                sop_uid = str(uuid.uuid4())
-
-            file_path = os.path.join(p_dir, f"{prefix}{sop_uid}.dcm")
-            d_set.save_as(file_path, write_like_original=False)
+            _, stored_dir = _save_received_dicom(event, dest_dir)
+            created_patient_dir[0] = stored_dir
             saved_files_count[0] += 1
             return 0x0000
-        except Exception as e:
+        except Exception:
             return 0xC000
 
     handlers = [(evt.EVT_C_STORE, handle_store, [target_dir])]
@@ -402,6 +453,14 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
         return 0
 
     initial_files = count_downloaded_files()
+    global_store_before = _global_dicom_server.get_store_count(safe_pid)
+
+    def has_received_files():
+        if saved_files_count[0] > 0 or move_completed_subops[0] > 0:
+            return True
+        if not need_temp_scp and (_global_dicom_server.get_store_count(safe_pid) - global_store_before) > 0:
+            return True
+        return count_downloaded_files() > initial_files
 
     # Создаем комбинации корректных DICOM datasets для C-MOVE
     query_datasets = []
@@ -433,7 +492,7 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     try:
         # Пробуем варианты C-MOVE
         for query_ds, move_sop_class in query_datasets:
-            if (count_downloaded_files() > initial_files or count_downloaded_files() > 0) or (is_cancelled_callback and is_cancelled_callback()):
+            if has_received_files() or (is_cancelled_callback and is_cancelled_callback()):
                 break
             try:
                 assoc_move = ae_move.associate(pacs_ip, pacs_port, ae_title=called_aet)
@@ -460,13 +519,15 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
                                     last_error_details.append(f"Код {hex_st} (Сервер не принял параметры запроса C-MOVE)")
                                 else:
                                     last_error_details.append(f"Код {hex_st}")
+                            completed = getattr(status, 'NumberOfCompletedSuboperations', 0)
+                            remaining = getattr(status, 'NumberOfRemainingSuboperations', 0)
+                            failed = getattr(status, 'NumberOfFailedSuboperations', 0)
+                            completed_val = completed.value if hasattr(completed, 'value') else int(completed or 0)
+                            remaining_val = remaining.value if hasattr(remaining, 'value') else int(remaining or 0)
+                            failed_val = failed.value if hasattr(failed, 'value') else int(failed or 0)
+                            if completed_val > 0 and st_code in (None, 0x0000, 0xFF00, 0xFF01):
+                                move_completed_subops[0] = max(move_completed_subops[0], completed_val)
                             if progress_callback:
-                                completed = getattr(status, 'NumberOfCompletedSuboperations', 0)
-                                remaining = getattr(status, 'NumberOfRemainingSuboperations', 0)
-                                failed = getattr(status, 'NumberOfFailedSuboperations', 0)
-                                completed_val = completed.value if hasattr(completed, 'value') else int(completed or 0)
-                                remaining_val = remaining.value if hasattr(remaining, 'value') else int(remaining or 0)
-                                failed_val = failed.value if hasattr(failed, 'value') else int(failed or 0)
                                 total_val = completed_val + remaining_val + failed_val
                                 if total_val > 0:
                                     progress_callback(completed_val, total_val)
@@ -487,7 +548,7 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
             shutil.rmtree(created_patient_dir[0], ignore_errors=True)
         return False, "Скачивание отменено пользователем."
 
-    if count_downloaded_files() > initial_files or saved_files_count[0] > 0:
+    if has_received_files():
         return True, tr_log("log_pacs_download_success", patient_id)
 
     # 2. Фолбэк на C-GET если C-MOVE вернул 0 файлов (особенно актуально для Orthanc PACS)
@@ -495,7 +556,6 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
         PatientRootQueryRetrieveInformationModelGet,
         StudyRootQueryRetrieveInformationModelGet
     )
-    from pynetdicom import build_role
 
     ae_get = AE()
     ae_get.ae_title = calling_aet
@@ -503,16 +563,7 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
     ae_get.network_timeout = 5
     ae_get.acse_timeout = 5
     ae_get.dimse_timeout = 10
-    ae_get.add_requested_context(PatientRootQueryRetrieveInformationModelGet)
-    ae_get.add_requested_context(StudyRootQueryRetrieveInformationModelGet)
-
-    roles = []
-    for cx in AllStoragePresentationContexts:
-        ae_get.add_requested_context(cx.abstract_syntax, ALL_TRANSFER_SYNTAXES)
-        roles.append(build_role(cx.abstract_syntax, scp_role=True))
-    for varian_sop in ['1.2.246.352.70.1.70', '1.2.246.352.70.1.71', '1.2.246.352.70.1.72']:
-        ae_get.add_requested_context(varian_sop, ALL_TRANSFER_SYNTAXES)
-        roles.append(build_role(varian_sop, scp_role=True))
+    roles = _populate_cget_contexts(ae_get)
 
     get_datasets = []
     if clean_uid:
@@ -535,7 +586,7 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
         get_datasets.append((ds_pr_get2, PatientRootQueryRetrieveInformationModelGet))
 
     for query_ds, get_sop_class in get_datasets:
-        if count_downloaded_files() > initial_files or (is_cancelled_callback and is_cancelled_callback()):
+        if has_received_files() or (is_cancelled_callback and is_cancelled_callback()):
             break
         try:
             assoc_get = ae_get.associate(pacs_ip, pacs_port, ae_title=called_aet, evt_handlers=handlers, ext_neg=roles)
@@ -564,7 +615,7 @@ def download_patient_from_pacs(patient_id, target_dir, pacs_ip, pacs_port, calle
         except Exception as e:
             last_error_details.append(f"Ошибка C-GET: {e}")
 
-    if count_downloaded_files() > initial_files or count_downloaded_files() > 0 or saved_files_count[0] > 0:
+    if has_received_files():
         return True, tr_log("log_pacs_download_success", patient_id)
 
     err_reason = "; ".join(list(dict.fromkeys(last_error_details))) if last_error_details else "Сервер не передал файлы"

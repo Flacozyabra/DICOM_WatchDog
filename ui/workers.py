@@ -425,7 +425,7 @@ class PacsDownloadWorker(QThread):
     finished = pyqtSignal(bool, str)
     progress = pyqtSignal(int, int)
 
-    def __init__(self, patient_id, target_dir, pacs_ip, pacs_port, called_aet, calling_aet, study_instance_uid=None):
+    def __init__(self, patient_id, target_dir, pacs_ip, pacs_port, called_aet, calling_aet, study_instance_uid=None, local_port=11112):
         super().__init__()
         self.patient_id = patient_id
         self.target_dir = target_dir
@@ -434,6 +434,7 @@ class PacsDownloadWorker(QThread):
         self.called_aet = called_aet
         self.calling_aet = calling_aet
         self.study_instance_uid = study_instance_uid
+        self.local_port = int(local_port or 11112)
         self.is_cancelled = False
 
     def cancel(self):
@@ -446,6 +447,7 @@ class PacsDownloadWorker(QThread):
             self.called_aet, self.calling_aet,
             progress_callback=self.progress.emit,
             is_cancelled_callback=lambda: self.is_cancelled,
+            local_port=self.local_port,
             study_instance_uid=self.study_instance_uid
         )
         self.finished.emit(success, msg)
