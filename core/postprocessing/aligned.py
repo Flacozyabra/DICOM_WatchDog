@@ -331,6 +331,63 @@ def validate_aligned_export_geometry(
     return True, ""
 
 
+def _find_primary_applicator_track(
+    metal_mask: np.ndarray,
+    min_track_slices: int = 10,
+    max_step_px: float = 15.0,
+) -> list[tuple[int, float, float]] | None:
+    """
+    Trace high-density 2D components top-to-bottom across Z slices as independent
+    candidate tracks and return the dominant shaft track (longest Z-span, then voxels).
+    """
+    z_slices = np.flatnonzero(np.any(metal_mask, axis=(1, 2)))
+    if len(z_slices) < min_track_slices:
+        return None
+
+    tracks: list[dict] = []
+    for z in range(int(z_slices.max()), int(z_slices.min()) - 1, -1):
+        sl = metal_mask[z]
+        if not np.any(sl):
+            continue
+        lbl, num = scipy.ndimage.label(sl)
+        if num == 0:
+            continue
+
+        comps = []
+        for comp_id in range(1, num + 1):
+            comp_pts = np.argwhere(lbl == comp_id)
+            cy, cx = comp_pts.mean(axis=0)
+            comps.append((float(cy), float(cx), int(len(comp_pts))))
+
+        used: set[int] = set()
+        for tr in sorted(tracks, key=lambda t: len(t["pts"]), reverse=True):
+            py, px = tr["prev"]
+            best_idx = -1
+            best_dist = max_step_px
+            for ci, (cy, cx, _area) in enumerate(comps):
+                if ci in used:
+                    continue
+                d = math.hypot(cy - py, cx - px)
+                if d < best_dist:
+                    best_dist = d
+                    best_idx = ci
+            if best_idx >= 0:
+                cy, cx, area = comps[best_idx]
+                tr["pts"].append((z, cy, cx))
+                tr["prev"] = (cy, cx)
+                tr["voxels"] += area
+                used.add(best_idx)
+
+        for ci, (cy, cx, area) in enumerate(comps):
+            if ci not in used:
+                tracks.append({"pts": [(z, cy, cx)], "prev": (cy, cx), "voxels": area})
+
+    valid = [t for t in tracks if len(t["pts"]) >= min_track_slices]
+    if not valid:
+        return None
+    return max(valid, key=lambda t: (len(t["pts"]), t["voxels"]))["pts"]
+
+
 def detect_applicator_orientation(
     vol: np.ndarray,
     spacing: tuple[float, float, float]
@@ -345,46 +402,19 @@ def detect_applicator_orientation(
     dy, dx, dz = float(spacing[0]), float(spacing[1]), float(spacing[2])
     n_z, rows, cols = vol.shape
 
-    thresh = 2000.0
-    metal_mask = vol > thresh
-    if np.sum(metal_mask) < 50:
-        thresh = 1500.0
-        metal_mask = vol > thresh
-        if np.sum(metal_mask) < 50:
-            return None
-
-    z_metal = np.argwhere(np.any(metal_mask, axis=(1, 2))).flatten()
-    if len(z_metal) < 10:
-        return None
-
-    z_top = int(z_metal.max())
-    top_coords = np.argwhere(metal_mask[z_top])
-    if len(top_coords) == 0:
-        return None
-    prev_c = np.mean(top_coords, axis=0)
-
-    track = []
-    for z in range(z_top, -1, -1):
-        sl = metal_mask[z]
-        if not np.any(sl):
+    metal_mask = None
+    track = None
+    for thresh in (2000.0, 1500.0):
+        cand_mask = vol > thresh
+        if int(np.sum(cand_mask)) < 50:
             continue
-        labeled, num = scipy.ndimage.label(sl)
-        if num == 0:
-            continue
-        best_dist = 1e9
-        best_c = None
-        for i in range(1, num + 1):
-            comp_pts = np.argwhere(labeled == i)
-            c = np.mean(comp_pts, axis=0)
-            d = math.hypot(float(c[0] - prev_c[0]), float(c[1] - prev_c[1]))
-            if d < best_dist:
-                best_dist = d
-                best_c = c
-        if best_dist < 15.0:
-            track.append((z, float(best_c[0]), float(best_c[1])))
-            prev_c = best_c
+        cand_track = _find_primary_applicator_track(cand_mask)
+        if cand_track is not None:
+            metal_mask = cand_mask
+            track = cand_track
+            break
 
-    if len(track) < 10:
+    if track is None or metal_mask is None:
         return None
 
     track_arr = np.array(track)
