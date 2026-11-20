@@ -92,6 +92,7 @@ class MainWindow(QMainWindow):
         self.images_cache = None
         self.archive_cache = None
         self._last_pruned_archive_mtime = None
+        self.last_archive_op_finished_time = 0.0
         self.pacs_data = {}
         self.tab_badges = {}
         self.previous_pacs_data = {}
@@ -239,6 +240,47 @@ class MainWindow(QMainWindow):
             del self.active_file_operations[patient_key]
         self.images_table.viewport().update()
 
+    @staticmethod
+    def _collect_moved_cache_keys(src_cache, patient_key, src_dir):
+        """Return all cache keys belonging to a moved/deleted study (including derived or nested child entries)."""
+        if not src_cache:
+            return []
+        entry = src_cache.get(patient_key) or {}
+        target_folder = str(entry.get('folder_name', patient_key)).replace('\\', '/').strip('/')
+        top_folder = target_folder.split('/', 1)[0] if target_folder else ''
+        top_gone = bool(
+            top_folder and top_folder != target_folder
+            and src_dir and not os.path.exists(os.path.join(src_dir, top_folder))
+        )
+        matched = []
+        for k, v in list(src_cache.items()):
+            fn = str((v or {}).get('folder_name', k)).replace('\\', '/').strip('/')
+            if k == patient_key or fn == target_folder or (top_gone and (fn == top_folder or fn.startswith(top_folder + '/'))):
+                matched.append(k)
+        return matched
+
+    @staticmethod
+    def _transfer_cache_entries(src_cache, dst_cache, keys):
+        """Pop keys from src_cache, transfer into dst_cache if initialized, and return removed relative paths."""
+        removed_rel = []
+        if src_cache is None:
+            return removed_rel
+        for k in keys:
+            entry = src_cache.pop(k, None)
+            if not entry:
+                continue
+            fn = entry.get('folder_name', k)
+            if fn and not entry.get('is_derived'):
+                removed_rel.append(fn)
+            if dst_cache is not None:
+                dst_cache[k] = entry
+        return removed_rel
+
+    def _mark_archive_op_finished(self, now_ts):
+        self.last_archive_op_finished_time = now_ts
+        if hasattr(self, 'archive_debounce_timer') and self.archive_debounce_timer:
+            self.archive_debounce_timer.stop()
+
     def on_background_action_finished(self, patient_id, op_type, result):
         if patient_id in self.active_file_operations:
             del self.active_file_operations[patient_id]
@@ -254,20 +296,21 @@ class MainWindow(QMainWindow):
         self.archive_table.viewport().update()
             
         import time
-        self.last_scan_finished_time = time.time()
+        now_ts = time.time()
+        self.last_scan_finished_time = now_ts
         if hasattr(self, 'debounce_timer') and self.debounce_timer:
             self.debounce_timer.stop()
 
         if op_type == 'archive':
             log_message(self.output_field, tr_log("log_patient_archived", result, self.get_archive_destination_name()))
-            patient_entry = None
-            if self.images_cache and patient_id in self.images_cache:
-                patient_entry = self.images_cache.pop(patient_id, None)
-            if self.archive_cache is not None and patient_entry:
-                self.archive_cache[patient_id] = patient_entry
+            ct_dir = self.config.get('ct_images_dir', '')
+            keys = self._collect_moved_cache_keys(self.images_cache, patient_id, ct_dir)
+            removed_rel = self._transfer_cache_entries(self.images_cache, self.archive_cache, keys)
+            affected = set(keys) | {patient_id}
             if hasattr(self, 'selected_images_items') and self.selected_images_items:
-                self.selected_images_items = {item for item in self.selected_images_items if item[0] != patient_id}
-            self.sync_ct_cache_to_disk()
+                self.selected_images_items = {item for item in self.selected_images_items if item[0] not in affected}
+            self._mark_archive_op_finished(now_ts)
+            self.sync_ct_cache_to_disk(removed_rel_paths=removed_rel)
             self.sync_archive_cache_to_disk()
             self.update_images_table_ui()
             self.update_archive_table_ui()
@@ -275,21 +318,26 @@ class MainWindow(QMainWindow):
 
         elif op_type in ('delete', 'delete_images'):
             log_message(self.output_field, tr_log("log_patient_deleted", result))
-            if self.images_cache and patient_id in self.images_cache:
-                self.images_cache.pop(patient_id, None)
+            ct_dir = self.config.get('ct_images_dir', '')
+            keys = self._collect_moved_cache_keys(self.images_cache, patient_id, ct_dir)
+            removed_rel = self._transfer_cache_entries(self.images_cache, None, keys)
+            affected = set(keys) | {patient_id}
             if hasattr(self, 'selected_images_items') and self.selected_images_items:
-                self.selected_images_items = {item for item in self.selected_images_items if item[0] != patient_id}
-            self.sync_ct_cache_to_disk()
+                self.selected_images_items = {item for item in self.selected_images_items if item[0] not in affected}
+            self.sync_ct_cache_to_disk(removed_rel_paths=removed_rel)
             self.update_images_table_ui()
             self.update_tab_badges()
 
         elif op_type == 'delete_archive':
             log_message(self.output_field, tr_log("log_patient_deleted", result))
-            if self.archive_cache is not None and patient_id in self.archive_cache:
-                self.archive_cache.pop(patient_id, None)
+            archive_dir = self.config.get('archive_dir', '')
+            keys = self._collect_moved_cache_keys(self.archive_cache, patient_id, archive_dir)
+            removed_rel = self._transfer_cache_entries(self.archive_cache, None, keys)
+            affected = set(keys) | {patient_id}
             if hasattr(self, 'selected_archive_items') and self.selected_archive_items:
-                self.selected_archive_items = {item for item in self.selected_archive_items if item[0] != patient_id}
-            self.sync_archive_cache_to_disk()
+                self.selected_archive_items = {item for item in self.selected_archive_items if item[0] not in affected}
+            self._mark_archive_op_finished(now_ts)
+            self.sync_archive_cache_to_disk(removed_rel_paths=removed_rel)
             self.update_archive_table_ui()
             self.update_tab_badges()
 
@@ -303,15 +351,15 @@ class MainWindow(QMainWindow):
 
         elif op_type == 'restore':
             log_message(self.output_field, tr_log("log_patient_restored_from_archive", result, self.get_ct_destination_name(), self.get_archive_source_name()))
-            patient_entry = None
-            if self.archive_cache is not None and patient_id in self.archive_cache:
-                patient_entry = self.archive_cache.pop(patient_id, None)
-            if self.images_cache is not None and patient_entry:
-                self.images_cache[patient_id] = patient_entry
+            archive_dir = self.config.get('archive_dir', '')
+            keys = self._collect_moved_cache_keys(self.archive_cache, patient_id, archive_dir)
+            removed_rel = self._transfer_cache_entries(self.archive_cache, self.images_cache, keys)
+            affected = set(keys) | {patient_id}
             if hasattr(self, 'selected_archive_items') and self.selected_archive_items:
-                self.selected_archive_items = {item for item in self.selected_archive_items if item[0] != patient_id}
-            self.restored_patient_ids.add(patient_id)
-            self.sync_archive_cache_to_disk()
+                self.selected_archive_items = {item for item in self.selected_archive_items if item[0] not in affected}
+            self.restored_patient_ids.update(affected)
+            self._mark_archive_op_finished(now_ts)
+            self.sync_archive_cache_to_disk(removed_rel_paths=removed_rel)
             self.sync_ct_cache_to_disk()
             self.update_images_table_ui()
             self.update_archive_table_ui()
@@ -340,8 +388,11 @@ class MainWindow(QMainWindow):
                     if k == patient_id or k == old_folder_name or k.startswith(old_folder_name + '/') or k.startswith(old_folder_name + '\\'):
                         keys_to_update.append(k)
 
+                removed_rel = []
                 for old_key in keys_to_update:
                     entry = target_cache.pop(old_key)
+                    if 'folder_name' in entry and not entry.get('is_derived'):
+                        removed_rel.append(entry['folder_name'])
                     entry['patient_id'] = new_id
                     if 'folder_name' in entry:
                         entry['folder_name'] = entry['folder_name'].replace(old_folder_name, new_folder_name, 1)
@@ -349,10 +400,11 @@ class MainWindow(QMainWindow):
                     target_cache[new_key] = entry
 
                 if is_archive:
-                    self.sync_archive_cache_to_disk()
+                    self._mark_archive_op_finished(now_ts)
+                    self.sync_archive_cache_to_disk(removed_rel_paths=removed_rel)
                     self.update_archive_table_ui()
                 else:
-                    self.sync_ct_cache_to_disk()
+                    self.sync_ct_cache_to_disk(removed_rel_paths=removed_rel)
                     self.update_images_table_ui()
 
                 self.update_tab_badges()
@@ -1283,21 +1335,30 @@ class MainWindow(QMainWindow):
             return False
 
         missing_keys = []
+        missing_full_paths = set()
         for key, item in list(self.archive_cache.items()):
             folder_name = item.get('folder_name', key)
             if not folder_name:
                 continue
-            norm_name = os.path.normcase(folder_name)
-            if norm_name not in existing_dirs:
+            norm_rel = str(folder_name).replace('\\', '/').strip('/')
+            if not norm_rel:
+                continue
+            top_name = norm_rel.split('/', 1)[0]
+            full_path = os.path.normpath(os.path.join(archive_dir, norm_rel))
+
+            if os.path.normcase(top_name) not in existing_dirs:
                 missing_keys.append(key)
-            else:
-                full_path = os.path.join(archive_dir, folder_name)
-                try:
-                    with os.scandir(full_path) as it:
-                        if not any(it):
-                            missing_keys.append(key)
-                except OSError:
-                    missing_keys.append(key)
+                missing_full_paths.add(os.path.normcase(full_path))
+                continue
+
+            try:
+                with os.scandir(full_path) as it:
+                    if not any(it):
+                        missing_keys.append(key)
+                        missing_full_paths.add(os.path.normcase(full_path))
+            except OSError:
+                missing_keys.append(key)
+                missing_full_paths.add(os.path.normcase(full_path))
 
         self._last_pruned_archive_mtime = curr_mtime
 
@@ -1307,14 +1368,13 @@ class MainWindow(QMainWindow):
             cache_changed = False
 
             for key in missing_keys:
-                pat_info = self.archive_cache.pop(key, {})
-                folder_name = pat_info.get('folder_name', key)
-                full_path = os.path.normpath(os.path.join(archive_dir, folder_name))
-                norm_full = os.path.normcase(full_path)
-                keys_to_del = [k for k in cache.keys() if os.path.normcase(os.path.normpath(k)) == norm_full]
-                for k in keys_to_del:
-                    del cache[k]
-                    cache_changed = True
+                self.archive_cache.pop(key, None)
+
+            if cache and missing_full_paths:
+                for k in list(cache.keys()):
+                    if os.path.normcase(os.path.normpath(k)) in missing_full_paths:
+                        del cache[k]
+                        cache_changed = True
 
             if cache_changed:
                 save_cache(cache)
@@ -1331,13 +1391,16 @@ class MainWindow(QMainWindow):
         pat_info = self.archive_cache.pop(patient_key, {})
         pat_name = pat_info.get('patient_name', 'Unknown')
         p_id = pat_info.get('patient_id', patient_key)
+        target_folder = pat_info.get('folder_name', patient_key)
+        for sib_key in list(self.archive_cache.keys()):
+            if (self.archive_cache[sib_key] or {}).get('folder_name') == target_folder:
+                self.archive_cache.pop(sib_key, None)
         
         log_message(self.output_field, tr_log("log_patient_not_found_in_archive", pat_name, p_id, self.get_archive_destination_name()))
 
         archive_dir = self.config.get('archive_dir', '')
         if archive_dir and os.path.exists(archive_dir):
-            folder_name = pat_info.get('folder_name', patient_key)
-            full_path = os.path.normpath(os.path.join(archive_dir, folder_name))
+            full_path = os.path.normpath(os.path.join(archive_dir, target_folder))
             
             from core.archive import load_cache, save_cache
             cache = load_cache()
@@ -1814,17 +1877,17 @@ class MainWindow(QMainWindow):
         self.show_patient_list()
         self.fill_archive_list(silent=True)
 
-    def sync_ct_cache_to_disk(self):
-        if not hasattr(self, 'images_cache') or self.images_cache is None:
+    @staticmethod
+    def _sync_folder_cache_to_disk(mem_cache, base_dir, load_fn, save_fn, removed_rel_paths=None):
+        """Persist in-memory folder metadata to JSON cache and prune explicitly removed subpaths."""
+        if not mem_cache and not removed_rel_paths:
             return
-        ct_dir = self.config.get('ct_images_dir', '')
-        if not ct_dir:
+        if not base_dir:
             return
         try:
-            from core.dicom_utils import save_ct_cache, load_ct_cache
             from collections import defaultdict
             derived_map = defaultdict(dict)
-            for rel_p, d in self.images_cache.items():
+            for rel_p, d in (mem_cache or {}).items():
                 if d.get('is_derived') or "[DERIVED" in str(rel_p):
                     fn = d.get('folder_name', str(rel_p).split(" [DERIVED")[0])
                     pref = d.get('derived_prefix', 'DERIVED')
@@ -1832,11 +1895,20 @@ class MainWindow(QMainWindow):
                     if pref and cnt > 0:
                         derived_map[fn][pref] = cnt
 
-            cache_data = load_ct_cache() or {}
-            for rel_p, d in self.images_cache.items():
+            cache_data = load_fn() or {}
+            if removed_rel_paths and cache_data:
+                removed_norm = {
+                    os.path.normcase(os.path.normpath(os.path.join(base_dir, str(rp))))
+                    for rp in removed_rel_paths if rp
+                }
+                for ck in list(cache_data.keys()):
+                    if os.path.normcase(os.path.normpath(ck)) in removed_norm:
+                        del cache_data[ck]
+
+            for rel_p, d in (mem_cache or {}).items():
                 if d.get('is_derived') or "[DERIVED" in str(rel_p):
                     continue
-                full_p = os.path.normpath(os.path.join(ct_dir, rel_p))
+                full_p = os.path.normpath(os.path.join(base_dir, rel_p))
                 if os.path.exists(full_p):
                     try:
                         mtime = os.path.getmtime(full_p)
@@ -1868,67 +1940,33 @@ class MainWindow(QMainWindow):
                         'derived_series': der_series,
                         'mtime': mtime
                     }
-            save_ct_cache(cache_data)
+            save_fn(cache_data)
         except Exception:
             pass
 
-    def sync_archive_cache_to_disk(self):
-        if not hasattr(self, 'archive_cache') or self.archive_cache is None:
+    def sync_ct_cache_to_disk(self, removed_rel_paths=None):
+        if not hasattr(self, 'images_cache') or (self.images_cache is None and not removed_rel_paths):
             return
-        archive_dir = self.config.get('archive_dir', '')
-        if not archive_dir:
+        from core.dicom_utils import save_ct_cache, load_ct_cache
+        self._sync_folder_cache_to_disk(
+            self.images_cache,
+            self.config.get('ct_images_dir', ''),
+            load_ct_cache,
+            save_ct_cache,
+            removed_rel_paths=removed_rel_paths,
+        )
+
+    def sync_archive_cache_to_disk(self, removed_rel_paths=None):
+        if not hasattr(self, 'archive_cache') or (self.archive_cache is None and not removed_rel_paths):
             return
-        try:
-            from core.archive import save_cache, load_cache
-            from collections import defaultdict
-            derived_map = defaultdict(dict)
-            for rel_p, d in self.archive_cache.items():
-                if d.get('is_derived') or "[DERIVED" in str(rel_p):
-                    fn = d.get('folder_name', str(rel_p).split(" [DERIVED")[0])
-                    pref = d.get('derived_prefix', 'DERIVED')
-                    cnt = int(d.get('slices', 0))
-                    if pref and cnt > 0:
-                        derived_map[fn][pref] = cnt
-
-            cache_data = load_cache() or {}
-            for rel_p, d in self.archive_cache.items():
-                if d.get('is_derived') or "[DERIVED" in str(rel_p):
-                    continue
-                full_p = os.path.normpath(os.path.join(archive_dir, rel_p))
-                if os.path.exists(full_p):
-                    try:
-                        mtime = os.path.getmtime(full_p)
-                    except Exception:
-                        mtime = 0.0
-
-                    der_series = dict(d.get('derived_series') or {})
-                    if rel_p in derived_map:
-                        der_series.update(derived_map[rel_p])
-
-                    has_der = bool(d.get('has_derived', False) or der_series)
-                    der_slices = int(d.get('derived_slices', 0))
-                    if not der_slices and der_series:
-                        der_slices = sum(der_series.values())
-
-                    cache_data[full_p] = {
-                        'patient_id': d.get('patient_id', ''),
-                        'patient_name': d.get('patient_name', ''),
-                        'modality': d.get('modality', 'CT'),
-                        'study_datetime': d.get('study_datetime'),
-                        'body_part': d.get('body_part', 'Unknown'),
-                        'folder_datetime': d.get('folder_datetime'),
-                        'str': d.get('str', 0),
-                        'rtd': d.get('rtd', 0),
-                        'rtp': d.get('rtp', 0),
-                        'slices': d.get('slices', 0),
-                        'has_derived': has_der,
-                        'derived_slices': der_slices,
-                        'derived_series': der_series,
-                        'mtime': mtime
-                    }
-            save_cache(cache_data)
-        except Exception:
-            pass
+        from core.archive import save_cache, load_cache
+        self._sync_folder_cache_to_disk(
+            self.archive_cache,
+            self.config.get('archive_dir', ''),
+            load_cache,
+            save_cache,
+            removed_rel_paths=removed_rel_paths,
+        )
 
     def closeEvent(self, event):
         # Сохраняем актуальные кэши на диск перед выходом

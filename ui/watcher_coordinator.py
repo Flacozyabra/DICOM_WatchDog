@@ -148,12 +148,34 @@ class WatchdogCoordinator(QObject):
         if hasattr(self.main_window, 'start_folder_scan'):
             self.main_window.start_folder_scan()
 
+    @staticmethod
+    def _is_archive_op_active(mw):
+        ops = getattr(mw, 'active_file_operations', None)
+        if not ops:
+            return False
+        return any(
+            isinstance(op, dict) and op.get('op') in ('archive', 'restore', 'delete_archive', 'change_id')
+            for op in ops.values()
+        )
+
     def trigger_archive_debounce(self):
+        mw = self.main_window
+        if self._is_archive_op_active(mw):
+            return
+        if time.time() - getattr(mw, 'last_archive_op_finished_time', 0.0) < 2.5:
+            return
         if hasattr(self, 'archive_debounce_timer'):
             self.archive_debounce_timer.start(1000)
 
     def on_archive_watcher_timeout(self):
         mw = self.main_window
+        if self._is_archive_op_active(mw):
+            if hasattr(self, 'archive_debounce_timer'):
+                self.archive_debounce_timer.start(1000)
+            return
+        if time.time() - getattr(mw, 'last_archive_op_finished_time', 0.0) < 2.5:
+            return
+
         # 1. Немедленно удаляем из кэша, таблицы и бейджа отсутствующие папки
         if hasattr(mw, '_prune_missing_archive_records'):
             mw._prune_missing_archive_records(force=True)
