@@ -135,6 +135,10 @@ class WatchdogCoordinator(QObject):
         # Если сканирование уже идет или действует кулдаун после него (1.5 сек),
         # откладываем повторное сканирование на момент после завершения
         mw = self.main_window
+        dl_worker = getattr(mw, 'pacs_download_worker', None)
+        if dl_worker and dl_worker.isRunning():
+            mw.pending_folder_scan = True
+            return
         if getattr(mw, 'is_scanning_active', False) or (hasattr(mw, 'scan_worker') and mw.scan_worker and mw.scan_worker.isRunning()):
             mw.pending_folder_scan = True
             return
@@ -145,8 +149,14 @@ class WatchdogCoordinator(QObject):
         self.debounce_timer.start(2000)
 
     def on_watcher_timeout(self):
-        if hasattr(self.main_window, 'start_folder_scan'):
-            self.main_window.start_folder_scan()
+        mw = self.main_window
+        dl_worker = getattr(mw, 'pacs_download_worker', None)
+        if dl_worker and dl_worker.isRunning():
+            if hasattr(self, 'debounce_timer') and self.debounce_timer:
+                self.debounce_timer.start(2000)
+            return
+        if hasattr(mw, 'start_folder_scan'):
+            mw.start_folder_scan()
 
     @staticmethod
     def _is_archive_op_active(mw):
