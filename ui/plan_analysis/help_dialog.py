@@ -2,7 +2,6 @@
 """Plan Delivery & Kinematics Analysis Help Dialog."""
 
 import sys
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFrame, QTextBrowser

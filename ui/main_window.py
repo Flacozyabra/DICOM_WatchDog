@@ -1,39 +1,26 @@
 import os
 import sys
-import shutil
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from PyQt6.QtCore import Qt, QTimer, QSize, QThread, pyqtSignal, QObject, QDate, QPoint, QRectF
-from PyQt6.QtGui import QColor, QAction, QIcon, QFont, QFontMetrics, QPainter, QPen, QBrush, QPolygon, QPalette, QLinearGradient
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QTabBar, QWidget, 
-                             QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, 
-                             QPlainTextEdit, QPushButton, QMessageBox, 
-                             QHeaderView, QMenu, QAbstractItemView, QLineEdit, QLabel,
-                             QDialog, QFileDialog, QDateEdit, QStackedWidget, QSplitter,
-                             QSplitterHandle, QComboBox, QStyledItemDelegate, QStyleOptionViewItem, QStyle)
+from PyQt6.QtCore import Qt, QTimer, QDate
+from PyQt6.QtGui import QIcon, QFont
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QTabWidget, QTabBar, QWidget,
+    QVBoxLayout, QPlainTextEdit, QMessageBox, QDialog, QFileDialog, QStackedWidget
+)
 
-
-from core.dicom_utils import dict_create, process_patient_folder, delete_redundant_str
-from core.archive import move_old_folders_to_archive
 from core.notifier import show_notification
 from core.logger import log_message
-from core.pacs import pacs_dict_create, download_patient_from_pacs, start_background_pacs_server
+from core.pacs import start_background_pacs_server
 from core.config_utils import get_resource_path, cleanup_temp_dir, VERSION
 from core.locale_utils import tr_ui, tr_log, set_current_langs
 from ui.settings_dialog import SettingsDialog, apply_dark_title_bar
-from ui.toggle_switch import ToggleSwitch
-from ui.centered_date_edit import CenteredDateEdit
 from ui.tab_badge import TabBadge
 from ui.animated_tab_bar import AnimatedSegmentedTabBar
 from themes.theme_manager import load_theme
 from ui.viewer import DicomViewerPanel
-from ui.table_widgets import (
-    ToggleTableWidget, TaskProgressDelegate, CustomSplitter, CustomSplitterHandle
-)
-from ui.workers import (
-    WatchdogHandler, ThreadLogCollector, FolderScanWorker, PacsScanWorker,
-    ArchiveScanWorker, BackgroundFileWorker, PacsDownloadWorker
-)
+from ui.table_widgets import TaskProgressDelegate, CustomSplitter
+from ui.workers import FolderScanWorker, PacsScanWorker, ArchiveScanWorker, PacsDownloadWorker
 from ui.tabs.images_tab import ImagesTab
 from ui.tabs.archive_tab import ArchiveTab
 from ui.tabs.pacs_tab import PacsTab

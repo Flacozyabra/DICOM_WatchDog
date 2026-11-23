@@ -12,7 +12,7 @@ except ImportError:
     from PyQt5.QtCore import QThread, pyqtSignal, QObject
 
 from core.logger import log_message
-from core.dicom_utils import dict_create, collect_patient_studies, load_ct_cache, save_ct_cache
+from core.dicom_utils import collect_patient_studies, load_ct_cache, save_ct_cache
 from core.rename_utils import (
     process_patient_folder, move_study_folder_hierarchical,
     get_folder_study_info, is_folder_ready_for_processing,

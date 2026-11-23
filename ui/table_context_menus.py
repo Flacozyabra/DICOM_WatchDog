@@ -4,7 +4,7 @@
 import os
 from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QMenu, QTableWidget, QInputDialog, QTabBar
+from PyQt6.QtWidgets import QMenu, QTableWidget, QInputDialog
 
 from core.locale_utils import tr_ui, tr_log
 from core.logger import log_message

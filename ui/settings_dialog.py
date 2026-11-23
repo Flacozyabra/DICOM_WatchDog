@@ -4,9 +4,8 @@
 import os
 import sys
 import json
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QMessageBox,
-                             QListWidget, QStackedWidget, QDialogButtonBox, QWidget)
+                             QListWidget, QStackedWidget, QDialogButtonBox)
 
 from core.config_utils import get_config_path, get_app_data_dir, VERSION
 from core.locale_utils import tr_ui, set_current_langs
@@ -21,9 +20,7 @@ from core.notifier import (
 from ui.updater import UpdateCheckWorker, is_newer_version, run_auto_update
 from ui.settings_tabs.settings_utils import (
     find_matching_voice_index,
-    are_onecore_voices_locked,
-    apply_dark_title_bar,
-    LanguageSwitch
+    apply_dark_title_bar
 )
 from ui.settings_tabs.general_tab import build_general_tab, retranslate_general_tab
 from ui.settings_tabs.archive_tab import build_archive_tab, retranslate_archive_tab

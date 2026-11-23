@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """General & Scanning Settings Tab."""
 
-import os
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QLineEdit, QPushButton, QFormLayout, 
                              QComboBox, QFrame)

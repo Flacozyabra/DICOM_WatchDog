@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Images Tab (Снимки КТ) for DICOM WatchDog."""
 
-import os
 from datetime import datetime
 from collections import defaultdict
 try:

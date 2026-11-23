@@ -30,7 +30,6 @@ from core.postprocessing.aligned import (
 from ui.settings_tabs.settings_utils import apply_dark_title_bar
 from themes.theme_manager import button_qss
 from .canvas import draw_ruler_overlay
-from .parsers import safe_dcmread
 
 
 # Safe Qt constants for both PyQt6 and PyQt5

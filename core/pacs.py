@@ -1,16 +1,13 @@
 from pydicom.dataset import Dataset
-from pynetdicom import AE, debug_logger
-from pynetdicom.sop_class import PatientRootQueryRetrieveInformationModelFind
+from pynetdicom import AE
 
 import os
 import threading
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
-from pprint import pprint
 
 from core.logger import log_message
-from core.config_utils import get_log_path
 from core.locale_utils import tr_log, tr_ui
 
 MAX_REQUESTED_CONTEXTS = 128

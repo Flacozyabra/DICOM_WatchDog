@@ -1,18 +1,13 @@
 # -*- coding: utf-8 -*-
 """Sound & Notifications Settings Tab."""
 
-import sys
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QLineEdit, QPushButton, QFormLayout, 
                              QComboBox, QFrame, QSlider)
 
 from ui.toggle_switch import ToggleSwitch
-from ui.settings_tabs.settings_utils import (
-    find_matching_voice_index, 
-    are_onecore_voices_locked
-)
-from core.notifier import format_voice_name
+from ui.settings_tabs.settings_utils import are_onecore_voices_locked
 from core.locale_utils import tr_ui
 
 

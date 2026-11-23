@@ -2,7 +2,6 @@ import os
 import sys
 import shutil
 import json
-import urllib.request
 
 VERSION = "1.9.0"
 

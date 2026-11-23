@@ -6,7 +6,7 @@ Linear stepped bar graph displaying MU/degree across gantry angles with safety t
 adaptive vertical scaling, and bidirectional selection synchronization.
 """
 
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal
 from PyQt6.QtGui import (

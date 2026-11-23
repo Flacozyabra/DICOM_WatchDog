@@ -7,7 +7,7 @@ risk levels, multi-pass concentric tracks, and an interactive center HUD.
 """
 
 import math
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal
 from PyQt6.QtGui import (

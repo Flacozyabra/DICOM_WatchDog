@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """PACS Tab for DICOM WatchDog."""
 
-import os
 from datetime import datetime
 try:
     from PyQt6.QtCore import Qt, QSize, QDate
