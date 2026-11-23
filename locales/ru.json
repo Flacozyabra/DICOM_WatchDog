@@ -343,7 +343,7 @@
   "viewer_mode_proc": "Обработанное",
   "viewer_postprocessing_title": "Постпроцессинг КТ",
   "viewer_postprocess_prompt": "Выберите нужные этапы обработки (можно комбинировать):",
-  "viewer_algo_align_title": "Выравнивание по аппликатору (Aligned)",
+  "viewer_algo_align_title": "Выравнивание по аппликатору",
   "viewer_algo_align_hint": "Автоматически выровнять оси КТ по метрокольпостату",
   "viewer_algo_mar_v9": "MAR v9 for Brachy GYN",
   "viewer_algo_mar_title": "Удаление артефактов металла (MAR)",

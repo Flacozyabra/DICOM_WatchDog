@@ -343,7 +343,7 @@
   "viewer_mode_proc": "Processed",
   "viewer_postprocessing_title": "CT Post-processing",
   "viewer_postprocess_prompt": "Select processing options (combinable):",
-  "viewer_algo_align_title": "Applicator Alignment (Aligned)",
+  "viewer_algo_align_title": "Applicator Alignment",
   "viewer_algo_align_hint": "Auto-align CT axes to tandem & ovoids for brachytherapy planning",
   "viewer_algo_mar_v9": "MAR v9 for Brachy GYN",
   "viewer_algo_mar_title": "Metal Artifact Reduction (MAR)",
