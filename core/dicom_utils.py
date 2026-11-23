@@ -212,12 +212,22 @@ def save_ct_cache(cache_data):
 
 DERIVED_PREFIX_TITLES = {
     "MAR": "MAR v9",
-    "STN": "Soft Tissue Normal",
-    "STH": "Soft Tissue Hard",
-    "MAR_STN": "MAR v9 + ST Normal",
-    "MAR_STH": "MAR v9 + ST Hard",
+    "STN": "Guided + S-Curve (Normal)",
+    "STH": "Guided + S-Curve (Hard)",
+    "STC": "Clamped Guided + 2.5D Z",
+    "STMN": "MUSICA Pyramid (Normal)",
+    "STMH": "MUSICA Pyramid (Hard)",
+    "STNLM": "Patch-NLM 2.5D",
+    "MAR_STN": "MAR v9 + Guided + S-Curve (Normal)",
+    "MAR_STH": "MAR v9 + Guided + S-Curve (Hard)",
+    "MAR_STC": "MAR v9 + Clamped Guided + 2.5D Z",
+    "MAR_STMN": "MAR v9 + MUSICA Pyramid (Normal)",
+    "MAR_STMH": "MAR v9 + MUSICA Pyramid (Hard)",
+    "MAR_STNLM": "MAR v9 + Patch-NLM 2.5D",
     "ALIGNED": "Aligned",
 }
+
+_DERIVED_PREFIX_ORDER = tuple(sorted(DERIVED_PREFIX_TITLES.keys(), key=len, reverse=True))
 
 
 def parse_derived_prefix(filename: str) -> Tuple[str, str]:
@@ -226,7 +236,7 @@ def parse_derived_prefix(filename: str) -> Tuple[str, str]:
     Returns (prefix, display_title).
     Examples:
       'DERIVED_MAR_CT.1.dcm'     -> ('MAR', 'MAR v9')
-      'DERIVED_MAR_STN_CT.1.dcm' -> ('MAR_STN', 'MAR v9 + ST Normal')
+      'DERIVED_MAR_STN_CT.1.dcm' -> ('MAR_STN', 'MAR v9 + Guided + S-Curve (Normal)')
       'DERIVED_ALIGNED_CT.1.dcm' -> ('ALIGNED', 'Aligned')
       'DERIVED_CT.1.dcm'         -> ('DERIVED', 'Postprocessed')
     """
@@ -234,7 +244,7 @@ def parse_derived_prefix(filename: str) -> Tuple[str, str]:
     if not upper.startswith("DERIVED_"):
         return "", ""
     rest = upper[len("DERIVED_"):]
-    for pref in ("MAR_STN", "MAR_STH", "MAR", "STN", "STH", "ALIGNED"):
+    for pref in _DERIVED_PREFIX_ORDER:
         if rest.startswith(pref + "_") or rest.startswith(pref + "."):
             return pref, DERIVED_PREFIX_TITLES[pref]
     return "DERIVED", "Postprocessed"

@@ -26,18 +26,47 @@ ALGORITHM_ALIGNED = "aligned"
 ALGORITHM_MAR_V9 = "mar_v9"
 ALGORITHM_ST_HARD = "soft_tissue_hard"
 ALGORITHM_ST_NORMAL = "soft_tissue_normal"
+ALGORITHM_ST_CLAMPED_Z = "soft_tissue_clamped_z"
+ALGORITHM_ST_MUSICA_NORMAL = "soft_tissue_musica_normal"
+ALGORITHM_ST_MUSICA_HARD = "soft_tissue_musica_hard"
+ALGORITHM_ST_PATCH_NLM = "soft_tissue_patch_nlm"
 ALGORITHM_COMBO_NORMAL = "combo_mar_st_normal"
 ALGORITHM_COMBO_HARD = "combo_mar_st_hard"
+ALGORITHM_COMBO_CLAMPED_Z = "combo_mar_st_clamped_z"
+ALGORITHM_COMBO_MUSICA_NORMAL = "combo_mar_st_musica_normal"
+ALGORITHM_COMBO_MUSICA_HARD = "combo_mar_st_musica_hard"
+ALGORITHM_COMBO_PATCH_NLM = "combo_mar_st_patch_nlm"
+
+# (st_mode, solo_algo_id, combo_algo_id, file_prefix, human_desc, win_c, win_w)
+SOFT_TISSUE_MODE_SPECS: tuple[tuple[str, str, str, str, str, int, int], ...] = (
+    ("normal", ALGORITHM_ST_NORMAL, ALGORITHM_COMBO_NORMAL, "STN", "Guided + S-Curve (Normal)", 40, 220),
+    ("hard", ALGORITHM_ST_HARD, ALGORITHM_COMBO_HARD, "STH", "Guided + S-Curve (Hard)", 40, 180),
+    ("clamped_v2", ALGORITHM_ST_CLAMPED_Z, ALGORITHM_COMBO_CLAMPED_Z, "STC", "Clamped Guided + 2.5D Z", 40, 200),
+    ("musica_normal", ALGORITHM_ST_MUSICA_NORMAL, ALGORITHM_COMBO_MUSICA_NORMAL, "STMN", "MUSICA Pyramid (Normal)", 40, 210),
+    ("musica_hard", ALGORITHM_ST_MUSICA_HARD, ALGORITHM_COMBO_MUSICA_HARD, "STMH", "MUSICA Pyramid (Hard)", 40, 190),
+    ("patch_nlm", ALGORITHM_ST_PATCH_NLM, ALGORITHM_COMBO_PATCH_NLM, "STNLM", "Patch-NLM 2.5D", 40, 190),
+)
+
+ST_WINDOW_PRESETS: dict[str, tuple[int, int]] = {
+    st_mode: (wc, ww) for st_mode, _, _, _, _, wc, ww in SOFT_TISSUE_MODE_SPECS
+}
 
 # (file_prefix, human_description, use_mar, st_mode)
 ALGO_SPECS: dict[str, tuple[str, str, bool, str | None]] = {
     ALGORITHM_ALIGNED: ("ALIGNED", "Aligned CT", False, None),
     ALGORITHM_MAR_V9: ("MAR", "MAR v9", True, None),
-    ALGORITHM_ST_NORMAL: ("STN", "Soft Tissue Normal", False, "normal"),
-    ALGORITHM_ST_HARD: ("STH", "Soft Tissue Hard", False, "hard"),
-    ALGORITHM_COMBO_NORMAL: ("MAR_STN", "MAR v9 + ST Normal", True, "normal"),
-    ALGORITHM_COMBO_HARD: ("MAR_STH", "MAR v9 + ST Hard", True, "hard"),
 }
+for _st_mode, _solo_id, _combo_id, _pref, _desc, _, _ in SOFT_TISSUE_MODE_SPECS:
+    ALGO_SPECS[_solo_id] = (_pref, _desc, False, _st_mode)
+    ALGO_SPECS[_combo_id] = (f"MAR_{_pref}", f"MAR v9 + {_desc}", True, _st_mode)
+
+
+def resolve_soft_tissue_algorithm(st_mode: str, use_mar: bool) -> str:
+    """Resolve PostprocessingRunner algo_type identifier for a soft-tissue mode and MAR flag."""
+    for mode_key, solo_id, combo_id, _, _, _, _ in SOFT_TISSUE_MODE_SPECS:
+        if mode_key == st_mode:
+            return combo_id if use_mar else solo_id
+    return ALGORITHM_COMBO_HARD if use_mar else ALGORITHM_ST_HARD
 
 
 def compute_slice_hu(
@@ -93,13 +122,13 @@ def compute_slice_hu(
     if st_mode is not None:
         from .soft_tissue_algorithm import enhance_soft_tissue_slice_v2
         use_z = bool(params.get("use_z_filter", False))
-        win_c = 40
-        win_w = 220 if st_mode == "normal" else 180
+        win_c, win_w = ST_WINDOW_PRESETS.get(st_mode, (40, 180))
         corr_hu = enhance_soft_tissue_slice_v2(
             img_hu=corr_hu,
             neighbor_hu=neighbor_hu,
             mode=st_mode,
             use_z_filter=use_z,
+            pixel_spacing=pixel_spacing,
         )
         stats_info["mode"] = st_mode
 

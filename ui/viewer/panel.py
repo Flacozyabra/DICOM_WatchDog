@@ -40,7 +40,8 @@ from .mpr_widget import (
 )
 from core.postprocessing import (
     PostprocessingRunner, ALGORITHM_ALIGNED, ALGORITHM_MAR_V9, ALGORITHM_ST_HARD,
-    ALGORITHM_ST_NORMAL, ALGORITHM_COMBO_NORMAL, ALGORITHM_COMBO_HARD, clean_series_desc
+    ALGORITHM_ST_NORMAL, ALGORITHM_COMBO_NORMAL, ALGORITHM_COMBO_HARD,
+    resolve_soft_tissue_algorithm, clean_series_desc
 )
 
 
@@ -2792,7 +2793,7 @@ class DicomViewerPanel(QWidget):
     def _build_postprocess_dialog(self) -> tuple[QDialog, dict]:
         dlg = QDialog(self)
         dlg.setWindowTitle(tr_ui("viewer_postprocessing_title"))
-        dlg.setFixedWidth(495)
+        dlg.setFixedWidth(520)
         apply_dark_title_bar(dlg)
         dlg.setStyleSheet("""
             QDialog {
@@ -2841,43 +2842,37 @@ class DicomViewerPanel(QWidget):
                 border-color: #333338;
                 background-color: #18181B;
             }
-            QPushButton#btn_pp_st_normal, QPushButton#btn_pp_st_hard {
-                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4a4a4a, stop:1 #414141);
-                color: #e2e5ea;
-                border: 1px solid #575757;
-                padding: 3px 11px;
+            QComboBox#cb_pp_st_algo {
+                background-color: #27282c;
+                color: #F4F4F5;
+                border: 1px solid #4A4D57;
+                border-radius: 6px;
+                padding: 4px 10px;
                 font-size: 11px;
                 font-weight: 600;
+                min-height: 20px;
             }
-            QPushButton#btn_pp_st_normal:hover, QPushButton#btn_pp_st_hard:hover {
-                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #595959, stop:1 #4f4f4f);
-                color: #ffffff;
-                border-color: #6b6b6b;
+            QComboBox#cb_pp_st_algo:hover:enabled {
+                background-color: #323338;
+                border-color: #606470;
             }
-            QPushButton#btn_pp_st_normal {
-                border-radius: 0px;
-                border-top-left-radius: 6px;
-                border-bottom-left-radius: 6px;
-            }
-            QPushButton#btn_pp_st_hard {
-                border-radius: 0px;
-                border-top-right-radius: 6px;
-                border-bottom-right-radius: 6px;
-                border-left: none;
-            }
-            QPushButton#btn_pp_st_normal:checked, QPushButton#btn_pp_st_hard:checked {
-                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2562a6, stop:1 #1c4c82);
-                color: #ffffff;
+            QComboBox#cb_pp_st_algo:focus:enabled, QComboBox#cb_pp_st_algo:on {
                 border: 1px solid #3878c0;
             }
-            QPushButton#btn_pp_st_normal:checked:hover, QPushButton#btn_pp_st_hard:checked:hover {
-                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2d70ba, stop:1 #225895);
-                border: 1px solid #4b8bd3;
-            }
-            QPushButton#btn_pp_st_normal:disabled, QPushButton#btn_pp_st_hard:disabled {
-                background-color: #303134;
+            QComboBox#cb_pp_st_algo:disabled {
+                background-color: #222327;
                 color: #70747c;
-                border-color: #3c3e42;
+                border-color: #34363c;
+            }
+            QComboBox#cb_pp_st_algo QAbstractItemView {
+                background-color: #1A1A1F;
+                color: #F4F4F5;
+                border: 1px solid #3B3E48;
+                border-radius: 4px;
+                padding: 3px;
+                selection-background-color: #2562a6;
+                selection-color: #FFFFFF;
+                outline: 0;
             }
             QPushButton#btn_pp_mar_adv {
                 background: transparent;
@@ -2894,7 +2889,7 @@ class DicomViewerPanel(QWidget):
             QPushButton#btn_pp_mar_adv:disabled {
                 color: #52525B;
             }
-            QWidget#st_pill_container, QWidget#mar_opts_container {
+            QWidget#mar_opts_container {
                 border: none;
                 background: transparent;
             }
@@ -3037,38 +3032,36 @@ class DicomViewerPanel(QWidget):
         card_mar_layout.addWidget(mar_opts_container)
         layout.addWidget(card_mar)
 
-        # Card 3: Soft Tissue Contrast + inline segmented Normal | Hard pill
-        st_pill_container = QWidget(dlg)
-        st_pill_container.setObjectName("st_pill_container")
-        st_pill_layout = QHBoxLayout(st_pill_container)
-        st_pill_layout.setContentsMargins(0, 0, 0, 0)
-        st_pill_layout.setSpacing(0)
+        # Card 3: Soft Tissue Contrast + algorithm selector dropdown
+        cb_st_algo = QComboBox(dlg)
+        cb_st_algo.setObjectName("cb_pp_st_algo")
+        cb_st_algo.setFixedWidth(215)
+        cb_st_algo.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        btn_stn = QPushButton(tr_ui("viewer_algo_st_normal"), st_pill_container)
-        btn_stn.setObjectName("btn_pp_st_normal")
-        btn_stn.setCheckable(True)
-
-        btn_sth = QPushButton(tr_ui("viewer_algo_st_hard"), st_pill_container)
-        btn_sth.setObjectName("btn_pp_st_hard")
-        btn_sth.setCheckable(True)
-        btn_sth.setChecked(True)
-
-        st_mode_group = QButtonGroup(st_pill_container)
-        st_mode_group.setExclusive(True)
-        st_mode_group.addButton(btn_stn)
-        st_mode_group.addButton(btn_sth)
-        st_pill_layout.addWidget(btn_stn)
-        st_pill_layout.addWidget(btn_sth)
-        st_pill_container.setEnabled(False)
+        st_options = (
+            ("normal", "viewer_algo_st_opt_normal", "viewer_algo_st_tip_normal"),
+            ("hard", "viewer_algo_st_opt_hard", "viewer_algo_st_tip_hard"),
+            ("clamped_v2", "viewer_algo_st_opt_clamped_v2", "viewer_algo_st_tip_clamped_v2"),
+            ("musica_normal", "viewer_algo_st_opt_musica_normal", "viewer_algo_st_tip_musica_normal"),
+            ("musica_hard", "viewer_algo_st_opt_musica_hard", "viewer_algo_st_tip_musica_hard"),
+            ("patch_nlm", "viewer_algo_st_opt_patch_nlm", "viewer_algo_st_tip_patch_nlm"),
+        )
+        for idx_opt, (mode_key, label_key, tip_key) in enumerate(st_options):
+            cb_st_algo.addItem(tr_ui(label_key), mode_key)
+            cb_st_algo.setItemData(idx_opt, tr_ui(tip_key), Qt.ItemDataRole.ToolTipRole)
+        default_st_idx = cb_st_algo.findData("hard")
+        if default_st_idx >= 0:
+            cb_st_algo.setCurrentIndex(default_st_idx)
+        cb_st_algo.setEnabled(False)
 
         card_st, _, cb_st = _make_card(
             "card_st",
             tr_ui("viewer_algo_st_title"),
             tr_ui("viewer_algo_st_hint"),
-            right_widget=st_pill_container,
+            right_widget=cb_st_algo,
         )
         cb_st.setObjectName("cb_pp_st")
-        cb_st.toggled.connect(st_pill_container.setEnabled)
+        cb_st.toggled.connect(cb_st_algo.setEnabled)
         layout.addWidget(card_st)
 
         # Compact Save-to-disk toggle
@@ -3133,8 +3126,7 @@ class DicomViewerPanel(QWidget):
             "cb_mar_protect_fat": cb_mar_protect_fat,
             "cb_mar_starv": cb_mar_starv,
             "cb_mar_edge": cb_mar_edge,
-            "btn_stn": btn_stn,
-            "btn_sth": btn_sth,
+            "cb_st_algo": cb_st_algo,
             "cb_save_disk": cb_save_disk,
             "btn_run": btn_run,
             "btn_cancel": btn_cancel,
@@ -3148,7 +3140,7 @@ class DicomViewerPanel(QWidget):
         if not (align_selected or mar_selected or st_selected):
             return None
 
-        is_st_normal = controls["btn_stn"].isChecked()
+        st_mode = str(controls["cb_st_algo"].currentData() or "hard")
         params = {
             "align_to_applicator": align_selected,
             "mar_enable_polar": controls["cb_mar_polar"].isChecked(),
@@ -3156,14 +3148,13 @@ class DicomViewerPanel(QWidget):
             "mar_protect_fat": controls["cb_mar_protect_fat"].isChecked(),
             "mar_enable_starvation_fill": controls["cb_mar_starv"].isChecked(),
             "mar_enable_micro_edge": controls["cb_mar_edge"].isChecked(),
+            "st_mode": st_mode,
             "save_to_disk": controls["cb_save_disk"].isChecked(),
         }
-        if mar_selected and st_selected:
-            algo = ALGORITHM_COMBO_NORMAL if is_st_normal else ALGORITHM_COMBO_HARD
+        if st_selected:
+            algo = resolve_soft_tissue_algorithm(st_mode, use_mar=mar_selected)
         elif mar_selected:
             algo = ALGORITHM_MAR_V9
-        elif st_selected:
-            algo = ALGORITHM_ST_NORMAL if is_st_normal else ALGORITHM_ST_HARD
         else:
             algo = ALGORITHM_ALIGNED
         return algo, params
