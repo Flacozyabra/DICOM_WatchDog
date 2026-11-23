@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import time
 import json
 from datetime import datetime, date
@@ -210,7 +209,7 @@ def save_ct_cache(cache_data):
             pass
 
 
-DERIVED_PREFIX_TITLES = {
+_BASE_DERIVED_PREFIX_TITLES = {
     "MAR": "MAR v9",
     "STN": "Guided + S-Curve (Normal)",
     "STH": "Guided + S-Curve (Hard)",
@@ -224,8 +223,12 @@ DERIVED_PREFIX_TITLES = {
     "MAR_STMN": "MAR v9 + MUSICA Pyramid (Normal)",
     "MAR_STMH": "MAR v9 + MUSICA Pyramid (Hard)",
     "MAR_STNLM": "MAR v9 + Patch-NLM 2.5D",
-    "ALIGNED": "Aligned",
 }
+
+DERIVED_PREFIX_TITLES = dict(_BASE_DERIVED_PREFIX_TITLES)
+for _pref, _title in _BASE_DERIVED_PREFIX_TITLES.items():
+    DERIVED_PREFIX_TITLES[f"{_pref}_ALIGNED"] = f"{_title} + Aligned"
+DERIVED_PREFIX_TITLES["ALIGNED"] = "Aligned"
 
 _DERIVED_PREFIX_ORDER = tuple(sorted(DERIVED_PREFIX_TITLES.keys(), key=len, reverse=True))
 

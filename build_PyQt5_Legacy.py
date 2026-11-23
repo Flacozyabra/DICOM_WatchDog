@@ -29,10 +29,21 @@ try:
         'TransformationMode', 'MouseButton', 'Key', 'ApplicationAttribute',
         'ConnectionType', 'DockWidgetArea', 'ToolBarArea', 'FillRule',
         'PenStyle', 'BrushStyle', 'DropAction', 'FocusPolicy', 'MatchFlag',
-        'ScreenOrientation'
+        'ScreenOrientation', 'TextFormat'
     ]:
         if not hasattr(PyQt5.QtCore.Qt, name):
             setattr(PyQt5.QtCore.Qt, name, PyQt5.QtCore.Qt)
+
+    # SIP in PyQt5 exposes some enum types as int subclasses without member attributes.
+    for _owner, _enum_name, _sample_member in (
+        (PyQt5.QtCore.Qt, 'TextFormat', 'RichText'),
+        (PyQt5.QtWidgets.QStyle, 'StateFlag', 'State_Selected'),
+        (PyQt5.QtWidgets.QLineEdit, 'ActionPosition', 'TrailingPosition'),
+        (PyQt5.QtGui.QIcon, 'Mode', 'Disabled'),
+        (PyQt5.QtGui.QFont, 'StyleStrategy', 'PreferAntialias'),
+    ):
+        if not hasattr(getattr(_owner, _enum_name, None), _sample_member):
+            setattr(_owner, _enum_name, _owner)
 
     if not hasattr(PyQt5.QtCore.QEasingCurve, 'Type'):
         setattr(PyQt5.QtCore.QEasingCurve, 'Type', PyQt5.QtCore.QEasingCurve)

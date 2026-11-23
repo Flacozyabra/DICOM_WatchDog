@@ -69,6 +69,65 @@ def resolve_soft_tissue_algorithm(st_mode: str, use_mar: bool) -> str:
     return ALGORITHM_COMBO_HARD if use_mar else ALGORITHM_ST_HARD
 
 
+def _shutdown_executor(executor: ThreadPoolExecutor) -> None:
+    """Cancel pending futures cleanly with Python 3.8 fallback."""
+    try:
+        executor.shutdown(wait=False, cancel_futures=True)
+    except TypeError:
+        executor.shutdown(wait=False)
+
+
+def _apply_mar_slice(
+    img_hu: np.ndarray,
+    pixel_spacing: list[float] | tuple[float, float],
+    neighbor_hu: list[np.ndarray],
+    params: dict,
+) -> tuple[np.ndarray, bool, dict]:
+    from .mar_algorithm import process_slice_mar
+    metal_thresh = float(params.get("metal_threshold", 2200.0))
+    return process_slice_mar(
+        img_hu,
+        metal_threshold=metal_thresh,
+        pixel_spacing=pixel_spacing,
+        neighbor_hu=neighbor_hu,
+        enable_polar_filter=bool(params.get("mar_enable_polar", True)),
+        polar_radius_limit_pelvis=bool(params.get("mar_polar_limit_radius", True)),
+        protect_muscle_fat=bool(params.get("mar_protect_fat", True)),
+        enable_starvation_fill=bool(params.get("mar_enable_starvation_fill", True)),
+        enable_micro_edge=bool(params.get("mar_enable_micro_edge", True)),
+    )
+
+
+def _apply_soft_tissue_slice(
+    img_hu: np.ndarray,
+    pixel_spacing: list[float] | tuple[float, float],
+    neighbor_hu: list[np.ndarray],
+    st_mode: str,
+    params: dict,
+) -> tuple[np.ndarray, int, int]:
+    from .soft_tissue_algorithm import enhance_soft_tissue_slice_v2
+    use_z = bool(params.get("use_z_filter", False))
+    win_c, win_w = ST_WINDOW_PRESETS.get(st_mode, (40, 180))
+    corr_hu = enhance_soft_tissue_slice_v2(
+        img_hu=img_hu,
+        neighbor_hu=neighbor_hu,
+        mode=st_mode,
+        use_z_filter=use_z,
+        pixel_spacing=pixel_spacing,
+    )
+    return corr_hu, win_c, win_w
+
+
+def _collect_neighbors(slices: list[np.ndarray | None] | np.ndarray, idx: int) -> list[np.ndarray]:
+    nbrs: list[np.ndarray] = []
+    n_total = len(slices)
+    if idx > 0 and slices[idx - 1] is not None:
+        nbrs.append(slices[idx - 1])
+    if idx < n_total - 1 and slices[idx + 1] is not None:
+        nbrs.append(slices[idx + 1])
+    return nbrs
+
+
 def compute_slice_hu(
     in_path: str,
     algo_type: str,
@@ -87,7 +146,7 @@ def compute_slice_hu(
     params = params or {}
     ds, img_hu, slope, intercept, pixel_spacing = read_dicom_hu(in_path)
 
-    neighbor_hu = []
+    neighbor_hu: list[np.ndarray] = []
     if neighbor_paths:
         for np_path in neighbor_paths:
             if np_path and os.path.exists(np_path):
@@ -101,35 +160,14 @@ def compute_slice_hu(
     stats_info: dict = {}
 
     if use_mar:
-        from .mar_algorithm import process_slice_mar
-        metal_thresh = float(params.get("metal_threshold", 2200.0))
-        corr_hu, has_metal, stats = process_slice_mar(
-            corr_hu,
-            metal_threshold=metal_thresh,
-            pixel_spacing=pixel_spacing,
-            neighbor_hu=neighbor_hu,
-            enable_polar_filter=bool(params.get("mar_enable_polar", True)),
-            polar_radius_limit_pelvis=bool(params.get("mar_polar_limit_radius", True)),
-            protect_muscle_fat=bool(params.get("mar_protect_fat", True)),
-            enable_starvation_fill=bool(params.get("mar_enable_starvation_fill", True)),
-            enable_micro_edge=bool(params.get("mar_enable_micro_edge", True)),
-        )
+        corr_hu, has_metal, stats = _apply_mar_slice(corr_hu, pixel_spacing, neighbor_hu, params)
         stats_info["has_metal"] = has_metal
         stats_info["stats"] = stats
 
     win_c = None
     win_w = None
     if st_mode is not None:
-        from .soft_tissue_algorithm import enhance_soft_tissue_slice_v2
-        use_z = bool(params.get("use_z_filter", False))
-        win_c, win_w = ST_WINDOW_PRESETS.get(st_mode, (40, 180))
-        corr_hu = enhance_soft_tissue_slice_v2(
-            img_hu=corr_hu,
-            neighbor_hu=neighbor_hu,
-            mode=st_mode,
-            use_z_filter=use_z,
-            pixel_spacing=pixel_spacing,
-        )
+        corr_hu, win_c, win_w = _apply_soft_tissue_slice(corr_hu, pixel_spacing, neighbor_hu, st_mode, params)
         stats_info["mode"] = st_mode
 
     return ds, corr_hu, slope, intercept, win_c, win_w, stats_info
@@ -173,19 +211,6 @@ def process_slice_task(task_args: tuple) -> tuple[str, bool, dict]:
     except Exception as e:
         import traceback
         return in_path, False, {"error": str(e), "trace": traceback.format_exc()}
-
-
-def _process_slice_to_hu_task(idx: int, in_path: str, algo_type: str, neighbor_paths: list[str], params: dict):
-    try:
-        _, corr_hu, _, _, win_c, win_w, _ = compute_slice_hu(
-            in_path=in_path,
-            algo_type=algo_type,
-            neighbor_paths=neighbor_paths,
-            params=params,
-        )
-        return idx, True, corr_hu, win_c, win_w, ""
-    except Exception as e:
-        return idx, False, None, None, None, str(e)
 
 
 class PostprocessingRunner(QThread):
@@ -278,52 +303,93 @@ class PostprocessingRunner(QThread):
 
         win_c: int | None = None
         win_w: int | None = None
+        dy, dx, dz = float(spacing[0]), float(spacing[1]), float(spacing[2])
+        spacing_xy = (dy, dx)
+
         if has_slice_filter:
-            proc_vol = np.empty_like(orig_vol, dtype=np.float32)
             cpu_count = os.cpu_count() or 4
             workers = max(1, min(cpu_count - 1, 8))
-            done_filter = 0
+            stages = int(use_mar) + int(st_mode is not None)
+            stage_idx = 0
+            cur_vol = orig_vol
 
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = {}
-                for i, in_p in enumerate(sorted_paths):
-                    nbrs = []
-                    if i > 0:
-                        nbrs.append(sorted_paths[i - 1])
-                    if i < total_slices - 1:
-                        nbrs.append(sorted_paths[i + 1])
-                    fut = executor.submit(
-                        _process_slice_to_hu_task,
-                        i,
-                        in_p,
-                        self.algo_type,
-                        nbrs,
-                        self.params,
-                    )
-                    futures[fut] = i
-
-                for fut in as_completed(futures):
-                    if self._is_cancelled:
+            if use_mar:
+                mar_vol = np.empty_like(orig_vol, dtype=np.float32)
+                done_stage = 0
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    futures = {
+                        executor.submit(
+                            _apply_mar_slice,
+                            cur_vol[i],
+                            spacing_xy,
+                            _collect_neighbors(cur_vol, i),
+                            self.params,
+                        ): i
+                        for i in range(total_slices)
+                    }
+                    for fut in as_completed(futures):
+                        if self._is_cancelled:
+                            _shutdown_executor(executor)
+                            self.error_signal.emit("Processing cancelled by user.")
+                            return
+                        idx = futures[fut]
                         try:
-                            executor.shutdown(wait=False, cancel_futures=True)
-                        except TypeError:
-                            executor.shutdown(wait=False)
-                        self.error_signal.emit("Processing cancelled by user.")
-                        return
-                    idx, ok, corr_hu, wc, ww, err = fut.result()
-                    if not ok or corr_hu is None:
-                        self.error_signal.emit(f"Failed to process slices: {err}")
-                        return
-                    proc_vol[idx] = corr_hu
-                    if wc is not None and ww is not None:
+                            corr_hu, _, _ = fut.result()
+                        except Exception as exc:
+                            self.error_signal.emit(f"Failed to process slices: {exc}")
+                            return
+                        mar_vol[idx] = corr_hu
+                        done_stage += 1
+                        frac = (stage_idx + done_stage / max(1, total_slices)) / stages
+                        self.progress_signal.emit(
+                            load_weight + int(frac * filter_weight),
+                            100,
+                            f"{done_stage} / {total_slices}",
+                        )
+                cur_vol = mar_vol
+                stage_idx += 1
+
+            if st_mode is not None:
+                proc_vol = np.empty_like(cur_vol, dtype=np.float32)
+                done_stage = 0
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    futures = {
+                        executor.submit(
+                            _apply_soft_tissue_slice,
+                            cur_vol[i],
+                            spacing_xy,
+                            _collect_neighbors(cur_vol, i),
+                            st_mode,
+                            self.params,
+                        ): i
+                        for i in range(total_slices)
+                    }
+                    for fut in as_completed(futures):
+                        if self._is_cancelled:
+                            _shutdown_executor(executor)
+                            self.error_signal.emit("Processing cancelled by user.")
+                            return
+                        idx = futures[fut]
+                        try:
+                            corr_hu, wc, ww = fut.result()
+                        except Exception as exc:
+                            self.error_signal.emit(f"Failed to process slices: {exc}")
+                            return
+                        proc_vol[idx] = corr_hu
                         win_c, win_w = wc, ww
-                    done_filter += 1
-                    pct = load_weight + int((done_filter / total_slices) * filter_weight)
-                    self.progress_signal.emit(pct, 100, f"{done_filter} / {total_slices}")
+                        done_stage += 1
+                        frac = (stage_idx + done_stage / max(1, total_slices)) / stages
+                        self.progress_signal.emit(
+                            load_weight + int(frac * filter_weight),
+                            100,
+                            f"{done_stage} / {total_slices}",
+                        )
+                cur_vol = None
+            else:
+                proc_vol = cur_vol
         else:
             proc_vol = orig_vol
 
-        dy, dx, dz = float(spacing[0]), float(spacing[1]), float(spacing[2])
         float_cur = list(det["float_cur"])
         pivot_mm = np.array([float_cur[0] * dx, float_cur[1] * dy, float_cur[2] * dz], dtype=np.float64)
         R = compute_rotation_matrix_deg(det["rot_x"], det["rot_y"], det["rot_z"])
@@ -396,65 +462,150 @@ class PostprocessingRunner(QThread):
                 return
 
             total_slices = len(self.slice_paths)
-            tasks = []
-            for i, in_path in enumerate(self.slice_paths):
-                fname = os.path.basename(in_path)
-                out_name = f"DERIVED_{prefix}_{fname}"
-                out_path = os.path.join(self.output_dir, out_name)
-
-                neighbor_paths = []
-                if i > 0:
-                    neighbor_paths.append(self.slice_paths[i - 1])
-                if i < total_slices - 1:
-                    neighbor_paths.append(self.slice_paths[i + 1])
-
-                tasks.append((
-                    in_path,
-                    out_path,
-                    self.algo_type,
-                    series_uid,
-                    final_desc,
-                    neighbor_paths,
-                    self.params,
-                ))
-
             cpu_count = os.cpu_count() or 4
             workers = max(1, min(cpu_count - 1, 8))
 
-            processed_count = 0
-            success_count = 0
-            errors = []
+            # Stage weights inside [0..100]: single disk read -> optional MAR pass -> final filter & save
+            two_filter_passes = bool(use_mar and st_mode is not None)
+            load_weight = 20
+            mar_weight = 35 if two_filter_passes else 0
+            final_weight = 100 - load_weight - mar_weight
+
+            errors: list[tuple[str, str]] = []
             out_files: list[str | None] = [None] * total_slices
+            hu_slices: list[np.ndarray | None] = [None] * total_slices
+            slice_meta: list[tuple[object, float, float, list[float]] | None] = [None] * total_slices
 
-            self.progress_signal.emit(0, total_slices, f"0 / {total_slices}")
+            self.progress_signal.emit(0, 100, f"0 / {total_slices}")
 
+            def _load_one(path: str):
+                ds, img_hu, slope, intercept, pixel_spacing = read_dicom_hu(path)
+                # Strip raw pixel buffer from metadata header to keep memory footprint low
+                ds.PixelData = b""
+                return ds, img_hu, slope, intercept, pixel_spacing
+
+            done_load = 0
             with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = {executor.submit(process_slice_task, t): idx for idx, t in enumerate(tasks)}
-
-                for future in as_completed(futures):
+                futures = {executor.submit(_load_one, p): idx for idx, p in enumerate(self.slice_paths)}
+                for fut in as_completed(futures):
                     if self._is_cancelled:
-                        try:
-                            executor.shutdown(wait=False, cancel_futures=True)
-                        except TypeError:
-                            executor.shutdown(wait=False)
+                        _shutdown_executor(executor)
                         self.error_signal.emit("Processing cancelled by user.")
                         return
-
-                    idx = futures[future]
-                    in_p = tasks[idx][0]
+                    idx = futures[fut]
+                    in_p = self.slice_paths[idx]
                     try:
-                        _, success, info = future.result()
-                        if success:
-                            success_count += 1
-                            out_files[idx] = info.get("out_path")
-                        else:
-                            errors.append((in_p, info.get("error", "Unknown error")))
+                        ds, img_hu, slope, intercept, pixel_spacing = fut.result()
+                        hu_slices[idx] = img_hu
+                        slice_meta[idx] = (ds, slope, intercept, pixel_spacing)
                     except Exception as exc:
                         errors.append((in_p, str(exc)))
+                    done_load += 1
+                    self.progress_signal.emit(
+                        int((done_load / max(1, total_slices)) * load_weight),
+                        100,
+                        f"{done_load} / {total_slices}",
+                    )
 
-                    processed_count += 1
-                    status_text = f"{processed_count} / {total_slices}"
-                    self.progress_signal.emit(processed_count, total_slices, status_text)
+            valid_indices = [i for i in range(total_slices) if hu_slices[i] is not None and slice_meta[i] is not None]
+            if not valid_indices:
+                first_err = errors[0][1] if errors else "Failed to read CT slices."
+                self.error_signal.emit(f"Failed to process slices: {first_err}")
+                return
+
+            stage_slices = hu_slices
+            if two_filter_passes:
+                # Run MAR first across the volume so 2.5D Soft Tissue reads MAR-cleaned neighbors
+                mar_slices: list[np.ndarray | None] = [None] * total_slices
+                done_mar = 0
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    futures = {
+                        executor.submit(
+                            _apply_mar_slice,
+                            hu_slices[i],
+                            slice_meta[i][3],
+                            _collect_neighbors(hu_slices, i),
+                            self.params,
+                        ): i
+                        for i in valid_indices
+                    }
+                    for fut in as_completed(futures):
+                        if self._is_cancelled:
+                            _shutdown_executor(executor)
+                            self.error_signal.emit("Processing cancelled by user.")
+                            return
+                        idx = futures[fut]
+                        in_p = self.slice_paths[idx]
+                        try:
+                            corr_hu, _, _ = fut.result()
+                            mar_slices[idx] = corr_hu
+                        except Exception as exc:
+                            errors.append((in_p, str(exc)))
+                        done_mar += 1
+                        self.progress_signal.emit(
+                            load_weight + int((done_mar / max(1, len(valid_indices))) * mar_weight),
+                            100,
+                            f"{done_mar} / {total_slices}",
+                        )
+                hu_slices = None
+                stage_slices = mar_slices
+                valid_indices = [i for i in valid_indices if stage_slices[i] is not None]
+
+            def _finish_and_save(idx: int) -> str:
+                in_p = self.slice_paths[idx]
+                fname = os.path.basename(in_p)
+                out_path = os.path.join(self.output_dir, f"DERIVED_{prefix}_{fname}")
+                ds, slope, intercept, pixel_spacing = slice_meta[idx]
+                nbrs = _collect_neighbors(stage_slices, idx)
+                win_c: int | None = None
+                win_w: int | None = None
+                if st_mode is not None:
+                    corr_hu, win_c, win_w = _apply_soft_tissue_slice(
+                        stage_slices[idx], pixel_spacing, nbrs, st_mode, self.params
+                    )
+                elif use_mar:
+                    corr_hu, _, _ = _apply_mar_slice(
+                        stage_slices[idx], pixel_spacing, nbrs, self.params
+                    )
+                else:
+                    corr_hu = stage_slices[idx]
+                save_derived_dicom_hu(
+                    ds=ds,
+                    corr_hu=corr_hu,
+                    slope=slope,
+                    intercept=intercept,
+                    output_path=out_path,
+                    series_desc=final_desc,
+                    series_uid=series_uid,
+                    window_center=win_c,
+                    window_width=win_w,
+                )
+                slice_meta[idx] = None
+                return out_path
+
+            success_count = 0
+            done_final = 0
+            base_pct = load_weight + mar_weight
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {executor.submit(_finish_and_save, i): i for i in valid_indices}
+                for fut in as_completed(futures):
+                    if self._is_cancelled:
+                        _shutdown_executor(executor)
+                        self.error_signal.emit("Processing cancelled by user.")
+                        return
+                    idx = futures[fut]
+                    in_p = self.slice_paths[idx]
+                    try:
+                        out_files[idx] = fut.result()
+                        success_count += 1
+                    except Exception as exc:
+                        errors.append((in_p, str(exc)))
+                    done_final += 1
+                    self.progress_signal.emit(
+                        base_pct + int((done_final / max(1, len(valid_indices))) * final_weight),
+                        100,
+                        f"{done_final} / {total_slices}",
+                    )
 
             if success_count == 0 and errors:
                 first_err = errors[0][1] if len(errors[0]) > 1 else str(errors[0])

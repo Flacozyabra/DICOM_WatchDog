@@ -57,10 +57,12 @@ def _soft_tissue_blend_weight(
     hard_max: float = 300.0,
 ) -> np.ndarray:
     """Compute smooth soft-tissue blending mask excluding air/gas and high-density bone/metal."""
-    w_low = np.clip((img_hu - lo_start) / lo_span, 0.0, 1.0)
-    w_high = np.clip((hi_end - img_hu) / hi_span, 0.0, 1.0)
+    zero = np.float32(0.0)
+    one = np.float32(1.0)
+    w_low = np.clip((img_hu - np.float32(lo_start)) / np.float32(lo_span), zero, one)
+    w_high = np.clip((np.float32(hi_end) - img_hu) / np.float32(hi_span), zero, one)
     weight = (w_low * w_high).astype(np.float32, copy=False)
-    weight[(img_hu < hard_min) | (img_hu > hard_max)] = 0.0
+    weight[(img_hu < hard_min) | (img_hu > hard_max)] = zero
     return weight
 
 
@@ -202,16 +204,58 @@ def _musica_band_boost(
     return (np.sign(band) * nl).astype(np.float32, copy=False)
 
 
-def _pelvic_tone_curve(hu: np.ndarray, gain: float = 1.85, center: float = 38.0) -> np.ndarray:
-    """Dual-zone tone curve expanding [0..75 HU] bowel/uterus separation while keeping fat legible."""
-    scale = np.float32(26.0)
-    s_core = np.float32(center) + np.tanh(((hu - np.float32(center)) / scale) * np.float32(gain)) * np.float32(26.0 * 1.45)
-    mapped = np.float32(0.72) * s_core + np.float32(0.28) * hu
-    fat = hu < -25.0
+def _continuous_pelvic_curve(
+    hu: np.ndarray,
+    center: float,
+    scale: float,
+    span: float,
+    gain: float,
+    s_weight: float,
+    linear_slope: float = 1.0,
+    knee: float = -25.0,
+    fat_slope: float = 0.50,
+) -> np.ndarray:
+    """
+    C0-continuous dual-zone tone curve expanding soft-tissue contrast around `center`
+    while anchoring the fat branch (< `knee`) directly to the curve value at `knee`
+    to guarantee zero step discontinuity at the fat/tissue transition.
+    """
+    c_f = np.float32(center)
+    sc_f = np.float32(scale)
+    sp_f = np.float32(span)
+    g_f = np.float32(gain)
+    sw_f = np.float32(s_weight)
+    lw_f = np.float32(1.0 - s_weight)
+    ls_f = np.float32(linear_slope)
+    k_f = np.float32(knee)
+
+    s_core = c_f + np.tanh(((hu - c_f) / sc_f) * g_f) * sp_f
+    lin_core = c_f + (hu - c_f) * ls_f
+    mapped = sw_f * s_core + lw_f * lin_core
+
+    fat = hu < k_f
     if np.any(fat):
-        fat_mapped = np.float32(-25.0) + (hu + np.float32(25.0)) * np.float32(0.50)
-        mapped = np.where(fat, np.float32(0.55) * fat_mapped + np.float32(0.45) * mapped, mapped)
+        s_knee = c_f + np.tanh(((k_f - c_f) / sc_f) * g_f) * sp_f
+        lin_knee = c_f + (k_f - c_f) * ls_f
+        knee_val = sw_f * s_knee + lw_f * lin_knee
+        fat_branch = knee_val + (hu - k_f) * np.float32(fat_slope)
+        mapped = np.where(fat, fat_branch, mapped)
     return mapped.astype(np.float32, copy=False)
+
+
+def _pelvic_tone_curve(hu: np.ndarray, gain: float = 1.85, center: float = 38.0) -> np.ndarray:
+    """Continuous dual-zone tone curve expanding [0..75 HU] bowel/uterus separation."""
+    return _continuous_pelvic_curve(
+        hu,
+        center=center,
+        scale=26.0,
+        span=26.0 * 1.45,
+        gain=gain,
+        s_weight=0.72,
+        linear_slope=1.0,
+        knee=-25.0,
+        fat_slope=0.50,
+    )
 
 
 def _enhance_legacy_v2(
@@ -276,29 +320,37 @@ def _enhance_legacy_v2(
     return _restore_metal_core(out_hu, img_hu)
 
 
-def _enhance_clamped_v2(img_hu: np.ndarray, neighbor_hu: list[np.ndarray] | None) -> np.ndarray:
+def _enhance_clamped_v2(
+    img_hu: np.ndarray,
+    neighbor_hu: list[np.ndarray] | None,
+    pixel_spacing: list[float] | tuple[float, ...] | None = None,
+) -> np.ndarray:
     """Halo-free v2: soft-tissue pre-clamping [-135, +150] HU + range-gated 2.5D Z."""
+    scale_px = _resolve_pixel_scale(pixel_spacing)
     st_weight = _soft_tissue_blend_weight(img_hu, lo_start=-125.0, lo_span=35.0, hi_end=150.0, hi_span=45.0)
     if not np.any(st_weight > 0.01):
         return img_hu.copy()
 
     z_src = _range_gated_z_smooth(img_hu, neighbor_hu, sigma_z=26.0, max_alpha=0.25)
-    clamped = np.clip(z_src, -135.0, 150.0).astype(np.float32, copy=False)
-    denoised = guided_filter_2d(clamped, r=2, eps=190.0)
+    clamped = np.clip(z_src, np.float32(-135.0), np.float32(150.0)).astype(np.float32, copy=False)
+    r_guided = max(1, min(3, int(round(2.0 * scale_px))))
+    denoised = guided_filter_2d(clamped, r=r_guided, eps=190.0)
 
-    center_hu, scale_hu, gain, span = 35.0, 32.0, 1.85, 1.9
-    s_curve = center_hu + np.tanh(((denoised - center_hu) / scale_hu) * gain) * (scale_hu * span)
-    stretched = 0.72 * s_curve + 0.28 * denoised
+    center_hu = np.float32(35.0)
+    scale_hu = np.float32(32.0)
+    s_curve = center_hu + np.tanh(((denoised - center_hu) / scale_hu) * np.float32(1.85)) * np.float32(32.0 * 1.9)
+    stretched = np.float32(0.72) * s_curve + np.float32(0.28) * denoised
 
-    blur_fine = scipy.ndimage.gaussian_filter(denoised, sigma=0.9)
-    blur_coarse = scipy.ndimage.gaussian_filter(denoised, sigma=2.8)
-    unsharp = np.clip(blur_fine - blur_coarse, -16.0, 16.0)
+    blur_fine = scipy.ndimage.gaussian_filter(denoised, sigma=max(0.6, 0.9 * scale_px))
+    blur_coarse = scipy.ndimage.gaussian_filter(denoised, sigma=max(1.8, 2.8 * scale_px))
+    unsharp = np.clip(blur_fine - blur_coarse, np.float32(-16.0), np.float32(16.0))
 
-    closed = scipy.ndimage.grey_closing(denoised, size=(5, 5))
-    black_hat = np.clip(closed - denoised - 2.5, 0.0, 18.0)
+    bh_k = max(3, min(7, int(round(5.0 * scale_px)) | 1))
+    closed = scipy.ndimage.grey_closing(denoised, size=(bh_k, bh_k))
+    black_hat = np.clip(closed - denoised - np.float32(2.5), np.float32(0.0), np.float32(18.0))
 
-    enh = stretched + 1.35 * unsharp - 1.25 * black_hat
-    out_hu = img_hu * (1.0 - st_weight) + enh * st_weight
+    enh = stretched + np.float32(1.35) * unsharp - np.float32(1.25) * black_hat
+    out_hu = img_hu * (np.float32(1.0) - st_weight) + enh * st_weight
     return _restore_metal_core(out_hu, img_hu)
 
 
@@ -316,9 +368,9 @@ def _enhance_musica(
 
     z_src = _range_gated_z_smooth(img_hu, neighbor_hu, sigma_z=20.0, max_alpha=0.34)
     den = _separable_bilateral_clamped(z_src, lo=-135.0, hi=150.0, radius=1, sigma_s=1.0, sigma_r=12.5)
-    work = (0.88 * den + 0.12 * np.clip(z_src, -135.0, 150.0)).astype(np.float32, copy=False)
+    work = (np.float32(0.88) * den + np.float32(0.12) * np.clip(z_src, np.float32(-135.0), np.float32(150.0))).astype(np.float32, copy=False)
 
-    valid_mask = (img_hu >= -125.0) & (img_hu <= 145.0)
+    valid_mask = (img_hu >= -125.0) & (img_hu <= 150.0)
     padded_work = _voronoi_fill_invalid(work, valid_mask)
 
     g1 = scipy.ndimage.gaussian_filter(padded_work, sigma=max(0.55, 0.80 * scale_px))
@@ -326,7 +378,7 @@ def _enhance_musica(
     g3 = scipy.ndimage.gaussian_filter(padded_work, sigma=max(2.8, 4.6 * scale_px))
     g4 = scipy.ndimage.gaussian_filter(padded_work, sigma=max(6.5, 11.0 * scale_px))
 
-    d0 = work - g1
+    d0 = padded_work - g1
     d1 = g1 - g2
     d2 = g2 - g3
     d3 = g3 - g4
@@ -346,15 +398,20 @@ def _enhance_musica(
     b2 = _musica_band_boost(d2, gd2, 0.70, 14.0, 0.0)
     b3 = _musica_band_boost(d3, gd3, 0.78, 20.0, 0.0)
 
-    center = 38.0
-    scale_macro = 28.0
-    s_macro = center + np.tanh(((base - center) / scale_macro) * m_gain) * (scale_macro * 1.35)
-    base_mapped = 0.65 * s_macro + 0.35 * (center + (base - center) * m_gain)
-    fat_floor = center + (-25.0 - center) * m_gain
-    base_mapped = np.where(base < -25.0, fat_floor + (base + 25.0) * 0.50, base_mapped)
+    base_mapped = _continuous_pelvic_curve(
+        base,
+        center=38.0,
+        scale=28.0,
+        span=28.0 * 1.35,
+        gain=m_gain,
+        s_weight=0.65,
+        linear_slope=m_gain,
+        knee=-25.0,
+        fat_slope=0.50,
+    )
 
-    enh = np.clip(base_mapped + b0 + b1 + b2 + b3, -115.0, 175.0).astype(np.float32, copy=False)
-    out_hu = img_hu * (1.0 - st_weight) + enh * st_weight
+    enh = np.clip(base_mapped + b0 + b1 + b2 + b3, np.float32(-115.0), np.float32(175.0)).astype(np.float32, copy=False)
+    out_hu = img_hu * (np.float32(1.0) - st_weight) + enh * st_weight
     return _restore_metal_core(out_hu, img_hu)
 
 
@@ -423,22 +480,23 @@ def _enhance_patch_nlm(
         return img_hu.copy()
 
     den = _fast_patch_nlm_25d(img_hu, neighbor_hu=neighbor_hu, lo=-135.0, hi=150.0, search_r=2, patch_r=1, h_param=13.5)
-    mask = ((img_hu >= -125.0) & (img_hu <= 145.0)).astype(np.float32)
+    mask = ((img_hu >= -125.0) & (img_hu <= 150.0)).astype(np.float32)
 
     bg_wide = _masked_gaussian(den, mask, sigma=max(12.0, 22.0 * scale_px))
-    boosted = den + np.float32(0.35) * np.clip(den - bg_wide, -25.0, 25.0)
+    boosted = den + np.float32(0.35) * np.clip(den - bg_wide, np.float32(-25.0), np.float32(25.0))
     toned = _pelvic_tone_curve(boosted, gain=1.85, center=38.0)
 
     fine = _masked_gaussian(den, mask, sigma=max(0.7, 0.85 * scale_px))
     coarse = _masked_gaussian(den, mask, sigma=max(2.0, 2.8 * scale_px))
-    detail = np.clip(fine - coarse, -14.0, 14.0)
+    detail = np.clip(fine - coarse, np.float32(-14.0), np.float32(14.0))
 
-    closed = scipy.ndimage.grey_closing(den, size=(5, 5))
+    bh_k = max(3, min(7, int(round(5.0 * scale_px)) | 1))
+    closed = scipy.ndimage.grey_closing(den, size=(bh_k, bh_k))
     bh_mask = (den > -20.0).astype(np.float32)
-    black_hat = np.clip(closed - den - 2.0, 0.0, 15.0) * bh_mask
+    black_hat = np.clip(closed - den - np.float32(2.0), np.float32(0.0), np.float32(15.0)) * bh_mask
 
-    enh = np.clip(toned + 1.65 * detail - 1.35 * black_hat, -110.0, 170.0).astype(np.float32, copy=False)
-    out_hu = img_hu * (1.0 - st_weight) + enh * st_weight
+    enh = np.clip(toned + np.float32(1.65) * detail - np.float32(1.35) * black_hat, np.float32(-110.0), np.float32(170.0)).astype(np.float32, copy=False)
+    out_hu = img_hu * (np.float32(1.0) - st_weight) + enh * st_weight
     return _restore_metal_core(out_hu, img_hu)
 
 
@@ -458,7 +516,7 @@ def enhance_soft_tissue_slice_v2(
     if mode in ("normal", "hard"):
         return _enhance_legacy_v2(src_hu, neighbor_hu, mode=mode, use_z_filter=use_z_filter)
     if mode == "clamped_v2":
-        return _enhance_clamped_v2(src_hu, neighbor_hu)
+        return _enhance_clamped_v2(src_hu, neighbor_hu, pixel_spacing=pixel_spacing)
     if mode in ("musica_normal", "musica_hard"):
         return _enhance_musica(src_hu, neighbor_hu, pixel_spacing=pixel_spacing, is_hard=(mode == "musica_hard"))
     if mode == "patch_nlm":

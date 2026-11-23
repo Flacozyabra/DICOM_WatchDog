@@ -7,16 +7,15 @@ from collections import OrderedDict
 import numpy as np
 import pydicom
 
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QPointF, QRect
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QPointF
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
     QPushButton, QComboBox, QSlider, QListWidget, QListWidgetItem,
     QStackedWidget, QButtonGroup, QSizePolicy, QLineEdit,
-    QCheckBox, QRadioButton, QDialog, QDialogButtonBox, QMenu,
-    QMessageBox
+    QCheckBox, QDialog, QMenu, QMessageBox
 )
 from PyQt6.QtGui import (
-    QIcon, QFont, QPixmap, QPixmapCache, QBrush, QColor, QImage, QPainter
+    QIcon, QPixmap, QPixmapCache, QBrush, QColor, QImage, QPainter
 )
 
 from ui.toggle_switch import ToggleSwitch
@@ -25,6 +24,7 @@ from ui.settings_tabs.settings_utils import apply_dark_title_bar
 from .mode_switcher import LiquidModeBar
 from themes.theme_manager import button_qss
 from core.config_utils import get_resource_path, get_temp_dir
+from core.dicom_utils import parse_derived_prefix
 from core.locale_utils import tr_ui
 from core.logger import log_error
 
@@ -36,11 +36,10 @@ from .workers import (
 from .controls import HUVerticalSlider, DRRProgressDialog
 from .canvas import DicomViewerWidget
 from .mpr_widget import (
-    MprPanelWidget, build_ct_volume, MprVolumeLoaderWorker, detect_applicator_orientation
+    MprPanelWidget, MprVolumeLoaderWorker, detect_applicator_orientation
 )
 from core.postprocessing import (
-    PostprocessingRunner, ALGORITHM_ALIGNED, ALGORITHM_MAR_V9, ALGORITHM_ST_HARD,
-    ALGORITHM_ST_NORMAL, ALGORITHM_COMBO_NORMAL, ALGORITHM_COMBO_HARD,
+    PostprocessingRunner, ALGORITHM_ALIGNED, ALGORITHM_MAR_V9,
     resolve_soft_tissue_algorithm, clean_series_desc
 )
 
@@ -2018,9 +2017,10 @@ class DicomViewerPanel(QWidget):
             if target_uid and target_uid in self.all_derived_series:
                 chosen_uid = target_uid
             elif target_pref:
+                target_pref_up = str(target_pref).upper()
                 for u, s_info in self.all_derived_series.items():
                     files = s_info.get("files", [])
-                    if files and any(f"_{target_pref}_" in os.path.basename(f[0]).upper() for f in files):
+                    if files and any(parse_derived_prefix(os.path.basename(f[0]))[0] == target_pref_up for f in files):
                         chosen_uid = u
                         break
             if not chosen_uid:
