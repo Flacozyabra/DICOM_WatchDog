@@ -1,5 +1,10 @@
 # DICOM WatchDog
 
+[![Release](https://img.shields.io/github/v/release/Flacozyabra/DICOM_WatchDog?color=4c71f2)](https://github.com/Flacozyabra/DICOM_WatchDog/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/Flacozyabra/DICOM_WatchDog/total?color=2ea44f)](https://github.com/Flacozyabra/DICOM_WatchDog/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%207%20%2F%2010%20%2F%2011-0078D6)](#executable-exe-editions)
+[![License](https://img.shields.io/github/license/Flacozyabra/DICOM_WatchDog?color=6e7681)](LICENSE)
+
 [English](#english) | [Русский](#русский)
 
 <details open>
