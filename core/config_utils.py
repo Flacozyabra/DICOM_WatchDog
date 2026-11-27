@@ -3,7 +3,7 @@ import sys
 import shutil
 import json
 
-VERSION = "1.9.1"
+VERSION = "1.9.2"
 
 
 def get_app_data_dir():
