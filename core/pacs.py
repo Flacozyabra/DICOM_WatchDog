@@ -1,5 +1,5 @@
 from pydicom.dataset import Dataset
-from pynetdicom import AE
+from pynetdicom import AE, evt
 
 import os
 import threading
@@ -196,6 +196,72 @@ def stop_background_pacs_server():
     _global_dicom_server.stop()
 
 
+def _execute_cfind_query(assoc, query_ds, sop_class, aborted_flag):
+    """Execute C-FIND and verify both association health and final DIMSE status."""
+    identifiers = []
+    final_status = None
+    try:
+        responses = assoc.send_c_find(query_ds, sop_class)
+        for (status, identifier) in responses:
+            if status and identifier:
+                identifiers.append(identifier)
+            if status is not None and 'Status' in status:
+                final_status = status.Status
+    except Exception as e:
+        aborted = bool(aborted_flag[0] or assoc.is_aborted or assoc.is_rejected)
+        return identifiers, False, str(e), aborted
+
+    aborted = bool(aborted_flag[0] or assoc.is_aborted or assoc.is_rejected)
+    if aborted or final_status is None:
+        return identifiers, False, None, True
+    if final_status not in (0x0000, 0xB000):
+        return identifiers, False, f"0x{final_status:04X}", False
+    return identifiers, True, None, False
+
+
+def _parse_study_identifier(identifier, pacs_data):
+    """Extract study attributes from a C-FIND identifier into pacs_data."""
+    patient_id = str(identifier.get('PatientID', 'N/A')).strip()
+    study_uid = str(identifier.get('StudyInstanceUID', '')).strip()
+    study_key = f"{patient_id}_{study_uid}" if study_uid else patient_id
+
+    pacs_data[study_key]['study_key'] = study_key
+    pacs_data[study_key]['patient_id'] = patient_id
+    pacs_data[study_key]['study_patient_id'] = patient_id
+    pacs_data[study_key]['patient_name'] = identifier.get('PatientName', 'N/A')
+    pacs_data[study_key]['study_time'] = identifier.get('StudyTime', 'N/A')
+    pacs_data[study_key]['study_date'] = identifier.get('StudyDate', 'N/A')
+    pacs_data[study_key]['slices'] = str(identifier.get('NumberOfStudyRelatedInstances', '0'))
+    pacs_data[study_key]['modality'] = str(identifier.get('ModalitiesInStudy', 'CT'))
+    pacs_data[study_key]['study_instance_uid'] = study_uid
+
+    body_part = identifier.get('BodyPartExamined', '')
+    if not body_part:
+        body_part = identifier.get('StudyDescription', '')
+    body_part_str = str(body_part).strip()
+    pacs_data[study_key]['body_part'] = body_part_str or "Unknown"
+
+    try:
+        format_string = '%H%M%S' if '.' not in pacs_data[study_key]['study_time'] else '%H%M%S.%f'
+        time_obj = datetime.strptime(pacs_data[study_key]['study_time'], format_string)
+        time_formatted = time_obj.strftime('%H:%M')
+        date_obj = datetime.strptime(pacs_data[study_key]['study_date'], '%Y%m%d')
+        date_formatted = date_obj.strftime('%d.%m.%y')
+        date_time = f"{date_formatted} - {time_formatted}"
+        study_datetime_obj = date_obj + timedelta(
+            hours=time_obj.hour,
+            minutes=time_obj.minute,
+            seconds=time_obj.second,
+            microseconds=time_obj.microsecond,
+        )
+    except Exception:
+        study_datetime_obj = datetime.now()
+        date_time = study_datetime_obj.strftime('%d.%m.%y - %H:%M')
+
+    pacs_data[study_key]['study_datetime_obj'] = study_datetime_obj
+    pacs_data[study_key]['study_datetime_str'] = date_time
+
+
 def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11112, called_aet="ANY-SCP", calling_aet="ECHOSCU", study_date=None):
     pacs_data = defaultdict(dict)
     con = False
@@ -230,76 +296,31 @@ def pacs_dict_create(output_field, slice=None, pacs_ip="127.0.0.1", pacs_port=11
     ds.ModalitiesInStudy = ''
     ds.StudyInstanceUID = ''
 
+    aborted_flag = [False]
+    handlers = [(evt.EVT_ABORTED, lambda event: aborted_flag.__setitem__(0, True))]
+
     # Associate with the peer AE
     try:
-        assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet)
-    except Exception as e:
+        assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet, evt_handlers=handlers)
+    except Exception:
         log_message(output_field, tr_log("log_failed_connect_pacs"))
         return pacs_data, False
 
     if assoc and assoc.is_established:
-        con = True
         try:
-            # Send the C-FIND request
-            responses = assoc.send_c_find(ds, '1.2.840.10008.5.1.4.1.2.1.1')
-
-            for (status, identifier) in responses:
-                if status and identifier:
-                    patient_id = str(identifier.get('PatientID', 'N/A')).strip()
-                    study_uid = str(identifier.get('StudyInstanceUID', '')).strip()
-                    study_key = f"{patient_id}_{study_uid}" if study_uid else patient_id
-
-                    pacs_data[study_key]['study_key'] = study_key
-                    pacs_data[study_key]['patient_id'] = patient_id
-                    pacs_data[study_key]['study_patient_id'] = patient_id
-                    pacs_data[study_key]['patient_name'] = identifier.get(
-                        'PatientName', 'N/A')
-                    pacs_data[study_key]['study_time'] = identifier.get(
-                        'StudyTime', 'N/A')
-                    pacs_data[study_key]['study_date'] = identifier.get(
-                        'StudyDate', 'N/A')
-                    pacs_data[study_key]['slices'] = str(identifier.get('NumberOfStudyRelatedInstances', '0'))
-                    pacs_data[study_key]['modality'] = str(identifier.get('ModalitiesInStudy', 'CT'))
-                    pacs_data[study_key]['study_instance_uid'] = study_uid
-
-                    # Область сканирования
-                    body_part = identifier.get('BodyPartExamined', '')
-                    if not body_part:
-                        body_part = identifier.get('StudyDescription', '')
-                    body_part_str = str(body_part).strip()
-                    if not body_part_str:
-                        body_part_str = "Unknown"
-                    pacs_data[study_key]['body_part'] = body_part_str
-
-                    try:
-                        # Преобразование времени
-                        format_string = '%H%M%S' if '.' not in pacs_data[study_key]['study_time'] else '%H%M%S.%f'
-                        time_obj = datetime.strptime(pacs_data[study_key]['study_time'], format_string)
-                        time_formatted = time_obj.strftime('%H:%M')
-                        # Преобразование даты
-                        date_obj = datetime.strptime(pacs_data[study_key]['study_date'], '%Y%m%d')
-                        date_formatted = date_obj.strftime('%d.%m.%y')
-                        # Комбинирование времени и даты
-                        date_time = f"{date_formatted} - {time_formatted}"
-
-                        # Создание объекта datetime, представляющего дату и время
-                        study_datetime_obj = date_obj + timedelta(hours=time_obj.hour, minutes=time_obj.minute,
-                                                               seconds=time_obj.second, microseconds=time_obj.microsecond)
-                    except Exception:
-                        study_datetime_obj = datetime.now()
-                        date_time = study_datetime_obj.strftime('%d.%m.%y - %H:%M')
-
-                    pacs_data[study_key]['study_datetime_obj'] = study_datetime_obj
-                    pacs_data[study_key]['study_datetime_str'] = date_time
-            
-            if assoc.is_aborted or assoc.is_rejected:
-                con = False
-                log_message(output_field, tr_log("log_pacs_cfind_aborted", calling_aet))
-            else:
+            identifiers, cfind_ok, err_detail, was_aborted = _execute_cfind_query(
+                assoc, ds, '1.2.840.10008.5.1.4.1.2.1.1', aborted_flag
+            )
+            if cfind_ok:
+                for identifier in identifiers:
+                    _parse_study_identifier(identifier, pacs_data)
                 con = True
-        except Exception as e:
-            con = False
-            log_message(output_field, tr_log("log_pacs_cfind_error", e))
+            else:
+                con = False
+                if was_aborted:
+                    log_message(output_field, tr_log("log_pacs_cfind_aborted", calling_aet))
+                else:
+                    log_message(output_field, tr_log("log_pacs_cfind_error", err_detail or "Unknown C-FIND status"))
         finally:
             try:
                 assoc.release()
@@ -328,16 +349,22 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
     ae.add_requested_context('1.2.840.10008.5.1.4.1.2.1.1')  # Patient Root C-FIND
     ae.add_requested_context('1.2.840.10008.5.1.4.1.2.2.1')  # Study Root C-FIND
 
+    aborted_flag = [False]
+    handlers = [(evt.EVT_ABORTED, lambda event: aborted_flag.__setitem__(0, True))]
+
     try:
-        assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet)
+        assoc = ae.associate(pacs_ip, pacs_port, ae_title=called_aet, evt_handlers=handlers)
         if not assoc.is_established:
             return False, f"PACS сервер ({pacs_ip}:{pacs_port}) отклонил DICOM-ассоциацию."
 
         # 1. Проверяем C-ECHO
         echo_status = assoc.send_c_echo()
-        if not echo_status or not hasattr(echo_status, 'Status') or echo_status.Status != 0x0000:
+        if aborted_flag[0] or not echo_status or not hasattr(echo_status, 'Status') or echo_status.Status != 0x0000:
             st_hex = f"0x{echo_status.Status:04X}" if echo_status and hasattr(echo_status, 'Status') else "N/A"
-            assoc.release()
+            try:
+                assoc.release()
+            except Exception:
+                pass
             return False, tr_ui("ping_echo_bad_status", st_hex)
 
         # 2. Проверяем C-FIND (поиск исследований)
@@ -349,19 +376,15 @@ def ping_pacs(pacs_ip, pacs_port, called_aet="ANY-SCP", calling_aet="ECHOSCU"):
         ds.PatientName = ''
         ds.StudyInstanceUID = ''
 
-        found_studies = 0
-        cfind_ok = True
-        try:
-            responses = assoc.send_c_find(ds, '1.2.840.10008.5.1.4.1.2.1.1')
-            for (st, ident) in responses:
-                if ident:
-                    found_studies += 1
-            if assoc.is_aborted or assoc.is_rejected:
-                cfind_ok = False
-        except Exception:
-            cfind_ok = False
+        identifiers, cfind_ok, _, _ = _execute_cfind_query(
+            assoc, ds, '1.2.840.10008.5.1.4.1.2.1.1', aborted_flag
+        )
+        found_studies = len(identifiers)
 
-        assoc.release()
+        try:
+            assoc.release()
+        except Exception:
+            pass
 
         if not cfind_ok:
             return False, tr_ui("ping_cfind_unregistered", calling_aet, called_aet)

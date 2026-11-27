@@ -84,6 +84,7 @@ class MainWindow(QMainWindow):
         self.tab_badges = {}
         self.previous_pacs_data = {}
         self.standby_new_patients = {}
+        self.pacs_error_state = None
         self.pacs_download_worker = None
         
         from ui.table_context_menus import TableContextMenuManager
@@ -587,6 +588,7 @@ class MainWindow(QMainWindow):
         # Сбрасываем кэши и перерисовываем
         self.standby_new_patients = {}
         self.previous_pacs_data = {}
+        self.pacs_error_state = None
         
         if is_checked:
             self.pacs_table.set_placeholder_text(tr_ui("placeholder_standby"))
@@ -1428,6 +1430,13 @@ class MainWindow(QMainWindow):
     def auto_update_pacs(self):
         self.start_pacs_scan(silent=True, is_auto=True)
 
+    def _get_pacs_notification_icon_path(self):
+        from core.config_utils import get_app_data_dir
+        icon_blue_path = os.path.join(get_app_data_dir(), "pacs_notification.png")
+        if not os.path.exists(icon_blue_path):
+            icon_blue_path = get_resource_path("src/pacs_notification.png")
+        return icon_blue_path
+
     def start_pacs_scan(self, silent=False, is_auto=False):
         if self.pacs_worker and self.pacs_worker.isRunning():
             if is_auto:
@@ -1445,7 +1454,7 @@ class MainWindow(QMainWindow):
             self.pacs_table.update_placeholder_visibility()
             self.previous_pacs_data = {}
         else:
-            if self.pacs_table.rowCount() == 0:
+            if self.pacs_table.rowCount() == 0 and not getattr(self, 'pacs_error_state', None):
                 self.pacs_table.set_placeholder_text(tr_ui("placeholder_scanning"))
                 self.pacs_table.update_placeholder_visibility()
 
@@ -1486,17 +1495,23 @@ class MainWindow(QMainWindow):
 
     def on_pacs_scan_finished(self, pacs_dict, con, log_messages, silent=False):
         auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
+        has_abort = False
+        state_changed = False
         if con:
+            self.pacs_error_state = None
             if auto_update_on:
                 self.pacs_table.set_placeholder_text(tr_ui("placeholder_standby"))
             else:
                 self.pacs_table.set_placeholder_text(tr_ui("placeholder_no_studies"))
         else:
             has_abort = any("сброшено сервером" in m or "aborted" in m for m in log_messages)
+            new_error_state = 'aborted' if has_abort else 'disconnected'
+            state_changed = (new_error_state != getattr(self, 'pacs_error_state', None))
+            self.pacs_error_state = new_error_state
             if has_abort:
-                self.pacs_table.set_placeholder_text(tr_ui("placeholder_pacs_access_denied"))
+                self.pacs_table.set_placeholder_text(tr_ui("placeholder_pacs_access_denied"), color="#ff6b6b")
             else:
-                self.pacs_table.set_placeholder_text(tr_ui("placeholder_not_configured"))
+                self.pacs_table.set_placeholder_text(tr_ui("placeholder_not_configured"), color="#e6a23c")
             self.pacs_table.setRowCount(0)
             self.pacs_table.update_placeholder_visibility()
             self.previous_pacs_data = {}
@@ -1505,29 +1520,27 @@ class MainWindow(QMainWindow):
         has_fail_msg = False
         for msg in log_messages:
             if "подключиться к серверу PACS" in msg or "Failed to connect" in msg:
-                log_message(self.output_field, msg, replace_suffix=tr_log("log_connecting_pacs"))
+                if not silent or state_changed:
+                    log_message(self.output_field, msg, replace_suffix=tr_log("log_connecting_pacs"))
                 has_fail_msg = True
             else:
-                if not silent:
+                if not silent or (not con and state_changed):
                     log_message(self.output_field, msg)
 
-        if not con and not has_fail_msg:
+        if not con and not has_fail_msg and (not silent or (state_changed and not log_messages)):
             log_message(self.output_field, tr_log("log_failed_connect_pacs"), replace_suffix=tr_log("log_connecting_pacs"))
+
+        master_enabled = str(self.config.get('notifications_enabled', 'False')).lower() == 'true'
+        pacs_toast_on = str(self.config.get('pacs_notification_toast_enabled', 'False')).lower() == 'true'
+        pacs_sound_on = str(self.config.get('pacs_notification_sound_enabled', 'False')).lower() == 'true'
+        icon_blue_path = self._get_pacs_notification_icon_path()
 
         if con:
             if not silent:
                 log_message(self.output_field, tr_log("log_connected_pacs"), replace_suffix=tr_log("log_connecting_pacs"))
             
             # Фоновое уведомление о новых КТ в PACS
-            master_enabled = str(self.config.get('notifications_enabled', 'False')).lower() == 'true'
-            pacs_toast_on = str(self.config.get('pacs_notification_toast_enabled', 'False')).lower() == 'true'
-            pacs_sound_on = str(self.config.get('pacs_notification_sound_enabled', 'False')).lower() == 'true'
             auto_update_on = self.config.get('auto_update_is', 'off').lower() == 'on'
-            
-            from core.config_utils import get_app_data_dir
-            icon_blue_path = os.path.join(get_app_data_dir(), "pacs_notification.png")
-            if not os.path.exists(icon_blue_path):
-                icon_blue_path = get_resource_path("src/pacs_notification.png")
 
             if auto_update_on:
                 today_date = datetime.now().date()
@@ -1584,9 +1597,20 @@ class MainWindow(QMainWindow):
             self.update_tab_badges()
 
         elif not con:
-            if not silent and not has_fail_msg:
-                log_message(self.output_field, tr_log("log_failed_connect_pacs"), replace_suffix=tr_log("log_connecting_pacs"))
-            
+            if has_abort and state_changed and master_enabled and pacs_toast_on:
+                try:
+                    show_notification(
+                        title=f"PACS ({self.config.get('pacs_calling_aet', '')})",
+                        message=tr_ui("placeholder_pacs_access_denied"),
+                        play_sound=False,
+                        show_toast=True,
+                        duration_setting=self.config.get('pacs_toast_duration', self.config.get('toast_duration', '5')),
+                        position_setting=self.config.get('pacs_toast_position', self.config.get('toast_position', 'bottom_right')),
+                        icon_path=icon_blue_path
+                    )
+                except Exception as e:
+                    log_message(self.output_field, f"PACS notification error: {e}")
+
             if getattr(self, 'previous_pacs_data', None):
                 self.pacs_table.setUpdatesEnabled(False)
                 self.pacs_table.blockSignals(True)
@@ -1643,6 +1667,7 @@ class MainWindow(QMainWindow):
             self.config = dialog.config
             self.apply_settings_dynamic(self.config)
             self.populate_pacs_server_combo()
+            self.pacs_error_state = None
             
             # Перезапускаем фоновый DICOM сервер с новыми настройками
             pacs_local_port = int(self.config.get('pacs_local_port', 11112))
@@ -2077,6 +2102,7 @@ class MainWindow(QMainWindow):
             
             # Reset PACS states for the new server
             self.is_first_pacs_scan = True
+            self.pacs_error_state = None
             self.standby_new_patients = {}
             self.previous_pacs_data = {}
             self.pacs_table.setRowCount(0)
